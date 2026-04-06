@@ -1,870 +1,127 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
-HID 구역 데드락 탐지 — 룰베이스 전체 파이프라인
-데이터: {FAB}_ATLAS_HID_INOUT (4GB CSV, ~985K rows/2days, 187 HID)
-
-실행: python hid_deadlock_rulebase.py --input your_file.csv --output ./output
+Agv realtime collector · PY
+AGV 실시간 데이터 수집기
+- transfer + vehicle 테이블을 주기적으로 스냅샷
+- CSV로 누적 저장
+- 사용법: python agv_realtime_collector.py
+- 중지: Ctrl+C
 """
-
+import pymysql
+import csv
 import os
-import sys
-import json
-import argparse
-import warnings
-from collections import deque
+import time
 from datetime import datetime
 
-import numpy as np
-import pandas as pd
-
-warnings.filterwarnings('ignore')
-
-# ============================================================
-# 0. 설정
-# ============================================================
-DEFAULT_THRESHOLDS = {
-    # Rule 1: 포화도
-    'sat_critical': 0.95,
-    'sat_high': 0.85,
-    'sat_medium': 0.70,
-    'sat_low': 0.50,
-    # Rule 2: 속도비
-    'speed_critical': 0.3,
-    'speed_high': 0.5,
-    'speed_medium': 0.7,
-    # Rule 3: 순유입
-    'inflow_critical': 5,
-    'inflow_high': 3,
-    # Rule 4: 지속성 (분)
-    'persist_critical': 3,
-    'persist_high': 2,
-    # Rule 5: 인접 HID
-    'adj_critical_count': 2,
+# 설정
+DB_CONFIG = {
+    'host': '10.32.72.48',
+    'port': 3306,
+    'user': 'root',
+    'password': 'test',
+    'database': 'acs',
+    'charset': 'utf8mb4'
 }
 
-DTYPES = {
-    'FROM_HIDID': 'int16',
-    'TO_HIDID': 'int16',
-    'HID_VALUE': 'int16',
-    'VHL_COUNT_LIMIT': 'int16',
-    'VHL_PRECAUTION': 'int16',
-    'TRANS_CNT': 'int16',
-    'FREE_FLOW_SPEED': 'float32',
-    'FAB_ID': 'category',
-    'ENV': 'category',
-    'EQP_ID': 'category',
-    'MCP_NM': 'category',
-    'VHL_ID': 'str',
-}
+INTERVAL = 60  # 수집 주기 (초) - 1분
+OUTPUT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+TRANSFER_FILE = os.path.join(OUTPUT_DIR, 'agv_transfer_history.csv')
+VEHICLE_FILE = os.path.join(OUTPUT_DIR, 'agv_vehicle_history.csv')
+
+TRANSFER_COLS = [
+    'SNAPSHOT_TIME',
+    'CommandID','CarrierID','Priority',
+    'SourceID','DestID','HostSourceID','HostDestID',
+    'TransferState','VehicleID','HostVehicleID',
+    'CreateTime','InitiateTime','TransferingTime','CompleteTime',
+    'LotID','BayID','CarrierType','TransferType','SBayID','DBayID'
+]
+
+VEHICLE_COLS = [
+    'SNAPSHOT_TIME',
+    'VehicleID','HostVehicleID',
+    'CarrierDetect1','CarrierDetect2','CarrierID1','CarrierID2',
+    'VehicleState','VehicleJob','EventTime',
+    'IPAddress','VehicleType','BayID','GroupID',
+    'AssignEnable','PMMode','RoadType'
+]
+
+def init_csv(filepath, cols):
+    if not os.path.exists(filepath):
+        f = open(filepath, 'w', newline='', encoding='utf-8-sig')
+        writer = csv.writer(f)
+        writer.writerow(cols)
+        f.close()
+        print(f"  생성: {filepath}")
+
+def collect():
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    conn = pymysql.connect(**DB_CONFIG)
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+    # transfer
+    cursor.execute("SELECT * FROM transfer")
+    transfers = cursor.fetchall()
+    f = open(TRANSFER_FILE, 'a', newline='', encoding='utf-8-sig')
+    writer = csv.writer(f)
+    for r in transfers:
+        writer.writerow([
+            now,
+            r.get('CommandID',''), r.get('CarrierID',''), r.get('Priority',''),
+            r.get('SourceID',''), r.get('DestID',''), r.get('HostSourceID',''), r.get('HostDestID',''),
+            r.get('TransferState',''), r.get('VehicleID',''), r.get('HostVehicleID',''),
+            r.get('CreateTime',''), r.get('InitiateTime',''), r.get('TransferingTime',''), r.get('CompleteTime',''),
+            r.get('LotID',''), r.get('BayID',''), r.get('CarrierType',''), r.get('TransferType',''),
+            r.get('SBayID',''), r.get('DBayID','')
+        ])
+    f.close()
+
+    # vehicle
+    cursor.execute("SELECT * FROM vehicle")
+    vehicles = cursor.fetchall()
+    f = open(VEHICLE_FILE, 'a', newline='', encoding='utf-8-sig')
+    writer = csv.writer(f)
+    for r in vehicles:
+        writer.writerow([
+            now,
+            r.get('VehicleID',''), r.get('HostVehicleID',''),
+            r.get('CarrierDetect1',''), r.get('CarrierDetect2',''),
+            r.get('CarrierID1',''), r.get('CarrierID2',''),
+            r.get('VehicleState',''), r.get('VehicleJob',''), r.get('EventTime',''),
+            r.get('IPAddress',''), r.get('VehicleType',''),
+            r.get('BayID',''), r.get('GroupID',''),
+            r.get('AssignEnable',''), r.get('PMMode',''), r.get('RoadType','')
+        ])
+    f.close()
+
+    cursor.close()
+    conn.close()
+    return len(transfers), len(vehicles)
 
-
-# ============================================================
-# 1. 데이터 로드 (4GB 최적화)
-# ============================================================
-def load_data(filepath):
-    """4GB CSV 메모리 최적화 로드"""
-    print("=" * 60)
-    print("[Step 1] 데이터 로드")
-    print(f"  파일: {filepath}")
-    print(f"  크기: {os.path.getsize(filepath) / 1e9:.2f} GB")
-    print("=" * 60)
-
-    # 인코딩 자동 감지
-    for enc in ['utf-8', 'cp949', 'euc-kr']:
-        try:
-            df = pd.read_csv(
-                filepath,
-                dtype=DTYPES,
-                encoding=enc,
-                on_bad_lines='skip',
-                low_memory=False,
-            )
-            print(f"  인코딩: {enc}")
-            break
-        except (UnicodeDecodeError, UnicodeError):
-            continue
-    else:
-        raise ValueError("인코딩 감지 실패 (utf-8, cp949, euc-kr)")
-
-    # 시간 컬럼 파싱
-    time_col = None
-    for col in ['_time', 'EVENT_DT', 'EVENT_DATE']:
-        if col in df.columns:
-            time_col = col
-            break
-    if time_col is None:
-        raise ValueError("시간 컬럼 없음 (_time, EVENT_DT, EVENT_DATE)")
-
-    df['_time'] = pd.to_datetime(df[time_col], errors='coerce')
-    df = df.dropna(subset=['_time'])
-    df['_time_trunc'] = df['_time'].dt.floor('min')
-
-    # 숫자형 강제 변환
-    num_cols = ['FREE_FLOW_SPEED', 'HID_VALUE', 'VHL_COUNT_LIMIT',
-                'TRANS_CNT', 'VHL_PRECAUTION', 'FROM_HIDID', 'TO_HIDID']
-    for col in num_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-
-    df = df.dropna(subset=['FROM_HIDID', 'TO_HIDID'])
-    df['FROM_HIDID'] = df['FROM_HIDID'].astype(int)
-    df['TO_HIDID'] = df['TO_HIDID'].astype(int)
-
-    # VHL 타입 (V=OHT, R=AGV)
-    if 'VHL_ID' in df.columns:
-        df['VHL_TYPE'] = df['VHL_ID'].str[0]
-
-    mem_mb = df.memory_usage(deep=True).sum() / 1e6
-    print(f"  로드 완료: {len(df):,} rows, {df['_time_trunc'].nunique():,} windows")
-    print(f"  HID 구역: {df['TO_HIDID'].nunique()}개")
-    print(f"  메모리: {mem_mb:.0f} MB")
-    print(f"  기간: {df['_time'].min()} ~ {df['_time'].max()}")
-    return df
-
-
-# ============================================================
-# 2. EDA (탐색적 분석)
-# ============================================================
-def run_eda(df, output_dir):
-    """187개 HID 특성 분석"""
-    print("\n" + "=" * 60)
-    print("[Step 2] EDA 분석")
-    print("=" * 60)
-
-    eda = {}
-
-    # --- 2.1 HID별 트래픽 분포 ---
-    inflow_traffic = df.groupby('TO_HIDID').size().rename('inflow_total')
-    outflow_traffic = df.groupby('FROM_HIDID').size().rename('outflow_total')
-    total_minutes = df['_time_trunc'].nunique()
-
-    traffic = pd.DataFrame({
-        'inflow_total': inflow_traffic,
-        'outflow_total': outflow_traffic,
-    }).fillna(0)
-    traffic['inflow_per_min'] = traffic['inflow_total'] / total_minutes
-    traffic['outflow_per_min'] = traffic['outflow_total'] / total_minutes
-    traffic['total_per_min'] = traffic['inflow_per_min'] + traffic['outflow_per_min']
-
-    # HID 분류
-    traffic['hid_class'] = 'normal'
-    traffic.loc[traffic['total_per_min'] >= 5, 'hid_class'] = 'hotspot'
-    traffic.loc[traffic['total_per_min'] < 1, 'hid_class'] = 'low_traffic'
-
-    eda['traffic'] = traffic
-    class_counts = traffic['hid_class'].value_counts()
-    print(f"\n  [HID 분류]")
-    for cls, cnt in class_counts.items():
-        print(f"    {cls}: {cnt}개")
-
-    # --- 2.2 VHL_COUNT_LIMIT 분포 ---
-    limits = df.groupby('TO_HIDID')['VHL_COUNT_LIMIT'].agg(['first', 'nunique'])
-    limits.columns = ['limit_value', 'limit_unique']
-    eda['limits'] = limits
-    print(f"\n  [VHL_COUNT_LIMIT 분포]")
-    print(f"    값 종류: {df['VHL_COUNT_LIMIT'].nunique()}")
-    print(f"    분포: {df['VHL_COUNT_LIMIT'].value_counts().head(5).to_dict()}")
-
-    # --- 2.3 속도 분포 ---
-    speed_stats = df.groupby('FROM_HIDID')['FREE_FLOW_SPEED'].agg(
-        ['mean', 'std', 'min', 'max', 'median']
-    )
-    speed_stats.columns = [f'speed_{c}' for c in speed_stats.columns]
-    eda['speed'] = speed_stats
-    print(f"\n  [FREE_FLOW_SPEED 전체]")
-    print(f"    평균: {df['FREE_FLOW_SPEED'].mean():.1f}")
-    print(f"    중앙: {df['FREE_FLOW_SPEED'].median():.1f}")
-    print(f"    최소: {df['FREE_FLOW_SPEED'].min():.1f}")
-    print(f"    최대: {df['FREE_FLOW_SPEED'].max():.1f}")
-    print(f"    표준편차: {df['FREE_FLOW_SPEED'].std():.1f}")
-
-    # --- 2.4 HID_VALUE 분포 ---
-    hid_val_stats = df.groupby('TO_HIDID')['HID_VALUE'].agg(
-        ['mean', 'std', 'min', 'max', 'median']
-    )
-    hid_val_stats.columns = [f'hid_value_{c}' for c in hid_val_stats.columns]
-    eda['hid_value'] = hid_val_stats
-    print(f"\n  [HID_VALUE 전체]")
-    print(f"    평균: {df['HID_VALUE'].mean():.1f}")
-    print(f"    최대: {df['HID_VALUE'].max()}")
-
-    # --- 2.5 OHT vs AGV 비율 ---
-    if 'VHL_TYPE' in df.columns:
-        vhl_dist = df['VHL_TYPE'].value_counts()
-        eda['vhl_type'] = vhl_dist
-        print(f"\n  [차량 타입]")
-        for vt, cnt in vhl_dist.items():
-            print(f"    {vt}: {cnt:,} ({cnt/len(df)*100:.1f}%)")
-
-        # AGV 혼재 HID
-        mixed_hids = (
-            df.groupby('TO_HIDID')['VHL_TYPE']
-            .apply(lambda x: x.nunique() > 1)
-        )
-        mixed_count = mixed_hids.sum()
-        eda['mixed_hids'] = mixed_hids[mixed_hids].index.tolist()
-        print(f"    AGV 혼재 HID: {mixed_count}개")
-
-    # --- 2.6 시간대별 트래픽 ---
-    hourly = df.groupby(df['_time'].dt.hour).size()
-    eda['hourly'] = hourly
-    peak_hour = hourly.idxmax()
-    quiet_hour = hourly.idxmin()
-    print(f"\n  [시간대별]")
-    print(f"    피크: {peak_hour}시 ({hourly[peak_hour]:,}건)")
-    print(f"    한산: {quiet_hour}시 ({hourly[quiet_hour]:,}건)")
-
-    # --- 2.7 포화율 분포 (사전 계산) ---
-    df_sat = df.copy()
-    df_sat['saturation'] = df_sat['HID_VALUE'] / df_sat['VHL_COUNT_LIMIT']
-    sat_percentiles = df_sat['saturation'].quantile([0.5, 0.75, 0.9, 0.95, 0.99])
-    eda['sat_percentiles'] = sat_percentiles
-    print(f"\n  [포화율 분위수]")
-    for q, v in sat_percentiles.items():
-        print(f"    P{int(q*100)}: {v:.3f}")
-
-    # --- 저장 ---
-    traffic.to_csv(os.path.join(output_dir, 'eda_hid_traffic.csv'),
-                   encoding='utf-8-sig')
-    speed_stats.to_csv(os.path.join(output_dir, 'eda_hid_speed.csv'),
-                       encoding='utf-8-sig')
-    hid_val_stats.to_csv(os.path.join(output_dir, 'eda_hid_value.csv'),
-                         encoding='utf-8-sig')
-
-    print(f"\n  EDA 파일 저장 완료 → {output_dir}")
-    return eda
-
-
-# ============================================================
-# 3. 1분 윈도우 집계
-# ============================================================
-def aggregate_all(df):
-    """전체 데이터를 1분 × HID 단위로 집계"""
-    print("\n" + "=" * 60)
-    print("[Step 3] 1분 윈도우 집계")
-    print("=" * 60)
-
-    # --- 유입 집계 ---
-    inflow = (
-        df.groupby(['_time_trunc', 'TO_HIDID'])
-        .agg(
-            inflow_cnt=('VHL_ID', 'count'),
-            inflow_unique_vhl=('VHL_ID', 'nunique'),
-            max_hid_value=('HID_VALUE', 'max'),
-            vhl_count_limit=('VHL_COUNT_LIMIT', 'first'),
-            vhl_precaution=('VHL_PRECAUTION', 'first'),
-        )
-        .reset_index()
-        .rename(columns={'TO_HIDID': 'HID_ID'})
-    )
-
-    # --- 유출 집계 ---
-    outflow = (
-        df.groupby(['_time_trunc', 'FROM_HIDID'])
-        .agg(
-            outflow_cnt=('VHL_ID', 'count'),
-            avg_speed=('FREE_FLOW_SPEED', 'mean'),
-            min_speed=('FREE_FLOW_SPEED', 'min'),
-            max_speed=('FREE_FLOW_SPEED', 'max'),
-            std_speed=('FREE_FLOW_SPEED', 'std'),
-            trans_sum=('TRANS_CNT', 'sum'),
-        )
-        .reset_index()
-        .rename(columns={'FROM_HIDID': 'HID_ID'})
-    )
-
-    # --- OHT/AGV 혼재 ---
-    if 'VHL_TYPE' in df.columns:
-        vhl_mix = (
-            df.groupby(['_time_trunc', 'TO_HIDID'])['VHL_TYPE']
-            .apply(lambda x: int(x.nunique() > 1))
-            .reset_index()
-            .rename(columns={'TO_HIDID': 'HID_ID', 'VHL_TYPE': 'vhl_mix'})
-        )
-    else:
-        vhl_mix = None
-
-    # --- 머지 ---
-    agg = pd.merge(inflow, outflow, on=['_time_trunc', 'HID_ID'], how='outer')
-    if vhl_mix is not None:
-        agg = pd.merge(agg, vhl_mix, on=['_time_trunc', 'HID_ID'], how='left')
-    else:
-        agg['vhl_mix'] = 0
-
-    # 결측 채우기
-    fill_zero = ['inflow_cnt', 'outflow_cnt', 'inflow_unique_vhl',
-                 'max_hid_value', 'trans_sum', 'vhl_mix']
-    for col in fill_zero:
-        if col in agg.columns:
-            agg[col] = agg[col].fillna(0).astype(int)
-
-    agg['avg_speed'] = agg['avg_speed'].fillna(0)
-    agg['min_speed'] = agg['min_speed'].fillna(0)
-    agg['std_speed'] = agg['std_speed'].fillna(0)
-
-    # 파생 피처
-    agg['net_inflow'] = agg['inflow_cnt'] - agg['outflow_cnt']
-    agg['saturation'] = np.where(
-        agg['vhl_count_limit'] > 0,
-        agg['max_hid_value'] / agg['vhl_count_limit'],
-        0
-    )
-
-    agg = agg.sort_values(['_time_trunc', 'HID_ID']).reset_index(drop=True)
-
-    print(f"  집계 완료: {len(agg):,} rows")
-    print(f"  윈도우 수: {agg['_time_trunc'].nunique():,}")
-    print(f"  HID 수: {agg['HID_ID'].nunique()}")
-    return agg
-
-
-# ============================================================
-# 4. 기준선 (Baseline) 산출
-# ============================================================
-def compute_baselines(agg_df, output_dir):
-    """HID별 정상 상태 기준선"""
-    print("\n" + "=" * 60)
-    print("[Step 4] 기준선 산출")
-    print("=" * 60)
-
-    # 속도 기준선 (유출이 있는 row만)
-    speed_rows = agg_df[agg_df['outflow_cnt'] > 0]
-    baseline_speed = speed_rows.groupby('HID_ID')['avg_speed'].agg(
-        baseline_mean='mean',
-        baseline_median='median',
-        baseline_std='std',
-        baseline_p10=lambda x: x.quantile(0.10),
-        baseline_p90=lambda x: x.quantile(0.90),
-    )
-
-    # 포화도 기준선
-    baseline_sat = agg_df.groupby('HID_ID')['saturation'].agg(
-        sat_mean='mean',
-        sat_p75=lambda x: x.quantile(0.75),
-        sat_p90=lambda x: x.quantile(0.90),
-        sat_p95=lambda x: x.quantile(0.95),
-        sat_max='max',
-    )
-
-    # speed_ratio 산출
-    agg_df = agg_df.merge(
-        baseline_speed[['baseline_mean']],
-        left_on='HID_ID', right_index=True, how='left'
-    )
-    agg_df['baseline_mean'] = agg_df['baseline_mean'].fillna(
-        agg_df['avg_speed'].mean()  # 데이터 없는 HID는 전체 평균
-    )
-    agg_df['speed_ratio'] = np.where(
-        (agg_df['baseline_mean'] > 0) & (agg_df['avg_speed'] > 0),
-        agg_df['avg_speed'] / agg_df['baseline_mean'],
-        0  # 유출 없으면 0
-    )
-    agg_df['speed_ratio'] = agg_df['speed_ratio'].clip(0, 3.0)
-
-    # 저장
-    baseline_speed.to_csv(os.path.join(output_dir, 'hid_baseline_speed.csv'),
-                          encoding='utf-8-sig')
-    baseline_sat.to_csv(os.path.join(output_dir, 'hid_baseline_saturation.csv'),
-                        encoding='utf-8-sig')
-
-    print(f"  속도 기준선: {len(baseline_speed)} HID")
-    print(f"  포화 기준선: {len(baseline_sat)} HID")
-    print(f"  speed_ratio 분포:")
-    sr_valid = agg_df[agg_df['speed_ratio'] > 0]['speed_ratio']
-    if len(sr_valid) > 0:
-        for q in [0.05, 0.25, 0.5, 0.75, 0.95]:
-            print(f"    P{int(q*100):02d}: {sr_valid.quantile(q):.3f}")
-
-    return agg_df, baseline_speed, baseline_sat
-
-
-# ============================================================
-# 5. 인접 HID 그래프 구축
-# ============================================================
-def build_adjacency(df, output_dir, min_count=10):
-    """FROM→TO 이동 빈도 기반 인접 HID 맵"""
-    print("\n" + "=" * 60)
-    print("[Step 5] 인접 HID 그래프 구축")
-    print("=" * 60)
-
-    pair_counts = (
-        df.groupby(['FROM_HIDID', 'TO_HIDID'])
-        .size()
-        .reset_index(name='count')
-    )
-    # 자기 자신 제외
-    pair_counts = pair_counts[pair_counts['FROM_HIDID'] != pair_counts['TO_HIDID']]
-    total_pairs = len(pair_counts)
-
-    # 빈도 필터
-    frequent = pair_counts[pair_counts['count'] >= min_count]
-
-    # 양방향 인접 맵
-    adj_map = {}
-    for _, row in frequent.iterrows():
-        f = str(int(row['FROM_HIDID']))
-        t = str(int(row['TO_HIDID']))
-        adj_map.setdefault(f, set()).add(int(row['TO_HIDID']))
-        adj_map.setdefault(t, set()).add(int(row['FROM_HIDID']))
-
-    adj_map = {k: sorted(list(v)) for k, v in adj_map.items()}
-
-    # 통계
-    adj_counts = {k: len(v) for k, v in adj_map.items()}
-    all_hids = set(df['FROM_HIDID'].unique()) | set(df['TO_HIDID'].unique())
-    isolated = all_hids - set(int(k) for k in adj_map.keys())
-
-    filepath = os.path.join(output_dir, 'hid_adjacency_map.json')
-    with open(filepath, 'w') as f:
-        json.dump(adj_map, f, indent=2, ensure_ascii=False)
-
-    # 이동 빈도 상세도 저장
-    frequent.to_csv(os.path.join(output_dir, 'hid_pair_counts.csv'),
-                    index=False, encoding='utf-8-sig')
-
-    print(f"  전체 HID 쌍: {total_pairs:,}")
-    print(f"  빈번한 쌍 (≥{min_count}건): {len(frequent):,}")
-    print(f"  인접 맵 HID: {len(adj_map)}개")
-    if adj_counts:
-        print(f"  평균 인접: {np.mean(list(adj_counts.values())):.1f}")
-        print(f"  최대 인접: {max(adj_counts.values())} "
-              f"(HID {max(adj_counts, key=adj_counts.get)})")
-    print(f"  고립 HID: {len(isolated)}개")
-
-    return adj_map
-
-
-# ============================================================
-# 6. 룰베이스 판정 엔진
-# ============================================================
-class DeadlockRuleEngine:
-    """5단계 룰 기반 데드락 위험도 판정"""
-
-    LEVEL_MAP = {
-        'DEADLOCK_CONFIRMED': 1.0,
-        'DEADLOCK_IMMINENT': 0.8,
-        'DEADLOCK_WARNING': 0.5,
-        'DEADLOCK_WATCH': 0.2,
-        'NORMAL': 0.0,
-    }
-
-    def __init__(self, thresholds, adjacency_map, history_len=3):
-        self.th = thresholds
-        self.adj = adjacency_map
-        self.history_len = history_len
-        self.history = {}  # {hid_id: deque of dicts}
-
-    def _get_history(self, hid_id):
-        if hid_id not in self.history:
-            self.history[hid_id] = deque(maxlen=self.history_len)
-        return self.history[hid_id]
-
-    # --- Rule 1: 포화도 ---
-    def rule1(self, sat):
-        if sat >= self.th['sat_critical']:   return 4
-        elif sat >= self.th['sat_high']:     return 3
-        elif sat >= self.th['sat_medium']:   return 2
-        elif sat >= self.th['sat_low']:      return 1
-        return 0
-
-    # --- Rule 2: 속도 저하 ---
-    def rule2(self, speed_ratio):
-        if speed_ratio == 0:                      return 0  # 유출 없음
-        if speed_ratio < self.th['speed_critical']:  return 4
-        elif speed_ratio < self.th['speed_high']:    return 3
-        elif speed_ratio < self.th['speed_medium']:  return 2
-        return 0
-
-    # --- Rule 3: 유입/유출 불균형 ---
-    def rule3(self, net_inflow, outflow_cnt):
-        ni = net_inflow
-        oc = outflow_cnt
-        if ni >= self.th['inflow_critical'] and oc == 0:     return 4
-        elif ni >= self.th['inflow_high'] and oc <= 1:       return 3
-        elif ni >= self.th['inflow_high']:                   return 2
-        return 0
-
-    # --- Rule 4: 정체 지속성 ---
-    def rule4(self, hid_id):
-        hist = self._get_history(hid_id)
-        if len(hist) < 1:
-            return 0
-        congested = sum(
-            1 for h in hist
-            if h.get('saturation', 0) >= self.th['sat_high']
-            and h.get('speed_ratio', 1) < self.th['speed_high']
-        )
-        if congested >= self.th['persist_critical']:  return 4
-        elif congested >= self.th['persist_high']:    return 3
-        elif congested >= 1:                          return 1
-        return 0
-
-    # --- Rule 5: 연쇄 데드락 ---
-    def rule5(self, hid_id, current_lookup):
-        adj_hids = self.adj.get(str(hid_id), [])
-        if not adj_hids:
-            return 0
-        adj_critical = 0
-        adj_high = 0
-        for ah in adj_hids:
-            if ah in current_lookup:
-                a = current_lookup[ah]
-                a_sat = a.get('saturation', 0)
-                a_sr = a.get('speed_ratio', 1)
-                if a_sat >= self.th['sat_critical'] and a_sr < self.th['speed_high']:
-                    adj_critical += 1
-                elif a_sat >= self.th['sat_high']:
-                    adj_high += 1
-
-        my_sat = current_lookup.get(hid_id, {}).get('saturation', 0)
-        if adj_critical >= self.th['adj_critical_count']:        return 5
-        elif adj_critical >= 1 and my_sat >= self.th['sat_high']: return 4
-        elif adj_high >= 1:                                       return 2
-        return 0
-
-    # --- 등급 산출 ---
-    @staticmethod
-    def score_to_level(score):
-        if score >= 12:  return 'DEADLOCK_CONFIRMED'
-        if score >= 8:   return 'DEADLOCK_IMMINENT'
-        if score >= 5:   return 'DEADLOCK_WARNING'
-        if score >= 3:   return 'DEADLOCK_WATCH'
-        return 'NORMAL'
-
-    # --- 단일 윈도우 전체 HID 평가 ---
-    def evaluate_window(self, window_df):
-        """
-        window_df: 1분 집계 DataFrame (columns: HID_ID, saturation, speed_ratio, ...)
-        return: 평가 결과 DataFrame
-        """
-        # lookup dict for Rule 5
-        lookup = {}
-        for _, row in window_df.iterrows():
-            hid = int(row['HID_ID'])
-            lookup[hid] = row.to_dict()
-
-        results = []
-        for _, row in window_df.iterrows():
-            hid = int(row['HID_ID'])
-            sat = row.get('saturation', 0)
-            sr = row.get('speed_ratio', 0)
-            ni = row.get('net_inflow', 0)
-            oc = row.get('outflow_cnt', 0)
-
-            r1 = self.rule1(sat)
-            r2 = self.rule2(sr)
-            r3 = self.rule3(ni, oc)
-            r4 = self.rule4(hid)
-            r5 = self.rule5(hid, lookup)
-
-            total = r1 + r2 + r3 + r4 + r5
-            level = self.score_to_level(total)
-            label = self.LEVEL_MAP.get(level, 0.0)
-
-            # 히스토리 업데이트
-            self._get_history(hid).append({
-                'saturation': sat,
-                'speed_ratio': sr,
-                'net_inflow': ni,
-            })
-
-            results.append({
-                'HID_ID': hid,
-                'saturation': round(sat, 4),
-                'speed_ratio': round(sr, 4),
-                'avg_speed': round(row.get('avg_speed', 0), 2),
-                'min_speed': round(row.get('min_speed', 0), 2),
-                'inflow_cnt': int(row.get('inflow_cnt', 0)),
-                'outflow_cnt': int(oc),
-                'net_inflow': int(ni),
-                'unique_vhl': int(row.get('inflow_unique_vhl', 0)),
-                'vhl_mix': int(row.get('vhl_mix', 0)),
-                'rule1_score': r1,
-                'rule2_score': r2,
-                'rule3_score': r3,
-                'rule4_score': r4,
-                'rule5_score': r5,
-                'deadlock_score': total,
-                'risk_level': level,
-                'deadlock_label': label,
-            })
-
-        return pd.DataFrame(results)
-
-
-# ============================================================
-# 7. 백테스트 실행
-# ============================================================
-def run_backtest(agg_df, adj_map, thresholds, output_dir):
-    """2일 전체 데이터에 대한 룰베이스 백테스트"""
-    print("\n" + "=" * 60)
-    print("[Step 6] 백테스트 실행")
-    print("=" * 60)
-
-    engine = DeadlockRuleEngine(
-        thresholds=thresholds,
-        adjacency_map=adj_map,
-        history_len=3,
-    )
-
-    windows = sorted(agg_df['_time_trunc'].unique())
-    total = len(windows)
-    print(f"  총 윈도우: {total:,}")
-
-    all_results = []
-    for i, wt in enumerate(windows):
-        window_data = agg_df[agg_df['_time_trunc'] == wt]
-        result = engine.evaluate_window(window_data)
-        result['window_tm'] = wt
-        all_results.append(result)
-
-        if (i + 1) % 500 == 0 or (i + 1) == total:
-            print(f"  진행: {i+1}/{total} ({(i+1)/total*100:.1f}%)")
-
-    label_df = pd.concat(all_results, ignore_index=True)
-
-    # --- 저장 ---
-    parquet_path = os.path.join(output_dir, 'hid_deadlock_labels.parquet')
-    csv_path = os.path.join(output_dir, 'hid_deadlock_labels.csv')
-    label_df.to_parquet(parquet_path)
-    label_df.to_csv(csv_path, index=False, encoding='utf-8-sig')
-
-    print(f"\n  라벨 생성 완료: {len(label_df):,} rows")
-    print(f"  파일: {parquet_path}")
-
-    return label_df
-
-
-# ============================================================
-# 8. 결과 분석
-# ============================================================
-def analyze_results(label_df, output_dir):
-    """백테스트 결과 분석"""
-    print("\n" + "=" * 60)
-    print("[Step 7] 결과 분석")
-    print("=" * 60)
-
-    # --- 등급 분포 ---
-    dist = label_df['risk_level'].value_counts()
-    total = len(label_df)
-    print("\n  [등급 분포]")
-    for level in ['NORMAL', 'DEADLOCK_WATCH', 'DEADLOCK_WARNING',
-                  'DEADLOCK_IMMINENT', 'DEADLOCK_CONFIRMED']:
-        cnt = dist.get(level, 0)
-        pct = cnt / total * 100
-        print(f"    {level:<25s}: {cnt:>8,} ({pct:>6.2f}%)")
-
-    # --- WARNING 이상 분석 ---
-    warning_plus = label_df[label_df['deadlock_label'] >= 0.5]
-    print(f"\n  [WARNING 이상]")
-    print(f"    건수: {len(warning_plus):,} / {total:,} "
-          f"({len(warning_plus)/total*100:.2f}%)")
-
-    if len(warning_plus) > 0:
-        # HID별 위험 빈도
-        risk_by_hid = warning_plus.groupby('HID_ID').size().sort_values(ascending=False)
-        print(f"    발생 HID: {len(risk_by_hid)}개 / "
-              f"{label_df['HID_ID'].nunique()}개")
-        print(f"    상위 10 HID:")
-        for hid, cnt in risk_by_hid.head(10).items():
-            print(f"      HID {hid:>3d}: {cnt:>5,}건")
-
-        # 시간대별
-        warning_plus = warning_plus.copy()
-        warning_plus['hour'] = pd.to_datetime(warning_plus['window_tm']).dt.hour
-        risk_by_hour = warning_plus.groupby('hour').size()
-        peak_h = risk_by_hour.idxmax()
-        print(f"\n    피크 시간: {peak_h}시 ({risk_by_hour[peak_h]:,}건)")
-
-        # 룰별 기여도
-        rule_cols = ['rule1_score', 'rule2_score', 'rule3_score',
-                     'rule4_score', 'rule5_score']
-        rule_means = warning_plus[rule_cols].mean()
-        print(f"\n    [룰별 평균 기여도 (WARNING 이상)]")
-        for col, val in rule_means.items():
-            print(f"      {col}: {val:.2f}")
-    else:
-        print("    → WARNING 이상 없음. 임계값 하향 필요.")
-
-    # --- 임계값 적정성 판단 ---
-    warning_pct = len(warning_plus) / total * 100
-    print(f"\n  [임계값 판단]")
-    if warning_pct > 5:
-        print(f"    ⚠ WARNING 비율 {warning_pct:.2f}% > 5% → 임계값 상향 권장")
-    elif warning_pct < 0.5:
-        print(f"    ⚠ WARNING 비율 {warning_pct:.2f}% < 0.5% → 임계값 하향 권장")
-    else:
-        print(f"    ✓ WARNING 비율 {warning_pct:.2f}% → 적정 범위 (0.5~5%)")
-
-    # --- 요약 저장 ---
-    summary = {
-        'total_rows': int(total),
-        'total_windows': int(label_df['_time_trunc'].nunique()) if '_time_trunc' in label_df.columns else int(label_df['window_tm'].nunique()),
-        'total_hids': int(label_df['HID_ID'].nunique()),
-        'level_distribution': dist.to_dict(),
-        'warning_plus_count': int(len(warning_plus)),
-        'warning_plus_pct': round(warning_pct, 4),
-        'warning_plus_hid_count': int(len(risk_by_hid)) if len(warning_plus) > 0 else 0,
-    }
-    with open(os.path.join(output_dir, 'backtest_summary.json'), 'w') as f:
-        json.dump(summary, f, indent=2, ensure_ascii=False)
-
-    print(f"\n  요약 저장 → backtest_summary.json")
-    return summary
-
-
-# ============================================================
-# 9. 임계값 자동 튜닝 제안
-# ============================================================
-def suggest_thresholds(agg_df, eda_results, current_thresholds):
-    """EDA 분포 기반 임계값 제안"""
-    print("\n" + "=" * 60)
-    print("[Step 8] 임계값 튜닝 제안")
-    print("=" * 60)
-
-    suggested = current_thresholds.copy()
-
-    # 포화율 기반
-    sat_p = eda_results.get('sat_percentiles', None)
-    if sat_p is not None:
-        suggested['sat_critical'] = round(float(sat_p.get(0.95, 0.95)), 3)
-        suggested['sat_high'] = round(float(sat_p.get(0.90, 0.85)), 3)
-        suggested['sat_medium'] = round(float(sat_p.get(0.75, 0.70)), 3)
-        print(f"  포화율 CRITICAL: {current_thresholds['sat_critical']} → {suggested['sat_critical']}")
-        print(f"  포화율 HIGH:     {current_thresholds['sat_high']} → {suggested['sat_high']}")
-        print(f"  포화율 MEDIUM:   {current_thresholds['sat_medium']} → {suggested['sat_medium']}")
-
-    # 속도비 기반
-    sr_valid = agg_df[agg_df['speed_ratio'] > 0]['speed_ratio']
-    if len(sr_valid) > 0:
-        sr_p05 = round(float(sr_valid.quantile(0.05)), 3)
-        sr_p10 = round(float(sr_valid.quantile(0.10)), 3)
-        sr_p20 = round(float(sr_valid.quantile(0.20)), 3)
-        suggested['speed_critical'] = sr_p05
-        suggested['speed_high'] = sr_p10
-        suggested['speed_medium'] = sr_p20
-        print(f"  속도비 CRITICAL: {current_thresholds['speed_critical']} → {suggested['speed_critical']}")
-        print(f"  속도비 HIGH:     {current_thresholds['speed_high']} → {suggested['speed_high']}")
-        print(f"  속도비 MEDIUM:   {current_thresholds['speed_medium']} → {suggested['speed_medium']}")
-
-    # 순유입 기반
-    ni_valid = agg_df[agg_df['net_inflow'] > 0]['net_inflow']
-    if len(ni_valid) > 0:
-        ni_p95 = int(ni_valid.quantile(0.95))
-        ni_p90 = int(ni_valid.quantile(0.90))
-        suggested['inflow_critical'] = max(ni_p95, 3)
-        suggested['inflow_high'] = max(ni_p90, 2)
-        print(f"  순유입 CRITICAL: {current_thresholds['inflow_critical']} → {suggested['inflow_critical']}")
-        print(f"  순유입 HIGH:     {current_thresholds['inflow_high']} → {suggested['inflow_high']}")
-
-    print(f"\n  ※ 제안값은 참고용. 백테스트 결과 보고 최종 결정.")
-    return suggested
-
-
-# ============================================================
-# MAIN
-# ============================================================
 def main():
-    parser = argparse.ArgumentParser(
-        description='HID 데드락 룰베이스 탐지 파이프라인\n'
-                    '사용법: python hid_deadlock_rulebase.py your_file.csv'
-    )
-    parser.add_argument('csv_file',
-                        help='HID_INOUT CSV 파일 경로')
-    parser.add_argument('--adj-min-count', type=int, default=10,
-                        help='인접 HID 최소 이동 건수 (기본: 10)')
-    parser.add_argument('--skip-eda', action='store_true',
-                        help='EDA 스킵')
-    args = parser.parse_args()
+    print(f"AGV 실시간 수집기 시작")
+    print(f"  DB: {DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}")
+    print(f"  주기: {INTERVAL}초")
+    print(f"  저장: {OUTPUT_DIR}")
+    print(f"  중지: Ctrl+C\n")
 
-    # CSV 파일 옆에 output 폴더 자동 생성
-    csv_path = os.path.abspath(args.csv_file)
-    if not os.path.exists(csv_path):
-        print(f"[에러] 파일 없음: {csv_path}")
-        sys.exit(1)
+    init_csv(TRANSFER_FILE, TRANSFER_COLS)
+    init_csv(VEHICLE_FILE, VEHICLE_COLS)
 
-    csv_dir = os.path.dirname(csv_path)
-    csv_name = os.path.splitext(os.path.basename(csv_path))[0]
-    args.output = os.path.join(csv_dir, f'output_{csv_name}')
-    args.input = csv_path
-    os.makedirs(args.output, exist_ok=True)
-    print(f"  출력 폴더: {args.output}")
-    start_time = datetime.now()
-    print(f"\n{'#' * 60}")
-    print(f"# HID 데드락 룰베이스 탐지 파이프라인")
-    print(f"# 시작: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"{'#' * 60}")
-
-    # --- 1. 로드 ---
-    df = load_data(args.input)
-
-    # --- 2. EDA ---
-    eda_results = {}
-    if not args.skip_eda:
-        eda_results = run_eda(df, args.output)
-
-    # --- 3. 집계 ---
-    agg_df = aggregate_all(df)
-
-    # 원본 메모리 해제
-    del df
-    import gc; gc.collect()
-    print("  (원본 DataFrame 메모리 해제)")
-
-    # --- 4. 기준선 ---
-    agg_df, baseline_speed, baseline_sat = compute_baselines(agg_df, args.output)
-
-    # --- 5. 인접 그래프 ---
-    # agg_df에서 FROM/TO 정보가 없으므로 원본 다시 로드 (집계에서 사용)
-    # → 대신 agg_df의 HID pair를 직접 계산할 수 없음
-    # → 원본에서 미리 계산해놓기 위해 로드 단계에서 처리
-    print("\n  인접 그래프용 원본 재로드 (FROM/TO 쌍만)...")
-    pair_df = pd.read_csv(
-        args.input,
-        usecols=['FROM_HIDID', 'TO_HIDID'],
-        dtype={'FROM_HIDID': 'float32', 'TO_HIDID': 'float32'},
-        on_bad_lines='skip',
-        low_memory=False,
-    )
-    pair_df = pair_df.dropna()
-    pair_df['FROM_HIDID'] = pair_df['FROM_HIDID'].astype(int)
-    pair_df['TO_HIDID'] = pair_df['TO_HIDID'].astype(int)
-    adj_map = build_adjacency(pair_df, args.output, min_count=args.adj_min_count)
-    del pair_df; gc.collect()
-
-    # --- 6. 임계값 (EDA 기반 제안 → 기본값 사용) ---
-    thresholds = DEFAULT_THRESHOLDS.copy()
-    if eda_results:
-        suggested = suggest_thresholds(agg_df, eda_results, thresholds)
-        # 제안값 저장 (적용은 수동)
-        with open(os.path.join(args.output, 'thresholds_suggested.json'), 'w') as f:
-            json.dump(suggested, f, indent=2)
-        with open(os.path.join(args.output, 'thresholds_default.json'), 'w') as f:
-            json.dump(thresholds, f, indent=2)
-
-    # --- 7. 백테스트 ---
-    label_df = run_backtest(agg_df, adj_map, thresholds, args.output)
-
-    # --- 8. 결과 분석 ---
-    summary = analyze_results(label_df, args.output)
-
-    # --- 완료 ---
-    end_time = datetime.now()
-    elapsed = (end_time - start_time).total_seconds()
-    print(f"\n{'#' * 60}")
-    print(f"# 완료: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"# 소요: {elapsed:.0f}초 ({elapsed/60:.1f}분)")
-    print(f"# 출력: {args.output}/")
-    print(f"{'#' * 60}")
-
-    # 출력 파일 목록
-    print(f"\n  [출력 파일]")
-    for fname in sorted(os.listdir(args.output)):
-        fpath = os.path.join(args.output, fname)
-        size_mb = os.path.getsize(fpath) / 1e6
-        print(f"    {fname} ({size_mb:.1f} MB)")
-
+    count = 0
+    while True:
+        try:
+            count += 1
+            t_cnt, v_cnt = collect()
+            now = datetime.now().strftime('%H:%M:%S')
+            print(f"  [{now}] #{count} | transfer: {t_cnt}건 | vehicle: {v_cnt}건")
+            time.sleep(INTERVAL)
+        except KeyboardInterrupt:
+            print(f"\n수집 종료. 총 {count}회 수집됨")
+            break
+        except Exception as e:
+            print(f"  오류: {e} - 10초 후 재시도")
+            time.sleep(10)
 
 if __name__ == '__main__':
     main()
