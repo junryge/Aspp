@@ -3551,6 +3551,63 @@ def api_skill_update(skill_name):
         return jsonify({"error": f"저장 실패: {str(e)}"}), 500
 
 
+@app.route("/api/skills/search", methods=["GET"])
+def api_skills_search():
+    """스킬 검색 API — 이름/설명으로 스킬 검색"""
+    q = request.args.get("q", "").strip().lower()
+    if not q:
+        return jsonify([])
+    results = []
+    for domain_id, domain in DOMAIN_SKILLS.items():
+        for sid in domain["skills"]:
+            desc = SKILL_DESC_KO.get(sid, sid)
+            if q in sid.lower() or q in desc.lower():
+                results.append({
+                    "id": sid, "desc": desc,
+                    "domain": domain_id, "domain_label": domain["label"],
+                    "icon": domain.get("icon", "📦"),
+                })
+    return jsonify(results[:30])
+
+
+@app.route("/api/skill/<skill_name>", methods=["DELETE"])
+def api_skill_delete(skill_name):
+    """스킬 삭제 API"""
+    if ".." in skill_name or "/" in skill_name or "\\" in skill_name:
+        return jsonify({"error": "잘못된 스킬 이름"}), 400
+    skill_dir = os.path.join(SKILLS_DIR, skill_name)
+    if not os.path.isdir(skill_dir):
+        return jsonify({"error": f"스킬 '{skill_name}'을 찾을 수 없습니다."}), 404
+    import shutil
+    shutil.rmtree(skill_dir)
+    # SKILL_DESC_KO에서도 제거
+    SKILL_DESC_KO.pop(skill_name, None)
+    # DOMAIN_SKILLS에서도 제거
+    for domain in DOMAIN_SKILLS.values():
+        if skill_name in domain["skills"]:
+            domain["skills"].remove(skill_name)
+    return jsonify({"success": True, "message": f"스킬 '{skill_name}' 삭제 완료"})
+
+
+@app.route("/api/skills/assign-domain", methods=["POST"])
+def api_skills_assign_domain():
+    """새 스킬을 특정 도메인 그룹에 배치"""
+    data = request.json or {}
+    skill_id = data.get("skill_id", "").strip()
+    domain_id = data.get("domain_id", "").strip()
+    if not skill_id or not domain_id:
+        return jsonify({"error": "skill_id와 domain_id가 필요합니다."}), 400
+    if domain_id not in DOMAIN_SKILLS:
+        return jsonify({"error": f"도메인 '{domain_id}'이 없습니다."}), 400
+    # 기존 도메인에서 제거 (중복 방지)
+    for domain in DOMAIN_SKILLS.values():
+        if skill_id in domain["skills"]:
+            domain["skills"].remove(skill_id)
+    # 새 도메인에 추가
+    DOMAIN_SKILLS[domain_id]["skills"].append(skill_id)
+    return jsonify({"success": True, "message": f"'{skill_id}'을 '{domain_id}'에 배치"})
+
+
 @app.route("/api/skill/<skill_name>/download")
 def api_skill_download(skill_name):
     """스킬 폴더 전체를 ZIP으로 다운로드"""
