@@ -4308,6 +4308,11 @@ def search_knowledge(query, max_results=5, max_content_chars=8000):
 
     # 점수 높은 순 정렬
     results.sort(key=lambda x: x["score"], reverse=True)
+    # 최소 점수 필터: 1위의 30% 미만 또는 5점 미만 제외
+    if results:
+        top_score = results[0]["score"]
+        min_score = max(5, top_score * 0.3)
+        results = [r for r in results if r["score"] >= min_score]
     return results[:max_results]
 
 
@@ -5946,14 +5951,21 @@ def api_chat():
         skill_ids = list(skill_ids) + ["knowledge-search"]
     if "knowledge-search" in skill_ids and last_user_query.strip():
         try:
-            kb_results = search_knowledge(last_user_query, max_results=5, max_content_chars=6000)
+            kb_results = search_knowledge(last_user_query, max_results=3, max_content_chars=4000)
             if kb_results:
                 # 검색된 문서 내용을 시스템 프롬프트에 주입하여 LLM이 답변하도록
                 kb_context = "\n\n=== 도메인 지식 검색 결과 ===\n"
                 kb_context += f"검색어: {last_user_query}\n\n"
+                total_chars = 0
                 for r in kb_results:
+                    chunk = r['content'][:4000]
+                    if total_chars + len(chunk) > 12000:
+                        chunk = chunk[:max(0, 12000 - total_chars)]
+                        if not chunk:
+                            break
                     kb_context += f"--- 📄 {r['filename']} (관련도: {r['score']}) ---\n"
-                    kb_context += r['content'][:6000] + "\n\n"
+                    kb_context += chunk + "\n\n"
+                    total_chars += len(chunk)
                 kb_context += "위 문서를 기반으로 사용자 질문에 답변하세요. 문서에 없는 내용을 지어내지 마세요. 어떤 문서에서 정보를 찾았는지 출처를 명시하세요.\n"
 
                 # messages에 검색 결과를 system 메시지로 추가
@@ -7169,6 +7181,9 @@ def api_chat():
                         fallback_used = True
                         fallback_from = models_tried[0]
                         actual_model_used = try_model
+
+                    # 반복 루프 감지 및 절단 (API 응답 보호)
+                    answer, _was_rep = _detect_repetition(answer)
 
                     resp_data = {
                         "content": answer,
