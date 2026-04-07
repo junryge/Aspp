@@ -368,85 +368,128 @@ class RealOHTParser:
 
 
 # ============================================================
-# 단독 실행 - 샘플 데이터 테스트
+# 레이아웃 소스 자동 탐색
 # ============================================================
-def main():
-    print("=" * 70)
-    print("real_oht_parser.py - 실제 OHT 데이터 파싱 + 좌표 변환 테스트")
-    print("=" * 70)
-
-    # 샘플 데이터 (실제 메신저에서 받은 메시지)
-    SAMPLE_MESSAGES = [
-        "2,OHT,V00795,1,1,0000,1,12340,14,12341,4,4,4PDMV608,36073,00000000,0000,4ABL3301A_OUT04,4ANZ19-701,90,0,0",
-        "2,OHT,V00564,6,1,0000,1,2115,9,2116,4,4,4PDD0270,7449,00000000,0000,4ANZ25-205,4KCW3301_3,50,0,0",
-        "2,OHT,V00975,1,1,0000,1,6033,0,3294,4,4,6PDB1402,34128,00000000,0000,4EPR5301_3,4ANZ03-302,50,0,0",
-        "2,OHT,V00313,1,1,0000,1,1071,0,1072,4,4,6PDN4064,21980,00000000,0000,4CSC1603_3,4AFZ47-328,50,0,0",
-        "2,OHT,V00649,1,1,0000,1,1448,0,1449,4,4,4NDNA076,17160,00000000,0000,4ALFE001_AO31,4AFZ15-160,50,0,0",
-    ]
-
-    # layout 소스 찾기 (FAB별 ZIP 또는 레거시 경로)
+def find_layout_source() -> str:
+    """layout.zip 또는 layout.xml 경로를 자동으로 찾는다"""
     script_dir = pathlib.Path(__file__).parent.resolve()
-    layout_source = None
 
     # 1순위: MAP/M14A/A.layout.zip (멀티FAB 구조)
     zip_path = script_dir / "MAP" / "M14A" / "A.layout.zip"
     if zip_path.exists():
-        layout_source = str(zip_path)
-    else:
-        # 2순위: layout/layout.zip (레거시 구조)
-        legacy_zip = script_dir / "layout" / "layout.zip"
-        if legacy_zip.exists():
-            layout_source = str(legacy_zip)
+        return str(zip_path)
+
+    # 2순위: layout/layout.zip (레거시 구조)
+    legacy_zip = script_dir / "layout" / "layout.zip"
+    if legacy_zip.exists():
+        return str(legacy_zip)
+
+    # 3순위: layout/layout.xml
+    xml_path = script_dir / "layout" / "layout.xml"
+    if xml_path.exists():
+        return str(xml_path)
+
+    # 4순위: MAP 폴더 안에서 아무 ZIP 찾기
+    map_dir = script_dir / "MAP"
+    if map_dir.exists():
+        for fab_dir in sorted(map_dir.iterdir()):
+            if fab_dir.is_dir():
+                for f in fab_dir.iterdir():
+                    if f.suffix.lower() == '.zip' and 'layout' in f.name.lower():
+                        return str(f)
+
+    print("[오류] layout.xml 또는 layout.zip을 찾을 수 없습니다")
+    print("  확인할 경로:")
+    print(f"    - {script_dir / 'MAP' / 'M14A' / 'A.layout.zip'}")
+    print(f"    - {script_dir / 'layout' / 'layout.zip'}")
+    sys.exit(1)
+
+
+def print_result(result: dict):
+    """파싱 결과 1건 출력"""
+    found_mark = "O" if result['coordFound'] else "X"
+    print(f"  [{found_mark}] {result['vehicleId']} | "
+          f"State={result['stateName']:12s} | "
+          f"Addr={result['currentAddress']:>5d} -> {result['nextAddress']:>5d} | "
+          f"Dist={result['distance_mm']:>5d}mm | "
+          f"({result['x']:>8.2f}, {result['y']:>8.2f}) | "
+          f"Carrier={result['carrierId']:10s} | "
+          f"{result['sourcePort']} -> {result['destPort']}")
+
+
+# ============================================================
+# 단독 실행
+# ============================================================
+def main():
+    """
+    사용법:
+        # 커맨드라인에서 메시지 직접 입력
+        python real_oht_parser.py "2,OHT,V00795,1,1,0000,1,12340,14,12341,4,4,4PDMV608,36073,00000000,0000,4ABL3301A_OUT04,4ANZ19-701,90,0,0"
+
+        # 여러 건 (공백으로 구분)
+        python real_oht_parser.py "2,OHT,V00795,..." "2,OHT,V00564,..."
+
+        # 파일에서 읽기 (한 줄에 메시지 1건)
+        python real_oht_parser.py -f messages.txt
+
+        # 인자 없으면 내장 샘플 데이터로 테스트
+        python real_oht_parser.py
+    """
+    script_dir = pathlib.Path(__file__).parent.resolve()
+
+    print("=" * 70)
+    print("real_oht_parser.py - 실제 OHT 데이터 파싱 + 좌표 변환")
+    print("=" * 70)
+
+    # 메시지 소스 결정
+    messages = []
+
+    if len(sys.argv) > 1:
+        if sys.argv[1] == '-f' and len(sys.argv) > 2:
+            # 파일에서 읽기
+            file_path = sys.argv[2]
+            print(f"\n파일에서 메시지 읽기: {file_path}")
+            with open(file_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and line.startswith('2,'):
+                        messages.append(line)
+            print(f"  {len(messages)}건 로드")
         else:
-            # 3순위: layout/layout.xml
-            xml_path = script_dir / "layout" / "layout.xml"
-            if xml_path.exists():
-                layout_source = str(xml_path)
-            else:
-                # 4순위: MAP 폴더 안에서 아무 ZIP 찾기
-                map_dir = script_dir / "MAP"
-                if map_dir.exists():
-                    for fab_dir in sorted(map_dir.iterdir()):
-                        if fab_dir.is_dir():
-                            for f in fab_dir.iterdir():
-                                if f.suffix.lower() == '.zip' and 'layout' in f.name.lower():
-                                    layout_source = str(f)
-                                    break
-                        if layout_source:
-                            break
+            # 커맨드라인 인자로 메시지 받기
+            for arg in sys.argv[1:]:
+                arg = arg.strip()
+                if arg and arg.startswith('2,'):
+                    messages.append(arg)
+            print(f"\n커맨드라인에서 {len(messages)}건 입력받음")
+    else:
+        # 인자 없으면 내장 샘플 데이터
+        messages = [
+            "2,OHT,V00795,1,1,0000,1,12340,14,12341,4,4,4PDMV608,36073,00000000,0000,4ABL3301A_OUT04,4ANZ19-701,90,0,0",
+            "2,OHT,V00564,6,1,0000,1,2115,9,2116,4,4,4PDD0270,7449,00000000,0000,4ANZ25-205,4KCW3301_3,50,0,0",
+            "2,OHT,V00975,1,1,0000,1,6033,0,3294,4,4,6PDB1402,34128,00000000,0000,4EPR5301_3,4ANZ03-302,50,0,0",
+            "2,OHT,V00313,1,1,0000,1,1071,0,1072,4,4,6PDN4064,21980,00000000,0000,4CSC1603_3,4AFZ47-328,50,0,0",
+            "2,OHT,V00649,1,1,0000,1,1448,0,1449,4,4,4NDNA076,17160,00000000,0000,4ALFE001_AO31,4AFZ15-160,50,0,0",
+        ]
+        print("\n인자 없음 - 내장 샘플 데이터 사용")
 
-    if not layout_source:
-        print("[오류] layout.xml 또는 layout.zip을 찾을 수 없습니다")
-        print("  확인할 경로:")
-        print(f"    - {script_dir / 'MAP' / 'M14A' / 'A.layout.zip'}")
-        print(f"    - {script_dir / 'layout' / 'layout.zip'}")
-        sys.exit(1)
-
-    print(f"\n레이아웃 소스: {layout_source}")
-    print()
-
-    # 파서 초기화 (XML 로딩)
+    # 파서 초기화
+    layout_source = find_layout_source()
+    print(f"레이아웃 소스: {layout_source}\n")
     parser = RealOHTParser(layout_source)
-    print()
 
-    # 샘플 메시지 파싱
+    # 파싱
+    print()
     print("-" * 70)
-    print("샘플 메시지 파싱 결과:")
+    print(f"파싱 결과 ({len(messages)}건):")
     print("-" * 70)
 
     results = []
-    for msg in SAMPLE_MESSAGES:
+    for msg in messages:
         result = parser.process_message(msg)
         if result:
             results.append(result)
-            found_mark = "O" if result['coordFound'] else "X"
-            print(f"  [{found_mark}] {result['vehicleId']} | "
-                  f"State={result['stateName']:12s} | "
-                  f"Addr={result['currentAddress']:>5d} -> {result['nextAddress']:>5d} | "
-                  f"Dist={result['distance_mm']:>5d}mm | "
-                  f"({result['x']:>8.2f}, {result['y']:>8.2f}) | "
-                  f"Carrier={result['carrierId']:10s} | "
-                  f"{result['sourcePort']} -> {result['destPort']}")
+            print_result(result)
 
     print()
 
@@ -455,7 +498,7 @@ def main():
     csv_path = str(output_dir / f"real_oht_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
     parser.save_csv(results, csv_path)
 
-    # JSON 출력 (MAP 호환 포맷)
+    # JSON 저장
     map_json = parser.to_map_json(results)
     json_path = str(output_dir / f"real_oht_state_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
     os.makedirs(os.path.dirname(json_path), exist_ok=True)
