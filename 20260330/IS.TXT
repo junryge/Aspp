@@ -3510,12 +3510,16 @@ def api_skill_apply():
             desc_short = description[:60] if description else name
             SKILL_DESC_KO[name] = desc_short
 
+        # 신규 스킬 추적
+        _NEW_SKILL_IDS.add(name)
+
         return jsonify({
             "success": True,
             "skill_name": name,
             "path": skill_md_path,
             "warnings": warnings,
-            "message": f"스킬 '{name}'이 등록되었습니다. 스킬 목록을 새로고침하세요."
+            "is_new": True,
+            "message": f"스킬 '{name}'이 등록되었습니다. 스킬 조합에 추가하려면 /api/skill-combos/<combo_id>/add-skill을 사용하세요."
         })
     except Exception as e:
         return jsonify({"error": f"저장 실패: {str(e)}"}), 500
@@ -3606,6 +3610,105 @@ def api_skills_assign_domain():
     # 새 도메인에 추가
     DOMAIN_SKILLS[domain_id]["skills"].append(skill_id)
     return jsonify({"success": True, "message": f"'{skill_id}'을 '{domain_id}'에 배치"})
+
+
+# ============================================
+# 스킬 조합 관리 API
+# ============================================
+# 메모리 기반 커스텀 조합 저장소 (기존 SKILL_COMBOS 인라인 JS와 별도)
+CUSTOM_SKILL_COMBOS = []
+# 신규 등록 스킬 추적 (세션 내)
+_NEW_SKILL_IDS = set()
+
+
+@app.route("/api/skill-combos", methods=["GET"])
+def api_skill_combos_list():
+    """스킬 조합 목록 반환 (기존 프리셋 + 커스텀)"""
+    return jsonify({
+        "custom": CUSTOM_SKILL_COMBOS,
+        "new_skills": list(_NEW_SKILL_IDS),
+    })
+
+
+@app.route("/api/skill-combos", methods=["POST"])
+def api_skill_combos_create():
+    """새 스킬 조합 생성"""
+    data = request.json or {}
+    combo_id = data.get("id", "").strip()
+    label = data.get("label", "").strip()
+    desc = data.get("desc", "").strip()
+    skills = data.get("skills", [])
+    color = data.get("color", "#6366f1")
+
+    if not combo_id or not label:
+        return jsonify({"error": "id와 label이 필요합니다."}), 400
+
+    # 중복 체크
+    for c in CUSTOM_SKILL_COMBOS:
+        if c["id"] == combo_id:
+            return jsonify({"error": f"조합 '{combo_id}'이 이미 존재합니다."}), 400
+
+    combo = {"id": combo_id, "label": label, "desc": desc, "skills": skills, "color": color}
+    CUSTOM_SKILL_COMBOS.append(combo)
+    return jsonify({"success": True, "combo": combo})
+
+
+@app.route("/api/skill-combos/<combo_id>", methods=["PUT"])
+def api_skill_combos_update(combo_id):
+    """스킬 조합 수정 (스킬 추가/제거, 이름 변경 등)"""
+    data = request.json or {}
+    for c in CUSTOM_SKILL_COMBOS:
+        if c["id"] == combo_id:
+            if "label" in data:
+                c["label"] = data["label"]
+            if "desc" in data:
+                c["desc"] = data["desc"]
+            if "skills" in data:
+                c["skills"] = data["skills"]
+            if "color" in data:
+                c["color"] = data["color"]
+            return jsonify({"success": True, "combo": c})
+    return jsonify({"error": f"조합 '{combo_id}'을 찾을 수 없습니다."}), 404
+
+
+@app.route("/api/skill-combos/<combo_id>", methods=["DELETE"])
+def api_skill_combos_delete(combo_id):
+    """스킬 조합 삭제"""
+    for i, c in enumerate(CUSTOM_SKILL_COMBOS):
+        if c["id"] == combo_id:
+            CUSTOM_SKILL_COMBOS.pop(i)
+            return jsonify({"success": True})
+    return jsonify({"error": f"조합 '{combo_id}'을 찾을 수 없습니다."}), 404
+
+
+@app.route("/api/skill-combos/<combo_id>/add-skill", methods=["POST"])
+def api_skill_combos_add_skill(combo_id):
+    """기존 조합에 스킬 추가"""
+    data = request.json or {}
+    skill_id = data.get("skill_id", "").strip()
+    if not skill_id:
+        return jsonify({"error": "skill_id가 필요합니다."}), 400
+    for c in CUSTOM_SKILL_COMBOS:
+        if c["id"] == combo_id:
+            if skill_id not in c["skills"]:
+                c["skills"].append(skill_id)
+            return jsonify({"success": True, "combo": c})
+    return jsonify({"error": f"조합 '{combo_id}'을 찾을 수 없습니다."}), 404
+
+
+@app.route("/api/skill-combos/<combo_id>/remove-skill", methods=["POST"])
+def api_skill_combos_remove_skill(combo_id):
+    """조합에서 스킬 제거"""
+    data = request.json or {}
+    skill_id = data.get("skill_id", "").strip()
+    if not skill_id:
+        return jsonify({"error": "skill_id가 필요합니다."}), 400
+    for c in CUSTOM_SKILL_COMBOS:
+        if c["id"] == combo_id:
+            if skill_id in c["skills"]:
+                c["skills"].remove(skill_id)
+            return jsonify({"success": True, "combo": c})
+    return jsonify({"error": f"조합 '{combo_id}'을 찾을 수 없습니다."}), 404
 
 
 @app.route("/api/skill/<skill_name>/download")
