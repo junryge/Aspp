@@ -1,44 +1,100 @@
-2,OHT,V00795,1,1,0000,1,12340,0,12341,4,4,4PDMV608,36073,00000000,0000,4ABL3301A_OUT04,4ANZ19-701,90,0,0
-2,OHT,V00564,1,1,0000,1,2115,0,2116,4,4,4PDD0270,7449,00000000,0000,4ANZ25-205,4KCW3301_3,50,0,0
-2,OHT,V00975,1,1,0000,1,6033,0,3294,4,4,6PDB1402,34128,00000000,0000,4EPR5301_3,4ANZ03-302,50,0,0
-2,OHT,V00313,1,1,0000,1,1071,0,1072,4,4,6PDN4064,21980,00000000,0000,4CSC1603_3,4AFZ47-328,50,0,0
-2,OHT,V00649,1,1,0000,1,1448,0,1449,4,4,4NDNA076,17160,00000000,0000,4ALFE001_AO31,4AFZ15-160,50,0,0
+#!/usr/bin/env python3
+"""5대 OHT 차량의 5분(600틱) 이동 데이터를 TXT로 생성"""
+
+import json
+import math
+import random
+import urllib.request
+import sys
+
+SERVER_URL = "http://localhost:10003"
+INTERVAL = 0.5
+DURATION = 300  # 5분
+TOTAL_TICKS = int(DURATION / INTERVAL)  # 600
+
+VEHICLES = [
+    {"id": "V00795", "cur": 12340, "next": 12341, "dist": 14, "state": 1, "isFull": 1,
+     "equipId": "4PDMV608", "src": "4ABL3301A_OUT04", "dst": "4ANZ19-701", "vel": 90},
+    {"id": "V00564", "cur": 2115,  "next": 2116,  "dist": 9,  "state": 1, "isFull": 1,
+     "equipId": "4PDD0270", "src": "4ANZ25-205",      "dst": "4KCW3301_3", "vel": 50},
+    {"id": "V00975", "cur": 6033,  "next": 3294,  "dist": 0,  "state": 1, "isFull": 1,
+     "equipId": "6PDB1402", "src": "4EPR5301_3",      "dst": "4ANZ03-302", "vel": 50},
+    {"id": "V00313", "cur": 1071,  "next": 1072,  "dist": 0,  "state": 1, "isFull": 1,
+     "equipId": "6PDN4064", "src": "4CSC1603_3",      "dst": "4AFZ47-328", "vel": 50},
+    {"id": "V00649", "cur": 1448,  "next": 1449,  "dist": 0,  "state": 1, "isFull": 1,
+     "equipId": "4NDNA076", "src": "4ALFE001_AO31",   "dst": "4AFZ15-160", "vel": 50},
+]
 
 
+def make_msg(v):
+    return (
+        f"2,OHT,{v['id']},{v['state']},{v['isFull']},0000,1,"
+        f"{v['cur']},{v['dist']},{v['next']},"
+        f"4,4,{v['equipId']},{v['dst']},00000000,0000,"
+        f"{v['src']},{v['dst']},{v['vel']},0,0"
+    )
 
 
-2,OHT,V00795,1,1,0000,1,12340,0,12341,4,4,4PDMV608,36073,00000000,0000,4ABL3301A_OUT04,4ANZ19-701,90,0,0
-2,OHT,V00795,1,1,0000,1,12342,0,12343,4,4,4PDMV608,36074,00000000,0000,4ABL3301A_OUT04,4ANZ19-701,85,0,0
-2,OHT,V00795,1,1,0000,1,12344,0,12345,4,4,4PDMV608,36075,00000000,0000,4ABL3301A_OUT04,4ANZ19-701,72,0,0
-2,OHT,V00795,1,1,0000,1,12346,0,12347,4,4,4PDMV608,36076,00000000,0000,4ABL3301A_OUT04,4ANZ19-701,40,0,0
-2,OHT,V00795,1,1,0000,1,12348,0,12349,4,4,4PDMV608,36077,00000000,0000,4ABL3301A_OUT04,4ANZ19-701,0,0,0
+def fetch_layout(url):
+    print(f"레이아웃 로딩: {url}/api/layout")
+    with urllib.request.urlopen(f"{url}/api/layout", timeout=10) as resp:
+        data = json.loads(resp.read())
+
+    node_xy = {}
+    for n in data.get("nodes", []):
+        node_xy[n["no"]] = (n["x"], n["y"])
+
+    adj = {}
+    edge_dist = {}
+    for e in data.get("edges", []):
+        f, t = e["from"], e["to"]
+        adj.setdefault(f, []).append(t)
+        if f in node_xy and t in node_xy:
+            dx = node_xy[t][0] - node_xy[f][0]
+            dy = node_xy[t][1] - node_xy[f][1]
+            edge_dist[(f, t)] = int(math.sqrt(dx*dx + dy*dy) * 10)
+
+    print(f"  노드: {len(node_xy)}개  엣지: {len(edge_dist)}개")
+    return adj, edge_dist
 
 
+def main():
+    url = sys.argv[1] if len(sys.argv) > 1 else SERVER_URL
+    adj, edge_dist = fetch_layout(url)
 
-2,OHT,V00564,1,1,0000,1,2115,0,2116,4,4,4PDD0270,7449,00000000,0000,4ANZ25-205,4KCW3301_3,50,0,0
-2,OHT,V00564,1,1,0000,1,2117,0,2118,4,4,4PDD0270,7450,00000000,0000,4ANZ25-205,4KCW3301_3,42,0,0
-2,OHT,V00564,1,1,0000,1,2119,0,2120,4,4,4PDD0270,7451,00000000,0000,4ANZ25-205,4KCW3301_3,28,0,0
-2,OHT,V00564,1,1,0000,1,2121,0,2122,4,4,4PDD0270,7452,00000000,0000,4ANZ25-205,4KCW3301_3,12,0,0
-2,OHT,V00564,1,1,0000,1,2123,0,2124,4,4,4PDD0270,7453,00000000,0000,4ANZ25-205,4KCW3301_3,0,0,0
+    vehicles = []
+    for v in VEHICLES:
+        vv = dict(v)
+        vv["edge_max"] = edge_dist.get((vv["cur"], vv["next"]), 100)
+        vehicles.append(vv)
+
+    output = "oht_5v_data.txt"
+    lines = []
+
+    for tick in range(TOTAL_TICKS):
+        batch = []
+        for v in vehicles:
+            v["dist"] += 5
+            if v["dist"] >= v["edge_max"]:
+                v["dist"] = 0
+                v["cur"] = v["next"]
+                neighbors = adj.get(v["cur"], [])
+                if neighbors:
+                    v["next"] = random.choice(neighbors)
+                    v["edge_max"] = edge_dist.get((v["cur"], v["next"]), 100)
+            batch.append(make_msg(v))
+        lines.append("\n".join(batch))
+
+        if tick % 100 == 0:
+            print(f"  tick {tick}/{TOTAL_TICKS}")
+
+    with open(output, "w", encoding="utf-8") as f:
+        f.write("\n\n".join(lines) + "\n")
+
+    print(f"\n생성 완료: {output}")
+    print(f"  {len(vehicles)}대 × {TOTAL_TICKS}틱 = {len(vehicles)*TOTAL_TICKS}건")
+    print(f"  재생 시간: {DURATION}초 ({DURATION//60}분)")
 
 
-2,OHT,V00975,1,1,0000,1,6033,0,3294,4,4,6PDB1402,34128,00000000,0000,4EPR5301_3,4ANZ03-302,50,0,0
-2,OHT,V00975,1,1,0000,1,6035,0,3296,4,4,6PDB1402,34129,00000000,0000,4EPR5301_3,4ANZ03-302,40,0,0
-2,OHT,V00975,1,1,0000,1,6037,0,3298,4,4,6PDB1402,34130,00000000,0000,4EPR5301_3,4ANZ03-302,26,0,0
-2,OHT,V00975,1,1,0000,1,6039,0,3300,4,4,6PDB1402,34131,00000000,0000,4EPR5301_3,4ANZ03-302,10,0,0
-2,OHT,V00975,1,1,0000,1,6041,0,3302,4,4,6PDB1402,34132,00000000,0000,4EPR5301_3,4ANZ03-302,0,0,0
-
-
-
-2,OHT,V00313,1,1,0000,1,1071,0,1072,4,4,6PDN4064,21980,00000000,0000,4CSC1603_3,4AFZ47-328,50,0,0
-2,OHT,V00313,1,1,0000,1,1073,0,1074,4,4,6PDN4064,21981,00000000,0000,4CSC1603_3,4AFZ47-328,38,0,0
-2,OHT,V00313,1,1,0000,1,1075,0,1076,4,4,6PDN4064,21982,00000000,0000,4CSC1603_3,4AFZ47-328,24,0,0
-2,OHT,V00313,1,1,0000,1,1077,0,1078,4,4,6PDN4064,21983,00000000,0000,4CSC1603_3,4AFZ47-328,8,0,0
-2,OHT,V00313,1,1,0000,1,1079,0,1080,4,4,6PDN4064,21984,00000000,0000,4CSC1603_3,4AFZ47-328,0,0,0
-
-
-2,OHT,V00649,1,1,0000,1,1448,0,1449,4,4,4NDNA076,17160,00000000,0000,4ALFE001_AO31,4AFZ15-160,50,0,0
-2,OHT,V00649,1,1,0000,1,1450,0,1451,4,4,4NDNA076,17161,00000000,0000,4ALFE001_AO31,4AFZ15-160,39,0,0
-2,OHT,V00649,1,1,0000,1,1452,0,1453,4,4,4NDNA076,17162,00000000,0000,4ALFE001_AO31,4AFZ15-160,25,0,0
-2,OHT,V00649,1,1,0000,1,1454,0,1455,4,4,4NDNA076,17163,00000000,0000,4ALFE001_AO31,4AFZ15-160,9,0,0
-2,OHT,V00649,1,1,0000,1,1456,0,1457,4,4,4NDNA076,17164,00000000,0000,4ALFE001_AO31,4AFZ15-160,0,0,0
+if __name__ == "__main__":
+    main()
