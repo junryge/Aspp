@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""5대 OHT 차량의 5분(600틱) 이동 데이터를 TXT로 생성"""
+"""5대 OHT 차량의 5분(600틱) 이동 데이터를 TXT로 생성 generate_5min_data.py"""
 
 import json
 import math
