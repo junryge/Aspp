@@ -1,1062 +1,137 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>smartATLAS Architecture 설계 정의서</title>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<style>
-  :root {
-    --bg: #0c0e14;
-    --surface: #141722;
-    --surface2: #1a1e2e;
-    --border: #252a3a;
-    --text: #d4d8e8;
-    --text-dim: #7a8099;
-    --accent: #4e8cff;
-    --accent2: #38d9a9;
-    --accent3: #ffa94d;
-    --accent4: #da77f2;
-    --red: #ff6b6b;
-    --tag-bg: rgba(78,140,255,0.12);
-    --tag-border: rgba(78,140,255,0.25);
-  }
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body {
-    font-family: 'Noto Sans KR', sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    line-height: 1.75;
-    font-size: 14.5px;
-    -webkit-font-smoothing: antialiased;
-  }
-  /* --- NAV --- */
-  .side-nav {
-    position: fixed; left: 0; top: 0; bottom: 0;
-    width: 280px; background: var(--surface);
-    border-right: 1px solid var(--border);
-    overflow-y: auto; z-index: 100;
-    padding: 24px 0;
-  }
-  .side-nav::-webkit-scrollbar { width: 4px; }
-  .side-nav::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-  .nav-title {
-    font-size: 13px; font-weight: 700; color: var(--accent);
-    padding: 0 20px 16px; letter-spacing: 1.5px; text-transform: uppercase;
-    border-bottom: 1px solid var(--border); margin-bottom: 12px;
-  }
-  .nav-item {
-    display: block; padding: 7px 20px; font-size: 12.5px;
-    color: var(--text-dim); text-decoration: none;
-    transition: all .15s;
-    border-left: 3px solid transparent;
-  }
-  .nav-item:hover { color: var(--text); background: var(--surface2); border-left-color: var(--accent); }
-  .nav-item.sub { padding-left: 36px; font-size: 11.5px; }
-
-  /* --- MAIN --- */
-  .main { margin-left: 280px; padding: 48px 60px 120px; max-width: 1000px; }
-
-  /* --- HEADER --- */
-  .doc-header {
-    margin-bottom: 56px; padding-bottom: 40px;
-    border-bottom: 1px solid var(--border);
-  }
-  .doc-header h1 {
-    font-size: 32px; font-weight: 900; color: #fff;
-    letter-spacing: -0.5px; margin-bottom: 8px;
-  }
-  .doc-header .sub {
-    font-size: 14px; color: var(--text-dim);
-  }
-  .doc-header .tags { margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap; }
-  .tag {
-    display: inline-block; padding: 4px 12px;
-    background: var(--tag-bg); border: 1px solid var(--tag-border);
-    border-radius: 6px; font-size: 11.5px; color: var(--accent);
-    font-weight: 500;
-  }
-  .tag.green { background: rgba(56,217,169,.1); border-color: rgba(56,217,169,.25); color: var(--accent2); }
-  .tag.orange { background: rgba(255,169,77,.1); border-color: rgba(255,169,77,.25); color: var(--accent3); }
-
-  /* --- SECTIONS --- */
-  .section {
-    margin-bottom: 56px;
-  }
-  .section-num {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px; color: var(--accent); font-weight: 600;
-    letter-spacing: 2px; margin-bottom: 6px;
-  }
-  h2 {
-    font-size: 22px; font-weight: 700; color: #fff;
-    margin-bottom: 20px; padding-bottom: 12px;
-    border-bottom: 1px solid var(--border);
-  }
-  h3 {
-    font-size: 16px; font-weight: 700; color: var(--accent2);
-    margin: 28px 0 12px; padding-left: 12px;
-    border-left: 3px solid var(--accent2);
-  }
-  h4 {
-    font-size: 14px; font-weight: 600; color: var(--accent3);
-    margin: 20px 0 8px;
-  }
-
-  p { margin-bottom: 10px; }
-
-  /* --- CARDS --- */
-  .card {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 10px; padding: 20px 24px;
-    margin-bottom: 16px;
-  }
-  .card-title {
-    font-size: 14px; font-weight: 700; color: #fff;
-    margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
-  }
-  .card-title .icon {
-    width: 22px; height: 22px; border-radius: 6px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 11px; font-weight: 700; color: #fff; flex-shrink: 0;
-  }
-  .card-title .icon.blue { background: var(--accent); }
-  .card-title .icon.green { background: var(--accent2); color: var(--bg); }
-  .card-title .icon.orange { background: var(--accent3); color: var(--bg); }
-  .card-title .icon.purple { background: var(--accent4); }
-  .card-title .icon.red { background: var(--red); }
-
-  /* --- DEFINITION LIST --- */
-  .def-grid {
-    display: grid; grid-template-columns: 200px 1fr; gap: 0;
-    border: 1px solid var(--border); border-radius: 8px;
-    overflow: hidden; margin-bottom: 16px;
-  }
-  .def-grid .key, .def-grid .val {
-    padding: 8px 14px; font-size: 13px;
-    border-bottom: 1px solid var(--border);
-  }
-  .def-grid .key {
-    background: var(--surface2); color: var(--accent);
-    font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500;
-  }
-  .def-grid .val { background: var(--surface); }
-  .def-grid .key:last-of-type, .def-grid .val:last-of-type { border-bottom: none; }
-
-  /* --- CODE --- */
-  code, .mono {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12.5px; color: var(--accent3);
-    background: rgba(255,169,77,.08); padding: 1px 6px; border-radius: 4px;
-  }
-
-  /* --- MSG EVENT --- */
-  .msg-event {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 8px; margin-bottom: 12px; overflow: hidden;
-  }
-  .msg-event-header {
-    background: var(--surface2); padding: 10px 16px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px; color: var(--accent); font-weight: 600;
-    border-bottom: 1px solid var(--border);
-    display: flex; align-items: center; gap: 8px;
-  }
-  .msg-event-header .dot {
-    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
-  }
-  .msg-event-header .dot.create { background: var(--accent2); }
-  .msg-event-header .dot.update { background: var(--accent3); }
-  .msg-event-header .dot.complete { background: var(--accent); }
-  .msg-event-header .dot.error { background: var(--red); }
-  .msg-event-body {
-    padding: 12px 16px; font-size: 13px; line-height: 1.7;
-  }
-
-  /* --- BATCH TABLE --- */
-  .batch-item {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 8px; margin-bottom: 12px; padding: 16px 20px;
-  }
-  .batch-name {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 13px; font-weight: 600; color: var(--accent4);
-    margin-bottom: 4px;
-  }
-  .batch-cron {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px; color: var(--text-dim); margin-bottom: 8px;
-  }
-  .batch-desc { font-size: 13px; }
-
-  ul { margin: 8px 0 8px 20px; }
-  li { margin-bottom: 4px; font-size: 13px; }
-
-  .data-field {
-    display: inline-block; padding: 2px 8px; margin: 2px;
-    background: var(--surface2); border: 1px solid var(--border);
-    border-radius: 4px; font-family: 'JetBrains Mono', monospace;
-    font-size: 11px; color: var(--text-dim);
-  }
-
-  /* --- FLOW --- */
-  .flow-step {
-    display: flex; gap: 12px; margin-bottom: 6px;
-  }
-  .flow-num {
-    width: 24px; height: 24px; border-radius: 50%;
-    background: var(--accent); color: #fff;
-    font-size: 11px; font-weight: 700;
-    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-    margin-top: 2px;
-  }
-
-  .divider { border-top: 1px solid var(--border); margin: 40px 0; }
-
-  /* responsive */
-  @media (max-width: 900px) {
-    .side-nav { display: none; }
-    .main { margin-left: 0; padding: 24px 20px 80px; }
-  }
-</style>
-</head>
-<body>
-
-<!-- SIDE NAV -->
-<nav class="side-nav">
-  <div class="nav-title">ATLAS Architecture</div>
-  <a class="nav-item" href="#s1">1. 아키텍처 동인 및 우선순위</a>
-  <a class="nav-item" href="#s2">2. 시스템 구성도</a>
-  <a class="nav-item" href="#s3">3. 객체 관계도</a>
-  <a class="nav-item sub" href="#s3-eqp">EQP</a>
-  <a class="nav-item sub" href="#s3-node">Node</a>
-  <a class="nav-item sub" href="#s3-edge">Edge</a>
-  <a class="nav-item sub" href="#s3-job">Job &amp; Command</a>
-  <a class="nav-item sub" href="#s3-job2">Job 상세</a>
-  <a class="nav-item sub" href="#s3-route">Route</a>
-  <a class="nav-item" href="#s4">4. 통합 Map Diagram</a>
-  <a class="nav-item" href="#s5">5. 수집 서버 구조</a>
-  <a class="nav-item sub" href="#s5-listener">Message Listener</a>
-  <a class="nav-item sub" href="#s5-props">Properties 설명</a>
-  <a class="nav-item sub" href="#s5-batch">Batch Job</a>
-  <a class="nav-item sub" href="#s5-init">초기화 프로세스</a>
-  <a class="nav-item" href="#s6">6. TS Msg 처리</a>
-  <a class="nav-item" href="#s7">7. EI Msg 처리 (OHT)</a>
-  <a class="nav-item" href="#s8">7. EI/CNV Msg 처리 (Conveyor)</a>
-  <a class="nav-item" href="#s9">7. EI STK Msg 처리 (Stocker)</a>
-</nav>
-
-<!-- MAIN CONTENT -->
-<div class="main">
-
-<!-- HEADER -->
-<div class="doc-header">
-  <h1>smartATLAS Architecture 설계</h1>
-  <div class="sub">M15 Ph2 생산정보시스템 구축 — MCSLOG Architecture 정의서 &nbsp;|&nbsp; 2022.07 &nbsp;|&nbsp; AMHS운영팀</div>
-  <div class="tags">
-    <span class="tag">smartATLAS</span>
-    <span class="tag green">MCSLOG</span>
-    <span class="tag orange">M15 Ph2</span>
-  </div>
-</div>
-
-<!-- ============ 1. 아키텍처 동인 ============ -->
-<div class="section" id="s1">
-  <div class="section-num">SECTION 01</div>
-  <h2>아키텍처 동인(Driver) 및 우선순위</h2>
-  <p style="color:var(--text-dim); font-style:italic;">※ 업데이트 필요</p>
-</div>
-
-<!-- ============ 2. 시스템 구성도 ============ -->
-<div class="section" id="s2">
-  <div class="section-num">SECTION 02</div>
-  <h2>smartATLAS 시스템 구성도</h2>
-
-  <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin-bottom:24px;">
-    <div class="card">
-      <div class="card-title"><span class="icon blue">M</span> MCS (M15A / M15B)</div>
-      <p style="font-size:13px;">APP1/APP2 이중화, DB1/DB2 구성</p>
-    </div>
-    <div class="card">
-      <div class="card-title"><span class="icon green">O</span> OHT (M15A / M15B)</div>
-      <p style="font-size:13px;">CLW MCP1/MCP2 이중화</p>
-    </div>
-    <div class="card">
-      <div class="card-title"><span class="icon orange">S</span> smartSTAR</div>
-      <p style="font-size:13px;">APP1/APP2, DB1/DB2 이중화</p>
-    </div>
-  </div>
-
-  <h3>smartATLAS 수집 Data</h3>
-
-  <div class="def-grid">
-    <div class="key">MCS → ATLAS</div>
-    <div class="val">LOG (FTP/TIB), 반송 이벤트 Msg (TIB), 장비/재고상태 (DB)</div>
-    <div class="key">OHT → ATLAS</div>
-    <div class="val">OHT 반송 상태 (UDP), Layout Data (FTP)</div>
-    <div class="key">smartSTAR → ATLAS</div>
-    <div class="val">반송 이력 정보, smartFX DB</div>
-  </div>
-</div>
-
-<!-- ============ 3. 객체 관계도 ============ -->
-<div class="section" id="s3">
-  <div class="section-num">SECTION 03</div>
-  <h2>객체 관계도</h2>
-
-  <!-- EQP -->
-  <h3 id="s3-eqp">EQP (장비)</h3>
-
-  <div class="card">
-    <div class="card-title"><span class="icon blue">E</span> EQP (생산장비)</div>
-    <p style="font-size:13px;">양방향 Load/Unload 포트만 가진 장비로 취급</p>
-  </div>
-  <div class="card">
-    <div class="card-title"><span class="icon green">F</span> FIO</div>
-    <p style="font-size:13px;">AMHS에 Carrier를 입/출고하는 용도. 자체 저장공간 없음 → OHT를 통해 다른 AMHS로 반송하거나 출고</p>
-  </div>
-  <div class="card">
-    <div class="card-title"><span class="icon orange">O</span> OHT</div>
-    <p style="font-size:13px;">VHL을 제어하는 장비 (OCS, CLWMCP 등). VHL을 이용하여 장비간 반송 수행</p>
-  </div>
-  <div class="card">
-    <div class="card-title"><span class="icon purple">S</span> STK (Stocker)</div>
-    <p style="font-size:13px;">OHT 또는 Manual 반송으로 Carrier(FOUP/POD) 입/출고. Shelf에 저장 가능. RM(RackMaster/Crane)으로 내부 반송 수행. N2STK → N2Purge 공정 가능. LIFTER/ZIPTOWER/INTERLAYER → 층간 반송 가능</p>
-  </div>
-  <div class="card">
-    <div class="card-title"><span class="icon red">C</span> CONVEYOR</div>
-    <p style="font-size:13px;">다수의 입고/출고 포트 보유. 동시에 많은 수의 Carrier 이동 → 동간 반송에 주로 사용</p>
-  </div>
-
-  <!-- Node -->
-  <h3 id="s3-node">Node</h3>
-  <p>슬라이드 5 참조 — FIO SubPort 포함 Node 구조 다이어그램</p>
-
-  <!-- Edge -->
-  <h3 id="s3-edge">Edge</h3>
-  <p>슬라이드 6 참조 — Edge 관계도 다이어그램</p>
-
-  <!-- Job & Command -->
-  <h3 id="s3-job">Job &amp; Command</h3>
-
-  <div class="card">
-    <div class="card-title">Job → Command 구조</div>
-    <div style="font-size:13px;">
-      <p><strong>Job</strong>은 OHT/STK/CNV 각각에 Command를 생성하여 세부 반송을 수행합니다.</p>
-      <ul>
-        <li><strong>OHT</strong> → VHL → Cmd1, Cmd2, …</li>
-        <li><strong>STK</strong> → RM → task</li>
-        <li><strong>CNV</strong> → VHL → CnvTask</li>
-      </ul>
-      <p style="margin-top:8px;">STB, EQP, FIO는 반송을 수행하는 Agent가 없음.</p>
-      <p style="margin-top:8px;"><strong>JobId 변경 케이스:</strong> FAB간/동간 반송 중 MCS가 바뀌는 경우, 목적지가 바뀌는 경우, 중복 명령 수신 등. smartATLAS는 JobId가 바뀌면 기존 Job의 ID를 변경하고 History를 기록 → 출발지~목적지간 완결된 이력 생성.</p>
-    </div>
-  </div>
-
-  <!-- Job 상세 -->
-  <h3 id="s3-job2">Job 상세</h3>
-  <p>슬라이드 8 참조 — Job 상세 관계도 다이어그램</p>
-
-  <!-- Route -->
-  <h3 id="s3-route">Route</h3>
-  <p>슬라이드 9 참조 — Route 관계도 다이어그램</p>
-</div>
-
-<!-- ============ 4. 통합 Map Diagram ============ -->
-<div class="section" id="s4">
-  <div class="section-num">SECTION 04</div>
-  <h2>통합 Map Diagram</h2>
-
-  <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px;">
-    <div class="card">
-      <div class="card-title">OHT RAIL</div>
-      <p style="font-size:13px;">RAIL_JUNCTION, RAIL_BRANCH, STATION</p>
-    </div>
-    <div class="card">
-      <div class="card-title">STK / LIFTER / AIO</div>
-      <p style="font-size:13px;">STK_AO, STK_AI, STK_SHELF, STK_RM, STK_MO, STK_MI</p>
-    </div>
-    <div class="card">
-      <div class="card-title">CONVEYOR</div>
-      <p style="font-size:13px;">CNV_ZONE, STATION</p>
-    </div>
-    <div class="card">
-      <div class="card-title">STB / EQP</div>
-      <p style="font-size:13px;">BRANCH &amp; JUNCTION 연결</p>
-    </div>
-  </div>
-
-  <h4>Edge 분류</h4>
-  <ul>
-    <li><strong>EDGE:</strong> RAIL_EDGE, TRANSFER_EDGE, RM_EDGE, CNV_ZONE_EDGE</li>
-    <li><strong>LONG EDGE:</strong> BRANCH~JUNCTION 사이 EDGE의 집합</li>
-    <li><strong>BRANCH_JOIN_EDGE:</strong> RailBranch~Junction 사이의 RailEdge 집합</li>
-  </ul>
-  <p style="margin-top:8px; font-size:13px;">물리적 연결 (X 표기) 과 논리적 연결이 구분됨</p>
-</div>
-
-<!-- ============ 5. 수집 서버 구조 ============ -->
-<div class="section" id="s5">
-  <div class="section-num">SECTION 05</div>
-  <h2>수집 서버 구조</h2>
-
-  <!-- Listener -->
-  <h3 id="s5-listener">Message Listener 구조</h3>
-
-  <div class="card">
-    <div class="card-title">CMessage Listener → MessageDispatcher</div>
-    <div style="font-size:13px;">
-      <p><strong>입력 소스:</strong></p>
-      <ul>
-        <li><code>McsMhsMsgCallBack</code> / <code>MhsMcsMsgCallBack</code> — TIB/RV 메시지</li>
-        <li><code>TsEiMsgCallBack</code> / <code>EiTsMsgCallBack</code> — TIB/RV 메시지</li>
-        <li><code>UdpMessageCallback</code> — OHT MCP UDP 메시지</li>
-        <li><code>CnvSocketIOListener</code> — Conveyor Socket.IO</li>
-        <li><code>McsUiMsgCallBack</code> — MCS UI 메시지</li>
-      </ul>
-      <p style="margin-top:12px;"><strong>Worker 스레드:</strong></p>
-      <ul>
-        <li><strong>TsMsgWorker</strong> — Job 생성/완료, Command 생성/완료, Carrier 위치, RmEdge Cost Update</li>
-        <li><strong>EiMsgWorker</strong> — 포트/장비 상태 Update, Job wakeup 처리</li>
-        <li><strong>OhtMsgWorker</strong> — VHL 상태 추적, RailEdge/TransferEdge 속도 Update, OHT 기준 Carrier 위치</li>
-        <li><strong>CnvMsgWorker</strong> — CnvTask 추적, Cnv 상태 Update</li>
-        <li><strong>UiMsgWorker</strong> — 포트/장비 상태 Update, Job wakeup 처리</li>
-      </ul>
-    </div>
-  </div>
-
-  <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px;">
-    <div class="card">
-      <div class="card-title">출력 → Logpresso</div>
-      <p style="font-size:13px;">LogpressoInsertApi / UDP → Job, Command, Route, Log, VHL 등</p>
-    </div>
-    <div class="card">
-      <div class="card-title">출력 → UI</div>
-      <p style="font-size:13px;"><strong>UiCollect:</strong> RealTime Monitoring, 상태 Data 조회<br><strong>UiLogpresso:</strong> PlayBack, Job 이력 조회 등 History Data</p>
-    </div>
-  </div>
-
-  <p style="margin-top:16px; font-size:13px;">
-    <strong>기타:</strong>
-    RoutePrediction (반송경로 예측),
-    AtlasCommPubUI (전체 UI에 PubMsg 전송),
-    AtlasMCSCommDQ/Pub (MCS↔ATLAS 통신),
-    AtlasRtdCommDQ (RTD↔ATLAS 통신),
-    OhtTibrvReplicator (개발서버 재전송),
-    DataSetRefresh (Map Data 갱신, AM 10:00)
-  </p>
-
-  <div class="divider"></div>
-
-  <!-- Properties -->
-  <h3 id="s5-props">Properties 파일 설명</h3>
-
-  <h4>공통 설정</h4>
-  <div class="def-grid">
-    <div class="key">Env</div>
-    <div class="val">REAL | TEST | QA … (TIB/RV Subject 생성에 영향)</div>
-    <div class="key">FabIdList</div>
-    <div class="val">MCS 기준 FAB ID 목록 (콤마 구분)</div>
-    <div class="key">ProcessType</div>
-    <div class="val">DATAMAKER (수집서버) | QUERY (Logpresso Query 전용 서버)</div>
-  </div>
-
-  <h4>수집서버 전용 설정</h4>
-  <div class="def-grid">
-    <div class="key">Atlas.Daemon</div>
-    <div class="val">Atlas 자체 TIB/RV 통신을 위한 daemon 서버 설정</div>
-    <div class="key">Atlas.Gid</div>
-    <div class="val">CMessage 통신 그룹 ID</div>
-    <div class="key">Atlas.ThreadPool.size</div>
-    <div class="val">Worker Thread 수량 (일반적으로 CPU 코어 수)</div>
-    <div class="key">Atlas.MonitoringMode</div>
-    <div class="val">Y|N — CPU 부하 높은 함수 Disable 용도</div>
-  </div>
-
-  <h4>Logpresso 설정</h4>
-  <div class="def-grid">
-    <div class="key">Logpresso.Host / Host2</div>
-    <div class="val">Logpresso 1번/2번 서버 주소</div>
-    <div class="key">Logpresso.Port</div>
-    <div class="val">Java Client 사용 Port</div>
-    <div class="key">Logpresso.UdpHost / UdpHost2</div>
-    <div class="val">UDP 전송 Target 주소 (1번/2번 서버)</div>
-    <div class="key">Logpresso.UdpPort</div>
-    <div class="val">UDP 전송 Port</div>
-    <div class="key">Logpresso.User / Password</div>
-    <div class="val">접속 계정 / 암호화된 Password</div>
-  </div>
-
-  <h4>FAB별 설정 <code>[FABID].*</code></h4>
-  <div class="def-grid">
-    <div class="key">FacId</div>
-    <div class="val">Factory ID (M14A → FacId: M14)</div>
-    <div class="key">BridgeFrom</div>
-    <div class="val">다른 FAB에서 연결되는 Bridge 장비 (Owner가 FABID 아닌 경우)</div>
-    <div class="key">BridgeTo</div>
-    <div class="val">다른 FAB에 연결하는 Bridge 장비 (Owner가 FABID인 경우)</div>
-    <div class="key">InlineConnection</div>
-    <div class="val">STK RM을 통해 연결되는 스토커명/장비 포트목록 세트</div>
-    <div class="key">MapDir</div>
-    <div class="val">OHT Map 폴더 위치 Dir</div>
-    <div class="key">daemon</div>
-    <div class="val">MCS 통신 메시지 Listen용 rvd daemon 주소</div>
-    <div class="key">ei.subject / ei.gid</div>
-    <div class="val">MCS EI 프로세스 TIB/RV Listen Subject / GID</div>
-    <div class="key">mcsmhs.subject / gid</div>
-    <div class="val">MCS→MHS 메시지 Listen Subject / GID</div>
-    <div class="key">mhsmcs.subject / gid</div>
-    <div class="val">MHS→MCS 메시지 Listen Subject / GID</div>
-    <div class="key">mcsui.subject / gid</div>
-    <div class="val">MCS→UI 메시지 Listen Subject / GID</div>
-    <div class="key">atlasmcs.gid</div>
-    <div class="val">smartATLAS↔MCS 통신 GID</div>
-    <div class="key">conveyor</div>
-    <div class="val">SEMI-TS 컨베이어 접속정보 세트</div>
-    <div class="key">mcs.processname</div>
-    <div class="val">FAB 구분용 (M14A:MCS, M14B:MCS7F)</div>
-    <div class="key">McpNamePairs</div>
-    <div class="val">CLWMCP 장비명/영역명 쌍</div>
-  </div>
-
-  <h4>OHT(CLWMCP) 영역별 설정 <code>[FABID].oht.[영역명].*</code></h4>
-  <div class="def-grid">
-    <div class="key">daemon / subject</div>
-    <div class="val">개발환경 TIB/RV Relay 수신 설정</div>
-    <div class="key">port</div>
-    <div class="val">OHT 상태메시지 수신 UDP Port</div>
-    <div class="key">ftp.ip / user / password</div>
-    <div class="val">CLWMCP Layout FTP 접속 정보</div>
-    <div class="key">ftp.lanecut</div>
-    <div class="val">lanecut.dat 파일 경로</div>
-    <div class="key">ftp.mcp75</div>
-    <div class="val">mcp75.cfg 파일 경로</div>
-    <div class="key">ftp.station</div>
-    <div class="val">station.dat 파일 경로</div>
-    <div class="key">ftp.route</div>
-    <div class="val">route.dat 파일 경로</div>
-    <div class="key">ftp.layout</div>
-    <div class="val">layout.zip 파일 경로</div>
-  </div>
-
-  <div class="divider"></div>
-
-  <!-- Batch Job -->
-  <h3 id="s5-batch">Batch Job</h3>
-
-  <div class="batch-item">
-    <div class="batch-name">AreaVhlCountBatch</div>
-    <div class="batch-cron">6/10 * * * * ?</div>
-    <div class="batch-desc">각 Area별 VHL 수량 집계 → UDP → Logpresso <code>ATLAS_VHL_COUNT</code> 적재</div>
-  </div>
-
-  <div class="batch-item">
-    <div class="batch-name">BranchTrafficBatch</div>
-    <div class="batch-cron">4/10 * * * * ?</div>
-    <div class="batch-desc">
-      BranchJoinEdge/Area 기준 통계 → <code>ATLAS_BRANCH_TRAFFIC</code> / <code>ATLAS_AREA_TRAFFIC</code> 적재 + UI TIB/RV 전송
-      <div style="margin-top:8px;">
-        <span class="data-field">Length</span>
-        <span class="data-field">Speed(m/min,지수평활)</span>
-        <span class="data-field">ElapsedTime</span>
-        <span class="data-field">passCnt</span>
-        <span class="data-field">pathPredictQueueSizeAvg</span>
-        <span class="data-field">isAvailable</span>
-        <span class="data-field">jobCost</span>
-        <span class="data-field">railTrafficIn/Out/InOutCnt</span>
-        <span class="data-field">vhlCnt</span>
-        <span class="data-field">Density</span>
-        <span class="data-field">passJobCnts[0~4]</span>
-        <span class="data-field">pathPredictQCnts[0~4]</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="batch-item">
-    <div class="batch-name">BridgeEqpMonitorBatch</div>
-    <div class="batch-cron">0 * * * * ?</div>
-    <div class="batch-desc">
-      Lifter/Conveyor 등 FAB간/층간 반송장치 모니터링
-      <div style="margin-top:8px;">
-        <strong>출력 테이블:</strong>
-        <code>ATLAS_HIS_BRG_STK_IN</code>,
-        <code>ATLAS_HIS_BRG_STK_OUT</code>,
-        <code>ATLAS_HIS_BRG_STK_RM</code>,
-        <code>ATLAS_HIS_BRG_STK_DIR</code>,
-        <code>ATLAS_HIS_BRG_CNV_OUT</code>,
-        <code>ATLAS_HIS_BRG_CNV_DIR</code>
-      </div>
-    </div>
-  </div>
-
-  <div class="batch-item">
-    <div class="batch-name">BridgeEqpNaviBatch</div>
-    <div class="batch-cron">30 * * * * ?</div>
-    <div class="batch-desc">각 장비 기준 인접 Lifter/Conveyor 순서 정보 기록 → MCS에 Data 제공. <code>ATLAS_HIS_BRG_COST_PRED</code> (TO_LFT_COST, FROM_LFT_COST, TO_CNV_COST, FROM_CNV_COST). MCS 전송: <code>ATALSMCS_EQP_ZIPTOWER_ORDER_DATA_REPORT</code></div>
-  </div>
-
-  <div class="batch-item">
-    <div class="batch-name">CurrentJobListBatch</div>
-    <div class="batch-cron">0/10 * * * * ?</div>
-    <div class="batch-desc">현재 수행 중 반송 목록(Job) → UI Publish (불필요 Data 제외)</div>
-  </div>
-
-  <div class="batch-item">
-    <div class="batch-name">DataSetRefreshBatch</div>
-    <div class="batch-cron">0 0 10 * * ?</div>
-    <div class="batch-desc">전체 Layout 및 장비/Port 정보 갱신</div>
-  </div>
-
-  <div class="batch-item">
-    <div class="batch-name">ExportAllLayoutToLogpressoBatch</div>
-    <div class="batch-cron">0 20 * * * ?</div>
-    <div class="batch-desc">EDGE, LONGEDGE, BRANCHJOINEDGE, VHL, STATION, EQP, AREA, BAY 현재 정보 → Logpresso <code>ATLAS_MAS_*</code> 적재. 기준정보 변경 추적 및 집계 활용</div>
-  </div>
-
-  <div class="batch-item">
-    <div class="batch-name">HelloBatch</div>
-    <div class="batch-cron">0 * * * * ?</div>
-    <div class="batch-desc">
-      <strong>Old Job Cleaning:</strong> StateTime 6h 이상 무변화 &amp; WakeupTime 6h 경과 → Job/Route/Command 삭제<br>
-      <strong>Garbage Route Cleaning:</strong> ArrivalTime 30분 경과 &amp; Job/Command 미연결 Route 제거
-    </div>
-  </div>
-
-  <div class="batch-item">
-    <div class="batch-name">PredictionClean</div>
-    <div class="batch-cron">5/10 * * * * ?</div>
-    <div class="batch-desc">LongEdge pathPredictQueue 내 예상 ArrivalTime 30초 경과 또는 Job 미소속 Route 제거</div>
-  </div>
-
-  <div class="batch-item">
-    <div class="batch-name">LaneCutRefreshBatch</div>
-    <div class="batch-cron">15 5/10 * * * ?</div>
-    <div class="batch-desc">FTP → lanecut.dat 수신 → RailEdge LaneCut 상태 업데이트. Conveyor Layout REST 갱신</div>
-  </div>
-
-  <div class="batch-item">
-    <div class="batch-name">LifterRmStateBatch</div>
-    <div class="batch-cron">* * * * * ?</div>
-    <div class="batch-desc">최근 10분간 매초 RM Carrier/Command 수량 집계 → BridgeEqpMonitorBatch 부하율 집계용</div>
-  </div>
-
-  <div class="batch-item">
-    <div class="batch-name">ObjOnMapDiffUpdateBatch</div>
-    <div class="batch-cron">* * * * * ?</div>
-    <div class="batch-desc">
-      매초 <code>ATLAS_OHT_STATS_HIS</code> 적재
-      <div style="margin-top:8px;">
-        <span class="data-field">vhlCnt</span>
-        <span class="data-field">vhlTransferringCnt</span>
-        <span class="data-field">vhlStageCnt</span>
-        <span class="data-field">vhlAbnormalCnt</span>
-        <span class="data-field">vhlJamCnt</span>
-        <span class="data-field">trCnt</span>
-        <span class="data-field">trQueuedCnt</span>
-        <span class="data-field">trTransferringCnt</span>
-        <span class="data-field">trDelay0_1~5OverCnt</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="batch-item">
-    <div class="batch-name">ObjOnMapUpdateBatch</div>
-    <div class="batch-cron">*/30 * * * * ?</div>
-    <div class="batch-desc">모든 Port/Eqp별 현재 상태정보 적재 (carrier 목록, availability, incoming/outgoing job…)</div>
-  </div>
-
-  <div class="batch-item">
-    <div class="batch-name">ServerStatusBatch</div>
-    <div class="batch-cron">0/2 * * * * ?</div>
-    <div class="batch-desc">CPU, Memory, Storage, ThreadStatus, Exception, 경로탐색 실패사례 집계</div>
-  </div>
-
-  <div class="batch-item">
-    <div class="batch-name">StbOccupyBatch</div>
-    <div class="batch-cron">8/10 * * * * ?</div>
-    <div class="batch-desc">STB/Stocker MaxCapa, OccupancyCnt, isFull, isAvailable 집계</div>
-  </div>
-
-  <div class="batch-item">
-    <div class="batch-name">TrafficBatch</div>
-    <div class="batch-cron">3/10 * * * * ?</div>
-    <div class="batch-desc">
-      RailEdge별 통계
-      <div style="margin-top:8px;">
-        <span class="data-field">maxVelocity</span>
-        <span class="data-field">velocity(지수평활)</span>
-        <span class="data-field">absoluteVelocity</span>
-        <span class="data-field">passCnt</span>
-        <span class="data-field">vhlDensityWeight</span>
-        <span class="data-field">predictQueueAllCnt</span>
-        <span class="data-field">vhlJamCnt</span>
-        <span class="data-field">vhlAcquireMovingCnt</span>
-        <span class="data-field">vhlDepositMovingCnt</span>
-        <span class="data-field">vhlIdleCnt</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="batch-item">
-    <div class="batch-name">VhlBatch</div>
-    <div class="batch-cron">10 0/1 * * * ?</div>
-    <div class="batch-desc">1분 주기 전체 VHL 상태정보 Logpresso 적재</div>
-  </div>
-
-  <div class="divider"></div>
-
-  <!-- 초기화 -->
-  <h3 id="s5-init">초기화 프로세스</h3>
-  <p style="margin-bottom:12px;">시작점: <code>LauncherListener.onStarted()</code></p>
-
-  <div class="card" style="font-size:13px;">
-    <div class="card-title">Phase 1 — DataService &amp; Properties</div>
-    <ul>
-      <li>DataService Singleton 생성</li>
-      <li>Properties 파일 load → <code>loadFabData(prop)</code></li>
-      <li>FAB별 Properties / MCP별 Properties 설정</li>
-      <li>MCP별 FTP → LayoutFile parsing, Mcp75Config 생성</li>
-      <li>Conveyor 접속 &amp; Layout parsing</li>
-      <li>BridgeFrom/To, InlineConnection 파싱</li>
-    </ul>
-  </div>
-
-  <div class="card" style="font-size:13px;">
-    <div class="card-title">Phase 2 — Map 구성 (createNewDataSet)</div>
-    <ul>
-      <li>Left/Right RawPoints, Station mapping</li>
-      <li>Left/Right RailEdge 생성 (Multi-thread)</li>
-      <li>fromNode/toNode → RailEdge 매핑</li>
-      <li>RailEdge별 HID 정보 설정</li>
-      <li>RailNode 생성 (isBranch, isRailBranch 판정)</li>
-    </ul>
-  </div>
-
-  <div class="card" style="font-size:13px;">
-    <div class="card-title">Phase 3 — Node 생성</div>
-    <ul>
-      <li><strong>StkPortNode:</strong> <code>SELECT_STK_PORT_INF</code> → LP/BP/OP SubPort 구성. Bridge Owner FAB에서만 등록</li>
-      <li><strong>CnvPortNode:</strong> physicalType (0:Zone, 1:QS/Lifter bed, 2:input, 3:output, 4:QS, 5:lifter)</li>
-      <li><strong>StkRmNode:</strong> <code>SELECT_STK_RM_INF</code></li>
-      <li><strong>StkShelfNode:</strong> <code>SELECT_STK_SHELF_INF</code></li>
-      <li><strong>StbNode:</strong> <code>SELECT_STB_PORT_INF</code> (isN2, isReader 속성)</li>
-      <li><strong>EqpPortNode:</strong> <code>SELECT_EQP_PORT_INF</code></li>
-      <li><strong>FioPortNode:</strong> <code>SELECT_FIO_PORT_INF</code> (LP/OP/BP SubPort)</li>
-    </ul>
-  </div>
-
-  <div class="card" style="font-size:13px;">
-    <div class="card-title">Phase 4 — Edge &amp; Eqp 구성</div>
-    <ul>
-      <li>Station &amp; TransferEdge building (DUAL_ACCESS → Acquire/Deposit 각각 생성)</li>
-      <li><code>SELECT_EQP_INF</code> → FIO/OHT/STBGROUP/STK/CONVEYOR/EQP 각각 장비 생성</li>
-      <li>Junction/Branch 설정, BranchJoinEdge building</li>
-      <li>Loop 영역 설정 (Reticle POD VHL 영역)</li>
-      <li>Area/Bay 설정 → LongEdge building</li>
-      <li>PortAlias building, Label/Area/Bay from RailEdge</li>
-      <li>inlineConnect, fabConnect, setSpnOhtFabId</li>
-      <li>setNodeEdgeRef/setRailEdgeRef (성능 향상용 직접 참조)</li>
-      <li>updateEqpExtInfo (smartSTAR 연계 기준정보)</li>
-    </ul>
-  </div>
-
-  <div class="card" style="font-size:13px;">
-    <div class="card-title">Phase 5 — Listener Start &amp; Reconcile</div>
-    <ul>
-      <li>AtlasMcsCommDQ / AtlasRtdCommDQ 인터페이스 Open</li>
-      <li>내부 Map Carrier/Command 초기화 (clearCarrierList)</li>
-      <li>MCS EI / MCSMHS / MHSMCS / MCSUI Listener 시작</li>
-      <li>초기 Carrier/Job/Command 생성 (<code>reconcileCarriers</code>)</li>
-      <li>OHT UDP / TIB/RV Listener 시작</li>
-      <li>Conveyor Socket.IO Listen 시작</li>
-      <li>ExpiringMap(1초 중복 메시지 무시) 생성</li>
-      <li>MessageDispatcher 생성, HelloBatch/UiCollect enable</li>
-    </ul>
-  </div>
-</div>
-
-<!-- ============ 6. TS Msg 처리 ============ -->
-<div class="section" id="s6">
-  <div class="section-num">SECTION 06</div>
-  <h2>TS Msg 처리 (TsMsgWorkerRunnable)</h2>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot create"></span>MHSMCS_MATERIAL_DEST_REP / MHSMCS_TRANSPORT_JOB_SCHEDULE_REQ</div>
-    <div class="msg-event-body">
-      <strong>Job 생성 전 초기정보 수신.</strong> MES→MCS 반송명령. Carrier, Requestor, Router, StepId, 목적지 정보 포함. 단, MCS가 목적지 변경/반송 거부 가능 → 이 시점에 JOB 미생성, Carrier에 정보만 기록. 수행 중 JOB이 있으면 반영.
-    </div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot create"></span>MCSMHS_TRANSPORT_JOB_CREATED_EVENT / CHANGED_EVENT</div>
-    <div class="msg-event-body">
-      <strong>Job 생성/변경.</strong>
-      <ul>
-        <li>JobId는 MCS 기준. 없으면 MCS Query → 그래도 없으면 임시 ID 자체 생성 후 fix</li>
-        <li>미종료 동일 Carrier JOB 존재 시 → 기존 JOB 갱신</li>
-        <li>목적지 포트 명확 → toNodeId 지정 + Reserved 설정</li>
-        <li>목적지 불명확 → tmpToNodeId 임시 지정 (경로탐색용)</li>
-        <li>DEST가 생산장비, DETAIL_DEST 공백 → 인접 STB를 임시 목적지</li>
-        <li>STB Group Partition1 목적지 → Round Robin으로 STB 선정</li>
-        <li>포트 그룹명 목적지 → <code>getCandidateToNodeByDetDestGroupId</code></li>
-      </ul>
-    </div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot update"></span>MCSMHS_TRANSPORT_JOB_STARTED_EVENT</div>
-    <div class="msg-event-body"><strong>Job 시작.</strong> 반송이 시작됨.</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot complete"></span>MCSMHS_TRANSPORT_JOB_COMPLETED_EVENT</div>
-    <div class="msg-event-body"><strong>Job 종료.</strong> 반송이 완료됨.</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot error"></span>MCSMHS_TRANSPORT_JOB_ABORTED_EVENT</div>
-    <div class="msg-event-body"><strong>Job 중지(종료).</strong> 반송이 중지됨.</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot error"></span>MCSMHS_CARRIER_REMOVED_FROM_MANUAL_OUTPUT_PORT_EVENT</div>
-    <div class="msg-event-body"><strong>Carrier 제거.</strong> 반송시스템에서 빠져나감. 잔여 JOB 완료처리.</div>
-  </div>
-
-  <p style="margin-top:16px; font-size:13px; color:var(--text-dim);">
-    ※ OHT, STK, Conveyor에 Command를 내려 세부 반송 처리. FIO/STB/EQP는 Command 수신 안 함. Job은 최소 1개 이상의 Command 보유.
-  </p>
-</div>
-
-<!-- ============ 7. EI Msg - OHT ============ -->
-<div class="section" id="s7">
-  <div class="section-num">SECTION 07</div>
-  <h2>EI Msg 처리 — OHT (EiMsgWorkerRunnable)</h2>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot create"></span>RAIL-CARRIERTRANSFERREPLY</div>
-    <div class="msg-event-body">
-      <strong>Command 생성.</strong> ResultCode 4 또는 0일 때만 생성 (QUEUED 상태).
-      <ul>
-        <li>toEqp가 STBGROUP이고 Job toNodeId ≠ Cmd destNodeId → Job toNodeId 변경</li>
-        <li>Job toEqp가 EQP이고 toNodeId 공백 → 인접 STB를 최종 목적지로</li>
-        <li>대체저장 판단: destNode가 STB/Stocker → job.alternatingTime 설정</li>
-        <li>destNodeId가 CNV이지만 Job 목적지 불일치 → tmpToNodeId 재설정</li>
-        <li>destNodeName이 4ABL 시작, toGrpId 비공백 → M10 출고, 새 목적지 fix</li>
-      </ul>
-    </div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot update"></span>RAIL-TRANSFERUPDATECOMPLETED</div>
-    <div class="msg-event-body"><strong>Command 변경.</strong> 목적지 변경 시 업데이트 + 경로 재탐색</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot complete"></span>RAIL-TRANSFERCOMPLETED</div>
-    <div class="msg-event-body"><strong>Command 완료.</strong> Carrier 위치, InstalledTime, CmpltTime, ResultCode 업데이트. cmdState → COMPLETED</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot update"></span>RAIL-TRANSFERINITIATED</div>
-    <div class="msg-event-body"><strong>반송 시작.</strong> initTime 업데이트</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot update"></span>RAIL-VEHICLEASSIGNED</div>
-    <div class="msg-event-body"><strong>VHL 할당.</strong> TransUnitId, AssignTime, AssignCnt 업데이트. VHL에 CommandId Set. TransferEdge에 Assign VHL/CarrierId. cmdState → ACQMOVING</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot error"></span>RAIL-VEHICLEUNASSIGNED</div>
-    <div class="msg-event-body"><strong>VHL 할당해제.</strong> VHL/Station/Command에서 ID 제거. TransferEdge Assign 제거. cmdState → QUEUED (반송 완료 해제 제외)</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot update"></span>RAIL-VEHICLEARRIVED</div>
-    <div class="msg-event-body"><strong>Station 도착.</strong> Source/Dest 구분하여 ArrivedTime 업데이트. Acquire/DepositTryCnt +1</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot update"></span>RAIL-VEHICLEACQUIRESTARTED</div>
-    <div class="msg-event-body"><strong>Carrier 들어올리기 시작.</strong> AcquireStartedTime 업데이트. Stocker 포트면 avgRemovalIntervalT 갱신. cmdState → ACQUIRING</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot update"></span>RAIL-CARRIERINSTALLED</div>
-    <div class="msg-event-body"><strong>Carrier 위치 → VHL.</strong> InstalledTime 갱신</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot complete"></span>RAIL-VEHICLEACQUIRECOMPLETED</div>
-    <div class="msg-event-body"><strong>Acquire 완료.</strong> AcquireCmpltTime 갱신. TransferEdge avgTransferCost/avgVhlCallCost 갱신. 목적지까지 경로 재탐색</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot update"></span>RAIL-VEHICLEDEPARTED</div>
-    <div class="msg-event-body"><strong>VHL 출발.</strong> DepartedTime 설정. cmdState → DESTMOVING</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot update"></span>RAIL-VEHICLEDEPOSITSTARTED</div>
-    <div class="msg-event-body"><strong>Carrier 내려놓기 시작.</strong> DepositStartTime. cmdState → DEPOSITING</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot complete"></span>RAIL-VEHICLEDEPOSITCOMPLETED</div>
-    <div class="msg-event-body"><strong>Deposit 완료.</strong> Carrier 위치 변경, InstallTime/depositCmpltTime 갱신. Station IncommingCmdId 제거. TransferEdge avgTransferCost Update. Job toNodeId 불일치 시 경로 재탐색</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot error"></span>RAIL-CARRIERREMOVED</div>
-    <div class="msg-event-body"><strong>VHL에서 Carrier 제거.</strong> VHL carrierId 삭제</div>
-  </div>
-</div>
-
-<!-- ============ 7. EI/CNV - Conveyor ============ -->
-<div class="section" id="s8">
-  <div class="section-num">SECTION 07-B</div>
-  <h2>EI / CNV Msg 처리 — Conveyor</h2>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot update"></span>INTERRAIL-CARRIERINSTALLED</div>
-    <div class="msg-event-body">Carrier 위치 변경. state → INSTALLED</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot complete"></span>INTERRAIL-TRANSFERCOMPLETED</div>
-    <div class="msg-event-body">ResultCode, Command DestNode 재설정</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot create"></span>EVENT_CARRIER_DETECTED</div>
-    <div class="msg-event-body">Task 생성. fromNodeLocateTime, CnvPortNode InstalledTime 설정</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot update"></span>EVENT_READ_RFID</div>
-    <div class="msg-event-body">CarrierID 읽힘 → 위치를 컨베이어 포트로 설정</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot complete"></span>EVENT_TRANSFER_COMPLETED</div>
-    <div class="msg-event-body">Task CompleteTime. Cmd DepositCmpltTime/DestArrivedTime/CmpltTime. carrierState → WAIT_OUT, cmdState → COMPLETED</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot error"></span>EVENT_CARRIER_REMOVED</div>
-    <div class="msg-event-body">Task 최종 위치 Update, removedTime. CnvPort avgRemovalIntervalTime 갱신</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot update"></span>tcmTransferInfo</div>
-    <div class="msg-event-body">CNV 내 Zone 이동 기록, 구간 속도 생성. zoneIdTo 존재 시 Cmd destNodeId 확정. Job toEqp=CNV면 Job toNodeId도 확정</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot create"></span>INTERRAIL-CARRIERTRANSFERREPLY</div>
-    <div class="msg-event-body">Command 생성. 목적지 PortGroup → 이동량 최소 Port 선정. carrierState → TRANSFERRING, cmdState → QUEUED</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot create"></span>INTERRAIL-OPERATORINITIATEDACTION</div>
-    <div class="msg-event-body">Timeout 등으로 CNV 자체 Command 생성. 동일 로직 적용</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot update"></span>EVENT_TRANSFER_INITIATED</div>
-    <div class="msg-event-body">Cmd transUnit → taskId. initTime 설정. Task에 CommandId</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot update"></span>EVENT_TRANSFER_TRANSFERRING</div>
-    <div class="msg-event-body">Cmd AcquireCmpltTime/DepartedTime. cmdState → DESTMOVING</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot update"></span>UpdateZoneState</div>
-    <div class="msg-event-body">Conveyor Zone isAvailable 변경</div>
-  </div>
-</div>
-
-<!-- ============ 7. EI STK ============ -->
-<div class="section" id="s9">
-  <div class="section-num">SECTION 07-C</div>
-  <h2>EI STK Msg 처리 (Stocker)</h2>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot update"></span>STORAGE-ZIPTOWERCARRIERLOCATIONCHANGED</div>
-    <div class="msg-event-body">
-      STK 내 Carrier 위치 변화. Bridge → OwnerFAB만 처리.
-      <ul>
-        <li>동일 STK 내부 Node간 이동 → 기존 Node에서 제거, 새 Node에 Install</li>
-        <li>동일 Node 내 SubPort간 이동 → LocId만 변경</li>
-        <li>다른 장비간 이동 (OHT→STK 등) → 위치 업데이트, Install</li>
-      </ul>
-    </div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot update"></span>STORAGE-CARRIERWAITIN</div>
-    <div class="msg-event-body">입고포트 진입. 위치 업데이트 + Install. carrierState → WAIT_IN</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot update"></span>STORAGE-CARRIERWAITOUT / LIFTERCARRIERWAITOUT / ZIPTOWERCARRIERWAITOUT</div>
-    <div class="msg-event-body">출고포트 배치. Bridge → OwnerFAB만. OP면 Cmd depositCmpltTime/destArrivedTime 업데이트. RM cmdId/carrierId 제거. carrierState → WAIT_OUT</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot complete"></span>STORAGE-TRANSFERCOMPLETED / LIFTER / ZIPTOWER</div>
-    <div class="msg-event-body">STK 내부 반송 완료. Cmd transEqpId 일치 확인. CmpltTime/ResultCode. Logpresso Insert. cmdState → COMPLETED</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot create"></span>STORAGE-CARRIERTRANSFER</div>
-    <div class="msg-event-body">STK 내부 반송 명령 수신 → Command 생성 (REPLY에는 출발지/목적지 없으므로 여기서 생성). carrierState → TRANSFERRING, cmdState → REQUESTED</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot update"></span>STORAGE-CARRIERTRANSFERREPLY / ZIPTOWER</div>
-    <div class="msg-event-body">명령 수행여부 회신. ReplyCode 설정. cmdState → QUEUED</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot error"></span>STORAGE-TRANSFERCANCELCOMPLETED</div>
-    <div class="msg-event-body">QUEUED 상태 명령 MCS 취소. carrierState → COMPLETED, cmdState → CANCELED</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot update"></span>STORAGE-TRANSFERINITIATED / CARRIERRESUMED / ZIPTOWER</div>
-    <div class="msg-event-body">STK 내부 반송 시작. RM에 cmdId 추가. AcqEdge에 currentMovingCarrierId. cmdState → ACQMOVING</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot update"></span>STORAGE-CRANEACTIVE / ZIPTOWERCRANEACTIVE</div>
-    <div class="msg-event-body">RM 활성화. Cmd AcquireStartTime + AcquireTryCnt +1</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot update"></span>STORAGE-CARRIERTRANSFERRING / ZIPTOWER</div>
-    <div class="msg-event-body">RM에 Carrier 적재 후 이동 시작. TransUnitId/AcquireCmpltTime/DepartedTime/DepositStartTime. AcqEdge → DepositEdge 전환. cmdState → DEPOSITING</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot complete"></span>STORAGE-CRANEIDLE / ZIPTOWERCRANEIDLE</div>
-    <div class="msg-event-body">목적지 이재 완료. destArrivedTime/DepositCmpltTime. RM에서 cmdId 제거. DepositEdge avgCost 갱신</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot error"></span>STORAGE-CARRIERSTOREDALT</div>
-    <div class="msg-event-body">목적지 이슈 → Shelf 임시 저장. RM → Shelf로 carrierId 이동. AlternatingTime = InitTime, AlternatedTime = 현시점. carrierState → ALTERNATE, cmdState → STOREDALT</div>
-  </div>
-
-  <div class="msg-event">
-    <div class="msg-event-header"><span class="dot complete"></span>STORAGE-CARRIERSTORED</div>
-    <div class="msg-event-body">Shelf에 Carrier 저장. RM에서 제거, Shelf에 추가. installTime 업데이트. carrierState → COMPLETED</div>
-  </div>
-</div>
-
-</div><!-- /main -->
-</body>
-</html>
+# Blender LLM 3D Assistant 사용법
+## SK Hynix 내부 LLM 연동 Blender 자연어 제어 애드온
+
+---
+
+## 1. 준비물
+
+- **Blender 3.6+** (회사 PC에 설치)
+- **token.txt** (내부 LLM API 인증 토큰 파일)
+- **blender_hynix_llm.py** (이 애드온 파일)
+
+---
+
+## 2. 설치 (1분)
+
+### Step 1: token.txt 준비
+기존에 쓰던 token.txt를 알기 쉬운 경로에 복사:
+```
+C:\token.txt
+```
+또는 원하는 경로 아무 데나 OK.
+
+### Step 2: Blender에 스크립트 로드
+1. Blender 실행
+2. 상단 메뉴 → **Scripting** 워크스페이스 탭 클릭
+3. **열기(Open)** → `blender_hynix_llm.py` 선택
+4. **Alt + P** (또는 ▶ 실행 버튼) 눌러서 스크립트 실행
+
+### Step 3: 패널 확인
+1. **3D Viewport**로 돌아가기 (Layout 탭)
+2. **N키** 눌러서 사이드바 열기
+3. **"LLM Assistant"** 탭 확인
+
+---
+
+## 3. 설정
+
+패널 상단 "설정" 영역:
+
+| 항목 | 기본값 | 설명 |
+|------|--------|------|
+| API Base | `http://dev.hcp.llm.skhynix.com` | 변경 불필요 |
+| Token 경로 | `C:/token.txt` | 본인 token.txt 경로 |
+| 모델 | `Qwen3-Coder-Next` | 코딩 특화 모델 |
+
+**"모델 목록 새로고침"** 버튼 → 서버 모델 조회 + 자동으로 Coder 모델 선택됨.
+(전체 목록은 Blender 콘솔창에서 확인: 상단 Window → Toggle System Console)
+
+---
+
+## 4. 사용법
+
+### 기본 흐름
+1. **"자연어 명령"** 칸에 한국어로 입력
+2. **"실행"** 클릭
+3. 기다리면 3D 뷰포트에 결과 나옴
+
+### 잘 되는 명령 예시 (구체적으로!)
+
+```
+빨간 큐브 만들어줘
+```
+```
+파란 구 5개를 x축으로 간격 3으로 배치해줘
+```
+```
+선택된 오브젝트 색을 노란색으로 바꿔줘
+```
+```
+모든 오브젝트 삭제해줘
+```
+```
+원형으로 실린더 12개 배치해줘 반지름 10
+```
+```
+선택된 오브젝트에 메탈 재질 적용해줘 roughness 0.2
+```
+```
+큐브로 계단 모양 10단 만들어줘
+```
+```
+격자 형태로 큐브 100개 만들어줘 랜덤 색상 랜덤 크기
+```
+
+### 안 되는 명령 (너무 추상적)
+
+```
+❌ 예쁜 집 만들어줘
+❌ 캐릭터 모델링 해줘
+❌ 멋있게 꾸며줘
+```
+
+### 핵심 팁: 구체적으로 말하기
+
+| 나쁜 예 | 좋은 예 |
+|---------|---------|
+| 집 만들어줘 | 큐브로 벽 4개, 위에 피라미드 지붕 올려줘 |
+| 도시 만들어줘 | 랜덤 높이 큐브 20개를 격자로 배치해줘 |
+| 예쁘게 해줘 | 오브젝트 색을 파란색으로, roughness 0.1로 |
+
+---
+
+## 5. 에러 발생 시
+
+- **"API 실패: 연결 실패"** → token.txt 경로 확인, 사내망 연결 확인
+- **"코드 추출 실패"** → 프롬프트를 더 구체적으로 다시 시도
+- **"문법 에러"** → 자동으로 3회 재시도함. 그래도 안 되면 다르게 표현
+- **콘솔 확인**: Window → Toggle System Console에서 상세 로그 확인 가능
+
+---
+
+## 6. 구조
+
+```
+너 (한국어 자연어)
+    ↓
+Blender 애드온 (이 스크립트)
+    ↓ HTTP POST /v1/chat/completions
+내부 LLM (Qwen3-Coder-Next)
+    ↓ bpy Python 코드 응답
+코드 추출 + 안전성 검사 + 문법 검증
+    ↓
+exec() 실행 → Blender 3D 뷰포트에 반영
+    ↓ (에러 시)
+에러 메시지로 LLM에 수정 요청 (최대 3회)
+```
+
+---
+
+## 7. 추천 모델 (용도별)
+
+| 모델 | 용도 |
+|------|------|
+| **Qwen3-Coder-Next** | bpy 코드 생성 (기본 추천) |
+| Qwen3-Coder-480B-A35B-Instruct | 복잡한 코드 (느릴 수 있음) |
+| Qwen3.5-35B-A3B | 가볍고 빠름 (간단한 작업) |
+| Qwen3-235B-A22B-Instruct-2507 | 범용 (코딩+설명) |
