@@ -490,6 +490,14 @@ MODEL_REGISTRY = {
     },
 }
 
+# API 모델 크기 티어: preferred_model_size → registry keys (성능 내림차순)
+# 병렬 에이전트 그룹에 모델 배정 시 사용 (Vision/Reranker 제외)
+API_MODEL_TIERS = {
+    "large": ["qwen3.5-397b", "qwen3-coder-480b", "qwen3-235b-2507", "qwen3.5-397b-fp8"],
+    "medium": ["glm-5", "gpt-oss-120b", "qwen3-coder-next"],
+    "small": ["glm-4.7", "glm-4.7-fp8", "qwen3.5-35b"],
+}
+
 # MODEL_REGISTRY에서 ENV_CONFIG 자동 생성 (하위 호환)
 ENV_CONFIG = {
     v["env_id"]: {"url": v["url"], "model": v["model"], "name": v["name"]}
@@ -2634,6 +2642,61 @@ def _assign_models_to_groups(parallel_groups, gguf_paths_by_size):
     return assignments
 
 
+def _assign_api_models_to_groups(parallel_groups, primary_reg_key=None):
+    """그룹별 preferred_model_size에 따라 API 모델 할당 (서버사이드 병렬).
+
+    Args:
+        parallel_groups: [{"group": name, "preferred_model_size": "large"|"medium"|"small"}]
+        primary_reg_key: str|None - auto-routed primary model의 registry key
+
+    Returns:
+        dict: {group_name: {"url": str, "model": str, "reg_key": str}}
+    """
+    used_keys = set()
+    assignments = {}
+    # 인접 티어 폴백 순서
+    _tier_fallback = {
+        "large": ["medium", "small"],
+        "medium": ["large", "small"],
+        "small": ["medium", "large"],
+    }
+
+    for pg in parallel_groups:
+        pref = pg.get("preferred_model_size", "medium")
+        assigned = False
+
+        # 선호 티어 → 인접 티어 순으로 시도
+        tiers_to_try = [pref] + _tier_fallback.get(pref, [])
+        for tier in tiers_to_try:
+            candidates = API_MODEL_TIERS.get(tier, [])
+            for reg_key in candidates:
+                if reg_key not in used_keys and reg_key in MODEL_REGISTRY:
+                    reg = MODEL_REGISTRY[reg_key]
+                    assignments[pg["group"]] = {
+                        "url": reg["url"], "model": reg["model"], "reg_key": reg_key,
+                    }
+                    used_keys.add(reg_key)
+                    assigned = True
+                    break
+            if assigned:
+                break
+
+        if not assigned:
+            # 모든 모델 소진 → 첫 번째 large 모델 재사용
+            fallback_key = API_MODEL_TIERS["large"][0]
+            reg = MODEL_REGISTRY[fallback_key]
+            assignments[pg["group"]] = {
+                "url": reg["url"], "model": reg["model"], "reg_key": fallback_key,
+            }
+            try:
+                print(f"     [API-ASSIGN] no unique model for [{pg['group']}], "
+                      f"reusing {reg['model']}")
+            except Exception:
+                pass
+
+    return assignments
+
+
 def _build_agent_system_prompt(skill_ids, skill_contents, n_ctx=16384, csv_data=None, uploaded_files_data=None):
     """병렬 에이전트용 컴팩트 시스템 프롬프트 생성."""
     max_skill_chars = int(n_ctx * 0.3 / max(1, len(skill_ids)))  # 컨텍스트의 30%를 스킬에 할당
@@ -2930,6 +2993,59 @@ def _synthesize_responses_gguf(agent_results, query, synthesis_model_path, tempe
             "models": list(set(r["model"] for r in successes)),
             "synthesis": "fallback_concat",
         }
+
+
+def _api_agent_call(api_info, skill_ids, skill_contents, query, hist,
+                    api_key, temperature, max_tokens=4096,
+                    csv_data=None, uploaded_files_data=None):
+    """단일 API 에이전트 호출 (수동/자동 병렬 공용).
+
+    Args:
+        api_info: {"url": str, "model": str} - API 엔드포인트 정보
+        skill_ids: list[str] - 이 에이전트가 담당할 스킬 ID 목록
+        skill_contents: dict - {skill_id: content_text}
+        query: str - 사용자 질문
+        hist: list[dict] - 대화 히스토리
+        api_key: str - API 인증 키
+        temperature: float - 생성 온도
+        max_tokens: int - 최대 응답 토큰
+        csv_data: dict|None - 업로드된 CSV 데이터
+        uploaded_files_data: list|None - 업로드된 파일 목록
+    """
+    group_name = _SKILL_TO_GROUP.get(skill_ids[0], "general") if skill_ids else "general"
+    try:
+        agent_system = _build_agent_system_prompt(skill_ids, skill_contents, 32768,
+                                                  csv_data=csv_data, uploaded_files_data=uploaded_files_data)
+        agent_msgs = [{"role": "system", "content": agent_system}]
+        agent_msgs.extend(hist[-6:])
+        agent_msgs.append({"role": "user", "content": query})
+        h = {"Content-Type": "application/json"}
+        if api_key:
+            h["Authorization"] = f"Bearer {api_key}"
+        resp = req.post(
+            api_info["url"],
+            headers=h,
+            json={
+                "model": api_info["model"],
+                "messages": agent_msgs,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "stream": False, "tool_choice": "none",
+            },
+            timeout=120,
+            verify=False,
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        if "choices" in result and len(result["choices"]) > 0:
+            answer = result["choices"][0].get("message", {}).get("content") or ""
+            return {"group": group_name, "skills": skill_ids, "response": answer,
+                    "error": None, "model": api_info["model"]}
+        return {"group": group_name, "skills": skill_ids, "response": "",
+                "error": "empty", "model": api_info["model"]}
+    except Exception as e:
+        return {"group": group_name, "skills": skill_ids, "response": "",
+                "error": str(e), "model": api_info.get("model", "?")}
 
 
 @app.route("/api/gguf-pool-status")
@@ -6954,47 +7070,9 @@ def api_chat():
                                 )
                             break
 
-                    def _api_agent_call(api_info, skill_ids, skill_contents, query, hist,
-                                        csv_data=None, uploaded_files_data=None):
-                        """단일 API 에이전트 호출."""
-                        group_name = _SKILL_TO_GROUP.get(skill_ids[0], "general") if skill_ids else "general"
-                        try:
-                            agent_system = _build_agent_system_prompt(skill_ids, skill_contents, 32768,
-                                                                      csv_data=csv_data, uploaded_files_data=uploaded_files_data)
-                            agent_msgs = [{"role": "system", "content": agent_system}]
-                            agent_msgs.extend(hist[-6:])
-                            agent_msgs.append({"role": "user", "content": query})
-                            h = {"Content-Type": "application/json"}
-                            if api_key:
-                                h["Authorization"] = f"Bearer {api_key}"
-                            _temp = temperature_map[min(effort, 3)]
-                            resp = req.post(
-                                api_info["url"],
-                                headers=h,
-                                json={
-                                    "model": api_info["model"],
-                                    "messages": agent_msgs,
-                                    "temperature": _temp,
-                                    "max_tokens": 4096,
-                                    "stream": False, "tool_choice": "none",
-                                },
-                                timeout=120,
-                                verify=False,
-                            )
-                            resp.raise_for_status()
-                            result = resp.json()
-                            if "choices" in result and len(result["choices"]) > 0:
-                                answer = result["choices"][0].get("message", {}).get("content") or ""
-                                return {"group": group_name, "skills": skill_ids, "response": answer,
-                                        "error": None, "model": api_info["model"]}
-                            return {"group": group_name, "skills": skill_ids, "response": "",
-                                    "error": "empty", "model": api_info["model"]}
-                        except Exception as e:
-                            return {"group": group_name, "skills": skill_ids, "response": "",
-                                    "error": str(e), "model": api_info.get("model", "?")}
-
-                    # ThreadPoolExecutor로 API 병렬
+                    # ThreadPoolExecutor로 API 병렬 (모듈 레벨 _api_agent_call 사용)
                     _api_results = []
+                    _temp = temperature_map[min(effort, 3)]
                     with ThreadPoolExecutor(max_workers=min(len(_par_groups), 4)) as executor:
                         futures = {}
                         for pg in _par_groups:
@@ -7006,6 +7084,8 @@ def api_chat():
                                 skill_contents=_api_group_contents[pg["group"]],
                                 query=_last_query,
                                 hist=messages,
+                                api_key=api_key,
+                                temperature=_temp,
                                 csv_data=uploaded_csv_data if uploaded_csv_data.get("filename") else None,
                                 uploaded_files_data=uploaded_files if uploaded_files else None,
                             )
@@ -7087,6 +7167,198 @@ def api_chat():
             except Exception as e:
                 try:
                     print(f"  [API PARALLEL] error, fallback: {e}")
+                except Exception:
+                    pass
+
+    # ── API 자동 멀티에이전트 (AUTO 모드에서 스킬 2+개, 2+그룹) ──
+    if (not multi_model_parallel
+        and not env_id.startswith("gguf-")
+        and not env_id.startswith("vl-")
+        and len(loaded) >= 2):
+        _pre_skills, _par_groups, _use_parallel = group_skills_for_parallel(loaded)
+        if _use_parallel:
+            try:
+                _primary_reg_key = get_registry_key_for_env(env_id)
+                _auto_api_assignments = _assign_api_models_to_groups(_par_groups, _primary_reg_key)
+
+                # 그룹별 스킬 콘텐츠 준비
+                _auto_group_contents = {}
+                for pg in _par_groups:
+                    contents = {}
+                    for sid in pg["skills"]:
+                        c = load_skill_content(sid)
+                        if c:
+                            contents[sid] = c
+                    _auto_group_contents[pg["group"]] = contents
+
+                # 마지막 사용자 메시지 추출
+                _last_query = ""
+                for m in reversed(messages):
+                    if m.get("role") == "user":
+                        _last_query = m.get("content", "")
+                        if isinstance(_last_query, list):
+                            _last_query = " ".join(
+                                p.get("text", "") for p in _last_query
+                                if isinstance(p, dict) and p.get("type") == "text"
+                            )
+                        break
+
+                try:
+                    print(f"\n  [API AUTO-PARALLEL] {len(_par_groups)} groups")
+                except Exception:
+                    pass
+                for pg in _par_groups:
+                    _asgn = _auto_api_assignments.get(pg["group"], {})
+                    try:
+                        print(f"     [{pg['group']}] skills={pg['skills']} -> {_asgn.get('model', '?')}")
+                    except Exception:
+                        pass
+
+                # ThreadPoolExecutor로 병렬 실행
+                _temp = temperature_map[min(effort, 3)]
+                _auto_api_results = []
+                with ThreadPoolExecutor(max_workers=min(len(_par_groups), 4)) as executor:
+                    futures = {}
+                    for pg in _par_groups:
+                        assignment = _auto_api_assignments[pg["group"]]
+                        future = executor.submit(
+                            _api_agent_call,
+                            api_info=assignment,
+                            skill_ids=pg["skills"],
+                            skill_contents=_auto_group_contents[pg["group"]],
+                            query=_last_query,
+                            hist=messages,
+                            api_key=api_key,
+                            temperature=_temp,
+                            max_tokens=TOKEN_SETTINGS["parallel_agent_max_tokens"],
+                            csv_data=uploaded_csv_data if uploaded_csv_data.get("filename") else None,
+                            uploaded_files_data=uploaded_files if uploaded_files else None,
+                        )
+                        futures[future] = pg["group"]
+                    for future in as_completed(futures, timeout=180):
+                        try:
+                            _auto_api_results.append(future.result(timeout=120))
+                        except Exception as e:
+                            _auto_api_results.append({
+                                "group": futures[future], "skills": [],
+                                "response": "", "error": str(e), "model": "",
+                            })
+
+                # 에이전트 결과 로그
+                for _ar in _auto_api_results:
+                    _status = "OK" if _ar.get("response") and not _ar.get("error") else "FAIL"
+                    _err_msg = f" -> {_ar['error']}" if _ar.get("error") else ""
+                    try:
+                        print(f"     [{_status}] [{_ar.get('group','?')}] {_ar.get('model','?')}{_err_msg}")
+                    except Exception:
+                        pass
+
+                # 결과 합성
+                successes = [r for r in _auto_api_results if r.get("response") and not r.get("error")]
+                failures = [r for r in _auto_api_results if r.get("error")]
+
+                if len(successes) == 1:
+                    return jsonify({
+                        "content": successes[0]["response"],
+                        "loaded_skills": loaded,
+                        "system_prompt_length": len(system_prompt),
+                        "parallel_agents": 1, "parallel_failed": len(failures),
+                        "parallel_groups": [successes[0]["group"]],
+                        "parallel_models": [successes[0]["model"]],
+                        "parallel_synthesis": "",
+                        "auto_routed": auto_routed, "route_reason": route_reason,
+                        "auto_multi_agent": True,
+                    })
+                elif len(successes) >= 2:
+                    # 합성 모델 결정: low cost tier → 대형 모델로 업그레이드
+                    _synth_reg_key = _primary_reg_key or "qwen3.5-397b"
+                    _primary_cost = MODEL_REGISTRY.get(_synth_reg_key, {}).get("cost_tier", "medium")
+                    if _primary_cost == "low":
+                        _synth_reg_key = "qwen3.5-397b"
+                    _synth_reg = MODEL_REGISTRY.get(_synth_reg_key, MODEL_REGISTRY["qwen3.5-397b"])
+
+                    # 합성 프롬프트
+                    expert_sections = []
+                    for r in successes:
+                        snames = ", ".join(SKILL_DESC_KO.get(s, s) for s in r["skills"])
+                        expert_sections.append(f"=== [{r['group']}] ({snames}) ===\n{r['response']}")
+
+                    synth_system = (
+                        f"당신은 여러 전문가의 분석을 통합하는 수석 연구원입니다.\n"
+                        f"중요: 반드시 모든 내용을 한국어로만 작성하세요. 영어를 사용하지 마세요.\n"
+                        f"<think> 태그를 사용하지 마세요.\n\n"
+                        f"아래 {len(successes)}명의 전문가가 각자의 전문 영역에서 답변했습니다.\n\n"
+                        + "\n\n".join(expert_sections) +
+                        "\n\n[통합 원칙]\n"
+                        "1. 반드시 한국어로만 답변하세요 (코드 주석도 한국어)\n"
+                        "2. 각 전문가의 핵심 내용을 빠짐없이 포함\n"
+                        "3. 중복 내용은 한 번만 언급\n"
+                        "4. 하나의 자연스러운 답변으로 통합 (전문가별로 분리하지 말 것)\n"
+                        "5. 코드가 있으면 통합된 하나의 코드로 합쳐서 제공\n"
+                        "6. 가짜 데이터를 만들지 마세요"
+                    )
+
+                    try:
+                        _sh = {"Content-Type": "application/json"}
+                        if api_key:
+                            _sh["Authorization"] = f"Bearer {api_key}"
+                        sr = req.post(_synth_reg["url"], headers=_sh, json={
+                            "model": _synth_reg["model"],
+                            "messages": [{"role": "system", "content": synth_system},
+                                         {"role": "user", "content": _last_query}],
+                            "temperature": 0.3,
+                            "max_tokens": max_tokens if max_tokens >= 8192 else 8192,
+                            "stream": False, "tool_choice": "none",
+                        }, timeout=180, verify=False)
+                        sr.raise_for_status()
+                        sr_data = sr.json()
+                        if "choices" in sr_data and len(sr_data["choices"]) > 0:
+                            synth_answer = sr_data["choices"][0].get("message", {}).get("content") or ""
+                            try:
+                                print(f"  [API AUTO-PARALLEL] done: {len(successes)} agents, "
+                                      f"synthesis={_synth_reg['model']}")
+                            except Exception:
+                                pass
+                            return jsonify({
+                                "content": synth_answer,
+                                "loaded_skills": loaded,
+                                "system_prompt_length": len(system_prompt),
+                                "parallel_agents": len(successes),
+                                "parallel_failed": len(failures),
+                                "parallel_groups": [r["group"] for r in successes],
+                                "parallel_models": list(set(r["model"] for r in successes)),
+                                "parallel_synthesis": _synth_reg["model"],
+                                "auto_routed": auto_routed, "route_reason": route_reason,
+                                "auto_multi_agent": True,
+                            })
+                    except Exception as _synth_ex:
+                        try:
+                            print(f"  [API AUTO-PARALLEL] synthesis failed: {_synth_ex}")
+                        except Exception:
+                            pass
+
+                    # 합성 실패 → fallback concat
+                    fallback = "\n\n---\n\n".join(
+                        f"### {', '.join(SKILL_DESC_KO.get(s, s) for s in r['skills'])}\n{r['response']}"
+                        for r in successes
+                    )
+                    return jsonify({
+                        "content": fallback,
+                        "loaded_skills": loaded,
+                        "system_prompt_length": len(system_prompt),
+                        "parallel_agents": len(successes),
+                        "parallel_failed": len(failures),
+                        "parallel_groups": [r["group"] for r in successes],
+                        "parallel_models": list(set(r["model"] for r in successes)),
+                        "parallel_synthesis": "fallback_concat",
+                        "auto_routed": auto_routed, "route_reason": route_reason,
+                        "auto_multi_agent": True,
+                    })
+                # else: 전부 실패 → 아래 단일모델 경로로 폴백
+
+            except Exception as _auto_par_ex:
+                try:
+                    print(f"  [API AUTO-PARALLEL] error, fallback to single: {_auto_par_ex}")
                 except Exception:
                     pass
 
