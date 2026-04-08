@@ -215,7 +215,7 @@ def main():
     for tick in range(total_ticks):
         batch = []
         for v in vehicles:
-            v["dist"] += 5
+            v["dist"] += 50
             if v["dist"] >= v["edge_max"]:
                 v["dist"] = 0
                 v["cur"] = v["next"]
