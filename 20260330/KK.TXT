@@ -2527,6 +2527,33 @@ async def receive_oht_raw(request: FastAPIRequest):
         for v in updated:
             state_map[v["vehicleId"]] = v
         real_vehicle_state = list(state_map.values())
+        # CSV 버퍼에 기록 (csv_save_loop이 주기적으로 저장)
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+        for v in updated:
+            engine.vehicle_buffer.append({
+                'createTime': now,
+                'fabId': FAB_ID,
+                'mcpName': MCP_NAME,
+                'vehicleId': v['vehicleId'],
+                'state': v['state'],
+                'stateName': v['stateName'],
+                'runCycle': v.get('runCycle', ''),
+                'runCycleName': v.get('runCycleName', ''),
+                'vhlCycle': v.get('vhlCycle', ''),
+                'vhlCycleName': v.get('vhlCycleName', ''),
+                'currentAddress': v['currentNode'],
+                'nextAddress': v['nextNode'],
+                'distance': v.get('distance', 0),
+                'destination': v.get('destination', 0),
+                'carrierId': v.get('carrierId', ''),
+                'isLoaded': v.get('isLoaded', 0),
+                'velocity': v.get('velocity', 0),
+                'x': v['x'],
+                'y': v['y'],
+                'detailState': v.get('detailState', ''),
+                'sourcePort': v.get('sourcePort', ''),
+                'destPort': v.get('destPort', ''),
+            })
         # 디버그: 첫 차량 좌표 출력
         v0 = updated[0]
         print(f"[oht-raw] {v0['vehicleId']}: ({v0['x']}, {v0['y']}) node={v0['currentNode']}→{v0['nextNode']}")
