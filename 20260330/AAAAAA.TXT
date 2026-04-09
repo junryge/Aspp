@@ -3309,6 +3309,98 @@ def _validate_response(answer, query):
     return is_valid, issues
 
 
+def _calculate_quality_score(answer, query, issues=None):
+    """응답 품질을 0~100 점수로 계산.
+
+    채점 기준 (100점 만점):
+      - 한국어 비율 (20점): 코드 제외 텍스트의 한국어 비율
+      - 응답 충실도 (20점): 질문 길이 대비 응답 길이 비율
+      - 코드 완성도 (20점): 코드블록 열고 닫기 매칭
+      - 구조화 (20점): 마크다운 헤딩/리스트/코드블록 사용
+      - 이슈 감점 (20점): _validate_response 이슈당 -5점
+
+    Returns:
+        dict: {"score": int, "breakdown": dict, "grade": str}
+    """
+    if not answer or not answer.strip():
+        return {"score": 0, "breakdown": {}, "grade": "F", "issues": issues or []}
+
+    breakdown = {}
+
+    # 1) 한국어 비율 (20점)
+    text_only = re.sub(r'```[\s\S]*?```', '', answer)
+    text_only = re.sub(r'`[^`]+`', '', text_only)
+    korean_chars = len(re.findall(r'[\uac00-\ud7af]', text_only))
+    alpha_chars = len(re.findall(r'[a-zA-Z]', text_only))
+    total_lang = korean_chars + alpha_chars
+    if total_lang > 0:
+        kr_ratio = korean_chars / total_lang
+        breakdown["korean"] = min(20, int(kr_ratio * 25))  # 80%이상이면 20점
+    else:
+        breakdown["korean"] = 20  # 텍스트 없으면 만점 (코드만 있는 경우)
+
+    # 2) 응답 충실도 (20점) - 질문 대비 응답 비율
+    q_len = max(len(query.strip()), 1)
+    a_len = len(answer.strip())
+    ratio = a_len / q_len
+    if ratio >= 3:
+        breakdown["completeness"] = 20
+    elif ratio >= 1.5:
+        breakdown["completeness"] = 15
+    elif ratio >= 0.5:
+        breakdown["completeness"] = 10
+    else:
+        breakdown["completeness"] = 5
+
+    # 3) 코드 완성도 (20점)
+    code_blocks = answer.count("```")
+    if code_blocks == 0:
+        breakdown["code_quality"] = 20  # 코드 없는 답변은 만점
+    elif code_blocks % 2 == 0:
+        breakdown["code_quality"] = 20  # 모든 블록 닫힘
+    else:
+        breakdown["code_quality"] = 5   # 미완성 블록 있음
+
+    # 4) 구조화 (20점) - 마크다운 구조 사용 여부
+    struct_score = 0
+    if re.search(r'^#{1,3}\s', answer, re.MULTILINE):
+        struct_score += 7   # 헤딩 사용
+    if re.search(r'^[-*]\s', answer, re.MULTILINE):
+        struct_score += 5   # 리스트 사용
+    if "```" in answer:
+        struct_score += 5   # 코드블록 사용
+    if len(answer) > 200:
+        struct_score += 3   # 충분한 길이
+    breakdown["structure"] = min(20, struct_score)
+
+    # 5) 이슈 감점 (20점에서 이슈당 -5점)
+    issue_list = issues if issues is not None else []
+    issue_penalty = len(issue_list) * 5
+    breakdown["no_issues"] = max(0, 20 - issue_penalty)
+
+    score = sum(breakdown.values())
+    score = max(0, min(100, score))
+
+    # 등급 판정
+    if score >= 90:
+        grade = "A"
+    elif score >= 75:
+        grade = "B"
+    elif score >= 60:
+        grade = "C"
+    elif score >= 40:
+        grade = "D"
+    else:
+        grade = "F"
+
+    return {
+        "score": score,
+        "breakdown": breakdown,
+        "grade": grade,
+        "issues": issue_list,
+    }
+
+
 def _fix_response_issues(answer, issues):
     """검증에서 발견된 이슈를 자동 수정 가능한 것만 수정.
 
@@ -7355,11 +7447,18 @@ def api_chat():
 
         answer = _normalize_gguf_artifact_answer(answer, gguf_artifact_request)
 
+        _q_valid, _q_issues = _validate_response(answer, last_user_query)
+        _quality = _calculate_quality_score(answer, last_user_query, _q_issues)
+        try:
+            print(f"  [QUALITY] score={_quality['score']}, grade={_quality['grade']}, issues={_q_issues}")
+        except Exception:
+            pass
         _resp = {
             "content": answer,
             "loaded_skills": loaded,
             "system_prompt_length": len(system_prompt),
             "tokens_budget": f"prompt~{prompt_tokens_est}, max_tokens={actual_max_tokens}, ctx={gguf_ctx}",
+            "quality": _quality,
         }
         if _parallel_fallback_reason:
             _resp["parallel_fallback"] = _parallel_fallback_reason
@@ -7599,6 +7698,11 @@ def api_chat():
                 failures = [r for r in _auto_api_results if r.get("error")]
 
                 if len(successes) == 1:
+                    _sq = _calculate_quality_score(successes[0]["response"], _last_query)
+                    try:
+                        print(f"  [QUALITY] score={_sq['score']}, grade={_sq['grade']}")
+                    except Exception:
+                        pass
                     return jsonify({
                         "content": successes[0]["response"],
                         "loaded_skills": loaded,
@@ -7609,6 +7713,7 @@ def api_chat():
                         "parallel_synthesis": "",
                         "auto_routed": auto_routed, "route_reason": route_reason,
                         "auto_multi_agent": True,
+                        "quality": _sq,
                     })
                 elif len(successes) >= 2:
                     # 합성 모델 결정: low cost tier → 대형 모델로 업그레이드
@@ -7668,9 +7773,11 @@ def api_chat():
                                     print(f"  [EVAL] issues={_issues}, auto-fixed")
                                 except Exception:
                                     pass
+                            _sq = _calculate_quality_score(synth_answer, _last_query, _issues if _issues else [])
                             try:
                                 print(f"  [API AUTO-PARALLEL] done: {len(successes)} agents, "
                                       f"synthesis={_synth_reg['model']}")
+                                print(f"  [QUALITY] score={_sq['score']}, grade={_sq['grade']}")
                             except Exception:
                                 pass
                             return jsonify({
@@ -7684,6 +7791,7 @@ def api_chat():
                                 "parallel_synthesis": _synth_reg["model"],
                                 "auto_routed": auto_routed, "route_reason": route_reason,
                                 "auto_multi_agent": True,
+                                "quality": _sq,
                             })
                     except Exception as _synth_ex:
                         try:
@@ -7959,11 +8067,22 @@ def api_chat():
             else:
                 answer = f"예상치 못한 응답: {json.dumps(result, ensure_ascii=False, indent=2)}"
 
+            # 품질 점수 계산
+            _q_valid, _q_issues = _validate_response(answer, last_user_query)
+            if _q_issues:
+                answer = _fix_response_issues(answer, _q_issues)
+            _quality = _calculate_quality_score(answer, last_user_query, _q_issues)
+            try:
+                print(f"  [QUALITY] score={_quality['score']}, grade={_quality['grade']}, issues={_q_issues}")
+            except Exception:
+                pass
+
             resp_data = {
                 "content": answer,
                 "loaded_skills": loaded,
                 "system_prompt_length": len(system_prompt),
                 "model_used": model,
+                "quality": _quality,
             }
             if auto_routed:
                 resp_data["auto_routed"] = True
