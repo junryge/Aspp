@@ -22,7 +22,12 @@ import webbrowser
 import zipfile
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+# EXE 호환: PyInstaller로 빌드하면 exe 경로 사용
+if getattr(sys, 'frozen', False):
+    SCRIPT_DIR = os.path.dirname(sys.executable)
+else:
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 DEFAULT_CACHE = os.path.join(SCRIPT_DIR, "layout_cache.json")
 PORT = 8090
 
@@ -92,7 +97,10 @@ def ensure_cache():
     if os.path.exists(MAP_ZIP):
         with zipfile.ZipFile(MAP_ZIP,'r') as z: z.extractall(MAP_DIR)
         if os.path.exists(LAYOUT_XML): parse_xml_to_json(LAYOUT_XML); return
-    print("오류: layout.xml 없음"); sys.exit(1)
+    print(f"\n오류: layout_cache.json 이 없습니다!")
+    print(f"  이 폴더에 layout_cache.json을 넣으세요: {SCRIPT_DIR}")
+    input("엔터를 누르면 종료...")
+    sys.exit(1)
 
 
 # ============================================================
