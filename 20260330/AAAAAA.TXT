@@ -2215,9 +2215,11 @@ def classify_format_and_style(query, history, uploaded_files_list, skill_ids):
     debug_skills = {"debugging", "agent-debugger", "agent-error-detective"}
     writing_skills = {"scientific-writing", "literature-review", "peer-review",
                       "research-grants", "clinical-reports"}
+    knowledge_skills = {"knowledge-search", "logpresso-search"}
     has_data_skill = bool(set(skill_ids) & data_skills)
     has_debug_skill = bool(set(skill_ids) & debug_skills)
     has_writing_skill = bool(set(skill_ids) & writing_skills)
+    has_knowledge_skill = bool(set(skill_ids) & knowledge_skills)
 
     # === 출력형식 분류 ===
     fmt = "code"  # 기본값
@@ -2230,6 +2232,14 @@ def classify_format_and_style(query, history, uploaded_files_list, skill_ids):
             fmt = "code"
         else:
             fmt = "analysis"
+
+    # 도메인 지식 조회 (knowledge-search) → 코드가 아닌 설명/보고 형식
+    elif has_knowledge_skill:
+        code_explicit = any(kw in q for kw in ["코드", "코딩", "구현", "스크립트", "import", "def "])
+        if code_explicit:
+            fmt = "code"
+        else:
+            fmt = "report"
 
     # 보고서/리포트 요청
     elif any(kw in q for kw in ["보고서", "리포트", "report", "요약해줘", "요약 작성", "정리해줘",
@@ -2272,6 +2282,10 @@ def classify_format_and_style(query, history, uploaded_files_list, skill_ids):
     # 디버깅 모드
     elif fmt == "code-fix" or has_debug_skill:
         style = "에러 원인 분석 중심. traceback 해석, 재현 조건, 해결책 순서."
+
+    # 도메인 지식 조회 모드
+    elif has_knowledge_skill:
+        style = "문서 내용을 구조화하여 설명. 표(table), 필드별 설명, 핵심 요약 순서. raw 데이터는 표로 변환."
 
     # LLM 설계 모드
     elif "agent-llm-architect" in skill_ids or any(kw in q for kw in ["llm", "rag", "아키텍처", "시스템 설계"]):
@@ -3449,6 +3463,47 @@ def _fix_response_issues(answer, issues):
         fixed = re.sub(r'0{30,}', lambda m: '0' * 8 + f'... ({len(m.group())}자리 제로패딩, 생략)', fixed)
 
     return fixed
+
+
+def _sanitize_knowledge_content(content):
+    """knowledge 파일 내용을 LLM에 주입하기 전에 raw 데이터를 사전 정제.
+
+    정제 대상:
+    - 제로패딩 (000...30자+) → 요약
+    - 반복 문자 (같은 문자 50자+) → 요약
+    - 과도한 콤마구분 raw 메시지 → 필드 수 요약
+    """
+    if not content:
+        return content
+
+    # 제로패딩 30자+ → 요약
+    cleaned = re.sub(
+        r'0{30,}',
+        lambda m: '0' * 8 + f'...({len(m.group())}자리 제로패딩)',
+        content
+    )
+
+    # 같은 문자 50자+ 반복 → 요약
+    cleaned = re.sub(
+        r'(.)\1{49,}',
+        lambda m: m.group(1) * 5 + f'...({len(m.group())}자 반복)',
+        cleaned
+    )
+
+    # 한 줄에 콤마구분 필드가 20개+ 넘는 raw 메시지 라인 → 요약
+    lines = cleaned.split('\n')
+    sanitized_lines = []
+    for line in lines:
+        commas = line.count(',')
+        if commas > 20 and len(line) > 300:
+            # raw 메시지 라인 → 처음 200자 + 요약
+            sanitized_lines.append(
+                line[:200] + f'... (총 {commas+1}개 필드, {len(line)}자 → 생략)'
+            )
+        else:
+            sanitized_lines.append(line)
+
+    return '\n'.join(sanitized_lines)
 
 
 def _api_agent_call(api_info, skill_ids, skill_contents, query, hist,
@@ -6544,7 +6599,7 @@ def api_chat():
                 kb_context += f"검색어: {last_user_query}\n\n"
                 total_chars = 0
                 for r in kb_results:
-                    chunk = r['content'][:4000]
+                    chunk = _sanitize_knowledge_content(r['content'][:4000])
                     if total_chars + len(chunk) > 12000:
                         chunk = chunk[:max(0, 12000 - total_chars)]
                         if not chunk:
@@ -6552,7 +6607,10 @@ def api_chat():
                     kb_context += f"--- 📄 {r['filename']} (관련도: {r['score']}) ---\n"
                     kb_context += chunk + "\n\n"
                     total_chars += len(chunk)
-                kb_context += "위 문서를 기반으로 사용자 질문에 답변하세요. 문서에 없는 내용을 지어내지 마세요. 어떤 문서에서 정보를 찾았는지 출처를 명시하세요.\n"
+                kb_context += (
+                    "위 문서를 기반으로 사용자 질문에 답변하세요. 문서에 없는 내용을 지어내지 마세요. 어떤 문서에서 정보를 찾았는지 출처를 명시하세요.\n"
+                    "중요: 프로토콜 메시지, raw 데이터, hex/binary는 절대 그대로 복사하지 마세요. 반드시 표(table) 또는 필드별 설명으로 변환하세요.\n"
+                )
 
                 # messages에 검색 결과를 system 메시지로 추가
                 kb_system_msg = {"role": "system", "content": kb_context}
