@@ -1,137 +1,300 @@
-# Blender LLM 3D Assistant 사용법
-## SK Hynix 내부 LLM 연동 Blender 자연어 제어 애드온
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scientific Assistant V1.0 - Architecture</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;overflow-x:hidden}
+  .container{max-width:1400px;margin:0 auto;padding:40px 20px}
+  h1{text-align:center;font-size:2.2rem;font-weight:700;background:linear-gradient(135deg,#6366f1,#8b5cf6,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:8px}
+  .subtitle{text-align:center;color:#94a3b8;font-size:1rem;margin-bottom:48px}
+  .version{background:#6366f1;color:#fff;padding:2px 12px;border-radius:20px;font-size:0.75rem;font-weight:600;-webkit-text-fill-color:#fff}
 
----
+  /* Flow Diagram */
+  .flow{display:flex;flex-direction:column;align-items:center;gap:0}
+  .flow-row{display:flex;align-items:flex-start;justify-content:center;gap:24px;width:100%;flex-wrap:wrap}
+  .arrow-down{width:2px;height:36px;background:linear-gradient(180deg,#6366f1,#8b5cf6);margin:0 auto;position:relative}
+  .arrow-down::after{content:'';position:absolute;bottom:-6px;left:-5px;border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid #8b5cf6}
+  .arrow-split{display:flex;align-items:flex-start;justify-content:center;gap:0;position:relative;width:100%;padding-top:20px}
+  .arrow-split::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:2px;height:20px;background:#6366f1}
 
-## 1. 준비물
+  /* Cards */
+  .card{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:20px 24px;min-width:220px;max-width:340px;position:relative;transition:all .3s}
+  .card:hover{border-color:#6366f1;box-shadow:0 0 24px rgba(99,102,241,0.15);transform:translateY(-2px)}
+  .card-wide{max-width:600px;min-width:400px}
+  .card-full{max-width:900px;min-width:600px;width:80%}
+  .card h3{font-size:1rem;font-weight:600;color:#e2e8f0;margin-bottom:8px;display:flex;align-items:center;gap:8px}
+  .card p{font-size:0.82rem;color:#94a3b8;line-height:1.5}
+  .card .tag{display:inline-block;font-size:0.7rem;padding:2px 8px;border-radius:6px;font-weight:500;margin-right:4px;margin-top:4px}
+  .tag-blue{background:#1e3a5f;color:#60a5fa}
+  .tag-purple{background:#3b1f6e;color:#a78bfa}
+  .tag-green{background:#14532d;color:#4ade80}
+  .tag-amber{background:#451a03;color:#fbbf24}
+  .tag-red{background:#450a0a;color:#f87171}
+  .tag-cyan{background:#083344;color:#22d3ee}
 
-- **Blender 3.6+** (회사 PC에 설치)
-- **token.txt** (내부 LLM API 인증 토큰 파일)
-- **blender_hynix_llm.py** (이 애드온 파일)
+  .badge{position:absolute;top:-10px;right:16px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-size:0.65rem;padding:2px 10px;border-radius:10px;font-weight:600}
 
----
+  /* Agent Group */
+  .agents-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:12px}
+  .agent-box{background:#0f172a;border:1px solid #334155;border-radius:10px;padding:12px;text-align:center}
+  .agent-box h4{font-size:0.82rem;color:#c4b5fd;margin-bottom:4px}
+  .agent-box p{font-size:0.72rem;color:#64748b}
+  .agent-box .model{font-size:0.7rem;color:#6366f1;font-weight:600;margin-top:6px}
 
-## 2. 설치 (1분)
+  /* Section Title */
+  .section-title{text-align:center;font-size:0.8rem;color:#64748b;text-transform:uppercase;letter-spacing:2px;margin:32px 0 16px;font-weight:600}
 
-### Step 1: token.txt 준비
-기존에 쓰던 token.txt를 알기 쉬운 경로에 복사:
-```
-C:\token.txt
-```
-또는 원하는 경로 아무 데나 OK.
+  /* Connector lines for parallel */
+  .parallel-box{background:#1e293b;border:2px dashed #4338ca;border-radius:20px;padding:24px;width:90%;max-width:1100px}
+  .parallel-header{text-align:center;font-size:0.85rem;color:#a78bfa;font-weight:600;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:8px}
+  .parallel-header::before,.parallel-header::after{content:'';flex:1;height:1px;background:#4338ca}
 
-### Step 2: Blender에 스크립트 로드
-1. Blender 실행
-2. 상단 메뉴 → **Scripting** 워크스페이스 탭 클릭
-3. **열기(Open)** → `blender_hynix_llm.py` 선택
-4. **Alt + P** (또는 ▶ 실행 버튼) 눌러서 스크립트 실행
+  /* Legend */
+  .legend{display:flex;justify-content:center;gap:24px;margin-top:48px;flex-wrap:wrap}
+  .legend-item{display:flex;align-items:center;gap:6px;font-size:0.78rem;color:#94a3b8}
+  .legend-dot{width:10px;height:10px;border-radius:50%}
 
-### Step 3: 패널 확인
-1. **3D Viewport**로 돌아가기 (Layout 탭)
-2. **N키** 눌러서 사이드바 열기
-3. **"LLM Assistant"** 탭 확인
+  /* Stats */
+  .stats{display:flex;justify-content:center;gap:40px;margin:40px 0;flex-wrap:wrap}
+  .stat{text-align:center}
+  .stat .num{font-size:2rem;font-weight:700;background:linear-gradient(135deg,#6366f1,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .stat .label{font-size:0.78rem;color:#64748b;margin-top:4px}
 
----
+  @media(max-width:768px){
+    .card-wide,.card-full{min-width:90%;max-width:95%}
+    .parallel-box{width:95%;padding:16px}
+    .agents-grid{grid-template-columns:1fr}
+    .flow-row{flex-direction:column;align-items:center}
+    h1{font-size:1.5rem}
+  }
+</style>
+</head>
+<body>
+<div class="container">
 
-## 3. 설정
+  <h1>Scientific Assistant <span class="version">V1.0</span></h1>
+  <p class="subtitle">Multi-Agent Orchestration Architecture</p>
 
-패널 상단 "설정" 영역:
+  <!-- Stats -->
+  <div class="stats">
+    <div class="stat"><div class="num">355+</div><div class="label">Skills</div></div>
+    <div class="stat"><div class="num">7</div><div class="label">Agent Groups</div></div>
+    <div class="stat"><div class="num">12</div><div class="label">API Models</div></div>
+    <div class="stat"><div class="num">4</div><div class="label">Max Parallel Agents</div></div>
+  </div>
 
-| 항목 | 기본값 | 설명 |
-|------|--------|------|
-| API Base | `http://dev.hcp.llm.skhynix.com` | 변경 불필요 |
-| Token 경로 | `C:/token.txt` | 본인 token.txt 경로 |
-| 모델 | `Qwen3-Coder-Next` | 코딩 특화 모델 |
+  <div class="flow">
 
-**"모델 목록 새로고침"** 버튼 → 서버 모델 조회 + 자동으로 Coder 모델 선택됨.
-(전체 목록은 Blender 콘솔창에서 확인: 상단 Window → Toggle System Console)
+    <!-- 1. User Input -->
+    <div class="section-title">User Input</div>
+    <div class="flow-row">
+      <div class="card card-wide">
+        <h3>🌐 Flask Web App</h3>
+        <p>사용자 질문, 스킬 선택, 파일 업로드 (CSV/코드/이미지), 모델 환경 선택</p>
+        <div style="margin-top:8px">
+          <span class="tag tag-blue">port 10009</span>
+          <span class="tag tag-purple">355+ Skills</span>
+          <span class="tag tag-green">CSV/File Upload</span>
+        </div>
+      </div>
+    </div>
 
----
+    <div class="arrow-down"></div>
 
-## 4. 사용법
+    <!-- 2. Auto Router -->
+    <div class="section-title">Routing Layer</div>
+    <div class="flow-row">
+      <div class="card">
+        <div class="badge">AUTO</div>
+        <h3>🧭 classify_and_route()</h3>
+        <p>쿼리 복잡도, 이미지 유무, 데이터 분석 여부에 따라 최적 모델 자동 선택</p>
+        <div style="margin-top:8px">
+          <span class="tag tag-amber">Vision &rarr; VL Models</span>
+          <span class="tag tag-purple">Complex &rarr; 397B</span>
+          <span class="tag tag-blue">Simple &rarr; GLM-5</span>
+        </div>
+      </div>
+      <div class="card">
+        <h3>🔀 group_skills_for_parallel()</h3>
+        <p>로드된 스킬을 7개 그룹으로 분류, 2+ 그룹이면 병렬 실행 트리거</p>
+        <div style="margin-top:8px">
+          <span class="tag tag-green">Scientific</span>
+          <span class="tag tag-blue">Code</span>
+          <span class="tag tag-purple">Data</span>
+          <span class="tag tag-amber">Infra</span>
+          <span class="tag tag-cyan">Writing</span>
+          <span class="tag tag-red">AI/Biz</span>
+        </div>
+      </div>
+      <div class="card">
+        <h3>📐 classify_format_and_style()</h3>
+        <p>출력 형식(code/report/analysis/step-by-step) 및 작성 스타일 자동 결정</p>
+      </div>
+    </div>
 
-### 기본 흐름
-1. **"자연어 명령"** 칸에 한국어로 입력
-2. **"실행"** 클릭
-3. 기다리면 3D 뷰포트에 결과 나옴
+    <div class="arrow-down"></div>
 
-### 잘 되는 명령 예시 (구체적으로!)
+    <!-- 3. Execution Decision -->
+    <div class="section-title">Execution Decision</div>
+    <div class="flow-row">
+      <div class="card" style="border-color:#22c55e">
+        <h3>1️⃣ Single Model</h3>
+        <p>스킬 1개 또는 동일 그룹 &rarr; 단일 모델에 오케스트레이션 프롬프트 주입</p>
+        <span class="tag tag-green">Low Latency</span>
+      </div>
+      <div class="card" style="border-color:#6366f1">
+        <div class="badge">NEW V1.0</div>
+        <h3>🔄 API Auto Multi-Agent</h3>
+        <p>AUTO 모드 + 2+그룹 &rarr; 그룹별 다른 API 모델 배정 &rarr; 병렬 실행</p>
+        <span class="tag tag-purple">ThreadPoolExecutor</span>
+      </div>
+      <div class="card" style="border-color:#f59e0b">
+        <h3>🖥️ GGUF Parallel</h3>
+        <p>로컬 GGUF 모델 2+개 &rarr; 모델 풀에서 할당 &rarr; 병렬 추론</p>
+        <span class="tag tag-amber">VRAM Pool</span>
+      </div>
+    </div>
 
-```
-빨간 큐브 만들어줘
-```
-```
-파란 구 5개를 x축으로 간격 3으로 배치해줘
-```
-```
-선택된 오브젝트 색을 노란색으로 바꿔줘
-```
-```
-모든 오브젝트 삭제해줘
-```
-```
-원형으로 실린더 12개 배치해줘 반지름 10
-```
-```
-선택된 오브젝트에 메탈 재질 적용해줘 roughness 0.2
-```
-```
-큐브로 계단 모양 10단 만들어줘
-```
-```
-격자 형태로 큐브 100개 만들어줘 랜덤 색상 랜덤 크기
-```
+    <div class="arrow-down"></div>
 
-### 안 되는 명령 (너무 추상적)
+    <!-- 4. Parallel Agents -->
+    <div class="section-title">Parallel Agent Execution</div>
+    <div class="parallel-box">
+      <div class="parallel-header">ThreadPoolExecutor (max 4 workers)</div>
+      <div class="agents-grid">
+        <div class="agent-box">
+          <h4>🔬 Scientific Agent</h4>
+          <p>생물정보학, 화학정보학, 물리, 임상</p>
+          <div class="model">Qwen3.5-397B</div>
+          <span class="tag tag-green" style="font-size:0.65rem">preferred: large</span>
+        </div>
+        <div class="agent-box">
+          <h4>📊 Data Analysis Agent</h4>
+          <p>ML, 통계, 시각화, 시계열</p>
+          <div class="model">GLM-5</div>
+          <span class="tag tag-blue" style="font-size:0.65rem">preferred: medium</span>
+        </div>
+        <div class="agent-box">
+          <h4>💻 Code Agent</h4>
+          <p>개발, 디버깅, 리팩토링, DevOps</p>
+          <div class="model">gpt-oss-120B</div>
+          <span class="tag tag-blue" style="font-size:0.65rem">preferred: medium</span>
+        </div>
+        <div class="agent-box">
+          <h4>🏗️ Infrastructure Agent</h4>
+          <p>클라우드, K8s, 네트워크, 보안</p>
+          <div class="model">GLM-4.7</div>
+          <span class="tag tag-amber" style="font-size:0.65rem">preferred: small</span>
+        </div>
+        <div class="agent-box">
+          <h4>📝 Writing Agent</h4>
+          <p>논문, 문서, 슬라이드, 인포그래픽</p>
+          <div class="model">Coder-Next</div>
+          <span class="tag tag-cyan" style="font-size:0.65rem">preferred: medium</span>
+        </div>
+        <div class="agent-box">
+          <h4>🧠 AI/Business Agent</h4>
+          <p>LLM 아키텍처, 프롬프트, 비즈니스</p>
+          <div class="model">GLM-4.7-FP8</div>
+          <span class="tag tag-red" style="font-size:0.65rem">preferred: small</span>
+        </div>
+      </div>
+    </div>
 
-```
-❌ 예쁜 집 만들어줘
-❌ 캐릭터 모델링 해줘
-❌ 멋있게 꾸며줘
-```
+    <div class="arrow-down"></div>
 
-### 핵심 팁: 구체적으로 말하기
+    <!-- 5. Synthesis -->
+    <div class="section-title">Response Synthesis</div>
+    <div class="flow-row">
+      <div class="card card-wide" style="border-color:#8b5cf6">
+        <h3>🧬 Synthesis (CEO Model)</h3>
+        <p>가장 큰 모델(397B)이 모든 전문가 응답을 통합. 중복 제거, 코드 합병, 한국어 통일.</p>
+        <div style="margin-top:8px">
+          <span class="tag tag-purple">Model Synthesis</span>
+          <span class="tag tag-amber">Fallback: Concat</span>
+          <span class="tag tag-green">Single Response</span>
+        </div>
+      </div>
+    </div>
 
-| 나쁜 예 | 좋은 예 |
-|---------|---------|
-| 집 만들어줘 | 큐브로 벽 4개, 위에 피라미드 지붕 올려줘 |
-| 도시 만들어줘 | 랜덤 높이 큐브 20개를 격자로 배치해줘 |
-| 예쁘게 해줘 | 오브젝트 색을 파란색으로, roughness 0.1로 |
+    <div class="arrow-down"></div>
 
----
+    <!-- 6. Response -->
+    <div class="section-title">Response</div>
+    <div class="flow-row">
+      <div class="card card-full" style="border-color:#22d3ee">
+        <h3>📤 Unified Response + Metadata</h3>
+        <p>통합된 답변과 함께 병렬 실행 메타데이터를 프론트엔드에 전달</p>
+        <div style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px">
+          <div style="background:#0f172a;padding:8px;border-radius:8px;font-size:0.75rem">
+            <span style="color:#64748b">parallel_agents:</span> <span style="color:#4ade80">3</span>
+          </div>
+          <div style="background:#0f172a;padding:8px;border-radius:8px;font-size:0.75rem">
+            <span style="color:#64748b">parallel_groups:</span> <span style="color:#a78bfa">["scientific","code","data"]</span>
+          </div>
+          <div style="background:#0f172a;padding:8px;border-radius:8px;font-size:0.75rem">
+            <span style="color:#64748b">auto_multi_agent:</span> <span style="color:#fbbf24">true</span>
+          </div>
+          <div style="background:#0f172a;padding:8px;border-radius:8px;font-size:0.75rem">
+            <span style="color:#64748b">parallel_synthesis:</span> <span style="color:#60a5fa">Qwen3.5-397B</span>
+          </div>
+        </div>
+      </div>
+    </div>
 
-## 5. 에러 발생 시
+  </div><!-- /flow -->
 
-- **"API 실패: 연결 실패"** → token.txt 경로 확인, 사내망 연결 확인
-- **"코드 추출 실패"** → 프롬프트를 더 구체적으로 다시 시도
-- **"문법 에러"** → 자동으로 3회 재시도함. 그래도 안 되면 다르게 표현
-- **콘솔 확인**: Window → Toggle System Console에서 상세 로그 확인 가능
+  <!-- Model Tiers -->
+  <div class="section-title" style="margin-top:56px">API Model Tiers</div>
+  <div class="flow-row" style="justify-content:center;gap:16px;flex-wrap:wrap;margin-bottom:32px">
+    <div class="card" style="min-width:260px">
+      <h3 style="color:#f87171">Large Tier</h3>
+      <p>Qwen3.5-397B<br>Qwen3-Coder-480B<br>Qwen3-235B<br>Qwen3.5-397B-FP8</p>
+      <span class="tag tag-red" style="margin-top:8px">cost: high</span>
+    </div>
+    <div class="card" style="min-width:260px">
+      <h3 style="color:#60a5fa">Medium Tier</h3>
+      <p>GLM-5<br>gpt-oss-120B<br>Coder-Next</p>
+      <span class="tag tag-blue" style="margin-top:8px">cost: medium</span>
+    </div>
+    <div class="card" style="min-width:260px">
+      <h3 style="color:#4ade80">Small Tier</h3>
+      <p>GLM-4.7<br>GLM-4.7-FP8<br>Qwen3.5-35B</p>
+      <span class="tag tag-green" style="margin-top:8px">cost: low</span>
+    </div>
+  </div>
 
----
+  <!-- Fallback Chain -->
+  <div class="section-title">Fallback Strategy</div>
+  <div style="display:flex;justify-content:center;margin-bottom:40px">
+    <div class="card card-full">
+      <h3>🔗 Fallback Chain</h3>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px;font-size:0.8rem">
+        <span style="background:#3b1f6e;color:#a78bfa;padding:4px 12px;border-radius:8px">All Agents OK</span>
+        <span style="color:#64748b">&rarr;</span>
+        <span style="background:#1e3a5f;color:#60a5fa;padding:4px 12px;border-radius:8px">Synthesis Model</span>
+        <span style="color:#64748b">&rarr;</span>
+        <span style="background:#451a03;color:#fbbf24;padding:4px 12px;border-radius:8px">Synthesis Fail &rarr; Concat</span>
+        <span style="color:#64748b">&rarr;</span>
+        <span style="background:#450a0a;color:#f87171;padding:4px 12px;border-radius:8px">All Fail &rarr; Single Model</span>
+        <span style="color:#64748b">&rarr;</span>
+        <span style="background:#083344;color:#22d3ee;padding:4px 12px;border-radius:8px">Fallback Chain (6 models)</span>
+      </div>
+    </div>
+  </div>
 
-## 6. 구조
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#6366f1"></div>Core Flow</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#22c55e"></div>Single Model Path</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div>GGUF Local Path</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#8b5cf6"></div>API Multi-Agent (V1.0)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#22d3ee"></div>Response</div>
+  </div>
 
-```
-너 (한국어 자연어)
-    ↓
-Blender 애드온 (이 스크립트)
-    ↓ HTTP POST /v1/chat/completions
-내부 LLM (Qwen3-Coder-Next)
-    ↓ bpy Python 코드 응답
-코드 추출 + 안전성 검사 + 문법 검증
-    ↓
-exec() 실행 → Blender 3D 뷰포트에 반영
-    ↓ (에러 시)
-에러 메시지로 LLM에 수정 요청 (최대 3회)
-```
-
----
-
-## 7. 추천 모델 (용도별)
-
-| 모델 | 용도 |
-|------|------|
-| **Qwen3-Coder-Next** | bpy 코드 생성 (기본 추천) |
-| Qwen3-Coder-480B-A35B-Instruct | 복잡한 코드 (느릴 수 있음) |
-| Qwen3.5-35B-A3B | 가볍고 빠름 (간단한 작업) |
-| Qwen3-235B-A22B-Instruct-2507 | 범용 (코딩+설명) |
+</div>
+</body>
+</html>
