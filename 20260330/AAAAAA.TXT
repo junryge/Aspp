@@ -1,5 +1,5 @@
 """
-Scientific Assistant V1.0 - Flask 웹앱
+Demos V1.0 - Flask 웹앱
 =====================================================
 cla-main + zircote/.claude 통합: 355개 스킬 (과학 174 + 개발도구 52 + 에이전트 117 + 가이드 12)
 
@@ -52,18 +52,35 @@ app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB 제한
 gguf_model = None  # Llama 인스턴스 (하위호환: 단일스킬 경로)
 gguf_loaded_path = None  # 현재 로드된 모델 파일 경로
 
-# GGUF 멀티모델 풀 (병렬 에이전트용)
-MAX_POOL_SIZE = int(os.getenv("GGUF_MAX_POOL_SIZE", "4"))
-VRAM_BUDGET_GB = float(os.getenv("GGUF_VRAM_BUDGET_GB", "14"))
+# ============================================
+# 외부 설정 파일 로드 (api_config.json)
+# ============================================
+_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "api_config.json")
+_EXT_CONFIG = {}
+if os.path.isfile(_CONFIG_PATH):
+    try:
+        with open(_CONFIG_PATH, "r", encoding="utf-8") as _cf:
+            _EXT_CONFIG = json.load(_cf)
+        print(f"[CONFIG] api_config.json 로드 완료 ({len(_EXT_CONFIG.get('models', {}))}개 모델)")
+    except Exception as _cfg_err:
+        print(f"[CONFIG] api_config.json 로드 실패, 기본값 사용: {_cfg_err}")
+else:
+    print("[CONFIG] api_config.json 없음, 기본값 사용")
 
-# ── 토큰/컨텍스트 설정 (프론트엔드에서 변경 가능) ──
+# GGUF 멀티모델 풀 (병렬 에이전트용)
+_gguf_cfg = _EXT_CONFIG.get("gguf", {})
+MAX_POOL_SIZE = int(os.getenv("GGUF_MAX_POOL_SIZE", str(_gguf_cfg.get("max_pool_size", 4))))
+VRAM_BUDGET_GB = float(os.getenv("GGUF_VRAM_BUDGET_GB", str(_gguf_cfg.get("vram_budget_gb", 14))))
+
+# ── 토큰/컨텍스트 설정 (api_config.json > 환경변수 > 기본값) ──
+_token_cfg = _EXT_CONFIG.get("token_settings", {})
 TOKEN_SETTINGS = {
-    "agent_max_tokens": int(os.getenv("AGENT_MAX_TOKENS", "8192")),       # 개별 에이전트 응답 토큰
-    "synth_max_tokens": int(os.getenv("SYNTH_MAX_TOKENS", "16384")),      # CEO 합성 보고서 토큰
-    "default_n_ctx": int(os.getenv("DEFAULT_N_CTX", "32768")),            # GGUF 기본 컨텍스트 윈도우
-    "gguf_reply_cap": int(os.getenv("GGUF_MAX_TOKENS_CAP", "16384")),     # GGUF 응답 상한
-    "gguf_ctx_reserve": int(os.getenv("GGUF_CONTEXT_RESERVE", "1536")),   # 컨텍스트 예약 공간
-    "parallel_agent_max_tokens": int(os.getenv("PARALLEL_AGENT_MAX_TOKENS", "4096")),  # 병렬 에이전트 토큰
+    "agent_max_tokens": int(os.getenv("AGENT_MAX_TOKENS", str(_token_cfg.get("agent_max_tokens", 8192)))),
+    "synth_max_tokens": int(os.getenv("SYNTH_MAX_TOKENS", str(_token_cfg.get("synth_max_tokens", 16384)))),
+    "default_n_ctx": int(os.getenv("DEFAULT_N_CTX", str(_token_cfg.get("default_n_ctx", 32768)))),
+    "gguf_reply_cap": int(os.getenv("GGUF_MAX_TOKENS_CAP", str(_token_cfg.get("gguf_reply_cap", 16384)))),
+    "gguf_ctx_reserve": int(os.getenv("GGUF_CONTEXT_RESERVE", str(_token_cfg.get("gguf_ctx_reserve", 1536)))),
+    "parallel_agent_max_tokens": int(os.getenv("PARALLEL_AGENT_MAX_TOKENS", str(_token_cfg.get("parallel_agent_max_tokens", 4096)))),
 }
 _gguf_pool_lock = threading.Lock()
 _gguf_pool = []  # [{"model": Llama, "path": str, "size_gb": float, "n_ctx": int, "in_use": bool, "last_used": float}]
@@ -85,12 +102,13 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # ============================================
 # 로그프레소 (Logpresso) 직접 조회 설정
 # ============================================
-LOGPRESSO_HOST = "10.40.42.27"
-LOGPRESSO_PORT = 8888
-LOGPRESSO_API_KEY = "db1d2335-49cf-e859-3519-1ca132922e38"
-LOGPRESSO_PAGE_SIZE = 50
-LOGPRESSO_CACHE_TTL = 600  # 10분
-LOGPRESSO_CACHE_MAX = 20
+_lp_cfg = _EXT_CONFIG.get("logpresso", {})
+LOGPRESSO_HOST = _lp_cfg.get("host", "10.40.42.27")
+LOGPRESSO_PORT = _lp_cfg.get("port", 8888)
+LOGPRESSO_API_KEY = _lp_cfg.get("api_key", "db1d2335-49cf-e859-3519-1ca132922e38")
+LOGPRESSO_PAGE_SIZE = _lp_cfg.get("page_size", 50)
+LOGPRESSO_CACHE_TTL = _lp_cfg.get("cache_ttl", 600)
+LOGPRESSO_CACHE_MAX = _lp_cfg.get("cache_max", 20)
 
 # 알려진 테이블 메타데이터
 LOGPRESSO_TABLES = {
@@ -346,8 +364,22 @@ TOKEN_FILE = os.path.join(BASE_DIR, "TOKEN.TXT")
 PROMPTS_DIR = os.path.join(BASE_DIR, "saved-prompts")
 os.makedirs(PROMPTS_DIR, exist_ok=True)
 
-# 멀티에이전트 모델 레지스트리 (capability 태그 기반 자동 라우팅)
-MODEL_REGISTRY = {
+# 멀티에이전트 모델 레지스트리 (api_config.json에서 로드, 없으면 기본값)
+def _build_model_registry_from_config(config_models):
+    """JSON config의 models → Python MODEL_REGISTRY로 변환 (capabilities: list→set)."""
+    registry = {}
+    for key, info in config_models.items():
+        entry = dict(info)
+        if "capabilities" in entry and isinstance(entry["capabilities"], list):
+            entry["capabilities"] = set(entry["capabilities"])
+        registry[key] = entry
+    return registry
+
+if _EXT_CONFIG.get("models"):
+    MODEL_REGISTRY = _build_model_registry_from_config(_EXT_CONFIG["models"])
+else:
+    # 기본값 (api_config.json이 없을 때)
+    MODEL_REGISTRY = {
     "glm-4.7": {
         "env_id": "dev-legacy",
         "model": "GLM-4.7",
@@ -490,29 +522,26 @@ MODEL_REGISTRY = {
     },
 }
 
-# API 모델 크기 티어: preferred_model_size → registry keys (성능 내림차순)
-# 병렬 에이전트 그룹에 모델 배정 시 사용 (Vision/Reranker 제외)
-API_MODEL_TIERS = {
+# API 모델 크기 티어 (api_config.json > 기본값)
+API_MODEL_TIERS = _EXT_CONFIG.get("api_model_tiers", {
     "large": ["qwen3.5-397b", "qwen3-coder-480b", "qwen3-235b-2507", "qwen3.5-397b-fp8"],
     "medium": ["glm-5", "gpt-oss-120b", "qwen3-coder-next"],
     "small": ["glm-4.7", "glm-4.7-fp8", "qwen3.5-35b"],
-}
+})
 
 # MODEL_REGISTRY에서 ENV_CONFIG 자동 생성 (하위 호환)
 ENV_CONFIG = {
     v["env_id"]: {"url": v["url"], "model": v["model"], "name": v["name"]}
     for v in MODEL_REGISTRY.values()
-    if "rerank" not in v["capabilities"]
+    if "rerank" not in v.get("capabilities", set())
 }
 # gguf-N 환경은 앱 시작 시 .gguf 파일 자동 감지되면 추가됨
 
 # env_id → registry key 역매핑
 ENV_TO_REGISTRY = {v["env_id"]: k for k, v in MODEL_REGISTRY.items()}
 
-# 폴백 체인: 모델 실패 시 성능 높은 순서대로 시도
-# 성능 순서: 397B > Coder-480B > 235B > GLM-5 > 120B > Coder-Next > GLM-4.7/FP8 > 397B-FP8 > 35B
-FALLBACK_CHAINS = {
-    # ── 텍스트/코드 모델 (성능 내림차순) ──
+# 폴백 체인 (api_config.json > 기본값)
+FALLBACK_CHAINS = _EXT_CONFIG.get("fallback_chains", {
     "qwen3.5-397b":      ["qwen3-coder-480b", "qwen3-235b-2507", "glm-5", "gpt-oss-120b", "qwen3-coder-next", "glm-4.7", "glm-4.7-fp8", "qwen3.5-397b-fp8", "qwen3.5-35b"],
     "qwen3-coder-480b":  ["qwen3.5-397b", "qwen3-235b-2507", "glm-5", "gpt-oss-120b", "qwen3-coder-next", "glm-4.7", "qwen3.5-35b"],
     "qwen3-235b-2507":   ["qwen3.5-397b", "qwen3-coder-480b", "glm-5", "gpt-oss-120b", "qwen3-coder-next", "glm-4.7", "qwen3.5-35b"],
@@ -523,11 +552,10 @@ FALLBACK_CHAINS = {
     "glm-4.7-fp8":       ["glm-5", "glm-4.7", "qwen3.5-397b", "qwen3-coder-480b", "qwen3-235b-2507", "gpt-oss-120b", "qwen3.5-35b"],
     "qwen3.5-397b-fp8":  ["qwen3.5-397b", "qwen3-coder-480b", "qwen3-235b-2507", "glm-5", "gpt-oss-120b", "glm-4.7", "qwen3.5-35b"],
     "qwen3.5-35b":       ["glm-5", "gpt-oss-120b", "qwen3-coder-next", "glm-4.7", "qwen3.5-397b", "qwen3-coder-480b", "qwen3-235b-2507"],
-    # ── Vision 모델 (Vision 우선 → 텍스트 폴백, 성능 내림차순) ──
     "qwen3-vl-235b":     ["qwen2.5-vl-72b", "qwen3-vl-30b", "qwen3.5-397b", "qwen3-coder-480b", "glm-5", "gpt-oss-120b"],
     "qwen2.5-vl-72b":    ["qwen3-vl-235b", "qwen3-vl-30b", "qwen3.5-397b", "glm-5", "gpt-oss-120b"],
     "qwen3-vl-30b":      ["qwen2.5-vl-72b", "qwen3-vl-235b", "glm-5", "gpt-oss-120b", "qwen3.5-35b"],
-}
+})
 
 # Reranker 기능 플래그 (bge-reranker 엔드포인트 안정화 후 활성화)
 RERANKER_ENABLED = False
@@ -6594,7 +6622,7 @@ def api_chat():
     else:
         think_rule = "- <think> 태그를 사용하지 마세요. 사고 과정 없이 바로 답변하세요."
 
-    default_prompt = f"""당신은 Scientific Assistant V1.0 - 과학 연구와 소프트웨어 개발을 돕는 전문 AI 어시스턴트입니다.
+    default_prompt = f"""당신은 Demos V1.0 - 과학 연구와 소프트웨어 개발을 돕는 전문 AI 어시스턴트입니다.
 370개+ 전문 스킬(과학/개발/AI/인프라/비즈니스)을 활용할 수 있습니다.
 
 [기본 규칙]
@@ -7903,7 +7931,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Scientific Assistant V1.0</title>
+<title>Demos V1.0</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -8360,7 +8388,7 @@ body.rp-collapsed .chat-box-fixed{right:0}
 <div class="sidebar" id="sidebar">
   <button class="sidebar-toggle-mini" onclick="toggleSidebar()" title="펼치기">☰</button>
   <div class="sidebar-inner">
-    <div class="sidebar-logo"><span>S</span>ci-Assistant <span style="font-size:12px;color:#999">V1.0</span></div>
+    <div class="sidebar-logo"><span>D</span>emos <span style="font-size:12px;color:#999">V1.0</span></div>
     <div style="display:flex;gap:4px;margin-bottom:4px;">
       <button class="sidebar-btn active" onclick="createNewSession()" style="flex:1">✨ 새 세션</button>
       <button class="sidebar-btn" onclick="selectAllSessions()" style="flex:0;padding:6px 10px;font-size:11px;" title="전체 선택">☑</button>
@@ -8376,7 +8404,7 @@ body.rp-collapsed .chat-box-fixed{right:0}
   </div>
   <div id="fileListPanel" class="sidebar-file-panel" style="display:none"></div>
   <div class="sidebar-footer">
-    <div class="credits">🔬 Scientific Assistant V1.0</div>
+    <div class="credits">🔬 Demos V1.0</div>
   </div>
   </div>
 </div>
@@ -8457,7 +8485,7 @@ body.rp-collapsed .chat-box-fixed{right:0}
 
 <div class="main">
   <div class="header">
-    <div class="project-title">📁 Scientific Assistant V1.0 <span style="font-size:12px;color:#6366f1;background:#eef2ff;padding:2px 10px;border-radius:10px;margin-left:8px;font-weight:500;">Opus SKILL 4.6 사용중</span><button onclick="toggleMainTokenSettings()" style="font-size:12px;color:#6366f1;background:#eef2ff;border:1px solid #c7d2fe;padding:2px 10px;border-radius:10px;margin-left:6px;cursor:pointer;font-weight:500;" title="토큰/컨텍스트 설정">⚙️ 토큰 설정</button><span style="font-size:11px;color:#9ca3af;margin-left:6px;">2달에 한번 스킬 업데이트 | 사용을 많이 해줄수록 기능이 업데이트 됩니다</span></div>
+    <div class="project-title">📁 Demos V1.0 <span style="font-size:12px;color:#6366f1;background:#eef2ff;padding:2px 10px;border-radius:10px;margin-left:8px;font-weight:500;">Opus SKILL 4.6 사용중</span><button onclick="toggleMainTokenSettings()" style="font-size:12px;color:#6366f1;background:#eef2ff;border:1px solid #c7d2fe;padding:2px 10px;border-radius:10px;margin-left:6px;cursor:pointer;font-weight:500;" title="토큰/컨텍스트 설정">⚙️ 토큰 설정</button><span style="font-size:11px;color:#9ca3af;margin-left:6px;">2달에 한번 스킬 업데이트 | 사용을 많이 해줄수록 기능이 업데이트 됩니다</span></div>
     <div style="display:flex;align-items:center;gap:8px;">
       <span id="tokenBadge" class="status off">⏳ 로딩중...</span>
       <button onclick="openHarnessSessionTab()" style="font-size:12px;color:#6366f1;background:#eef2ff;border:1px solid #c7d2fe;padding:4px 12px;border-radius:8px;cursor:pointer;font-weight:500;">💾 저장 세션</button>
@@ -10020,7 +10048,7 @@ function addMsg(role,text,rawForDetect){
   const d=document.createElement('div');
   d.className='msg '+role;
   let html = role==='user' ? text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : renderMd(text);
-  d.innerHTML=`<div class="msg-label">${role==='user'?'나':'AI'}</div>${html}`;
+  d.innerHTML=`<div class="msg-label">${role==='user'?'나':'Demos'}</div>${html}`;
   c.appendChild(d);
   d.querySelectorAll('pre').forEach(pre=>{
     const btn=document.createElement('button');
@@ -13092,7 +13120,7 @@ if __name__ == "__main__":
         os.environ.setdefault("TERM", "dumb")
 
     print("=" * 50)
-    print("  Scientific Assistant V1.0")
+    print("  Demos V1.0")
     print("=" * 50)
 
     # 스킬 폴더 확인
