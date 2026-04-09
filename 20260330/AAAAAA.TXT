@@ -1263,6 +1263,96 @@ def group_skills_for_parallel(skill_ids):
 
 
 # ============================================
+# 계층적 위임 (Hierarchical Delegation)
+# ============================================
+HIERARCHICAL_THRESHOLD = 5  # 그룹 내 스킬 N개 이상이면 리드→스페셜리스트 분할
+
+def _split_large_group(group):
+    """스킬 5개 이상인 그룹을 서브그룹으로 분할 (리드-스페셜리스트 패턴).
+
+    Returns:
+        list[dict]: 분할된 서브그룹 목록
+            [{"group": "scientific/bio", "skills": [...], "preferred_model_size": "large", "parent_group": "scientific"}]
+        또는 분할 불필요 시 [group] 그대로 반환.
+    """
+    skills = group["skills"]
+    if len(skills) < HIERARCHICAL_THRESHOLD:
+        return [group]
+
+    # 스킬을 SKILL_GROUPS 내 세부 카테고리별로 분류
+    sub_map = {}
+    gname = group["group"]
+    ginfo = SKILL_GROUPS.get(gname, {})
+    all_skills_in_group = ginfo.get("skills", set())
+
+    for sid in skills:
+        # 스킬 이름의 접두사로 서브카테고리 추론
+        # 예: agent-python-pro → agent, biopython → bio, matplotlib → viz
+        prefix = sid.split("-")[0] if "-" in sid else sid[:4]
+        if prefix not in sub_map:
+            sub_map[prefix] = []
+        sub_map[prefix].append(sid)
+
+    # 서브그룹이 2개 이상이면 분할, 아니면 그대로
+    if len(sub_map) < 2:
+        return [group]
+
+    # 너무 작은 서브그룹(1개)은 가장 큰 서브그룹에 병합
+    sub_groups = sorted(sub_map.items(), key=lambda x: len(x[1]), reverse=True)
+    result = []
+    tiny_skills = []
+    for prefix, sids in sub_groups:
+        if len(sids) >= 2:
+            result.append({
+                "group": f"{gname}/{prefix}",
+                "skills": sids,
+                "preferred_model_size": group["preferred_model_size"],
+                "parent_group": gname,
+            })
+        else:
+            tiny_skills.extend(sids)
+
+    # 잔여 스킬을 첫 번째 서브그룹에 추가
+    if tiny_skills:
+        if result:
+            result[0]["skills"].extend(tiny_skills)
+        else:
+            return [group]  # 분할 의미 없음
+
+    # MAX_POOL_SIZE 고려: 서브그룹이 너무 많으면 상위 3개만
+    if len(result) > 3:
+        overflow_skills = []
+        for sg in result[3:]:
+            overflow_skills.extend(sg["skills"])
+        result = result[:3]
+        result[0]["skills"].extend(overflow_skills)
+
+    return result
+
+
+def apply_hierarchical_delegation(parallel_groups):
+    """큰 그룹을 리드-스페셜리스트 패턴으로 분할.
+
+    Returns:
+        list[dict]: 분할 적용된 그룹 목록 (원래 그룹 + 분할된 서브그룹)
+    """
+    expanded = []
+    for pg in parallel_groups:
+        sub_groups = _split_large_group(pg)
+        expanded.extend(sub_groups)
+
+    # MAX_POOL_SIZE 제한 적용
+    if len(expanded) > MAX_POOL_SIZE:
+        expanded.sort(key=lambda g: len(g["skills"]), reverse=True)
+        overflow = expanded[MAX_POOL_SIZE:]
+        for og in overflow:
+            expanded[0]["skills"].extend(og["skills"])
+        expanded = expanded[:MAX_POOL_SIZE]
+
+    return expanded
+
+
+# ============================================
 # 스킬 파일 읽기
 # ============================================
 def scan_skills():
@@ -2697,6 +2787,58 @@ def _assign_api_models_to_groups(parallel_groups, primary_reg_key=None):
     return assignments
 
 
+def _extract_skill_context(content, max_chars=800):
+    """SKILL.md 전체 텍스트에서 구조화된 요약만 추출 (토큰 90% 절약).
+
+    추출 항목:
+    1. YAML frontmatter (name, description)
+    2. H2/H3 섹션 제목 목록 (능력 파악용)
+    3. 핵심 코드 패턴 (첫 2개 코드블록만)
+
+    Returns:
+        str: 구조화된 요약 (약 200~800자)
+    """
+    if not content:
+        return ""
+
+    parts = []
+
+    # 1) YAML frontmatter 추출
+    fm_match = re.match(r'^---\s*\n(.*?)\n---', content, re.DOTALL)
+    if fm_match:
+        fm_text = fm_match.group(1).strip()
+        # name, description만 추출
+        for line in fm_text.split("\n"):
+            line = line.strip()
+            if line.startswith("name:") or line.startswith("description:"):
+                parts.append(line)
+            elif parts and not line.startswith(("-", " ")) is False and line:
+                # multiline description 이어붙이기
+                if not any(line.startswith(k) for k in ("name:", "description:", "---")):
+                    parts.append(f"  {line}")
+
+    # 2) H2/H3 섹션 제목 추출 (능력 목록)
+    headings = re.findall(r'^(#{2,3})\s+(.+)$', content, re.MULTILINE)
+    if headings:
+        parts.append("\n[capabilities]")
+        for level, title in headings[:15]:  # 최대 15개 섹션
+            indent = "  " if level == "###" else ""
+            parts.append(f"{indent}- {title.strip()}")
+
+    # 3) 핵심 코드 패턴 (첫 2개 코드블록, 각 최대 300자)
+    code_blocks = re.findall(r'```(\w*)\n(.*?)```', content, re.DOTALL)
+    if code_blocks:
+        parts.append("\n[code_patterns]")
+        for lang, code in code_blocks[:2]:
+            snippet = code.strip()[:300]
+            if len(code.strip()) > 300:
+                snippet += "\n# ... (truncated)"
+            parts.append(f"```{lang}\n{snippet}\n```")
+
+    result = "\n".join(parts)
+    return result[:max_chars] if len(result) > max_chars else result
+
+
 def _build_agent_system_prompt(skill_ids, skill_contents, n_ctx=16384, csv_data=None, uploaded_files_data=None):
     """병렬 에이전트용 컴팩트 시스템 프롬프트 생성."""
     max_skill_chars = int(n_ctx * 0.3 / max(1, len(skill_ids)))  # 컨텍스트의 30%를 스킬에 할당
@@ -2719,12 +2861,20 @@ def _build_agent_system_prompt(skill_ids, skill_contents, n_ctx=16384, csv_data=
         content = skill_contents.get(sid, "")
         if content:
             skill_name = SKILL_DESC_KO.get(sid, sid)
-            truncated = content[:max_skill_chars]
-            if len(content) > max_skill_chars:
-                truncated += "\n... (truncated)"
-            parts.append(f"=== [{skill_name}] 전문 지식 ===")
-            parts.append(truncated)
-            parts.append("")
+            # Structured Context: 전체 텍스트 대신 구조화된 요약 사용 (토큰 절약)
+            summary = _extract_skill_context(content, max_chars=max_skill_chars)
+            if summary:
+                parts.append(f"=== [{skill_name}] ===")
+                parts.append(summary)
+                parts.append("")
+            else:
+                # 요약 추출 실패 시 기존 방식 폴백
+                truncated = content[:max_skill_chars]
+                if len(content) > max_skill_chars:
+                    truncated += "\n... (truncated)"
+                parts.append(f"=== [{skill_name}] 전문 지식 ===")
+                parts.append(truncated)
+                parts.append("")
 
     # CSV 데이터 포함
     if csv_data and csv_data.get("filename"):
@@ -2960,6 +3110,14 @@ def _synthesize_responses_gguf(agent_results, query, synthesis_model_path, tempe
             answer = resp["choices"][0].get("message", {}).get("content") or ""
             answer = re.sub(r'<think>[\s\S]*?</think>\s*', '', answer)
             answer = re.sub(r'</?think>', '', answer).strip()
+            # Self-evaluation: 합성 응답 품질 검증
+            _valid, _issues = _validate_response(answer, query)
+            if _issues:
+                answer = _fix_response_issues(answer, _issues)
+                try:
+                    print(f"  [EVAL-GGUF] issues={_issues}, auto-fixed")
+                except Exception:
+                    pass
             meta = {
                 "agents": len(successes),
                 "failed": len(failures),
@@ -2993,6 +3151,72 @@ def _synthesize_responses_gguf(agent_results, query, synthesis_model_path, tempe
             "models": list(set(r["model"] for r in successes)),
             "synthesis": "fallback_concat",
         }
+
+
+def _validate_response(answer, query):
+    """합성 응답의 품질을 빠르게 검증.
+
+    Returns:
+        (is_valid: bool, issues: list[str])
+    """
+    if not answer or not answer.strip():
+        return False, ["empty_response"]
+
+    issues = []
+
+    # 1) 반복 감지 (이미 _detect_repetition이 있지만, 추가 패턴 체크)
+    lines = answer.split("\n")
+    if len(lines) > 5:
+        unique_lines = set(l.strip() for l in lines if len(l.strip()) > 15)
+        if len(unique_lines) < len(lines) * 0.3:
+            issues.append("excessive_repetition")
+
+    # 2) 언어 일관성 - 한국어 비율 체크 (코드블록 제외)
+    text_only = re.sub(r'```[\s\S]*?```', '', answer)
+    text_only = re.sub(r'`[^`]+`', '', text_only)
+    if text_only.strip():
+        korean_chars = len(re.findall(r'[\uac00-\ud7af]', text_only))
+        alpha_chars = len(re.findall(r'[a-zA-Z]', text_only))
+        total_chars = korean_chars + alpha_chars
+        if total_chars > 50 and korean_chars / max(total_chars, 1) < 0.15:
+            issues.append("low_korean_ratio")
+
+    # 3) 응답 길이 체크 (너무 짧으면 불완전)
+    if len(answer.strip()) < 50 and len(query) > 30:
+        issues.append("too_short")
+
+    # 4) 미완성 코드블록 감지
+    open_blocks = answer.count("```")
+    if open_blocks % 2 != 0:
+        issues.append("unclosed_code_block")
+
+    # 5) 사고 과정 노출 감지
+    if "<think>" in answer or "</think>" in answer:
+        issues.append("exposed_thinking")
+
+    is_valid = len(issues) == 0
+    return is_valid, issues
+
+
+def _fix_response_issues(answer, issues):
+    """검증에서 발견된 이슈를 자동 수정 가능한 것만 수정.
+
+    Returns:
+        str: 수정된 응답
+    """
+    fixed = answer
+
+    # think 태그 제거
+    if "exposed_thinking" in issues:
+        fixed = re.sub(r'<think>[\s\S]*?</think>\s*', '', fixed)
+        fixed = re.sub(r'</?think>', '', fixed).strip()
+
+    # 미완성 코드블록 닫기
+    if "unclosed_code_block" in issues:
+        if fixed.count("```") % 2 != 0:
+            fixed = fixed.rstrip() + "\n```"
+
+    return fixed
 
 
 def _api_agent_call(api_info, skill_ids, skill_contents, query, hist,
@@ -7178,6 +7402,9 @@ def api_chat():
         _pre_skills, _par_groups, _use_parallel = group_skills_for_parallel(loaded)
         if _use_parallel:
             try:
+                # Hierarchical Delegation: 큰 그룹을 서브그룹으로 분할
+                _par_groups = apply_hierarchical_delegation(_par_groups)
+
                 _primary_reg_key = get_registry_key_for_env(env_id)
                 _auto_api_assignments = _assign_api_models_to_groups(_par_groups, _primary_reg_key)
 
@@ -7314,6 +7541,14 @@ def api_chat():
                         sr_data = sr.json()
                         if "choices" in sr_data and len(sr_data["choices"]) > 0:
                             synth_answer = sr_data["choices"][0].get("message", {}).get("content") or ""
+                            # Self-evaluation: 합성 응답 품질 검증
+                            _valid, _issues = _validate_response(synth_answer, _last_query)
+                            if _issues:
+                                synth_answer = _fix_response_issues(synth_answer, _issues)
+                                try:
+                                    print(f"  [EVAL] issues={_issues}, auto-fixed")
+                                except Exception:
+                                    pass
                             try:
                                 print(f"  [API AUTO-PARALLEL] done: {len(successes)} agents, "
                                       f"synthesis={_synth_reg['model']}")
