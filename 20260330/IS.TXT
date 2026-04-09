@@ -1,300 +1,346 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Scientific Assistant V1.0 - Architecture</title>
-<style>
-  *{margin:0;padding:0;box-sizing:border-box}
-  body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;overflow-x:hidden}
-  .container{max-width:1400px;margin:0 auto;padding:40px 20px}
-  h1{text-align:center;font-size:2.2rem;font-weight:700;background:linear-gradient(135deg,#6366f1,#8b5cf6,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:8px}
-  .subtitle{text-align:center;color:#94a3b8;font-size:1rem;margin-bottom:48px}
-  .version{background:#6366f1;color:#fff;padding:2px 12px;border-radius:20px;font-size:0.75rem;font-weight:600;-webkit-text-fill-color:#fff}
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+oht_position.py - OHT 위치 계산기
 
-  /* Flow Diagram */
-  .flow{display:flex;flex-direction:column;align-items:center;gap:0}
-  .flow-row{display:flex;align-items:flex-start;justify-content:center;gap:24px;width:100%;flex-wrap:wrap}
-  .arrow-down{width:2px;height:36px;background:linear-gradient(180deg,#6366f1,#8b5cf6);margin:0 auto;position:relative}
-  .arrow-down::after{content:'';position:absolute;bottom:-6px;left:-5px;border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid #8b5cf6}
-  .arrow-split{display:flex;align-items:flex-start;justify-content:center;gap:0;position:relative;width:100%;padding-top:20px}
-  .arrow-split::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:2px;height:20px;background:#6366f1}
+실행하면 OHT 메시지를 붙여넣기만 하면 자동으로 위치 계산됩니다.
+layout_cache.json 없으면 layout.xml에서 자동 생성합니다.
 
-  /* Cards */
-  .card{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:20px 24px;min-width:220px;max-width:340px;position:relative;transition:all .3s}
-  .card:hover{border-color:#6366f1;box-shadow:0 0 24px rgba(99,102,241,0.15);transform:translateY(-2px)}
-  .card-wide{max-width:600px;min-width:400px}
-  .card-full{max-width:900px;min-width:600px;width:80%}
-  .card h3{font-size:1rem;font-weight:600;color:#e2e8f0;margin-bottom:8px;display:flex;align-items:center;gap:8px}
-  .card p{font-size:0.82rem;color:#94a3b8;line-height:1.5}
-  .card .tag{display:inline-block;font-size:0.7rem;padding:2px 8px;border-radius:6px;font-weight:500;margin-right:4px;margin-top:4px}
-  .tag-blue{background:#1e3a5f;color:#60a5fa}
-  .tag-purple{background:#3b1f6e;color:#a78bfa}
-  .tag-green{background:#14532d;color:#4ade80}
-  .tag-amber{background:#451a03;color:#fbbf24}
-  .tag-red{background:#450a0a;color:#f87171}
-  .tag-cyan{background:#083344;color:#22d3ee}
+사용법:
+    python oht_position.py  → OHT 메시지 붙여넣기 → 위치 계산 결과 출력
 
-  .badge{position:absolute;top:-10px;right:16px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-size:0.65rem;padding:2px 10px;border-radius:10px;font-weight:600}
+코드에서 사용:
+    from oht_position import OHTPosition
+    pos = OHTPosition()
+    x, y = pos.calc(12340, 14, 12341)
+"""
 
-  /* Agent Group */
-  .agents-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:12px}
-  .agent-box{background:#0f172a;border:1px solid #334155;border-radius:10px;padding:12px;text-align:center}
-  .agent-box h4{font-size:0.82rem;color:#c4b5fd;margin-bottom:4px}
-  .agent-box p{font-size:0.72rem;color:#64748b}
-  .agent-box .model{font-size:0.7rem;color:#6366f1;font-weight:600;margin-top:6px}
+import json
+import math
+import os
+import re
+import sys
+import zipfile
 
-  /* Section Title */
-  .section-title{text-align:center;font-size:0.8rem;color:#64748b;text-transform:uppercase;letter-spacing:2px;margin:32px 0 16px;font-weight:600}
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_CACHE = os.path.join(SCRIPT_DIR, "layout_cache.json")
 
-  /* Connector lines for parallel */
-  .parallel-box{background:#1e293b;border:2px dashed #4338ca;border-radius:20px;padding:24px;width:90%;max-width:1100px}
-  .parallel-header{text-align:center;font-size:0.85rem;color:#a78bfa;font-weight:600;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:8px}
-  .parallel-header::before,.parallel-header::after{content:'';flex:1;height:1px;background:#4338ca}
+# layout.xml 찾을 경로들
+FAB_NAME = "M14A"
+LAYOUT_PREFIX = "A"
+MAP_DIR = os.path.join(SCRIPT_DIR, "MAP")
+LAYOUT_XML = os.path.join(MAP_DIR, FAB_NAME, f"{LAYOUT_PREFIX}.layout", "layout.xml")
+LAYOUT_ZIP = os.path.join(MAP_DIR, FAB_NAME, f"{LAYOUT_PREFIX}.layout.zip")
+MAP_ZIP = os.path.join(SCRIPT_DIR, "MAP.zip")
 
-  /* Legend */
-  .legend{display:flex;justify-content:center;gap:24px;margin-top:48px;flex-wrap:wrap}
-  .legend-item{display:flex;align-items:center;gap:6px;font-size:0.78rem;color:#94a3b8}
-  .legend-dot{width:10px;height:10px;border-radius:50%}
+STATE_MAP = {
+    "1": "RUN", "2": "STOP", "3": "ABNORMAL", "4": "MANUAL",
+    "6": "OBS_STOP", "7": "JAM", "8": "HT_STOP", "9": "E84_TIMEOUT",
+}
 
-  /* Stats */
-  .stats{display:flex;justify-content:center;gap:40px;margin:40px 0;flex-wrap:wrap}
-  .stat{text-align:center}
-  .stat .num{font-size:2rem;font-weight:700;background:linear-gradient(135deg,#6366f1,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-  .stat .label{font-size:0.78rem;color:#64748b;margin-top:4px}
 
-  @media(max-width:768px){
-    .card-wide,.card-full{min-width:90%;max-width:95%}
-    .parallel-box{width:95%;padding:16px}
-    .agents-grid{grid-template-columns:1fr}
-    .flow-row{flex-direction:column;align-items:center}
-    h1{font-size:1.5rem}
-  }
-</style>
-</head>
-<body>
-<div class="container">
+class OHTPosition:
+    """OHT 위치 계산기"""
 
-  <h1>Scientific Assistant <span class="version">V1.0</span></h1>
-  <p class="subtitle">Multi-Agent Orchestration Architecture</p>
+    def __init__(self, cache_path=DEFAULT_CACHE):
+        if not os.path.exists(cache_path):
+            raise FileNotFoundError(f"layout_cache.json 없음: {cache_path}")
 
-  <!-- Stats -->
-  <div class="stats">
-    <div class="stat"><div class="num">355+</div><div class="label">Skills</div></div>
-    <div class="stat"><div class="num">7</div><div class="label">Agent Groups</div></div>
-    <div class="stat"><div class="num">12</div><div class="label">API Models</div></div>
-    <div class="stat"><div class="num">4</div><div class="label">Max Parallel Agents</div></div>
-  </div>
+        with open(cache_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
 
-  <div class="flow">
+        self.nodes = {int(k): tuple(v) for k, v in data["nodes"].items()}
+        self.adj = {int(k): v for k, v in data["adj"].items()}
+        self.edge_dist = {}
+        for k, v in data["edges"].items():
+            parts = k.split(",")
+            self.edge_dist[(int(parts[0]), int(parts[1]))] = v
 
-    <!-- 1. User Input -->
-    <div class="section-title">User Input</div>
-    <div class="flow-row">
-      <div class="card card-wide">
-        <h3>🌐 Flask Web App</h3>
-        <p>사용자 질문, 스킬 선택, 파일 업로드 (CSV/코드/이미지), 모델 환경 선택</p>
-        <div style="margin-top:8px">
-          <span class="tag tag-blue">port 10009</span>
-          <span class="tag tag-purple">355+ Skills</span>
-          <span class="tag tag-green">CSV/File Upload</span>
-        </div>
-      </div>
-    </div>
+    def calc(self, current, distance, next_node):
+        """현재번지, 거리, 다음번지 → (x, y)"""
+        if current not in self.nodes:
+            return None, None
+        if next_node not in self.nodes:
+            return self.nodes[current]
 
-    <div class="arrow-down"></div>
+        x1, y1 = self.nodes[current]
+        x2, y2 = self.nodes[next_node]
 
-    <!-- 2. Auto Router -->
-    <div class="section-title">Routing Layer</div>
-    <div class="flow-row">
-      <div class="card">
-        <div class="badge">AUTO</div>
-        <h3>🧭 classify_and_route()</h3>
-        <p>쿼리 복잡도, 이미지 유무, 데이터 분석 여부에 따라 최적 모델 자동 선택</p>
-        <div style="margin-top:8px">
-          <span class="tag tag-amber">Vision &rarr; VL Models</span>
-          <span class="tag tag-purple">Complex &rarr; 397B</span>
-          <span class="tag tag-blue">Simple &rarr; GLM-5</span>
-        </div>
-      </div>
-      <div class="card">
-        <h3>🔀 group_skills_for_parallel()</h3>
-        <p>로드된 스킬을 7개 그룹으로 분류, 2+ 그룹이면 병렬 실행 트리거</p>
-        <div style="margin-top:8px">
-          <span class="tag tag-green">Scientific</span>
-          <span class="tag tag-blue">Code</span>
-          <span class="tag tag-purple">Data</span>
-          <span class="tag tag-amber">Infra</span>
-          <span class="tag tag-cyan">Writing</span>
-          <span class="tag tag-red">AI/Biz</span>
-        </div>
-      </div>
-      <div class="card">
-        <h3>📐 classify_format_and_style()</h3>
-        <p>출력 형식(code/report/analysis/step-by-step) 및 작성 스타일 자동 결정</p>
-      </div>
-    </div>
+        edge_len = self.edge_dist.get((current, next_node), 0)
+        if edge_len <= 0:
+            edge_len = math.sqrt((x2-x1)**2 + (y2-y1)**2) * 10
+            if edge_len <= 0:
+                return x1, y1
 
-    <div class="arrow-down"></div>
+        ratio = min(distance / edge_len, 1.0)
+        return round(x1 + (x2-x1) * ratio, 2), round(y1 + (y2-y1) * ratio, 2)
 
-    <!-- 3. Execution Decision -->
-    <div class="section-title">Execution Decision</div>
-    <div class="flow-row">
-      <div class="card" style="border-color:#22c55e">
-        <h3>1️⃣ Single Model</h3>
-        <p>스킬 1개 또는 동일 그룹 &rarr; 단일 모델에 오케스트레이션 프롬프트 주입</p>
-        <span class="tag tag-green">Low Latency</span>
-      </div>
-      <div class="card" style="border-color:#6366f1">
-        <div class="badge">NEW V1.0</div>
-        <h3>🔄 API Auto Multi-Agent</h3>
-        <p>AUTO 모드 + 2+그룹 &rarr; 그룹별 다른 API 모델 배정 &rarr; 병렬 실행</p>
-        <span class="tag tag-purple">ThreadPoolExecutor</span>
-      </div>
-      <div class="card" style="border-color:#f59e0b">
-        <h3>🖥️ GGUF Parallel</h3>
-        <p>로컬 GGUF 모델 2+개 &rarr; 모델 풀에서 할당 &rarr; 병렬 추론</p>
-        <span class="tag tag-amber">VRAM Pool</span>
-      </div>
-    </div>
+    def calc_from_message(self, message):
+        """OHT raw 메시지 → 위치 계산 결과"""
+        line = message.strip()
+        if "2,OHT," in line:
+            line = line[line.index("2,OHT,"):]
+        line = line.strip('"').rstrip(',').strip('"')
 
-    <div class="arrow-down"></div>
+        fields = line.split(",")
+        if len(fields) < 10 or fields[1] != "OHT":
+            return None
 
-    <!-- 4. Parallel Agents -->
-    <div class="section-title">Parallel Agent Execution</div>
-    <div class="parallel-box">
-      <div class="parallel-header">ThreadPoolExecutor (max 4 workers)</div>
-      <div class="agents-grid">
-        <div class="agent-box">
-          <h4>🔬 Scientific Agent</h4>
-          <p>생물정보학, 화학정보학, 물리, 임상</p>
-          <div class="model">Qwen3.5-397B</div>
-          <span class="tag tag-green" style="font-size:0.65rem">preferred: large</span>
-        </div>
-        <div class="agent-box">
-          <h4>📊 Data Analysis Agent</h4>
-          <p>ML, 통계, 시각화, 시계열</p>
-          <div class="model">GLM-5</div>
-          <span class="tag tag-blue" style="font-size:0.65rem">preferred: medium</span>
-        </div>
-        <div class="agent-box">
-          <h4>💻 Code Agent</h4>
-          <p>개발, 디버깅, 리팩토링, DevOps</p>
-          <div class="model">gpt-oss-120B</div>
-          <span class="tag tag-blue" style="font-size:0.65rem">preferred: medium</span>
-        </div>
-        <div class="agent-box">
-          <h4>🏗️ Infrastructure Agent</h4>
-          <p>클라우드, K8s, 네트워크, 보안</p>
-          <div class="model">GLM-4.7</div>
-          <span class="tag tag-amber" style="font-size:0.65rem">preferred: small</span>
-        </div>
-        <div class="agent-box">
-          <h4>📝 Writing Agent</h4>
-          <p>논문, 문서, 슬라이드, 인포그래픽</p>
-          <div class="model">Coder-Next</div>
-          <span class="tag tag-cyan" style="font-size:0.65rem">preferred: medium</span>
-        </div>
-        <div class="agent-box">
-          <h4>🧠 AI/Business Agent</h4>
-          <p>LLM 아키텍처, 프롬프트, 비즈니스</p>
-          <div class="model">GLM-4.7-FP8</div>
-          <span class="tag tag-red" style="font-size:0.65rem">preferred: small</span>
-        </div>
-      </div>
-    </div>
+        cur = int(fields[7])
+        dist = int(fields[8])
+        nxt = int(fields[9])
+        x, y = self.calc(cur, dist, nxt)
 
-    <div class="arrow-down"></div>
+        edge_len = self.edge_dist.get((cur, nxt), 0)
+        ratio = min(dist / edge_len, 1.0) * 100 if edge_len > 0 else 0
 
-    <!-- 5. Synthesis -->
-    <div class="section-title">Response Synthesis</div>
-    <div class="flow-row">
-      <div class="card card-wide" style="border-color:#8b5cf6">
-        <h3>🧬 Synthesis (CEO Model)</h3>
-        <p>가장 큰 모델(397B)이 모든 전문가 응답을 통합. 중복 제거, 코드 합병, 한국어 통일.</p>
-        <div style="margin-top:8px">
-          <span class="tag tag-purple">Model Synthesis</span>
-          <span class="tag tag-amber">Fallback: Concat</span>
-          <span class="tag tag-green">Single Response</span>
-        </div>
-      </div>
-    </div>
+        return {
+            "vehicleId": fields[2],
+            "state": STATE_MAP.get(fields[3], fields[3]),
+            "isFull": "적재" if fields[4] == "1" else "빈차",
+            "currentNode": cur,
+            "currentXY": self.nodes.get(cur),
+            "distance": dist,
+            "distance_m": round(dist * 0.1, 1),
+            "nextNode": nxt,
+            "nextXY": self.nodes.get(nxt),
+            "edgeLength": edge_len,
+            "edgeLength_m": round(edge_len * 0.1, 1),
+            "ratio": round(ratio, 1),
+            "x": x,
+            "y": y,
+            "carrierId": fields[12] if len(fields) > 12 else "",
+            "sourcePort": fields[16] if len(fields) > 16 else "",
+            "destPort": fields[17] if len(fields) > 17 else "",
+        }
 
-    <div class="arrow-down"></div>
 
-    <!-- 6. Response -->
-    <div class="section-title">Response</div>
-    <div class="flow-row">
-      <div class="card card-full" style="border-color:#22d3ee">
-        <h3>📤 Unified Response + Metadata</h3>
-        <p>통합된 답변과 함께 병렬 실행 메타데이터를 프론트엔드에 전달</p>
-        <div style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px">
-          <div style="background:#0f172a;padding:8px;border-radius:8px;font-size:0.75rem">
-            <span style="color:#64748b">parallel_agents:</span> <span style="color:#4ade80">3</span>
-          </div>
-          <div style="background:#0f172a;padding:8px;border-radius:8px;font-size:0.75rem">
-            <span style="color:#64748b">parallel_groups:</span> <span style="color:#a78bfa">["scientific","code","data"]</span>
-          </div>
-          <div style="background:#0f172a;padding:8px;border-radius:8px;font-size:0.75rem">
-            <span style="color:#64748b">auto_multi_agent:</span> <span style="color:#fbbf24">true</span>
-          </div>
-          <div style="background:#0f172a;padding:8px;border-radius:8px;font-size:0.75rem">
-            <span style="color:#64748b">parallel_synthesis:</span> <span style="color:#60a5fa">Qwen3.5-397B</span>
-          </div>
-        </div>
-      </div>
-    </div>
+# ============================================================
+# XML → JSON 변환
+# ============================================================
+def parse_xml_to_json(xml_path, output_path=DEFAULT_CACHE):
+    """layout.xml → layout_cache.json"""
+    node_xy = {}
+    connections = []
+    current_addr = None
+    current_addr_params = {}
+    in_next_addr = False
+    next_addr_params = {}
 
-  </div><!-- /flow -->
+    print(f"  XML 파싱: {xml_path}")
+    with open(xml_path, 'r', encoding='utf-8') as f:
+        lc = 0
+        for line in f:
+            lc += 1
+            if lc % 500000 == 0:
+                print(f"    {lc:,} 라인...")
+            line = line.strip()
 
-  <!-- Model Tiers -->
-  <div class="section-title" style="margin-top:56px">API Model Tiers</div>
-  <div class="flow-row" style="justify-content:center;gap:16px;flex-wrap:wrap;margin-bottom:32px">
-    <div class="card" style="min-width:260px">
-      <h3 style="color:#f87171">Large Tier</h3>
-      <p>Qwen3.5-397B<br>Qwen3-Coder-480B<br>Qwen3-235B<br>Qwen3.5-397B-FP8</p>
-      <span class="tag tag-red" style="margin-top:8px">cost: high</span>
-    </div>
-    <div class="card" style="min-width:260px">
-      <h3 style="color:#60a5fa">Medium Tier</h3>
-      <p>GLM-5<br>gpt-oss-120B<br>Coder-Next</p>
-      <span class="tag tag-blue" style="margin-top:8px">cost: medium</span>
-    </div>
-    <div class="card" style="min-width:260px">
-      <h3 style="color:#4ade80">Small Tier</h3>
-      <p>GLM-4.7<br>GLM-4.7-FP8<br>Qwen3.5-35B</p>
-      <span class="tag tag-green" style="margin-top:8px">cost: low</span>
-    </div>
-  </div>
+            if '<group name="Addr' in line and 'class=' in line and 'address.Addr"' in line:
+                if current_addr is not None and 'address' in current_addr_params:
+                    no = int(current_addr_params.get('address', 0))
+                    if no > 0:
+                        node_xy[no] = (float(current_addr_params.get('draw-x', 0)),
+                                       float(current_addr_params.get('draw-y', 0)))
+                current_addr_params = {}
+                current_addr = line
+                in_next_addr = False
+                continue
+            if '<group name="NextAddr' in line and 'class=' in line and 'NextAddr"' in line:
+                in_next_addr = True
+                next_addr_params = {}
+                continue
+            if in_next_addr and '</group>' in line:
+                if 'address' in current_addr_params and 'next-address' in next_addr_params:
+                    f_a = int(current_addr_params.get('address', 0))
+                    try:
+                        t_a = int(next_addr_params.get('next-address', '0'))
+                        if f_a > 0 and t_a > 0:
+                            connections.append((f_a, t_a))
+                    except ValueError:
+                        pass
+                in_next_addr = False
+                continue
+            if '<param ' in line and 'key="' in line and 'value="' in line:
+                km = re.search(r'key="([^"]+)"', line)
+                vm = re.search(r'value="([^"]*)"', line)
+                if km and vm:
+                    if in_next_addr:
+                        next_addr_params[km.group(1)] = vm.group(1)
+                    elif current_addr is not None:
+                        current_addr_params[km.group(1)] = vm.group(1)
 
-  <!-- Fallback Chain -->
-  <div class="section-title">Fallback Strategy</div>
-  <div style="display:flex;justify-content:center;margin-bottom:40px">
-    <div class="card card-full">
-      <h3>🔗 Fallback Chain</h3>
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px;font-size:0.8rem">
-        <span style="background:#3b1f6e;color:#a78bfa;padding:4px 12px;border-radius:8px">All Agents OK</span>
-        <span style="color:#64748b">&rarr;</span>
-        <span style="background:#1e3a5f;color:#60a5fa;padding:4px 12px;border-radius:8px">Synthesis Model</span>
-        <span style="color:#64748b">&rarr;</span>
-        <span style="background:#451a03;color:#fbbf24;padding:4px 12px;border-radius:8px">Synthesis Fail &rarr; Concat</span>
-        <span style="color:#64748b">&rarr;</span>
-        <span style="background:#450a0a;color:#f87171;padding:4px 12px;border-radius:8px">All Fail &rarr; Single Model</span>
-        <span style="color:#64748b">&rarr;</span>
-        <span style="background:#083344;color:#22d3ee;padding:4px 12px;border-radius:8px">Fallback Chain (6 models)</span>
-      </div>
-    </div>
-  </div>
+    if current_addr is not None and 'address' in current_addr_params:
+        no = int(current_addr_params.get('address', 0))
+        if no > 0:
+            node_xy[no] = (float(current_addr_params.get('draw-x', 0)),
+                           float(current_addr_params.get('draw-y', 0)))
 
-  <!-- Legend -->
-  <div class="legend">
-    <div class="legend-item"><div class="legend-dot" style="background:#6366f1"></div>Core Flow</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#22c55e"></div>Single Model Path</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div>GGUF Local Path</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#8b5cf6"></div>API Multi-Agent (V1.0)</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#22d3ee"></div>Response</div>
-  </div>
+    adj = {}
+    edge_dist = {}
+    for f, t in connections:
+        adj.setdefault(f, []).append(t)
+        if f in node_xy and t in node_xy:
+            dx = node_xy[t][0] - node_xy[f][0]
+            dy = node_xy[t][1] - node_xy[f][1]
+            edge_dist[(f, t)] = max(int(math.sqrt(dx*dx + dy*dy) * 10), 10)
 
-</div>
-</body>
-</html>
+    data = {
+        "nodes": {str(k): list(v) for k, v in node_xy.items()},
+        "adj": {str(k): v for k, v in adj.items()},
+        "edges": {f"{k[0]},{k[1]}": v for k, v in edge_dist.items()},
+    }
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+    print(f"  노드: {len(node_xy)}개  엣지: {len(edge_dist)}개")
+    print(f"  → {output_path}")
+    return len(node_xy), len(edge_dist)
+
+
+def ensure_cache():
+    """layout_cache.json 없으면 자동 생성"""
+    if os.path.exists(DEFAULT_CACHE):
+        return
+
+    print("layout_cache.json 없음 → 자동 생성")
+
+    # XML 직접
+    if os.path.exists(LAYOUT_XML):
+        parse_xml_to_json(LAYOUT_XML)
+        return
+
+    # ZIP에서 추출
+    if os.path.exists(LAYOUT_ZIP):
+        extract_dir = os.path.join(MAP_DIR, FAB_NAME, f"{LAYOUT_PREFIX}.layout")
+        with zipfile.ZipFile(LAYOUT_ZIP, 'r') as z:
+            z.extractall(extract_dir)
+        if os.path.exists(LAYOUT_XML):
+            parse_xml_to_json(LAYOUT_XML)
+            return
+
+    # MAP.zip 풀기
+    if os.path.exists(MAP_ZIP):
+        print(f"  MAP.zip 추출 중...")
+        with zipfile.ZipFile(MAP_ZIP, 'r') as z:
+            z.extractall(MAP_DIR)
+        if os.path.exists(LAYOUT_XML):
+            parse_xml_to_json(LAYOUT_XML)
+            return
+
+    print("오류: layout.xml을 찾을 수 없습니다")
+    sys.exit(1)
+
+
+def clean_line(line):
+    """따옴표, 쉼표 등 정리"""
+    line = line.strip()
+    if line.startswith('"'):
+        line = line.lstrip('"')
+    if line.endswith('",') or line.endswith('"'):
+        line = line.rstrip(',').rstrip('"')
+    return line.strip()
+
+
+def print_result(r):
+    """계산 결과 출력"""
+    cur_xy = r['currentXY']
+    nxt_xy = r['nextXY']
+    print(f"  ┌─ {r['vehicleId']}  [{r['state']}]  {r['isFull']}")
+    print(f"  │  현재번지: {r['currentNode']:>6d}  ({cur_xy[0]:.1f}, {cur_xy[1]:.1f})")
+    print(f"  │  다음번지: {r['nextNode']:>6d}  ({nxt_xy[0]:.1f}, {nxt_xy[1]:.1f})")
+    print(f"  │  엣지거리: {r['edgeLength_m']}m   이동거리: {r['distance_m']}m   비율: {r['ratio']}%")
+    if r['destPort']:
+        print(f"  │  목적지:   {r['destPort']}")
+    if r['carrierId']:
+        print(f"  │  캐리어:   {r['carrierId']}")
+    print(f"  └─ 계산 위치: ({r['x']}, {r['y']})")
+    print()
+
+
+# ============================================================
+# 메인
+# ============================================================
+def main():
+    # convert 모드
+    if len(sys.argv) > 1 and sys.argv[1] == "convert":
+        if len(sys.argv) < 3:
+            print("사용법: python oht_position.py convert layout.xml")
+            return
+        filepath = sys.argv[2]
+        if filepath.endswith('.zip'):
+            with zipfile.ZipFile(filepath, 'r') as z:
+                xml_names = [n for n in z.namelist() if n.endswith('layout.xml')]
+                if not xml_names:
+                    print("오류: ZIP 안에 layout.xml 없음")
+                    return
+                # 추출 후 파싱
+                z.extractall(os.path.dirname(filepath) or ".")
+                for xn in xml_names:
+                    if os.path.exists(xn):
+                        parse_xml_to_json(xn)
+                        return
+        else:
+            parse_xml_to_json(filepath)
+        return
+
+    # 메인: OHT 메시지 입력 → 위치 계산
+    print("=" * 55)
+    print("  OHT 위치 계산기")
+    print("=" * 55)
+
+    # layout_cache.json 자동 생성
+    ensure_cache()
+    pos = OHTPosition()
+    print(f"  레이아웃 로드: 노드 {len(pos.nodes)}개, 엣지 {len(pos.edge_dist)}개")
+    print()
+    print("  OHT 메시지를 붙여넣고 빈 줄에서 엔터 → 계산")
+    print("  q = 종료")
+    print("-" * 55)
+
+    count = 0
+    while True:
+        print(f"\n[{count+1}] OHT 메시지 입력:")
+
+        lines = []
+        while True:
+            try:
+                line = input()
+            except EOFError:
+                return
+
+            if line.strip().lower() == "q":
+                return
+
+            cleaned = clean_line(line)
+            if not cleaned:
+                break
+            lines.append(cleaned)
+
+        if not lines:
+            continue
+
+        # 파싱 + 계산
+        results = []
+        for line in lines:
+            if "2,OHT," not in line:
+                continue
+            r = pos.calc_from_message(line)
+            if r:
+                results.append(r)
+
+        if not results:
+            print("  OHT 메시지를 인식할 수 없습니다.")
+            print("  예시: 2,OHT,V00795,1,1,0000,1,12340,14,12341,4,4,...")
+            continue
+
+        count += 1
+        print(f"\n  === {len(results)}대 위치 계산 결과 ===\n")
+        for r in results:
+            print_result(r)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n종료.")
