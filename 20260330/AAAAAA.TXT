@@ -2867,12 +2867,87 @@ def _extract_skill_context(content, max_chars=800):
     return result[:max_chars] if len(result) > max_chars else result
 
 
+# ============================================
+# 품질 프레임워크 (agent-skills 패턴 적용)
+# ============================================
+
+# 도메인 페르소나: 그룹별 전문가 역할 정의
+DOMAIN_PERSONAS = {
+    "scientific": {
+        "role": "과학 분석 전문가",
+        "instruction": "실험 데이터와 논문 기반으로 분석하세요. 가설→방법→결과→해석 구조를 따르세요.",
+    },
+    "data-analysis": {
+        "role": "데이터 분석 전문가",
+        "instruction": "실제 데이터의 컬럼명과 값만 사용하세요. 통계적 근거를 제시하세요.",
+    },
+    "code": {
+        "role": "소프트웨어 엔지니어",
+        "instruction": "즉시 실행 가능한 코드를 작성하세요. 에러 처리와 엣지 케이스를 고려하세요.",
+    },
+    "infrastructure": {
+        "role": "인프라/DevOps 전문가",
+        "instruction": "보안과 가용성을 최우선으로 고려하세요. 구체적인 명령어와 설정을 제시하세요.",
+    },
+    "writing-docs": {
+        "role": "기술 문서 작성 전문가",
+        "instruction": "명확하고 구조화된 문서를 작성하세요. 대상 독자 수준에 맞추세요.",
+    },
+    "ai-business": {
+        "role": "AI/비즈니스 전략가",
+        "instruction": "비용, 성능, 운영성 트레이드오프를 분석하세요. 실행 가능한 로드맵을 제시하세요.",
+    },
+}
+
+# Anti-Rationalization: 에이전트가 자주 하는 변명과 강제 반박
+ANTI_RATIONALIZATION = """
+[변명 방지 규칙 - 절대 아래 행동을 하지 마세요]
+| 에이전트가 하려는 것 | 왜 안 되는지 |
+|---|---|
+| 가짜 샘플 데이터로 분석 | 실제 업로드된 데이터만 사용. 없으면 "데이터를 업로드해주세요"라고 요청 |
+| "나중에 테스트하겠습니다" | 코드를 제시하면 즉시 검증 가능한 형태로 제공 |
+| 영어로 답변 | 반드시 한국어. 코드 주석도 한국어 |
+| 존재하지 않는 컬럼명 사용 | 업로드된 CSV의 실제 headers만 참조 |
+| 불완전한 코드 제시 | import부터 실행까지 완성된 코드만 제공 |
+| "간단하니까 설명 생략" | 핵심 로직은 반드시 설명 |
+| 출처 없이 주장 | 스킬 지식 또는 데이터 근거를 명시 |
+"""
+
+# Verification Gate: 응답 완료 전 자가 체크리스트
+VERIFICATION_GATE = """
+[응답 완료 전 자가 검증]
+- [ ] 한국어로 작성했는가?
+- [ ] 가짜/샘플 데이터를 만들지 않았는가?
+- [ ] 코드가 있다면 import부터 실행까지 완전한가?
+- [ ] 코드블록(```)을 모두 닫았는가?
+- [ ] 사용자가 요청한 내용에만 답변했는가?
+- [ ] 핵심 내용을 먼저 제시했는가?
+위 항목 중 하나라도 미충족이면 답변을 수정한 후 출력하세요.
+"""
+
+# 분석 라이프사이클: 복잡한 질문에 대한 단계별 사고 프레임워크
+ANALYSIS_LIFECYCLE = """
+[분석 프레임워크 - 복잡한 질문은 이 순서로 접근]
+1. 이해(Understand): 사용자의 실제 의도와 맥락을 파악
+2. 탐색(Explore): 관련 데이터/지식/스킬에서 핵심 정보 수집
+3. 분석(Analyze): 수집된 정보를 기반으로 깊이 있는 분석 수행
+4. 검증(Verify): 결과의 정확성, 완전성, 일관성 확인
+5. 보고(Report): 핵심 결론 → 근거 → 추가 제안 순서로 구조화
+간단한 질문은 바로 답변하되, 분석이 필요한 질문은 위 단계를 따르세요.
+"""
+
+
 def _build_agent_system_prompt(skill_ids, skill_contents, n_ctx=16384, csv_data=None, uploaded_files_data=None):
     """병렬 에이전트용 컴팩트 시스템 프롬프트 생성."""
     max_skill_chars = int(n_ctx * 0.3 / max(1, len(skill_ids)))  # 컨텍스트의 30%를 스킬에 할당
 
+    # 도메인 페르소나 결정 (첫 번째 스킬의 그룹 기반)
+    _agent_group = _SKILL_TO_GROUP.get(skill_ids[0], "general") if skill_ids else "general"
+    _persona = DOMAIN_PERSONAS.get(_agent_group, {"role": "전문 AI 어시스턴트", "instruction": ""})
+
     parts = [
-        "당신은 전문 AI 어시스턴트입니다. 아래 전문 지식을 활용하여 질문에 답하세요.",
+        f"당신은 [{_persona['role']}]입니다. 아래 전문 지식을 활용하여 질문에 답하세요.",
+        _persona['instruction'],
         "반드시 한국어로 답변하세요.",
         "",
         "[필수 규칙]",
@@ -2882,6 +2957,10 @@ def _build_agent_system_prompt(skill_ids, skill_contents, n_ctx=16384, csv_data=
         "4. 존재하지 않는 컬럼명(Score1, Score2 등)을 지어내지 마세요.",
         "5. 차트 데이터는 실제 데이터 기반으로 24개 이하로 요약하세요.",
         "6. 응답이 길어질 것 같으면 핵심만 먼저 보여주고 '추가 분석이 필요하면 말씀해주세요'로 마무리하세요.",
+        "",
+        ANTI_RATIONALIZATION,
+        ANALYSIS_LIFECYCLE,
+        VERIFICATION_GATE,
         "",
     ]
 
@@ -3115,9 +3194,13 @@ def _synthesize_responses_gguf(agent_results, query, synthesis_model_path, tempe
         "2. 각 전문가의 핵심 내용을 빠짐없이 포함\n"
         "3. 중복 내용은 한 번만 언급\n"
         "4. 하나의 자연스러운 답변으로 통합 (전문가별로 분리하지 말 것)\n"
-        "5. 영어로 된 분석 과정이나 전략 설명을 하지 마세요\n"
-        "6. 코드가 있으면 통합된 하나의 코드로 합쳐서 제공\n"
-        "7. 가짜 데이터를 만들지 마세요. 실제 데이터만 사용하세요"
+        "5. 코드가 있으면 통합된 하나의 코드로 합쳐서 제공\n"
+        "6. 가짜 데이터를 만들지 마세요. 실제 데이터만 사용하세요\n\n"
+        "[통합 보고 구조]\n"
+        "핵심 결론 → 분석 근거 → 코드/시각화 → 추가 제안 순서로 작성하세요.\n"
+        "각 전문가 영역의 기여를 자연스럽게 녹여내되, 출처는 명시하세요.\n\n"
+        + ANTI_RATIONALIZATION +
+        VERIFICATION_GATE
     )
 
     try:
@@ -7372,9 +7455,12 @@ def api_chat():
                             snames = ", ".join(SKILL_DESC_KO.get(s, s) for s in r["skills"])
                             expert_sections.append(f"=== [{r['group']}] ({snames}) ===\n{r['response']}")
                         synth_system = (
-                            f"여러 전문가의 분석을 통합하세요.\n\n"
+                            f"여러 전문가의 분석을 통합하는 수석 연구원입니다.\n"
+                            f"반드시 한국어로만 작성하세요.\n\n"
                             + "\n\n".join(expert_sections) +
-                            "\n\n[통합 원칙] 핵심 포함, 중복 제거, 한국어, 코드 통합"
+                            "\n\n[통합 원칙] 핵심 포함, 중복 제거, 한국어, 코드 통합\n"
+                            "[보고 구조] 핵심 결론 → 분석 근거 → 코드/시각화 → 추가 제안\n"
+                            + ANTI_RATIONALIZATION
                         )
                         synth_api = _api_models[0]
                         try:
@@ -7550,7 +7636,12 @@ def api_chat():
                         "3. 중복 내용은 한 번만 언급\n"
                         "4. 하나의 자연스러운 답변으로 통합 (전문가별로 분리하지 말 것)\n"
                         "5. 코드가 있으면 통합된 하나의 코드로 합쳐서 제공\n"
-                        "6. 가짜 데이터를 만들지 마세요"
+                        "6. 가짜 데이터를 만들지 마세요\n\n"
+                        "[통합 보고 구조]\n"
+                        "핵심 결론 → 분석 근거 → 코드/시각화 → 추가 제안 순서로 작성하세요.\n"
+                        "각 전문가 영역의 기여를 자연스럽게 녹여내되, 출처는 명시하세요.\n\n"
+                        + ANTI_RATIONALIZATION +
+                        VERIFICATION_GATE
                     )
 
                     try:
