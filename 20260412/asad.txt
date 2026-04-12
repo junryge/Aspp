@@ -1,0 +1,16 @@
+F:\M14_Q\scientific-assistant\
+├── app.py                          ← 루트
+├── harness_bridge.py               ← 루트
+├── users.json                      ← 루트
+├── beno\
+│   └── about.html                  ← beno 폴더 안
+├── demos_v1\                       ← 루트
+├── harness-mvp\                    ← 루트
+├── tests\                          ← 루트
+├── knowledge\                      ← 루트 (하위에 사용자별 폴더)
+├── uio\
+│   └── index.html                  ← uio 폴더 안
+└── scientific-skills\
+    ├── knowledge-search\           ← scientific-skills 안
+    ├── md-to-html\                 ← scientific-skills 안
+    └── pptx\                       ← scientific-skills 안
