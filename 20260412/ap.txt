@@ -1357,6 +1357,7 @@ def register_chat_routes(app):
                         if len(successes) == 0:
                             pass  # 전부 실패 → 폴백
                         elif len(successes) == 1:
+                            _sq = _calculate_quality_score(successes[0]["response"], _last_query)
                             return jsonify({
                                 "content": successes[0]["response"],
                                 "loaded_skills": loaded,
@@ -1365,6 +1366,7 @@ def register_chat_routes(app):
                                 "parallel_groups": [successes[0]["group"]],
                                 "parallel_models": [successes[0]["model"]],
                                 "parallel_synthesis": "",
+                                "quality": _sq,
                             })
                         else:
                             # 합성 프롬프트
@@ -1395,6 +1397,7 @@ def register_chat_routes(app):
                                 sr_data = sr.json()
                                 if "choices" in sr_data and len(sr_data["choices"]) > 0:
                                     synth_answer = sr_data["choices"][0].get("message", {}).get("content") or ""
+                                    _sq = _calculate_quality_score(synth_answer, _last_query)
                                     return jsonify({
                                         "content": synth_answer,
                                         "loaded_skills": loaded,
@@ -1403,6 +1406,7 @@ def register_chat_routes(app):
                                         "parallel_groups": [r["group"] for r in successes],
                                         "parallel_models": list(set(r["model"] for r in successes)),
                                         "parallel_synthesis": "model",
+                                        "quality": _sq,
                                     })
                             except Exception:
                                 pass
@@ -1411,6 +1415,7 @@ def register_chat_routes(app):
                                 f"### {', '.join(SKILL_DESC_KO.get(s,s) for s in r['skills'])}\n{r['response']}"
                                 for r in successes
                             )
+                            _sq = _calculate_quality_score(fallback, _last_query)
                             return jsonify({
                                 "content": fallback,
                                 "loaded_skills": loaded,
@@ -1419,6 +1424,7 @@ def register_chat_routes(app):
                                 "parallel_groups": [r["group"] for r in successes],
                                 "parallel_models": list(set(r["model"] for r in successes)),
                                 "parallel_synthesis": "fallback_concat",
+                                "quality": _sq,
                             })
                 except Exception as e:
                     try:
@@ -1623,6 +1629,7 @@ def register_chat_routes(app):
                             f"### {', '.join(SKILL_DESC_KO.get(s, s) for s in r['skills'])}\n{r['response']}"
                             for r in successes
                         )
+                        _sq = _calculate_quality_score(fallback, _last_query)
                         return jsonify({
                             "content": fallback,
                             "loaded_skills": loaded,
@@ -1634,6 +1641,7 @@ def register_chat_routes(app):
                             "parallel_synthesis": "fallback_concat",
                             "auto_routed": auto_routed, "route_reason": route_reason,
                             "auto_multi_agent": True,
+                            "quality": _sq,
                         })
                     # else: 전부 실패 → 아래 단일모델 경로로 폴백
 
