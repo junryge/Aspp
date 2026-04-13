@@ -1,206 +1,1581 @@
----
-tags: 주간보고 weekly report PPT
-category: document
-description: "주간보고 PPT 생성 템플릿 - python-pptx 코드 포함"
-date: 2026-04-13
----
+"""
+demos_v1/skills.py - Skill descriptions, domain mappings, groups, keywords, auto-selection,
+                     skill scanning, loading, and catalog generation
+"""
+import os
+import re
+import requests as req
+from demos_v1.utils import BASE_DIR, SKILLS_DIR, uploaded_csv_data, uploaded_files
+from demos_v1.config import RERANKER_ENABLED, API_TOKEN, MAX_POOL_SIZE
+from demos_v1.models import MODEL_REGISTRY, ENV_TO_REGISTRY
 
-# 주간보고 PPT 생성 템플릿
+# 372개 스킬 한글 설명 (과학 174 + 개발도구 55 + 에이전트 117 + 가이드 15 + 커맨드 11)
+SKILL_DESC_KO = {
+    "biopython":"생물 서열/구조 분석","scanpy":"단일세포 RNA-seq 분석","pydeseq2":"차등 유전자 발현 분석",
+    "bioservices":"40+ 생물정보학 DB 통합","anndata":"단일세포 주석 행렬","arboreto":"유전자 조절 네트워크 추론",
+    "cellxgene-census":"6100만+ 단일세포 데이터","deeptools":"NGS BAM/bigWig 분석","gget":"20+ 생물DB 빠른 조회",
+    "geniml":"유전체 구간 ML","gtars":"유전체 구간 고성능 분석","pysam":"SAM/BAM/VCF 파일 처리",
+    "scikit-bio":"서열/다양성/마이크로바이옴","scvelo":"RNA velocity 분석","scvi-tools":"단일세포 딥러닝",
+    "tiledbvcf":"유전체 변이 저장/조회","flowio":"유세포분석 FCS 파싱","phylogenetics":"계통수 구축",
+    "etetoolkit":"계통수 조작/시각화","cobrapy":"대사 모델링 FBA/FVA","glycoengineering":"글리코실화 분석",
+    "esm":"단백질 언어모델 구조예측","gene-database":"NCBI Gene 조회","ensembl-database":"Ensembl 250+ 종 유전체",
+    "uniprot-database":"UniProt 단백질 검색","geo-database":"GEO 유전자 발현","clinvar-database":"ClinVar 변이 의미",
+    "gnomad-database":"gnomAD 대립유전자 빈도","gtex-database":"GTEx 조직별 발현","gwas-database":"GWAS SNP-형질 연관",
+    "ena-database":"유럽 뉴클레오타이드 아카이브","biorxiv-database":"bioRxiv 프리프린트","string-database":"단백질 상호작용",
+    "reactome-database":"Reactome 경로 분석","kegg-database":"KEGG 대사경로","interpro-database":"단백질 도메인 주석",
+    "jaspar-database":"전사인자 결합 프로파일","monarch-database":"질병-유전자 연관","alphafold-database":"AI 단백질 구조",
+    "pdb-database":"PDB 3D 구조","cosmic-database":"COSMIC 암 돌연변이","cbioportal-database":"암 유전체",
+    "depmap":"암 유전자 의존성","opentargets-database":"치료 표적 발굴",
+    "rdkit":"분자 처리 SMILES/SDF","datamol":"RDKit 래퍼/분자기술자","deepchem":"분자 ML",
+    "molfeat":"100+ 분자 특성화기","matchms":"질량스펙트럼 유사도","medchem":"약물유사성/PAINS필터",
+    "diffdock":"분자 도킹 결합예측","molecular-dynamics":"분자동역학 OpenMM","torchdrug":"분자 그래프NN",
+    "chembl-database":"ChEMBL 생활성 분자","drugbank-database":"약물 정보/상호작용","pubchem-database":"PubChem 화합물",
+    "bindingdb-database":"약물-표적 친화도","zinc-database":"2.3억 화합물 스크리닝","hmdb-database":"22만 대사체 DB",
+    "clinpgx-database":"약물유전체학","brenda-database":"효소 동역학","metabolomics-workbench-database":"대사체학 API",
+    "primekg":"정밀의학 지식그래프","pytdc":"신약 벤치마크","rowan":"클라우드 양자화학",
+    "pymatgen":"재료과학 결정/상도","astropy":"천문학/천체물리","fluidsim":"전산유체역학","sympy":"기호 수학",
+    "qiskit":"IBM 양자 컴퓨팅","cirq":"Google 양자 회로","pennylane":"양자 ML","qutip":"양자계 시뮬레이션",
+    "matplotlib":"과학 시각화","seaborn":"통계 시각화","plotly":"인터랙티브 차트","scikit-learn":"ML 학습/평가",
+    "pytorch-lightning":"딥러닝 멀티GPU","polars":"고속 DataFrame","dask":"분산 컴퓨팅","vaex":"대규모 테이블",
+    "networkx":"네트워크 분석","shap":"모델 해석 SHAP","umap-learn":"UMAP 차원축소",
+    "statsmodels":"통계 모델 OLS/GLM","statistical-analysis":"통계 분석 가이드",
+    "exploratory-data-analysis":"탐색적 데이터 분석","torch-geometric":"그래프 신경망",
+    "stable-baselines3":"강화학습","pufferlib":"고성능 RL","transformers":"트랜스포머 NLP/CV",
+    "simpy":"이산사건 시뮬레이션","pymoo":"다목적 최적화","pymc":"베이지안 MCMC",
+    "aeon":"시계열 ML","timesfm-forecasting":"시계열 예측","geopandas":"지리공간 분석",
+    "geomaster":"GIS/원격탐사","fred-economic-data":"FRED 경제 데이터","datacommons-client":"공공 통계",
+    "clinical-decision-support":"임상 의사결정","clinical-reports":"임상보고서 작성",
+    "clinicaltrials-database":"임상시험 조회","fda-database":"FDA 의약품/기기","treatment-plans":"치료 계획 생성",
+    "pydicom":"DICOM 의료영상","pyhealth":"의료 AI 예측","pathml":"전산병리학",
+    "histolab":"조직영상 타일추출","imaging-data-commons":"암 영상 데이터",
+    "iso-13485-certification":"의료기기 품질인증","neurokit2":"생체신호 처리","neuropixels-analysis":"신경 기록 분석",
+    "scientific-writing":"논문 작성 IMRAD","literature-review":"체계적 문헌 검토",
+    "citation-management":"인용/BibTeX 관리","peer-review":"논문 심사 평가",
+    "research-grants":"연구비 제안서","scientific-brainstorming":"연구 아이디어 발상",
+    "scientific-critical-thinking":"과학적 근거 평가","hypothesis-generation":"가설 수립/실험 설계",
+    "scholar-evaluation":"학술 업적 평가","scientific-visualization":"출판용 그림",
+    "scientific-schematics":"과학 다이어그램 AI","scientific-slides":"발표 슬라이드",
+    "venue-templates":"학술지 LaTeX 템플릿","latex-posters":"LaTeX 포스터",
+    "pptx-posters":"연구 포스터 HTML/PDF","infographics":"인포그래픽 AI",
+    "markdown-mermaid-writing":"마크다운/Mermaid","paper-2-web":"논문→웹사이트",
+    "pubmed-database":"PubMed 논문 검색","openalex-database":"2.4억 학술문헌",
+    "adaptyv":"클라우드랩 단백질 검증","benchling-integration":"Benchling R&D",
+    "ginkgo-cloud-lab":"Ginkgo 클라우드랩","opentrons-integration":"Opentrons 로봇",
+    "pylabrobot":"랩 자동화 프레임워크","labarchive-integration":"전자실험노트",
+    "lamindb":"생물 데이터 관리","latchbio-integration":"서버리스 생물정보",
+    "dnanexus-integration":"클라우드 유전체","omero-integration":"현미경 영상 관리",
+    "protocolsio-integration":"과학 프로토콜","pyzotero":"Zotero 참고문헌",
+    "alpha-vantage":"주식/외환/암호화폐","edgartools":"SEC 재무제표",
+    "hedgefundmonitor":"헤지펀드 리스크","usfiscaldata":"미국 재정 데이터",
+    "market-research-reports":"시장조사 보고서","uspto-database":"특허/상표 검색",
+    "docx":"Word 문서 처리","xlsx":"Excel 스프레드시트","pdf":"PDF 처리/OCR",
+    "pptx":"PowerPoint 처리","weekly-report":"주간보고 PPT 생성","markitdown":"파일→마크다운","matlab":"MATLAB/Octave",
+    "modal":"클라우드 GPU 실행","generate-image":"AI 이미지 생성",
+    "get-available-resources":"시스템 자원 감지","bgpt-paper-search":"논문/실험데이터 검색",
+    "research-lookup":"연구 정보 검색","perplexity-search":"Perplexity 웹검색",
+    "parallel-web":"웹검색/딥리서치","open-notebook":"AI 연구 노트북",
+    "consciousness-council":"다관점 숙의","what-if-oracle":"What-If 시나리오",
+    "hypogenic":"자동 가설 생성","dhdna-profiler":"텍스트 저자 분석",
+    "offer-k-dense-web":"K-Dense Web 안내","denario":"AI 연구 자동화",
+    "drawio-diagram":"Draw.io 다이어그램 생성/저장",
+    "zarr-python":"청크 N-D 배열 저장",
+    "pyopenms":"질량분석 데이터 처리",
+    "scikit-survival":"생존 분석 ML",
+    # ===== cla-main 직접 스킬 (52개) =====
+    "aesthetic":"UI/UX 미학 디자인","ai-multimodal":"Gemini 멀티모달 AI 처리",
+    "anthropic-architect":"Anthropic 아키텍처 설계","anthropic-prompt-engineer":"Anthropic 프롬프트 엔지니어링",
+    "artifacts-builder":"코드 아티팩트 빌더","backend-development":"백엔드 개발 가이드",
+    "better-auth":"인증/보안 구현","brand-guidelines":"브랜드 가이드라인 작성",
+    "canvas-design":"캔버스 디자인 도구","changelog-generator":"변경사항 자동 문서화",
+    "chrome-devtools":"크롬 개발자도구 활용","claude-code":"Claude Code 활용 가이드",
+    "code-review":"코드 리뷰 프로세스","competitive-ads-extractor":"경쟁사 광고 분석",
+    "content-research-writer":"콘텐츠 리서치 작성","databases":"데이터베이스 설계/최적화",
+    "datadog-entity-generator":"Datadog 엔티티 생성","developer-growth-analysis":"개발자 성장 분석",
+    "devops":"DevOps CI/CD 파이프라인","docs-seeker":"문서 검색/정리",
+    "domain-name-brainstormer":"도메인 네임 발상","engineer-skill-creator":"엔지니어 스킬 제작",
+    "file-organizer":"파일 정리/관리","frontend-design":"프론트엔드 디자인",
+    "frontend-development":"프론트엔드 개발","github-ecosystem":"GitHub 생태계 활용",
+    "google-adk-python":"Google ADK Python","image-enhancer":"이미지 향상/편집",
+    "internal-comms":"내부 커뮤니케이션","invoice-organizer":"청구서 정리",
+    "lead-research-assistant":"리드 리서치 어시스턴트","mcp-builder":"MCP 서버 구축",
+    "media-processing":"미디어 처리/변환","meeting-insights-analyzer":"회의 인사이트 분석",
+    "notebooklm-skill":"NotebookLM 스타일 분석","openai-prompt-engineer":"OpenAI 프롬프트 엔지니어링",
+    "python-deprecation-fixer":"Python 폐기 API 수정","python-project-skel":"Python 프로젝트 스캐폴딩",
+    "raffle-winner-picker":"추첨/선정 도구","repomix":"레포지토리 분석/통합",
+    "sequential-thinking":"순차적 사고 추론","shopify":"Shopify 스토어 개발",
+    "skill-creator":"스킬 제작 도구","skill-share":"스킬 공유 도구",
+    "slack-gif-creator":"Slack GIF 생성","template-skill":"스킬 템플릿",
+    "theme-factory":"테마/스타일 생성","ui-styling":"UI 스타일링 가이드",
+    "video-downloader":"비디오 다운로드","web-artifacts-builder":"웹 아티팩트 빌더",
+    "web-frameworks":"웹 프레임워크 가이드","webapp-testing":"웹앱 테스팅",
+    "react-best-practices":"React/Next.js 성능 최적화 가이드",
+    "web-design-guidelines":"웹 UI 디자인 100+ 규칙",
+    "owasp-security":"OWASP Top 10 보안 코드리뷰 체크리스트",
+    "logpresso-query":"로그프레소 LPQL 쿼리 생성 전문가",
+    "logpresso-search":"로그프레소 서버 직접 조회/검색",
+    "knowledge-search":"도메인 지식/FAB 컬럼/아키텍처 검색",
+    # ===== cla-main 에이전트 (117개) =====
+    "agent-api-designer":"API 설계 전문가","agent-backend-developer":"백엔드 개발 전문가",
+    "agent-electron-pro":"Electron 데스크톱 앱","agent-frontend-developer":"프론트엔드 개발 전문가",
+    "agent-fullstack-developer":"풀스택 개발 전문가","agent-graphql-architect":"GraphQL 아키텍처",
+    "agent-microservices-architect":"마이크로서비스 설계","agent-mobile-developer":"모바일 개발 전문가",
+    "agent-ui-designer":"UI 디자인 전문가","agent-websocket-engineer":"WebSocket 엔지니어",
+    "agent-wordpress-master":"WordPress 전문가",
+    "agent-angular-architect":"Angular 아키텍처","agent-cpp-pro":"C++ 전문가",
+    "agent-csharp-developer":"C# 개발 전문가","agent-django-developer":"Django 개발",
+    "agent-dotnet-core-expert":".NET Core 전문가","agent-dotnet-framework-4.8-expert":".NET Framework 전문가",
+    "agent-flutter-expert":"Flutter 크로스플랫폼","agent-golang-pro":"Go 언어 전문가",
+    "agent-java-architect":"Java 아키텍처","agent-javascript-pro":"JavaScript 전문가",
+    "agent-kotlin-specialist":"Kotlin 전문가","agent-laravel-specialist":"Laravel PHP",
+    "agent-nextjs-developer":"Next.js 풀스택","agent-php-pro":"PHP 전문가",
+    "agent-python-pro":"Python 전문가","agent-rails-expert":"Ruby on Rails",
+    "agent-react-specialist":"React 프론트엔드","agent-rust-engineer":"Rust 시스템 프로그래밍",
+    "agent-spring-boot-engineer":"Spring Boot 서버","agent-sql-pro":"SQL 쿼리 전문가",
+    "agent-swift-expert":"Swift iOS/macOS","agent-typescript-pro":"TypeScript 전문가",
+    "agent-vue-expert":"Vue.js 프론트엔드",
+    "agent-cloud-architect":"클라우드 아키텍처","agent-database-administrator":"DB 관리 전문가",
+    "agent-deployment-engineer":"배포 엔지니어","agent-devops-engineer":"DevOps 엔지니어",
+    "agent-devops-incident-responder":"DevOps 인시던트 대응","agent-incident-responder":"인시던트 대응",
+    "agent-kubernetes-specialist":"Kubernetes 전문가","agent-network-engineer":"네트워크 엔지니어",
+    "agent-platform-engineer":"플랫폼 엔지니어","agent-security-engineer":"보안 엔지니어",
+    "agent-sre-engineer":"SRE 엔지니어","agent-terraform-engineer":"Terraform IaC",
+    "agent-accessibility-tester":"접근성 테스트","agent-architect-reviewer":"아키텍처 리뷰어",
+    "agent-chaos-engineer":"카오스 엔지니어링","agent-code-reviewer":"코드 리뷰 전문가",
+    "agent-compliance-auditor":"컴플라이언스 감사","agent-debugger":"디버깅 전문가",
+    "agent-error-detective":"에러 탐지/분석","agent-penetration-tester":"침투 테스트",
+    "agent-performance-engineer":"성능 엔지니어","agent-qa-expert":"QA 전문가",
+    "agent-security-auditor":"보안 감사","agent-test-automator":"테스트 자동화",
+    "agent-ai-engineer":"AI 엔지니어","agent-data-analyst":"데이터 분석가",
+    "agent-data-engineer":"데이터 엔지니어","agent-data-scientist":"데이터 사이언티스트",
+    "agent-database-optimizer":"DB 최적화","agent-llm-architect":"LLM 아키텍처",
+    "agent-machine-learning-engineer":"ML 엔지니어","agent-ml-engineer":"ML 엔지니어 (생산)",
+    "agent-mlops-engineer":"MLOps 엔지니어","agent-nlp-engineer":"NLP 전문가",
+    "agent-postgres-pro":"PostgreSQL 전문가","agent-prompt-engineer":"프롬프트 엔지니어",
+    "agent-build-engineer":"빌드 엔지니어","agent-cli-developer":"CLI 도구 개발",
+    "agent-dependency-manager":"의존성 관리","agent-documentation-engineer":"문서화 엔지니어",
+    "agent-dx-optimizer":"개발자 경험 최적화","agent-git-workflow-manager":"Git 워크플로 관리",
+    "agent-legacy-modernizer":"레거시 현대화","agent-mcp-developer":"MCP 개발",
+    "agent-refactoring-specialist":"리팩토링 전문가","agent-tooling-engineer":"도구 엔지니어",
+    "agent-api-documenter":"API 문서 작성","agent-blockchain-developer":"블록체인 개발",
+    "agent-embedded-systems":"임베디드 시스템","agent-fintech-engineer":"핀테크 엔지니어",
+    "agent-game-developer":"게임 개발","agent-iot-engineer":"IoT 엔지니어",
+    "agent-mobile-app-developer":"모바일 앱 개발","agent-payment-integration":"결제 시스템 통합",
+    "agent-quant-analyst":"퀀트 분석","agent-risk-manager":"리스크 관리",
+    "agent-seo-specialist":"SEO 전문가",
+    "agent-business-analyst":"비즈니스 분석가","agent-content-marketer":"콘텐츠 마케터",
+    "agent-customer-success-manager":"고객성공 매니저","agent-legal-advisor":"법률 자문",
+    "agent-product-manager":"프로덕트 매니저","agent-project-manager":"프로젝트 매니저",
+    "agent-sales-engineer":"세일즈 엔지니어","agent-scrum-master":"스크럼 마스터",
+    "agent-technical-writer":"테크니컬 라이터","agent-ux-researcher":"UX 리서처",
+    "agent-agent-organizer":"에이전트 조직화","agent-context-manager":"컨텍스트 관리",
+    "agent-error-coordinator":"에러 코디네이터","agent-knowledge-synthesizer":"지식 통합",
+    "agent-multi-agent-coordinator":"멀티에이전트 조율","agent-performance-monitor":"성능 모니터링",
+    "agent-task-distributor":"작업 배분","agent-workflow-orchestrator":"워크플로 오케스트레이션",
+    "agent-competitive-analyst":"경쟁사 분석","agent-data-researcher":"데이터 리서처",
+    "agent-market-researcher":"시장 조사","agent-research-analyst":"리서치 분석가",
+    "agent-search-specialist":"검색 전문가","agent-trend-analyst":"트렌드 분석",
+    "agent-datadog-api-expert":"Datadog API 전문가","agent-datadog-pro":"Datadog 전문가",
+    # ===== cla-main 가이드 (12개) =====
+    "guide-documentation":"문서화 표준 가이드","guide-git":"Git 워크플로 가이드",
+    "guide-github-actions":"GitHub Actions CI/CD","guide-golang":"Go 언어 가이드",
+    "guide-hmhco":"HMHCO 조직 가이드","guide-mcp-reference":"MCP 프로토콜 참조",
+    "guide-opus-4-5-agent":"Opus 4.5 에이전트 가이드","guide-opus-4-5":"Opus 4.5 모델 가이드",
+    "guide-python":"Python 코딩 표준","guide-react":"React 개발 가이드",
+    "guide-testing":"테스팅 표준 가이드","guide-version-discovery":"버전 관리 탐색",
+    # ===== 추가 누락분 (17개) =====
+    "common":"공통 유틸리티/API 키 관리","debugging":"체계적 디버깅 방법론",
+    "problem-solving":"고급 문제 해결 프레임워크",
+    "cmd-cr-fx":"코드 리뷰 수정 커맨드","cmd-cr":"코드 리뷰 커맨드",
+    "cmd-deep-research":"딥 리서치 커맨드","cmd-explore":"코드베이스 탐색 커맨드",
+    "cmd-git-cm":"Git 커밋 커맨드","cmd-git-cp":"Git 체리픽 커맨드",
+    "cmd-git-ff":"Git 패스트포워드 커맨드","cmd-git-fr":"Git 프레시 브랜치 커맨드",
+    "cmd-git-pr":"Git PR 생성 커맨드","cmd-git-prune":"Git 정리 커맨드",
+    "cmd-git-sync":"Git 동기화 커맨드",
+    "guide-opus-migration":"Opus 4.5 마이그레이션 가이드","guide-hooks":"Claude 훅 시스템 가이드",
+    "guide-claude-md":"CLAUDE.md 글로벌 설정 가이드",
+}
 
-## 사용법
-"주간보고 PPT 만들어줘" 요청 시, 아래 python-pptx 코드를 기반으로 PPT를 생성한다.
-개인 지식에 등록된 주간보고 데이터를 읽어서 `projects` 리스트에 채운다.
+# 분야별 스킬 매핑 (355개 전체 분류: 24개 카테고리)
+DOMAIN_SKILLS = {
+    "bioinformatics": {
+        "label": "생물정보학",
+        "icon": "🧬",
+        "color": "#ef4444",
+        "skills": [
+            "biopython","scanpy","pydeseq2","bioservices","anndata",
+            "arboreto","cellxgene-census","deeptools","gget","geniml",
+            "gtars","pysam","scikit-bio","scvelo","scvi-tools",
+            "tiledbvcf","flowio","phylogenetics","etetoolkit","cobrapy",
+            "glycoengineering","esm",
+        ]
+    },
+    "bio-databases": {
+        "label": "생물 DB",
+        "icon": "🗄️",
+        "color": "#f97316",
+        "skills": [
+            "gene-database","ensembl-database","uniprot-database",
+            "geo-database","clinvar-database","gnomad-database",
+            "gtex-database","gwas-database","ena-database",
+            "biorxiv-database","string-database","reactome-database",
+            "kegg-database","interpro-database","jaspar-database",
+            "monarch-database","alphafold-database","pdb-database",
+            "cosmic-database","cbioportal-database","depmap",
+            "opentargets-database",
+        ]
+    },
+    "cheminformatics": {
+        "label": "화학/신약",
+        "icon": "⚗️",
+        "color": "#06b6d4",
+        "skills": [
+            "rdkit","datamol","deepchem","molfeat","matchms",
+            "medchem","diffdock","molecular-dynamics","torchdrug",
+            "chembl-database","drugbank-database","pubchem-database",
+            "bindingdb-database","zinc-database","hmdb-database",
+            "clinpgx-database","brenda-database",
+            "metabolomics-workbench-database","primekg","pytdc","rowan",
+            "pyopenms",
+        ]
+    },
+    "materials-physics": {
+        "label": "재료/물리/양자",
+        "icon": "⚛️",
+        "color": "#8b5cf6",
+        "skills": [
+            "pymatgen","astropy","fluidsim","sympy",
+            "qiskit","cirq","pennylane","qutip",
+        ]
+    },
+    "data-ml": {
+        "label": "데이터/ML",
+        "icon": "📊",
+        "color": "#f59e0b",
+        "skills": [
+            "matplotlib","seaborn","plotly","scikit-learn",
+            "pytorch-lightning","polars","dask","vaex","networkx",
+            "shap","umap-learn","statsmodels","statistical-analysis",
+            "exploratory-data-analysis","torch-geometric",
+            "stable-baselines3","pufferlib","transformers","simpy",
+            "pymoo","pymc","aeon","timesfm-forecasting",
+            "geopandas","geomaster","scikit-survival",
+        ]
+    },
+    "finance": {
+        "label": "금융/경제",
+        "icon": "💰",
+        "color": "#10b981",
+        "skills": [
+            "alpha-vantage","edgartools","hedgefundmonitor",
+            "fred-economic-data","usfiscaldata","datacommons-client",
+            "market-research-reports","uspto-database",
+        ]
+    },
+    "clinical": {
+        "label": "임상/의학",
+        "icon": "🏥",
+        "color": "#ec4899",
+        "skills": [
+            "clinical-decision-support","clinical-reports",
+            "clinicaltrials-database","fda-database","treatment-plans",
+            "pydicom","pyhealth","pathml","histolab",
+            "imaging-data-commons","iso-13485-certification",
+            "neurokit2","neuropixels-analysis",
+        ]
+    },
+    "writing-comm": {
+        "label": "논문/연구",
+        "icon": "📝",
+        "color": "#3b82f6",
+        "skills": [
+            "scientific-writing","literature-review","citation-management",
+            "peer-review","research-grants","scientific-brainstorming",
+            "scientific-critical-thinking","hypothesis-generation",
+            "scholar-evaluation","scientific-visualization",
+            "scientific-schematics","scientific-slides",
+            "venue-templates","latex-posters","pptx-posters",
+            "infographics","markdown-mermaid-writing","paper-2-web","md-to-html",
+            "pubmed-database","openalex-database",
+        ]
+    },
+    "lab-automation": {
+        "label": "랩 자동화",
+        "icon": "🤖",
+        "color": "#14b8a6",
+        "skills": [
+            "adaptyv","benchling-integration","ginkgo-cloud-lab",
+            "opentrons-integration","pylabrobot","labarchive-integration",
+            "lamindb","latchbio-integration","dnanexus-integration",
+            "omero-integration","protocolsio-integration","pyzotero",
+        ]
+    },
+    "utilities": {
+        "label": "유틸리티",
+        "icon": "🔧",
+        "color": "#6b7280",
+        "skills": [
+            "drawio-diagram","docx","xlsx","pdf","pptx","md-to-html","markitdown","matlab",
+            "modal","generate-image","get-available-resources",
+            "bgpt-paper-search","research-lookup","perplexity-search",
+            "parallel-web","open-notebook","consciousness-council",
+            "what-if-oracle","hypogenic","dhdna-profiler","denario",
+            "offer-k-dense-web","zarr-python",
+        ]
+    },
+    "domain-knowledge": {
+        "label": "도메인 지식",
+        "icon": "📚",
+        "color": "#7c3aed",
+        "skills": [
+            "knowledge-search",
+            "logpresso-search",
+        ]
+    },
+    # ===== cla-main 확장 카테고리 =====
+    "dev-tools": {
+        "label": "개발 도구",
+        "icon": "🛠️",
+        "color": "#2563eb",
+        "skills": [
+            "aesthetic","artifacts-builder","backend-development","better-auth",
+            "brand-guidelines","canvas-design","changelog-generator","chrome-devtools",
+            "claude-code","code-review","databases","devops",
+            "docs-seeker","domain-name-brainstormer","engineer-skill-creator",
+            "file-organizer","frontend-design","frontend-development","github-ecosystem",
+            "google-adk-python","mcp-builder","python-deprecation-fixer","python-project-skel",
+            "repomix","sequential-thinking","skill-creator","skill-share",
+            "template-skill","theme-factory","ui-styling","web-artifacts-builder",
+            "web-frameworks","webapp-testing",
+            "react-best-practices","web-design-guidelines","owasp-security",
+            "logpresso-query",
+            "common","debugging","problem-solving",
+        ]
+    },
+    "ai-prompt": {
+        "label": "AI/프롬프트",
+        "icon": "🤖",
+        "color": "#7c3aed",
+        "skills": [
+            "anthropic-architect","anthropic-prompt-engineer","openai-prompt-engineer",
+            "notebooklm-skill","ai-multimodal","content-research-writer",
+            "lead-research-assistant","image-enhancer","media-processing",
+            "meeting-insights-analyzer","video-downloader","slack-gif-creator",
+        ]
+    },
+    "business-ops": {
+        "label": "비즈니스",
+        "icon": "💼",
+        "color": "#dc2626",
+        "skills": [
+            "competitive-ads-extractor","datadog-entity-generator","developer-growth-analysis",
+            "internal-comms","invoice-organizer","raffle-winner-picker","shopify",
+        ]
+    },
+    "agent-core-dev": {
+        "label": "코어 개발 에이전트",
+        "icon": "⚙️",
+        "color": "#0891b2",
+        "skills": [
+            "agent-api-designer","agent-backend-developer","agent-electron-pro",
+            "agent-frontend-developer","agent-fullstack-developer","agent-graphql-architect",
+            "agent-microservices-architect","agent-mobile-developer","agent-ui-designer",
+            "agent-websocket-engineer","agent-wordpress-master",
+        ]
+    },
+    "agent-lang-spec": {
+        "label": "언어 전문 에이전트",
+        "icon": "📜",
+        "color": "#ea580c",
+        "skills": [
+            "agent-angular-architect","agent-cpp-pro","agent-csharp-developer",
+            "agent-django-developer","agent-dotnet-core-expert","agent-dotnet-framework-4.8-expert",
+            "agent-flutter-expert","agent-golang-pro","agent-java-architect",
+            "agent-javascript-pro","agent-kotlin-specialist","agent-laravel-specialist",
+            "agent-nextjs-developer","agent-php-pro","agent-python-pro",
+            "agent-rails-expert","agent-react-specialist","agent-rust-engineer",
+            "agent-spring-boot-engineer","agent-sql-pro","agent-swift-expert",
+            "agent-typescript-pro","agent-vue-expert",
+        ]
+    },
+    "agent-infra": {
+        "label": "인프라 에이전트",
+        "icon": "☁️",
+        "color": "#0d9488",
+        "skills": [
+            "agent-cloud-architect","agent-database-administrator","agent-deployment-engineer",
+            "agent-devops-engineer","agent-devops-incident-responder","agent-incident-responder",
+            "agent-kubernetes-specialist","agent-network-engineer","agent-platform-engineer",
+            "agent-security-engineer","agent-sre-engineer","agent-terraform-engineer",
+        ]
+    },
+    "agent-quality": {
+        "label": "품질/보안 에이전트",
+        "icon": "🛡️",
+        "color": "#15803d",
+        "skills": [
+            "agent-accessibility-tester","agent-architect-reviewer","agent-chaos-engineer",
+            "agent-code-reviewer","agent-compliance-auditor","agent-debugger",
+            "agent-error-detective","agent-penetration-tester","agent-performance-engineer",
+            "agent-qa-expert","agent-security-auditor","agent-test-automator",
+        ]
+    },
+    "agent-data-ai": {
+        "label": "데이터/AI 에이전트",
+        "icon": "🧠",
+        "color": "#7c3aed",
+        "skills": [
+            "agent-ai-engineer","agent-data-analyst","agent-data-engineer",
+            "agent-data-scientist","agent-database-optimizer","agent-llm-architect",
+            "agent-machine-learning-engineer","agent-ml-engineer","agent-mlops-engineer",
+            "agent-nlp-engineer","agent-postgres-pro","agent-prompt-engineer",
+        ]
+    },
+    "agent-dx": {
+        "label": "개발자경험 에이전트",
+        "icon": "🔧",
+        "color": "#ca8a04",
+        "skills": [
+            "agent-build-engineer","agent-cli-developer","agent-dependency-manager",
+            "agent-documentation-engineer","agent-dx-optimizer","agent-git-workflow-manager",
+            "agent-legacy-modernizer","agent-mcp-developer","agent-refactoring-specialist",
+            "agent-tooling-engineer",
+        ]
+    },
+    "agent-domain": {
+        "label": "특수 도메인 에이전트",
+        "icon": "🎯",
+        "color": "#be185d",
+        "skills": [
+            "agent-api-documenter","agent-blockchain-developer","agent-embedded-systems",
+            "agent-fintech-engineer","agent-game-developer","agent-iot-engineer",
+            "agent-mobile-app-developer","agent-payment-integration","agent-quant-analyst",
+            "agent-risk-manager","agent-seo-specialist",
+        ]
+    },
+    "agent-business": {
+        "label": "비즈니스 에이전트",
+        "icon": "📊",
+        "color": "#9333ea",
+        "skills": [
+            "agent-business-analyst","agent-content-marketer","agent-customer-success-manager",
+            "agent-legal-advisor","agent-product-manager","agent-project-manager",
+            "agent-sales-engineer","agent-scrum-master","agent-technical-writer",
+            "agent-ux-researcher",
+        ]
+    },
+    "agent-meta": {
+        "label": "오케스트레이션 에이전트",
+        "icon": "🎼",
+        "color": "#4f46e5",
+        "skills": [
+            "agent-agent-organizer","agent-context-manager","agent-error-coordinator",
+            "agent-knowledge-synthesizer","agent-multi-agent-coordinator",
+            "agent-performance-monitor","agent-task-distributor","agent-workflow-orchestrator",
+        ]
+    },
+    "agent-research": {
+        "label": "리서치 에이전트",
+        "icon": "🔍",
+        "color": "#059669",
+        "skills": [
+            "agent-competitive-analyst","agent-data-researcher","agent-market-researcher",
+            "agent-research-analyst","agent-search-specialist","agent-trend-analyst",
+            "agent-datadog-api-expert","agent-datadog-pro",
+        ]
+    },
+    "guides": {
+        "label": "개발 가이드",
+        "icon": "📖",
+        "color": "#6366f1",
+        "skills": [
+            "guide-documentation","guide-git","guide-github-actions","guide-golang",
+            "guide-hmhco","guide-mcp-reference","guide-opus-4-5-agent","guide-opus-4-5",
+            "guide-python","guide-react","guide-testing","guide-version-discovery",
+            "guide-opus-migration","guide-hooks","guide-claude-md",
+        ]
+    },
+    "commands": {
+        "label": "CLI 커맨드",
+        "icon": "⌨️",
+        "color": "#71717a",
+        "skills": [
+            "cmd-cr-fx","cmd-cr","cmd-deep-research","cmd-explore",
+            "cmd-git-cm","cmd-git-cp","cmd-git-ff","cmd-git-fr",
+            "cmd-git-pr","cmd-git-prune","cmd-git-sync",
+        ]
+    },
+}
 
-## python-pptx 생성 코드
 
-```python
-from pptx import Presentation
-from pptx.util import Inches, Pt, Cm, Emu
-from pptx.dml.color import RGBColor
-from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
-from pptx.oxml.ns import qn
+# ============================================
+# 병렬 에이전트용 스킬 그룹 (실행 단위)
+# DOMAIN_SKILLS(UI 표시용 24개) → SKILL_GROUPS(병렬 실행용 7개 그룹)
+# 같은 그룹 내 스킬은 1 에이전트가 처리, 다른 그룹은 별도 에이전트
+# ============================================
+SKILL_GROUPS = {
+    "scientific": {
+        "skills": {
+            # bioinformatics
+            "biopython","scanpy","pydeseq2","bioservices","anndata",
+            "arboreto","cellxgene-census","deeptools","gget","geniml",
+            "gtars","pysam","scikit-bio","scvelo","scvi-tools",
+            "tiledbvcf","flowio","phylogenetics","etetoolkit","cobrapy",
+            "glycoengineering","esm",
+            # bio-databases
+            "gene-database","ensembl-database","uniprot-database",
+            "geo-database","clinvar-database","gnomad-database",
+            "gtex-database","gwas-database","ena-database",
+            "biorxiv-database","string-database","reactome-database",
+            "kegg-database","interpro-database","jaspar-database",
+            "monarch-database","alphafold-database","pdb-database",
+            "cosmic-database","cbioportal-database","depmap","opentargets-database",
+            # cheminformatics
+            "rdkit","datamol","deepchem","molfeat","matchms",
+            "medchem","diffdock","molecular-dynamics","torchdrug",
+            "chembl-database","drugbank-database","pubchem-database",
+            "bindingdb-database","zinc-database","hmdb-database",
+            "clinpgx-database","brenda-database",
+            "metabolomics-workbench-database","primekg","pytdc","rowan","pyopenms",
+            # materials-physics
+            "pymatgen","astropy","fluidsim","sympy","qiskit","cirq","pennylane","qutip",
+            # clinical
+            "clinical-decision-support","clinical-reports",
+            "clinicaltrials-database","fda-database","treatment-plans",
+            "pydicom","pyhealth","pathml","histolab",
+            "imaging-data-commons","iso-13485-certification","neurokit2","neuropixels-analysis",
+            # lab-automation
+            "adaptyv","benchling-integration","ginkgo-cloud-lab",
+            "opentrons-integration","pylabrobot","labarchive-integration",
+            "lamindb","latchbio-integration","dnanexus-integration",
+            "omero-integration","protocolsio-integration","pyzotero",
+        },
+        "preferred_model_size": "large",
+    },
+    "data-analysis": {
+        "skills": {
+            "matplotlib","seaborn","plotly","scikit-learn",
+            "pytorch-lightning","polars","dask","vaex","networkx",
+            "shap","umap-learn","statsmodels","statistical-analysis",
+            "exploratory-data-analysis","torch-geometric",
+            "stable-baselines3","pufferlib","transformers","simpy",
+            "pymoo","pymc","aeon","timesfm-forecasting",
+            "geopandas","geomaster","scikit-survival",
+            "scientific-visualization","scientific-schematics",
+            # finance
+            "alpha-vantage","edgartools","hedgefundmonitor",
+            "fred-economic-data","usfiscaldata","datacommons-client",
+            "market-research-reports","uspto-database",
+        },
+        "preferred_model_size": "medium",
+    },
+    "code": {
+        "skills": {
+            # agent-core-dev
+            "agent-api-designer","agent-backend-developer","agent-electron-pro",
+            "agent-frontend-developer","agent-fullstack-developer","agent-graphql-architect",
+            "agent-microservices-architect","agent-mobile-developer","agent-ui-designer",
+            "agent-websocket-engineer","agent-wordpress-master",
+            # agent-lang-spec
+            "agent-angular-architect","agent-cpp-pro","agent-csharp-developer",
+            "agent-django-developer","agent-dotnet-core-expert","agent-dotnet-framework-4.8-expert",
+            "agent-flutter-expert","agent-golang-pro","agent-java-architect",
+            "agent-javascript-pro","agent-kotlin-specialist","agent-laravel-specialist",
+            "agent-nextjs-developer","agent-php-pro","agent-python-pro",
+            "agent-rails-expert","agent-react-specialist","agent-rust-engineer",
+            "agent-spring-boot-engineer","agent-sql-pro","agent-swift-expert",
+            "agent-typescript-pro","agent-vue-expert",
+            # agent-quality
+            "agent-accessibility-tester","agent-architect-reviewer","agent-chaos-engineer",
+            "agent-code-reviewer","agent-compliance-auditor","agent-debugger",
+            "agent-error-detective","agent-penetration-tester","agent-performance-engineer",
+            "agent-qa-expert","agent-security-auditor","agent-test-automator",
+            # agent-dx
+            "agent-build-engineer","agent-cli-developer","agent-dependency-manager",
+            "agent-documentation-engineer","agent-dx-optimizer","agent-git-workflow-manager",
+            "agent-legacy-modernizer","agent-mcp-developer","agent-refactoring-specialist",
+            "agent-tooling-engineer",
+            # dev-tools (code-related subset)
+            "debugging","problem-solving","code-review","databases","devops",
+            "backend-development","frontend-development","frontend-design",
+            "web-frameworks","webapp-testing","github-ecosystem",
+            "python-deprecation-fixer","python-project-skel","repomix",
+            "common","claude-code","sequential-thinking",
+        },
+        "preferred_model_size": "medium",
+    },
+    "infrastructure": {
+        "skills": {
+            "agent-cloud-architect","agent-database-administrator","agent-deployment-engineer",
+            "agent-devops-engineer","agent-devops-incident-responder","agent-incident-responder",
+            "agent-kubernetes-specialist","agent-network-engineer","agent-platform-engineer",
+            "agent-security-engineer","agent-sre-engineer","agent-terraform-engineer",
+        },
+        "preferred_model_size": "small",
+    },
+    "writing-docs": {
+        "skills": {
+            "scientific-writing","literature-review","citation-management",
+            "peer-review","research-grants","scientific-brainstorming",
+            "scientific-critical-thinking","hypothesis-generation",
+            "scholar-evaluation","scientific-slides",
+            "venue-templates","latex-posters","pptx-posters",
+            "infographics","markdown-mermaid-writing","paper-2-web",
+            "pubmed-database","openalex-database",
+            "drawio-diagram","docx","xlsx","pdf","pptx","markitdown",
+            "agent-technical-writer","agent-documentation-engineer",
+            "agent-content-marketer",
+        },
+        "preferred_model_size": "medium",
+    },
+    "ai-business": {
+        "skills": {
+            # ai/prompt
+            "anthropic-architect","anthropic-prompt-engineer","openai-prompt-engineer",
+            "notebooklm-skill","ai-multimodal","content-research-writer",
+            "lead-research-assistant","agent-llm-architect","agent-prompt-engineer",
+            "agent-ai-engineer","agent-data-analyst","agent-data-engineer",
+            "agent-data-scientist","agent-database-optimizer",
+            "agent-machine-learning-engineer","agent-ml-engineer","agent-mlops-engineer",
+            "agent-nlp-engineer","agent-postgres-pro",
+            # agent-meta (orchestration)
+            "agent-agent-organizer","agent-context-manager","agent-error-coordinator",
+            "agent-knowledge-synthesizer","agent-multi-agent-coordinator",
+            "agent-performance-monitor","agent-task-distributor","agent-workflow-orchestrator",
+            # agent-business + domain + research
+            "agent-business-analyst","agent-customer-success-manager",
+            "agent-legal-advisor","agent-product-manager","agent-project-manager",
+            "agent-sales-engineer","agent-scrum-master","agent-ux-researcher",
+            "agent-competitive-analyst","agent-data-researcher","agent-market-researcher",
+            "agent-research-analyst","agent-search-specialist","agent-trend-analyst",
+            "agent-datadog-api-expert","agent-datadog-pro",
+            "agent-blockchain-developer","agent-embedded-systems",
+            "agent-fintech-engineer","agent-game-developer","agent-iot-engineer",
+            "agent-mobile-app-developer","agent-payment-integration","agent-quant-analyst",
+            "agent-risk-manager","agent-seo-specialist","agent-api-documenter",
+        },
+        "preferred_model_size": "small",
+    },
+    "search": {
+        "skills": {
+            "logpresso-search","knowledge-search","logpresso-query",
+            "perplexity-search","parallel-web","bgpt-paper-search","research-lookup",
+        },
+        "pre_process": True,
+        "preferred_model_size": "small",
+    },
+}
 
-def create_weekly_report(filename, projects):
+# 역인덱스: skill_id → group_name
+_SKILL_TO_GROUP = {}
+for _gname, _ginfo in SKILL_GROUPS.items():
+    for _sid in _ginfo["skills"]:
+        _SKILL_TO_GROUP[_sid] = _gname
+
+
+
+
+def group_skills_for_parallel(skill_ids):
+    """스킬 ID 목록을 병렬 실행 그룹으로 분류.
+
+    Returns:
+        pre_process_skills: list[str] - 병렬 전에 선처리할 스킬 (search 그룹)
+        parallel_groups: list[dict] - [{"group": name, "skills": [ids], "preferred_model_size": str}]
+        use_parallel: bool - 2개+ 그룹이면 True
     """
-    주간보고 PPT 생성
+    pre_process = []
+    group_map = {}  # group_name -> [skill_ids]
 
-    projects = [
-        {
-            "name": "smartATLAS",
-            "current": [  # 금주 실적
-                {"content": "▶ ATLAS 소스 개발/운영 동일화 계획(분석)\n   1) DATA 소스 영역 분석\n     ▶문제 영역 찾아서 수정 계획 제공", "date": "4/22", "progress": "97%"},
-                {"content": "▶ ICPKT AGV MAP 구현\n   1)테이블 확인후 구현 완료\n     ▶문서 및 HTML 문서 작성 및 전달", "date": "4/08", "progress": "100%"},
-            ],
-            "next": [  # 차주 계획
-                {"content": "▶ ATLAS 소스 개발/운영 동일화 계획(분석)\n   1) DATA 소스 영역 분석\n     ▶파이썬,일반영역 분리작업 준비", "date": "4/22", "progress": "98%"},
-            ],
-            "issues": ""  # Issue 및 협의사항
+    for sid in skill_ids:
+        gname = _SKILL_TO_GROUP.get(sid, "general")
+        ginfo = SKILL_GROUPS.get(gname, {})
+
+        if ginfo.get("pre_process"):
+            pre_process.append(sid)
+            continue
+
+        if gname not in group_map:
+            group_map[gname] = []
+        group_map[gname].append(sid)
+
+    parallel_groups = []
+    for gname, sids in group_map.items():
+        pref = SKILL_GROUPS.get(gname, {}).get("preferred_model_size", "medium")
+        parallel_groups.append({
+            "group": gname,
+            "skills": sids,
+            "preferred_model_size": pref,
+        })
+
+    # MAX_POOL_SIZE 초과 시 작은 그룹을 큰 그룹에 병합
+    if len(parallel_groups) > MAX_POOL_SIZE:
+        parallel_groups.sort(key=lambda g: len(g["skills"]), reverse=True)
+        overflow = parallel_groups[MAX_POOL_SIZE:]
+        for og in overflow:
+            parallel_groups[0]["skills"].extend(og["skills"])
+        parallel_groups = parallel_groups[:MAX_POOL_SIZE]
+
+    use_parallel = len(parallel_groups) >= 2
+    return pre_process, parallel_groups, use_parallel
+
+
+# ============================================
+# 계층적 위임 (Hierarchical Delegation)
+# ============================================
+HIERARCHICAL_THRESHOLD = 5  # 그룹 내 스킬 N개 이상이면 리드→스페셜리스트 분할
+
+def _split_large_group(group):
+    """스킬 5개 이상인 그룹을 서브그룹으로 분할 (리드-스페셜리스트 패턴).
+
+    Returns:
+        list[dict]: 분할된 서브그룹 목록
+            [{"group": "scientific/bio", "skills": [...], "preferred_model_size": "large", "parent_group": "scientific"}]
+        또는 분할 불필요 시 [group] 그대로 반환.
+    """
+    skills = group["skills"]
+    if len(skills) < HIERARCHICAL_THRESHOLD:
+        return [group]
+
+    # 스킬을 SKILL_GROUPS 내 세부 카테고리별로 분류
+    sub_map = {}
+    gname = group["group"]
+    ginfo = SKILL_GROUPS.get(gname, {})
+    all_skills_in_group = ginfo.get("skills", set())
+
+    for sid in skills:
+        # 스킬 이름의 접두사로 서브카테고리 추론
+        # 예: agent-python-pro → agent, biopython → bio, matplotlib → viz
+        prefix = sid.split("-")[0] if "-" in sid else sid[:4]
+        if prefix not in sub_map:
+            sub_map[prefix] = []
+        sub_map[prefix].append(sid)
+
+    # 서브그룹이 2개 이상이면 분할, 아니면 그대로
+    if len(sub_map) < 2:
+        return [group]
+
+    # 너무 작은 서브그룹(1개)은 가장 큰 서브그룹에 병합
+    sub_groups = sorted(sub_map.items(), key=lambda x: len(x[1]), reverse=True)
+    result = []
+    tiny_skills = []
+    for prefix, sids in sub_groups:
+        if len(sids) >= 2:
+            result.append({
+                "group": f"{gname}/{prefix}",
+                "skills": sids,
+                "preferred_model_size": group["preferred_model_size"],
+                "parent_group": gname,
+            })
+        else:
+            tiny_skills.extend(sids)
+
+    # 잔여 스킬을 첫 번째 서브그룹에 추가
+    if tiny_skills:
+        if result:
+            result[0]["skills"].extend(tiny_skills)
+        else:
+            return [group]  # 분할 의미 없음
+
+    # MAX_POOL_SIZE 고려: 서브그룹이 너무 많으면 상위 3개만
+    if len(result) > 3:
+        overflow_skills = []
+        for sg in result[3:]:
+            overflow_skills.extend(sg["skills"])
+        result = result[:3]
+        result[0]["skills"].extend(overflow_skills)
+
+    return result
+
+
+def apply_hierarchical_delegation(parallel_groups):
+    """큰 그룹을 리드-스페셜리스트 패턴으로 분할.
+
+    Returns:
+        list[dict]: 분할 적용된 그룹 목록 (원래 그룹 + 분할된 서브그룹)
+    """
+    expanded = []
+    for pg in parallel_groups:
+        sub_groups = _split_large_group(pg)
+        expanded.extend(sub_groups)
+
+    # MAX_POOL_SIZE 제한 적용
+    if len(expanded) > MAX_POOL_SIZE:
+        expanded.sort(key=lambda g: len(g["skills"]), reverse=True)
+        overflow = expanded[MAX_POOL_SIZE:]
+        for og in overflow:
+            expanded[0]["skills"].extend(og["skills"])
+        expanded = expanded[:MAX_POOL_SIZE]
+
+    return expanded
+
+
+
+
+# ============================================
+# 스킬 파일 읽기
+# ============================================
+def scan_skills():
+    """scientific-skills 폴더를 스캔해서 사용 가능한 스킬 목록 반환 (scripts/references/assets 포함)"""
+    result = {}
+    if not os.path.isdir(SKILLS_DIR):
+        return result
+
+    for folder_name in os.listdir(SKILLS_DIR):
+        skill_dir = os.path.join(SKILLS_DIR, folder_name)
+        skill_md = os.path.join(skill_dir, "SKILL.md")
+        if not os.path.isfile(skill_md):
+            continue
+
+        # scripts 폴더 스캔
+        scripts = []
+        scripts_dir = os.path.join(skill_dir, "scripts")
+        if os.path.isdir(scripts_dir):
+            for root, dirs, files in os.walk(scripts_dir):
+                for fn in files:
+                    if fn.endswith(".py"):
+                        full = os.path.join(root, fn)
+                        rel = os.path.relpath(full, skill_dir)
+                        scripts.append({
+                            "name": fn,
+                            "path": rel,
+                            "size": os.path.getsize(full),
+                        })
+
+        # references 폴더 스캔
+        references = []
+        refs_dir = os.path.join(skill_dir, "references")
+        if os.path.isdir(refs_dir):
+            for fn in os.listdir(refs_dir):
+                full = os.path.join(refs_dir, fn)
+                if os.path.isfile(full):
+                    references.append({
+                        "name": fn,
+                        "path": os.path.join("references", fn),
+                        "size": os.path.getsize(full),
+                    })
+
+        # assets 폴더 스캔
+        assets = []
+        assets_dir = os.path.join(skill_dir, "assets")
+        if os.path.isdir(assets_dir):
+            for fn in os.listdir(assets_dir):
+                full = os.path.join(assets_dir, fn)
+                if os.path.isfile(full):
+                    assets.append({
+                        "name": fn,
+                        "path": os.path.join("assets", fn),
+                        "size": os.path.getsize(full),
+                    })
+
+        result[folder_name] = {
+            "name": folder_name,
+            "path": skill_md,
+            "has_content": True,
+            "scripts": scripts,
+            "references": references,
+            "assets": assets,
         }
-    ]
+    return result
+
+
+# ============================================
+# 수동 전용 스킬 (자동 추천에서 제외, 사용자가 직접 선택해야 함)
+MANUAL_ONLY_SKILLS = {"knowledge-search", "logpresso-search"}
+
+
+
+# 오토 스킬 라우터 (키워드 매칭)
+# ============================================
+SKILL_KEYWORDS = {
+    # === 생물정보학 ===
+    "biopython": ["생물","서열","DNA","RNA","단백질","FASTA","GenBank","BLAST","alignment","서열분석"],
+    "scanpy": ["단일세포","single-cell","scRNA","10x","세포군집","UMAP","leiden"],
+    "pydeseq2": ["차등발현","DEG","differential expression","RNA-seq","유전자발현"],
+    "anndata": ["AnnData","h5ad","단일세포행렬"],
+    "scvelo": ["RNA velocity","RNA벨로시티","세포분화궤적"],
+    "scvi-tools": ["scVI","VAE","단일세포딥러닝"],
+    "cellxgene-census": ["CellxGene","6100만","세포데이터"],
+    "deeptools": ["NGS","BAM","bigWig","ChIP-seq"],
+    "gget": ["gget","유전자조회","Ensembl조회"],
+    "pysam": ["SAM","BAM","VCF","시퀀싱"],
+    "phylogenetics": ["계통수","phylogenetic","진화","계통분석"],
+    "etetoolkit": ["계통수시각화","ete3","newick"],
+    "cobrapy": ["대사모델","FBA","FVA","flux","대사경로모델링"],
+    "esm": ["단백질언어모델","ESM","구조예측","protein language"],
+    "flowio": ["유세포","FCS","flow cytometry","FACS"],
+    "glycoengineering": ["글리코실화","glyco","당화"],
+    # === 생물 DB ===
+    "gene-database": ["NCBI","유전자검색","gene ID","gene search"],
+    "ensembl-database": ["Ensembl","종유전체","genome browser"],
+    "uniprot-database": ["UniProt","단백질DB","protein database"],
+    "geo-database": ["GEO","유전자발현DB","microarray"],
+    "clinvar-database": ["ClinVar","변이의미","pathogenic","variant"],
+    "gnomad-database": ["gnomAD","대립유전자빈도","allele frequency"],
+    "gwas-database": ["GWAS","SNP","형질연관","genome-wide"],
+    "biorxiv-database": ["bioRxiv","프리프린트","preprint"],
+    "pubmed-database": ["PubMed","논문검색","medical literature","PMID"],
+    "string-database": ["STRING","단백질상호작용","PPI","protein interaction"],
+    "reactome-database": ["Reactome","경로분석","pathway"],
+    "kegg-database": ["KEGG","대사경로","metabolic pathway"],
+    "alphafold-database": ["AlphaFold","AI구조","protein structure prediction"],
+    "pdb-database": ["PDB","3D구조","crystal structure","단백질구조"],
+    "cosmic-database": ["COSMIC","암돌연변이","cancer mutation"],
+    "opentargets-database": ["OpenTargets","치료표적","drug target"],
+    # === 화학/신약 ===
+    "rdkit": ["RDKit","SMILES","분자","molecule","화합물","compound","SDF","molecular"],
+    "deepchem": ["DeepChem","분자ML","molecular ML"],
+    "datamol": ["datamol","분자기술자","descriptor"],
+    "molfeat": ["분자특성","fingerprint","분자지문"],
+    "matchms": ["질량스펙트럼","mass spec","MS/MS"],
+    "medchem": ["약물유사성","PAINS","Lipinski","drug-like"],
+    "diffdock": ["도킹","docking","결합예측","binding"],
+    "molecular-dynamics": ["분자동역학","MD시뮬레이션","OpenMM","GROMACS"],
+    "chembl-database": ["ChEMBL","생활성","bioactivity"],
+    "drugbank-database": ["DrugBank","약물정보","drug interaction"],
+    "pubchem-database": ["PubChem","화합물DB"],
+    "zinc-database": ["ZINC","화합물스크리닝","virtual screening"],
+    # === 데이터/ML ===
+    "scikit-learn": ["sklearn","머신러닝","분류","회귀","클러스터링","SVM","random forest","machine learning","이상치","outlier","anomaly"],
+    "pytorch-lightning": ["PyTorch","딥러닝","신경망","neural network","GPU학습","deep learning"],
+    "transformers": ["트랜스포머","HuggingFace","NLP","BERT","GPT","LLM","언어모델"],
+    "polars": ["Polars","DataFrame","데이터프레임","빠른테이블","CSV","csv","TSV","데이터로드"],
+    "dask": ["Dask","분산컴퓨팅","대용량","distributed"],
+    "matplotlib": ["시각화","그래프","차트","plot","figure","matplotlib"],
+    "seaborn": ["seaborn","통계시각화","heatmap","히트맵"],
+    "plotly": ["plotly","인터랙티브","interactive chart","대시보드"],
+    "networkx": ["네트워크","그래프이론","graph","node","edge"],
+    "shap": ["SHAP","모델해석","feature importance","설명가능"],
+    "statsmodels": ["회귀분석","OLS","GLM","통계모델","regression"],
+    "statistical-analysis": ["통계","t-test","ANOVA","검정","p-value","유의성"],
+    "umap-learn": ["UMAP","차원축소","embedding","t-SNE"],
+    "torch-geometric": ["그래프신경망","GNN","GCN","graph neural"],
+    "pymc": ["베이지안","MCMC","사후분포","Bayesian"],
+    "sympy": ["수학","미적분","방정식","적분","미분","symbolic math"],
+    "aeon": ["시계열","time series","forecast","예측"],
+    "timesfm-forecasting": ["시계열예측","TimesFM","forecasting"],
+    # === 임상/의학 ===
+    "clinical-decision-support": ["임상","진단","의사결정","clinical decision"],
+    "clinical-reports": ["임상보고서","clinical report","환자보고"],
+    "clinicaltrials-database": ["임상시험","clinical trial","NCT"],
+    "fda-database": ["FDA","의약품","승인","drug approval"],
+    "treatment-plans": ["치료계획","treatment plan","처방"],
+    "pydicom": ["DICOM","의료영상","CT","MRI","X-ray"],
+    "pyhealth": ["의료AI","electronic health","EHR","환자예측"],
+    "pathml": ["전산병리","pathology","조직학","H&E"],
+    "neurokit2": ["생체신호","ECG","EEG","심전도","뇌전도"],
+    # === 논문/연구 ===
+    "scientific-writing": ["논문작성","IMRAD","학술논문","paper writing","scientific paper"],
+    "literature-review": ["문헌검토","문헌 검토","systematic review","메타분석","literature","리뷰논문","선행연구"],
+    "citation-management": ["인용","BibTeX","참고문헌","citation","Zotero"],
+    "peer-review": ["심사","peer review","리뷰어"],
+    "research-grants": ["연구비","grant","제안서","proposal","연구과제"],
+    "hypothesis-generation": ["가설","hypothesis","실험설계","experiment design"],
+    "scientific-visualization": ["과학시각화","출판용그림","publication figure"],
+    # === 개발도구 ===
+    "code-review": ["코드리뷰","코드 리뷰","code review","PR리뷰","코드검토"],
+    "debugging": ["디버깅","debug","에러","error","버그","bug"],
+    "sequential-thinking": ["단계별사고","체계적분석","step by step","논리적"],
+    "problem-solving": ["문제해결","problem solving","브레인스토밍"],
+    "databases": ["데이터베이스","DB설계","SQL","PostgreSQL","MySQL","MongoDB"],
+    "devops": ["DevOps","CI/CD","파이프라인","배포","deploy","Docker","Jenkins"],
+    "github-ecosystem": ["GitHub","git","레포","repository","PR","이슈"],
+    "mcp-builder": ["MCP","서버구축","프로토콜"],
+    "frontend-development": ["프론트엔드","React","Vue","Angular","CSS","HTML","UI"],
+    "backend-development": ["백엔드","API","서버","Flask","Django","FastAPI","Express"],
+    "python-project-skel": ["Python프로젝트","스캐폴딩","프로젝트구조","setup.py"],
+    # === AI/프롬프트 ===
+    "anthropic-prompt-engineer": ["프롬프트","prompt engineering","프롬프트작성"],
+    "ai-multimodal": ["멀티모달","이미지분석","vision","Gemini"],
+    # === 에이전트 (자주 쓰이는 것만) ===
+    "agent-python-pro": ["Python","파이썬","python코드","스크립트","py"],
+    "agent-data-scientist": ["데이터분석","data science","분석가","EDA","탐색적분석","데이터사이언스","데이터과학"],
+    "agent-ml-engineer": ["MLOps","모델배포","학습파이프라인"],
+    "agent-fullstack-developer": ["풀스택","fullstack","웹앱","web app"],
+    "logpresso-query": ["로그프레소 쿼리","로그프레소쿼리","LPQL 쿼리","LPQL 만들","로그프레소 쿼리 만들","logpresso query","로그프레소"],
+    "logpresso-search": ["로그프레소 조회","로그프레소조회","로그프레소 검색","logpresso search","로그프레소","테이블 조회","테이블 검색","테이블 데이터","로그 조회","로그 검색","설비 로그","ts_data_view","fulltext","LPQL","lpql"],
+    # knowledge-search: MANUAL_ONLY_SKILLS로 이동 (자동 추천 제외, 수동 선택 전용)
+    "agent-sql-pro": ["SQL","테이블조회"],
+    "agent-code-reviewer": ["코드검토","리팩토링","코드품질"],
+    "agent-debugger": ["디버그","traceback","스택트레이스","에러추적"],
+    "agent-technical-writer": ["기술문서","문서작성","API문서","documentation"],
+    "agent-research-analyst": ["리서치","연구분석","정보수집","조사"],
+    # === 금융 ===
+    "alpha-vantage": ["주식","stock","주가","시세","외환","forex"],
+    "edgartools": ["SEC","재무제표","10-K","10-Q","annual report"],
+    "fred-economic-data": ["FRED","경제데이터","GDP","실업률","금리"],
+    # === 유틸리티 ===
+    "docx": ["워드","Word","docx","문서작성"],
+    "xlsx": ["엑셀","Excel","xlsx","스프레드시트","spreadsheet"],
+    "pdf": ["PDF","pdf","문서변환"],
+    "pptx": ["파워포인트","PPT","pptx","프레젠테이션","발표","슬라이드","슬라이드 만들","PPT 만들","PPT 제작","PPT로","ppt로","발표자료","피피티","덱","deck","pitch deck","피치덱","발표 준비","슬라이드 제작"],
+    "weekly-report": ["주간보고","주간","보고","weekly","report","금주실적","차주계획","주간보고서","주간 보고","보고서 PPT"],
+    "generate-image": ["이미지생성","AI그림","image generation","그림그려"],
+    # === 가이드 ===
+    "guide-python": ["Python가이드","코딩표준","PEP","파이썬스타일"],
+    "guide-git": ["git가이드","브랜치","merge","rebase"],
+    "guide-react": ["React가이드","리액트","컴포넌트"],
+    # ===== 자동 생성 키워드 (288개) =====
+    "adaptyv": ['클라우드랩', '단백질검증', 'protein engineering', 'Adaptyv'],
+    "aesthetic": ['미학', 'UI디자인', 'UX', '비주얼', '디자인시스템'],
+    "agent-accessibility-tester": ['접근성', 'a11y', 'WCAG', '스크린리더', '웹접근성'],
+    "agent-agent-organizer": ['에이전트조직', 'agent organize', '에이전트관리'],
+    "agent-ai-engineer": ['AI엔지니어', 'AI개발', '모델개발', 'AI시스템'],
+    "agent-ai-ethics-advisor": ['AI윤리', '편향', 'fairness', '책임AI', 'bias'],
+    "agent-ai-infrastructure": ['AI인프라', 'GPU', '모델서빙', 'MLOps', '학습환경'],
+    "agent-angular-architect": ['Angular', 'TypeScript', '컴포넌트', 'RxJS', 'NgModule'],
+    "agent-api-designer": ['API설계', 'REST', 'OpenAPI', 'Swagger', '엔드포인트'],
+    "agent-api-documenter": ['API문서', 'Swagger', 'OpenAPI문서', 'API스펙'],
+    "agent-architect-reviewer": ['아키텍처리뷰', '설계검토', '시스템리뷰', '구조분석'],
+    "agent-backend-developer": ['백엔드', '서버개발', 'API서버', 'Node.js', 'Express'],
+    "agent-blockchain-developer": ['블록체인', '스마트컨트랙트', 'Solidity', 'Web3', '암호화폐'],
+    "agent-build-engineer": ['빌드', 'build', 'CI', '컴파일', '빌드시스템'],
+    "agent-business-analyst": ['비즈니스분석', '요구사항', 'BRD', '비즈니스로직'],
+    "agent-chaos-engineer": ['카오스', 'chaos engineering', '장애주입', 'resilience'],
+    "agent-cli-developer": ['CLI', '커맨드라인', '터미널', '명령어도구'],
+    "agent-cloud-architect": ['클라우드', 'AWS', 'Azure', 'GCP', '아키텍처', '인프라'],
+    "agent-competitive-analyst": ['경쟁분석', '경쟁사', 'competitive analysis', '벤치마킹'],
+    "agent-compliance-auditor": ['컴플라이언스', '감사', 'audit', '규정준수', 'GDPR'],
+    "agent-content-marketer": ['콘텐츠마케팅', 'SEO', '블로그', '소셜미디어', '마케팅'],
+    "agent-context-manager": ['컨텍스트', 'context', '상태관리', '세션'],
+    "agent-cpp-pro": ['C++', 'CPP', '시스템프로그래밍', '메모리관리', '포인터'],
+    "agent-csharp-developer": ['C#', 'csharp', 'Unity', 'WPF', '.NET'],
+    "agent-customer-success-manager": ['고객성공', 'CS', '고객만족', '고객관리'],
+    "agent-data-analyst": ['데이터분석가', '리포트', 'KPI', '지표', '대시보드'],
+    "agent-data-engineer": ['데이터엔지니어', 'ETL', '파이프라인', 'Airflow', 'Spark'],
+    "agent-data-researcher": ['데이터리서치', '데이터수집', '크롤링', '데이터소스'],
+    "agent-database-administrator": ['DBA', '데이터베이스관리', '인덱스', '튜닝', '백업'],
+    "agent-database-optimizer": ['DB최적화', '인덱스최적화', '쿼리튜닝', '슬로우쿼리'],
+    "agent-datadog-api-expert": ['Datadog API', '모니터링API', '메트릭API'],
+    "agent-datadog-pro": ['Datadog', 'APM', '로그관리', '인프라모니터링'],
+    "agent-dependency-manager": ['의존성', 'dependency', '패키지관리', 'npm', 'pip'],
+    "agent-deployment-engineer": ['배포', 'deploy', 'CI/CD', '릴리즈', 'rollback'],
+    "agent-devops-engineer": ['DevOps', '파이프라인', '자동화', 'Jenkins', 'GitHub Actions'],
+    "agent-devops-incident-responder": ['인시던트', '장애대응', '모니터링', '알림', 'SLA'],
+    "agent-django-developer": ['Django', 'ORM', 'MTV', '파이썬웹', 'admin'],
+    "agent-documentation-engineer": ['문서엔지니어', '기술문서화', 'docs-as-code'],
+    "agent-documentation-writer": ['문서작성', '기술문서', 'README', 'API문서'],
+    "agent-dotnet-core-expert": ['.NET Core', 'ASP.NET', 'Blazor', 'Entity Framework'],
+    "agent-dotnet-framework-4.8-expert": ['.NET Framework', 'WinForms', 'WCF', '레거시닷넷'],
+    "agent-dx-optimizer": ['DX', '개발자경험', '개발환경', '개발도구', '생산성'],
+    "agent-electron-pro": ['Electron', '데스크톱앱', 'desktop app', '크로스플랫폼'],
+    "agent-embedded-systems": ['임베디드', '펌웨어', 'firmware', 'MCU', 'RTOS', 'IoT'],
+    "agent-error-coordinator": ['에러조율', '에러통합', '멀티에러', '에러워크플로'],
+    "agent-error-detective": ['에러분석', '에러탐지', '버그추적', '로그분석', 'exception'],
+    "agent-fintech-engineer": ['핀테크', '결제', '금융기술', 'PG', 'fintech'],
+    "agent-flutter-expert": ['Flutter', 'Dart', '크로스플랫폼', '위젯', '모바일UI'],
+    "agent-frontend-developer": ['프론트엔드', 'HTML', 'CSS', 'JavaScript', 'UI개발'],
+    "agent-game-developer": ['게임개발', 'Unity', 'Unreal', '게임로직', '2D', '3D'],
+    "agent-git-specialist": ['git', '브랜치', 'merge', 'rebase', '충돌해결', '커밋'],
+    "agent-git-workflow-manager": ['Git워크플로', '브랜치전략', 'gitflow', 'trunk-based'],
+    "agent-golang-pro": ['Go', 'Golang', '고루틴', 'goroutine', '채널', '동시성'],
+    "agent-graphql-architect": ['GraphQL', '쿼리언어', '스키마', 'resolver', 'Apollo'],
+    "agent-incident-responder": ['장애', 'incident', '복구', 'RCA', '포스트모템'],
+    "agent-iot-engineer": ['IoT엔지니어', '센서', 'MQTT', '엣지컴퓨팅', '스마트'],
+    "agent-iot-specialist": ['IoT', '사물인터넷', '센서', '아두이노', '라즈베리파이', 'MQTT'],
+    "agent-java-architect": ['Java', 'Spring', 'JVM', 'Maven', 'Gradle', '엔터프라이즈'],
+    "agent-javascript-pro": ['JavaScript', 'JS', 'ES6', '비동기', 'async', 'Promise'],
+    "agent-knowledge-synthesizer": ['지식통합', '정보종합', 'knowledge synthesis', '요약통합'],
+    "agent-kotlin-specialist": ['Kotlin', '코틀린', 'Android', 'JetBrains', '코루틴'],
+    "agent-kubernetes-specialist": ['Kubernetes', 'K8s', '쿠버네티스', 'Pod', 'Helm', '컨테이너'],
+    "agent-laravel-specialist": ['Laravel', 'PHP프레임워크', 'Eloquent', 'Blade'],
+    "agent-legacy-modernizer": ['레거시', '현대화', '마이그레이션', '리라이트', 'monolith'],
+    "agent-legal-advisor": ['법률', '계약서', '이용약관', '개인정보', 'GDPR'],
+    "agent-llm-architect": [
+        'LLM', '대규모언어모델', 'RAG', '파인튜닝', '프롬프트설계',
+        'LLM 설계자', 'llm architect', '모델 라우팅', '컨텍스트 엔지니어링',
+        '토큰 예산', '프롬프트 아키텍처', '평가 파이프라인', 'guardrail', 'hallucination',
+    ],
+    "agent-low-code-builder": ['로우코드', 'no-code', 'Bubble', 'Retool', '자동화'],
+    "agent-machine-learning-engineer": ['ML엔지니어', '모델학습', '하이퍼파라미터', '피처'],
+    "agent-market-researcher": ['시장조사', '마켓리서치', 'TAM', '시장규모', '경쟁'],
+    "agent-mcp-developer": ['MCP', 'Model Context Protocol', 'MCP서버', 'MCP개발'],
+    "agent-microservices-architect": ['마이크로서비스', 'MSA', '서비스분리', 'API게이트웨이'],
+    "agent-ml-ops-specialist": ['MLOps', '모델관리', '실험추적', 'MLflow', 'Kubeflow'],
+    "agent-mlops-engineer": ['MLOps엔지니어', '모델배포', '실험추적', '모델레지스트리'],
+    "agent-mobile-app-developer": ['모바일앱', '앱스토어', 'iOS앱', '안드로이드앱'],
+    "agent-mobile-developer": ['모바일', '앱개발', 'iOS', 'Android', 'React Native'],
+    "agent-multi-agent-coordinator": ['멀티에이전트', '에이전트조율', '오케스트레이션', '협업'],
+    "agent-network-engineer": ['네트워크', 'TCP', 'DNS', '방화벽', '로드밸런서', 'VPN'],
+    "agent-nextjs-developer": ['Next.js', 'SSR', 'SSG', 'App Router', 'Vercel'],
+    "agent-nlp-engineer": ['NLP', '자연어처리', '텍스트분석', '토큰화', '임베딩'],
+    "agent-payment-integration": ['결제연동', 'PG연동', 'Stripe', '토스페이먼츠'],
+    "agent-penetration-tester": ['침투테스트', 'pentest', '모의해킹', '취약점스캔'],
+    "agent-performance-engineer": ['성능최적화', 'performance', '벤치마크', '프로파일링', 'latency'],
+    "agent-performance-monitor": ['성능모니터링', 'APM', '메트릭수집', '대시보드'],
+    "agent-php-pro": ['PHP', 'Laravel', 'Composer', 'WordPress개발'],
+    "agent-platform-engineer": ['플랫폼', 'IDP', '개발자플랫폼', '셀프서비스'],
+    "agent-postgres-pro": ['PostgreSQL', 'Postgres', 'PSQL', 'PG튜닝', '확장'],
+    "agent-product-manager": ['프로덕트매니저', 'PM', '로드맵', 'PRD', '사용자스토리'],
+    "agent-project-manager": ['프로젝트관리', '일정', 'WBS', '간트', '마일스톤'],
+    "agent-prompt-engineer": ['프롬프트엔지니어', '프롬프트최적화', 'few-shot', 'chain-of-thought'],
+    "agent-qa-engineer": ['QA', '품질보증', '테스트케이스', '테스트자동화'],
+    "agent-qa-expert": ['QA전문가', '테스트전략', '버그리포트', '회귀테스트'],
+    "agent-quant-analyst": ['퀀트', '알고리즘트레이딩', '금융모델', '리스크모델'],
+    "agent-rails-expert": ['Rails', 'Ruby', 'ActiveRecord', 'MVC', 'Gem'],
+    "agent-react-specialist": ['React', '리액트', 'JSX', 'Hooks', '상태관리', 'Redux'],
+    "agent-refactoring-guru": ['리팩토링', '클린코드', '디자인패턴', 'SOLID', '코드개선'],
+    "agent-refactoring-specialist": ['리팩토링전문', '코드개선', '기술부채', '클린코드'],
+    "agent-regex-master": ['정규식', 'regex', '정규표현식', '패턴매칭', 'regexp'],
+    "agent-risk-manager": ['리스크', '위험관리', 'risk management', '위험평가'],
+    "agent-robotics-engineer": ['로보틱스', 'ROS', '로봇', '자율주행', '모션플래닝'],
+    "agent-rust-engineer": ['Rust', '러스트', '소유권', 'ownership', 'borrow', '시스템'],
+    "agent-sales-engineer": ['세일즈엔지니어', '기술영업', 'POC', '데모'],
+    "agent-scrum-master": ['스크럼', 'Scrum', '스프린트', '애자일', 'Agile', '칸반'],
+    "agent-search-specialist": ['검색', 'search', '정보검색', '쿼리최적화'],
+    "agent-security-auditor": ['보안감사', '취약점감사', '코드보안', 'OWASP'],
+    "agent-security-engineer": ['보안', 'security', '취약점', '암호화', '방화벽', 'CVE'],
+    "agent-seo-specialist": ['SEO', '검색최적화', '메타태그', '사이트맵', '구글'],
+    "agent-spring-boot-engineer": ['Spring Boot', '스프링', 'JPA', 'Gradle', 'Maven'],
+    "agent-sre-engineer": ['SRE', '신뢰성', '가용성', 'SLO', 'SLI', '모니터링'],
+    "agent-startup-advisor": ['스타트업', 'MVP', '비즈니스모델', '투자', '피칭'],
+    "agent-swift-expert": ['Swift', '스위프트', 'iOS', 'SwiftUI', 'Xcode', 'macOS'],
+    "agent-systems-programmer": ['시스템프로그래밍', 'OS', '커널', '드라이버', 'C', '어셈블리'],
+    "agent-task-distributor": ['작업분배', '태스크배분', '로드밸런싱', '스케줄링'],
+    "agent-tech-lead": ['테크리드', '기술리더', '아키텍처결정', '팀리딩'],
+    "agent-terraform-engineer": ['Terraform', 'IaC', '인프라코드', 'HCL', '프로비저닝'],
+    "agent-test-automator": ['테스트자동화', 'CI테스트', '자동화테스트', '파이프라인'],
+    "agent-test-engineer": ['단위테스트', 'unit test', 'pytest', 'jest', '테스트코드'],
+    "agent-tooling-engineer": ['도구개발', '내부도구', 'tooling', 'CLI도구'],
+    "agent-trend-analyst": ['트렌드', '동향분석', '기술트렌드', '시장동향'],
+    "agent-typescript-pro": ['TypeScript', 'TS', '타입', '인터페이스', '제네릭', 'type'],
+    "agent-ui-designer": ['UI디자인', 'Figma', '목업', '와이어프레임', '프로토타입'],
+    "agent-ux-researcher": ['UX리서치', '사용자조사', '사용성', '유저테스트'],
+    "agent-vue-expert": ['Vue', '뷰', 'Vuex', 'Pinia', 'Composition API', 'Nuxt'],
+    "agent-websocket-engineer": ['WebSocket', '실시간', '소켓', '채팅', 'push'],
+    "agent-wordpress-master": ['WordPress', '워드프레스', '플러그인', '테마', 'CMS'],
+    "agent-workflow-orchestrator": ['워크플로', '자동화', '파이프라인', '태스크관리'],
+    "anthropic-architect": ['Anthropic', '아키텍처', 'Claude API', '시스템설계'],
+    "arboreto": ['유전자네트워크', 'GRN', 'gene regulatory', 'GENIE3', 'GRNBoost'],
+    "artifacts-builder": ['아티팩트', '코드생성', 'code artifact', '빌더'],
+    "astropy": ['astropy', '천문학', '천체', 'astronomy', 'FITS', 'celestial'],
+    "benchling-integration": ['Benchling', '실험노트', 'LIMS', '분자생물학'],
+    "better-auth": ['인증', 'authentication', 'OAuth', 'JWT', '로그인', '보안'],
+    "bgpt-paper-search": ['논문검색', '실험데이터', 'paper search', '학술검색'],
+    "bindingdb-database": ['BindingDB', '약물표적', 'binding affinity', 'Ki', 'Kd'],
+    "bioservices": ['BioServices', 'DB통합', 'UniProt', 'KEGG', 'NCBI', '생물DB'],
+    "brand-guidelines": ['브랜드', '가이드라인', 'CI', '로고', '스타일가이드'],
+    "brenda-database": ['BRENDA', '효소', 'enzyme kinetics', 'Km', 'Vmax'],
+    "canvas-design": ['캔버스', 'Canvas', '그래픽', '드로잉'],
+    "cbioportal-database": ['cBioPortal', '암유전체', 'cancer genomics', 'mutation'],
+    "changelog-generator": ['변경로그', 'changelog', '릴리즈노트', '버전관리'],
+    "chrome-devtools": ['크롬개발자도구', 'DevTools', '디버깅', '네트워크탭', '콘솔'],
+    "cirq": ['Cirq', '양자회로', 'quantum circuit', 'Google quantum'],
+    "claude-code": ['Claude Code', 'CLI', '에이전트코딩', '클로드'],
+    "clinpgx-database": ['약물유전체', 'pharmacogenomics', 'PGx', '약물반응'],
+    "cmd-cr": ['코드리뷰', '커밋리뷰', 'PR분석'],
+    "cmd-cr-fx": ['코드수정', '자동수정', 'fix', '패치'],
+    "cmd-deep-research": ['딥리서치', '심층조사', '종합분석', 'deep research'],
+    "cmd-dr": ['디렉토리분석', '폴더구조', '프로젝트분석'],
+    "cmd-explore": ['코드탐색', 'explore codebase', '코드베이스', '디렉토리탐색'],
+    "cmd-gen-mcp": ['MCP생성', 'MCP서버', '프로토콜'],
+    "cmd-git-cm": ['커밋', 'commit', 'git commit', '커밋메시지'],
+    "cmd-git-cp": ['체리픽', 'cherry-pick', '커밋선택', 'git cp'],
+    "cmd-git-ff": ['패스트포워드', 'fast-forward', 'git merge ff'],
+    "cmd-git-fr": ['프레시브랜치', 'fresh branch', '새브랜치'],
+    "cmd-git-pr": ['PR생성', '풀리퀘스트', 'git PR', '코드제출'],
+    "cmd-git-prune": ['git정리', 'git prune', 'git clean', '브랜치정리'],
+    "cmd-git-sync": ['동기화', 'sync', 'git pull', 'git fetch', '원격동기화'],
+    "cmd-implement": ['기능구현', 'implement feature', '기능개발', '코드구현'],
+    "cmd-init": ['초기화', 'init', '프로젝트생성', 'setup'],
+    "cmd-memory": ['메모리', '기억', '컨텍스트', 'context'],
+    "cmd-think": ['사고모드', 'think mode', '심층추론', 'deep reasoning'],
+    "cmd-user-prompt": ['사용자프롬프트', '커스텀', 'user prompt'],
+    "common": ['공통', '유틸리티', '설정', 'configuration', '환경변수'],
+    "competitive-ads-extractor": ['경쟁사', '광고분석', 'competitive', 'ads'],
+    "consciousness-council": ['다관점', '숙의', '다각도분석', 'council', '관점비교'],
+    "content-research-writer": ['콘텐츠', '리서치', '글쓰기', 'content writing'],
+    "datacommons-client": ['공공통계', 'DataCommons', '인구', 'GDP', '통계데이터'],
+    "datadog-entity-generator": ['Datadog', '모니터링', '엔티티', '메트릭'],
+    "denario": ['AI연구', '자동화연구', 'research automation'],
+    "depmap": ['DepMap', '암유전자의존성', 'CRISPR screen', 'cancer dependency'],
+    "developer-growth-analysis": ['개발자성장', '성장분석', '커리어', '역량'],
+    "dhdna-profiler": ['저자분석', '텍스트분석', 'authorship', '문체분석'],
+    "dnanexus-integration": ['DNAnexus', '클라우드유전체', 'WGS', 'WES', '유전체분석'],
+    "docs-seeker": ['문서검색', '문서정리', 'documentation', '문서'],
+    "document-skills": ['문서스킬', '문서변환', '문서처리', 'document'],
+    "domain-name-brainstormer": ['도메인', 'domain name', '네이밍', '사이트이름'],
+    "ena-database": ['ENA', '유럽뉴클레오타이드', '시퀀싱데이터', 'FASTQ'],
+    "engineer-skill-creator": ['스킬제작', 'skill builder', '엔지니어스킬'],
+    "exploratory-data-analysis": ['EDA', '탐색적분석', '데이터탐색', '분포', '상관관계', 'describe'],
+    "file-organizer": ['파일정리', '파일관리', '폴더정리', 'file organize'],
+    "fluidsim": ['유체역학', 'CFD', 'fluid dynamics', 'Navier-Stokes', '유동'],
+    "frontend-design": ['프론트엔드디자인', 'UI구현', 'CSS디자인', '레이아웃'],
+    "geniml": ['유전체구간', 'genomic interval', 'BED', '유전체ML'],
+    "geomaster": ['GIS', '원격탐사', 'remote sensing', '위성영상', '지리정보'],
+    "geopandas": ['GeoPandas', '지리공간', 'GIS', 'shapefile', '좌표', '지도'],
+    "get-available-resources": ['시스템자원', 'CPU', '메모리', '디스크', 'GPU감지'],
+    "ginkgo-cloud-lab": ['Ginkgo', '합성생물학', 'synthetic biology', '클라우드랩'],
+    "google-adk-python": ['Google ADK', 'Agent Development Kit', '구글에이전트'],
+    "gtars": ['유전체구간', 'genomic region', '고성능분석', 'interval'],
+    "gtex-database": ['GTEx', '조직발현', 'tissue expression', 'RNA발현'],
+    "guide-claude-md": ['CLAUDE.md', '프로젝트설정', 'Claude설정'],
+    "guide-documentation": ['문서화', 'documentation', '표준문서', 'README'],
+    "guide-github-actions": ['GitHub Actions', 'CI/CD', '워크플로', '자동배포'],
+    "guide-golang": ['Go가이드', 'Golang패턴', 'Go관례', '고루틴패턴'],
+    "guide-hmhco": ['HMHCO', '조직가이드', '회사가이드'],
+    "guide-hooks": ['훅', 'hook', '커스텀훅', 'pre-commit', '이벤트'],
+    "guide-mcp-reference": ['MCP참조', 'MCP프로토콜', 'MCP문서'],
+    "guide-opus-4-5": ['Opus 4.5', '모델가이드', 'Claude모델'],
+    "guide-opus-4-5-agent": ['Opus에이전트', 'Agent가이드', '에이전트모델'],
+    "guide-opus-migration": ['Opus', '마이그레이션', '모델전환', '업그레이드'],
+    "guide-pydantic": ['Pydantic', '데이터검증', '모델정의', 'validation'],
+    "guide-ruby": ['Ruby', '루비', 'Gem', 'Rails가이드'],
+    "guide-rust": ['Rust가이드', '러스트패턴', '소유권', 'lifetime'],
+    "guide-testing": ['테스트가이드', 'TDD', '테스트전략', '커버리지'],
+    "guide-typescript": ['TypeScript가이드', '타입설계', 'TS패턴'],
+    "guide-version-discovery": ['버전관리', 'version discovery', '버전탐색'],
+    "hedgefundmonitor": ['헤지펀드', '리스크', 'fund monitoring', '포트폴리오'],
+    "histolab": ['조직영상', 'histology', '타일추출', 'H&E', 'WSI', '병리', 'pathology', '조직학'],
+    "hmdb-database": ['HMDB', '대사체', 'metabolite', 'metabolomics'],
+    "hypogenic": ['가설생성', 'hypothesis generation', '자동가설'],
+    "image-enhancer": ['이미지향상', '이미지편집', 'image enhance', '보정'],
+    "imaging-data-commons": ['암영상', 'IDC', '의료영상데이터', 'TCIA'],
+    "infographics": ['인포그래픽', 'infographic', '데이터시각화', '정보디자인'],
+    "internal-comms": ['내부소통', '커뮤니케이션', '공지', '사내'],
+    "interpro-database": ['InterPro', '단백질도메인', 'domain annotation', 'Pfam'],
+    "invoice-organizer": ['청구서', '인보이스', 'invoice', '결제'],
+    "iso-13485-certification": ['ISO 13485', '의료기기', '품질인증', 'QMS'],
+    "jaspar-database": ['JASPAR', '전사인자', 'transcription factor', 'motif'],
+    "labarchive-integration": ['전자실험노트', 'ELN', 'LabArchives', '실험기록'],
+    "lamindb": ['LaminDB', '데이터관리', '생물데이터', 'data lineage'],
+    "latchbio-integration": ['LatchBio', '서버리스', '워크플로우', 'bioinformatics pipeline'],
+    "latex-posters": ['LaTeX포스터', '학회포스터', 'poster', '연구포스터'],
+    "lead-research-assistant": ['리드리서치', '연구보조', 'research assistant'],
+    "drawio-diagram": ['drawio', 'draw.io', '드로우IO', '드로우io', '드로우아이오', 'DrawIO', '다이어그램', '플로우차트', '아키텍처', '구조도', 'UML', '클래스다이어그램', '시퀀스다이어그램', 'ERD', '흐름도', '시스템구조', '데이터흐름도', 'DFD', '배치도'],
+    "markdown-mermaid-writing": ['마크다운', 'Mermaid', '다이어그램', 'flowchart', '시퀀스', 'MD파일', 'MD 파일', 'md파일', '마크다운 보고서', '마크다운 문서', 'MD로', 'md로', '문서화', '보고서 작성', '정리해줘', '회의록', '미팅노트', '기술문서', 'MD 보고서', 'markdown report', 'markdown document', 'MD만들어', 'MD다운로드'],
+    "market-research-reports": ['시장조사', 'market research', '산업분석', '시장보고서', '시장리포트'],
+    "markitdown": ['마크다운변환', '파일변환', '문서변환', 'markdown conversion'],
+    "matlab": ['MATLAB', 'Octave', '매트랩', '행렬', '수치해석'],
+    "media-processing": ['미디어', '동영상', '오디오', '변환', 'ffmpeg'],
+    "meeting-insights-analyzer": ['회의', '미팅', '인사이트', 'meeting', '회의록'],
+    "metabolomics-workbench-database": ['대사체학', 'metabolomics', 'Metabolomics Workbench'],
+    "modal": ['Modal', '클라우드GPU', '서버리스GPU', 'GPU실행'],
+    "monarch-database": ['Monarch', '질병유전자', 'disease gene', 'phenotype'],
+    "neuropixels-analysis": ['Neuropixels', '신경기록', 'electrophysiology', '뉴런', 'spike'],
+    "notebooklm-skill": ['NotebookLM', '노트북', '문서분석', '요약'],
+    "offer-k-dense-web": ['K-Dense', '웹가이드', '안내'],
+    "omero-integration": ['OMERO', '현미경', 'microscopy', '영상관리', 'imaging'],
+    "open-notebook": ['연구노트북', 'AI노트북', '실험기록', 'notebook'],
+    "openai-prompt-engineer": ['OpenAI', 'GPT', '프롬프트', 'prompt', 'ChatGPT'],
+    "openalex-database": ['OpenAlex', '학술문헌', '논문검색', 'academic search'],
+    "opentrons-integration": ['Opentrons', '로봇', '피펫팅', '자동화', 'liquid handling'],
+    "paper-2-web": ['논문웹사이트', 'paper to web', '연구홍보', '랜딩페이지'],
+    "parallel-web": ['병렬검색', '딥리서치', 'deep research', '웹크롤링'],
+    "pennylane": ['PennyLane', '양자ML', 'quantum machine learning', 'variational'],
+    "perplexity-search": ['Perplexity', '웹검색', 'AI검색', 'web search'],
+    "pptx-posters": ['연구포스터', 'poster', 'HTML포스터', '학회'],
+    "primekg": ['PrimeKG', '정밀의학', 'precision medicine', 'knowledge graph'],
+    "protocolsio-integration": ['protocols.io', '실험프로토콜', 'method', '실험방법'],
+    "pufferlib": ['PufferLib', '고성능RL', '게임AI', '환경병렬화'],
+    "pylabrobot": ['랩자동화', '로봇실험', 'laboratory automation', 'Hamilton'],
+    "pymatgen": ['pymatgen', '재료과학', '결정구조', 'crystal', '상도', 'phase diagram', 'Materials Project'],
+    "pymoo": ['pymoo', '다목적최적화', 'multi-objective', 'NSGA', 'Pareto'],
+    "pyopenms": ['OpenMS', '질량분석', 'mass spectrometry', 'LC-MS', 'proteomics'],
+    "pytdc": ['PyTDC', '신약벤치마크', 'drug benchmark', 'ADMET', 'TDC'],
+    "python-deprecation-fixer": ['deprecated', '폐기API', '버전업', '마이그레이션'],
+    "pyzotero": ['Zotero', '참고문헌', 'bibliography', '문헌관리', '인용'],
+    "qiskit": ['Qiskit', '양자컴퓨팅', 'quantum computing', 'IBM quantum', '큐비트', 'qubit'],
+    "qutip": ['QuTiP', '양자시뮬레이션', 'quantum simulation', '양자역학'],
+    "raffle-winner-picker": ['추첨', '랜덤선정', 'raffle', '당첨'],
+    "repomix": ['레포분석', 'repository analysis', '코드분석', '코드베이스'],
+    "research-lookup": ['연구정보', '리서치', '정보검색', 'research lookup'],
+    "rowan": ['Rowan', '양자화학', 'quantum chemistry', 'DFT', 'ab initio'],
+    "scholar-evaluation": ['학술업적', 'h-index', '논문평가', '인용', 'impact factor'],
+    "scientific-brainstorming": ['연구아이디어', '브레인스토밍', '실험설계', '연구주제'],
+    "scientific-critical-thinking": ['비판적사고', '과학적근거', '논증', 'evidence-based'],
+    "scientific-schematics": ['다이어그램', 'schematic', '과학그림', '모식도'],
+    "scientific-slides": ['발표', '슬라이드', '학회발표', 'presentation', '학술발표'],
+    "scikit-bio": ['scikit-bio', '마이크로바이옴', 'microbiome', '다양성지수', '서열정렬'],
+    "scikit-survival": ['생존분석', 'survival analysis', 'Kaplan-Meier', 'Cox', '생존곡선'],
+    "shopify": ['Shopify', '쇼핑몰', '이커머스', 'e-commerce', '스토어'],
+    "simpy": ['SimPy', '시뮬레이션', '이산사건', 'discrete event', '큐잉'],
+    "skill-creator": ['스킬생성', 'skill create', '스킬템플릿'],
+    "skill-share": ['스킬공유', 'skill share', '스킬배포'],
+    "slack-gif-creator": ['Slack', 'GIF', '애니메이션', '슬랙'],
+    "stable-baselines3": ['강화학습', 'RL', 'reinforcement learning', 'PPO', 'DQN', 'A2C'],
+    "template-skill": ['템플릿', '스킬템플릿', 'boilerplate'],
+    "theme-factory": ['테마', 'theme', '스타일', '다크모드', '색상'],
+    "tiledbvcf": ['TileDB', 'VCF', '유전체변이', 'variant storage', 'genotype'],
+    "torchdrug": ['TorchDrug', '분자그래프', 'molecular graph', 'GNN', 'drug discovery'],
+    "ui-styling": ['UI스타일', 'CSS', '스타일링', '디자인시스템', '색상'],
+    "usfiscaldata": ['미국재정', 'fiscal data', '국채', 'government debt'],
+    "uspto-database": ['USPTO', '특허', 'patent', '상표', 'trademark', '지식재산'],
+    "vaex": ['vaex', '대규모데이터', 'out-of-core', 'lazy evaluation', '빅데이터'],
+    "venue-templates": ['LaTeX', '학술지', '템플릿', 'journal template', '논문포맷'],
+    "video-downloader": ['비디오', '영상다운로드', 'video download', 'YouTube'],
+    "web-artifacts-builder": ['웹아티팩트', '웹앱생성', 'HTML생성', '인터랙티브'],
+    "web-frameworks": ['웹프레임워크', 'Express', 'Next.js', 'Nuxt', 'SvelteKit'],
+    "webapp-testing": ['웹테스트', 'E2E', 'Playwright', 'Cypress', '테스팅'],
+    "react-best-practices": ['React', 'Next.js', 'NextJS', '리액트', 'RSC', 'Server Component', 'SSR', 'CSR', 'App Router', 'hooks', '컴포넌트', 'useState', 'useEffect'],
+    "web-design-guidelines": ['웹디자인', 'UI설계', 'UX', '레이아웃', '타이포그래피', '색상', '반응형', 'responsive', '접근성', 'a11y', 'WCAG', '다크모드', 'dark mode'],
+    "owasp-security": ['보안', 'OWASP', 'XSS', 'SQL인젝션', 'CSRF', '취약점', 'vulnerability', '인증', '인가', 'authentication', 'authorization', 'injection', '보안점검', '코드보안', 'security'],
+    "what-if-oracle": ['What-If', '시나리오', '가정분석', 'hypothetical'],
+    "zarr-python": ['Zarr', '청크배열', 'N-D array', '대용량배열', 'cloud storage'],
+}
+
+def _score_query(query_lower):
+    """쿼리에 대한 스킬별 점수 계산 (내부 공통 함수)"""
+    import re
+    scores = {}
+    for skill_id, keywords in SKILL_KEYWORDS.items():
+        score = 0
+        for kw in keywords:
+            kw_lower = kw.lower()
+            if len(kw_lower) <= 4 and kw_lower.isascii() and kw_lower.isalpha():
+                pattern = r'(?<![a-zA-Z])' + re.escape(kw_lower) + r'(?![a-zA-Z])'
+                if re.search(pattern, query_lower):
+                    score += len(kw_lower) * 2
+            elif kw_lower in query_lower:
+                score += len(kw_lower)
+        if score > 0:
+            scores[skill_id] = score
+    return scores
+
+
+def auto_select_skills(query, max_skills=3):
+    """사용자 질문을 분석하여 관련 스킬을 자동 선택"""
+    scores = _score_query(query.lower())
+    sorted_skills = sorted(scores.items(), key=lambda x: -x[1])
+    return [(sid, sc) for sid, sc in sorted_skills[:max_skills] if sid not in MANUAL_ONLY_SKILLS]
+
+
+def context_aware_skill_select(query, history, max_skills=3):
+    """대화 컨텍스트 + 현재 질문 기반 스킬 자동 선택 (멀티에이전트 Router)
+
+    [Router 역할]
+    1. 현재 질문에서 직접 매칭되는 스킬 → 높은 가중치
+    2. 최근 대화 3턴에서 매칭되는 스킬 → 중간 가중치 (컨텍스트 유지)
+    3. 질문 유형 분석 → 보조 스킬 자동 추가
     """
-    prs = Presentation()
-    prs.slide_width = Inches(13.33)
-    prs.slide_height = Inches(7.5)
+    # 1단계: 현재 질문 스코어링 (가중치 1.0)
+    current_scores = _score_query(query.lower())
 
-    for idx, proj in enumerate(projects):
-        slide = prs.slides.add_slide(prs.slide_layouts[6])  # blank
+    # 2단계: 최근 대화 컨텍스트 스코어링 (가중치 0.3, 최근 3턴)
+    context_scores = {}
+    recent_msgs = [m for m in history if m.get("role") == "user"][-3:]
+    for msg in recent_msgs:
+        msg_scores = _score_query(msg.get("content", "").lower())
+        for sid, sc in msg_scores.items():
+            context_scores[sid] = context_scores.get(sid, 0) + sc * 0.3
 
-        # === 제목 ===
-        title_box = slide.shapes.add_textbox(Cm(1), Cm(0.5), Cm(20), Cm(1.2))
-        tf = title_box.text_frame
-        tf.word_wrap = True
-        p = tf.paragraphs[0]
-        p.text = f"{idx+1}. {proj['name']}"
-        p.font.size = Pt(24)
-        p.font.bold = True
-        p.font.name = "맑은 고딕"
+    # 3단계: 합산
+    combined = {}
+    all_sids = set(list(current_scores.keys()) + list(context_scores.keys()))
+    for sid in all_sids:
+        combined[sid] = current_scores.get(sid, 0) + context_scores.get(sid, 0)
 
-        # === 3색 구분선 (빨강/노랑/파랑) ===
-        bar_y = Cm(2.0)
-        bar_h = Cm(0.25)
-        total_w = Cm(31.5)
-        colors = [RGBColor(0xFF, 0x00, 0x00), RGBColor(0xFF, 0xD7, 0x00), RGBColor(0x44, 0x72, 0xC4)]
-        for i, color in enumerate(colors):
-            bar = slide.shapes.add_shape(1, Cm(1) + Emu(int(total_w * i / 3)), bar_y, Emu(int(total_w / 3)), bar_h)
-            bar.fill.solid()
-            bar.fill.fore_color.rgb = color
-            bar.line.fill.background()
+    # 4단계: 질문 유형별 보조 스킬 자동 추가
+    q = query.lower()
+    boosted = set()
+    # 코드 수정/디버깅 감지
+    if any(kw in q for kw in ["에러", "error", "버그", "bug", "수정", "고쳐", "안돼", "안되", "traceback", "exception"]):
+        for sid in ["debugging", "agent-debugger", "agent-error-detective"]:
+            combined[sid] = combined.get(sid, 0) + 5
+            boosted.add(sid)
+    # 데이터 분석 감지
+    if any(kw in q for kw in ["분석", "데이터", "csv", "그래프", "시각화", "차트", "통계"]):
+        for sid in ["exploratory-data-analysis", "matplotlib", "statistical-analysis"]:
+            combined[sid] = combined.get(sid, 0) + 3
+            boosted.add(sid)
+    # Draw.io / 다이어그램 감지 (코드 작성보다 우선)
+    if any(kw in q for kw in ["drawio", "draw.io", "드로우io", "드로우IO", "드로우아이오", "드로잉io", "드로잉IO", "drawingio", "다이어그램", "구조도", "흐름도", "아키텍처도", "배치도", "dfd"]):
+        combined["drawio-diagram"] = combined.get("drawio-diagram", 0) + 15
+        boosted.add("drawio-diagram")
+    # PPT / 프레젠테이션 감지
+    if any(kw in q for kw in ["ppt", "피피티", "파워포인트", "슬라이드", "발표자료", "프레젠테이션", "발표 만들", "deck", "피치덱"]):
+        combined["pptx"] = combined.get("pptx", 0) + 12
+        boosted.add("pptx")
+    # 코드 작성 감지
+    if any(kw in q for kw in ["코드", "함수", "클래스", "구현", "작성", "만들어", "코딩"]):
+        for sid in ["agent-python-pro", "debugging"]:
+            combined[sid] = combined.get(sid, 0) + 3
+            boosted.add(sid)
 
-        # === 테이블 ===
-        max_rows = max(len(proj["current"]), len(proj["next"]))
-        content_rows = max(max_rows, 1)
-        total_rows = 2 + content_rows + 1  # 헤더2줄 + 데이터 + Issue
-        total_cols = 6  # 추진내용,납기,진척율 x 2
+    # LLM/에이전트 설계 감지
+    if any(kw in q for kw in ["llm", "rag", "파인튜닝", "프롬프트", "모델 라우팅", "에이전트 설계", "llm 설계", "llm 아키텍처"]):
+        for sid in ["agent-llm-architect", "agent-prompt-engineer", "agent-ai-engineer"]:
+            combined[sid] = combined.get(sid, 0) + 6
+            boosted.add(sid)
 
-        table_shape = slide.shapes.add_table(total_rows, total_cols, Cm(1), Cm(2.5), Cm(31.5), Cm(1.5 * total_rows))
-        table = table_shape.table
-
-        # 컬럼 너비: 추진내용(넓게), 납기(좁게), 진척율(좁게)
-        table.columns[0].width = Cm(12)   # 금주 추진내용
-        table.columns[1].width = Cm(2.5)  # 금주 납기
-        table.columns[2].width = Cm(2.5)  # 금주 진척율
-        table.columns[3].width = Cm(12)   # 차주 추진내용
-        table.columns[4].width = Cm(2.5)  # 차주 납기
-        table.columns[5].width = Cm(2.5)  # 차주 진척율
-
-        def set_cell(row, col, text, bold=False, bg=None, align=PP_ALIGN.LEFT, size=10):
-            cell = table.cell(row, col)
-            cell.text = ""
-            p = cell.text_frame.paragraphs[0]
-            p.text = str(text)
-            p.font.size = Pt(size)
-            p.font.bold = bold
-            p.font.name = "맑은 고딕"
-            p.alignment = align
-            cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-            if bg:
-                cell.fill.solid()
-                cell.fill.fore_color.rgb = bg
-
-        header_bg = RGBColor(0xD9, 0xD9, 0xD9)
-        sub_bg = RGBColor(0xF2, 0xF2, 0xF2)
-
-        # Row 0: 금주 실적 | 차주 계획 (merge)
-        table.cell(0, 0).merge(table.cell(0, 2))
-        table.cell(0, 3).merge(table.cell(0, 5))
-        set_cell(0, 0, "금주 실적", bold=True, bg=header_bg, align=PP_ALIGN.CENTER, size=12)
-        set_cell(0, 3, "차주 계획", bold=True, bg=header_bg, align=PP_ALIGN.CENTER, size=12)
-
-        # Row 1: 추진 내용 | 납기 | 진척율 x 2
-        headers = ["추진 내용", "납기", "진척율", "추진 내용", "납기", "진척율"]
-        for ci, h in enumerate(headers):
-            align = PP_ALIGN.CENTER if ci in [1, 2, 4, 5] else PP_ALIGN.CENTER
-            set_cell(1, ci, h, bold=True, bg=sub_bg, align=align, size=10)
-
-        # Data rows
-        for ri in range(content_rows):
-            row = ri + 2
-            # 금주 실적
-            if ri < len(proj["current"]):
-                item = proj["current"][ri]
-                set_cell(row, 0, item["content"], size=9)
-                set_cell(row, 1, item["date"], align=PP_ALIGN.CENTER, size=9)
-                set_cell(row, 2, item["progress"], align=PP_ALIGN.CENTER, size=9)
-            # 차주 계획
-            if ri < len(proj["next"]):
-                item = proj["next"][ri]
-                set_cell(row, 0 + 3, item["content"], size=9)
-                set_cell(row, 1 + 3, item["date"], align=PP_ALIGN.CENTER, size=9)
-                set_cell(row, 2 + 3, item["progress"], align=PP_ALIGN.CENTER, size=9)
-
-        # Issue row
-        issue_row = 2 + content_rows
-        table.cell(issue_row, 0).merge(table.cell(issue_row, 5))
-        issue_text = f"Issue 및 협의사항: {proj.get('issues', '')}" if proj.get('issues') else "Issue 및 협의사항"
-        set_cell(issue_row, 0, issue_text, bold=True, bg=header_bg, size=10)
-
-        # === 범례 ===
-        legend_box = slide.shapes.add_textbox(Cm(1), Cm(17), Cm(20), Cm(0.8))
-        lf = legend_box.text_frame
-        lp = lf.paragraphs[0]
-        lp.text = "● : 완료  ○ : 계획  ▶ : 진행중  ※ : Issue/특이사항"
-        lp.font.size = Pt(9)
-        lp.font.name = "맑은 고딕"
-
-        # === 페이지 번호 ===
-        page_box = slide.shapes.add_textbox(Cm(15), Cm(17.5), Cm(3), Cm(0.6))
-        pf = page_box.text_frame
-        pp = pf.paragraphs[0]
-        pp.text = str(idx + 1)
-        pp.alignment = PP_ALIGN.CENTER
-        pp.font.size = Pt(10)
-        pp.font.name = "맑은 고딕"
-
-    prs.save(filename)
-    print(f"주간보고 PPT 생성 완료: {filename}")
-
-
-# === 사용 예시 ===
-# projects 데이터를 개인 지식에서 읽어서 채운 후 호출
-# create_weekly_report("smartATLAS_주간보고_20260408.pptx", projects)
-```
-
-## 데이터 구조 예시
-
-```python
-projects = [
-    {
-        "name": "smartATLAS",
-        "current": [
-            {
-                "content": "▶ ATLAS 소스 개발/운영 동일화 계획(분석)\n   1) DATA 소스 영역 분석\n     ▶문제 영역 찾아서 수정 계획 제공",
-                "date": "4/22",
-                "progress": "97%"
-            },
-            {
-                "content": "▶ ICPKT AGV MAP 구현\n   1)테이블 확인후 구현 완료\n     ▶문서 및 HTML 문서 작성 및 전달",
-                "date": "4/08",
-                "progress": "100%"
-            },
-            {
-                "content": "▶ ICPKT CNV MAP 구현\n   1)테이블 확인후 구현 완료\n     ▶문서 및 HTML 문서 작성 및 전달",
-                "date": "4/08",
-                "progress": "100%"
-            },
-            {
-                "content": "▶ HID IN OUT MAS 테이블 변경\n   1) VHL COUNT Limit,VHL Precaution 2개 영역 수집 필요함\n     ▶ 기존HID IN OUT MAS 테이블 2개 데이터 추가 분석 중(실패)",
-                "date": "4/08",
-                "progress": "100%"
-            },
-        ],
-        "next": [
-            {
-                "content": "▶ ATLAS 소스 개발/운영 동일화 계획(분석)\n   1) DATA 소스 영역 분석\n     ▶파이썬,일반영역 분리작업 준비",
-                "date": "4/22",
-                "progress": "98%"
-            },
-            {
-                "content": "▶ OHT,XML 데이터 통한 ADD 위치 데이터 파싱 처리(분석,개발)\n   1) 기존 메시지 UDP 파싱 필요함 시나리오 재분석\n     ▶Adrance area 영역 분석/개발 진행중",
-                "date": "4/08",
-                "progress": "100%"
-            },
-        ],
-        "issues": ""
+    # 5단계: 업로드 파일 기반 부스트
+    # 파일 확장자 → 관련 스킬 매핑
+    file_ext_skill_map = {
+        "py": [("agent-python-pro", 5), ("debugging", 3)],
+        "js": [("agent-nextjs-developer", 5)],
+        "csv": [("exploratory-data-analysis", 8), ("statistical-analysis", 5), ("matplotlib", 3)],
+        "tsv": [("exploratory-data-analysis", 8), ("statistical-analysis", 5)],
+        "xlsx": [("exploratory-data-analysis", 5)],
+        "docx": [("docx", 5)],
+        "pdf": [("pdf", 5)],
+        "pptx": [("pptx", 5)],
+        "drawio": [("drawio-diagram", 15)],
+        "md": [("markdown-mermaid-writing", 3)],
+        "html": [("web-artifacts-builder", 3)],
+        "json": [("agent-python-pro", 3)],
+        "xml": [("drawio-diagram", 5)],
     }
-]
-```
+    for uf in uploaded_files:
+        ext = uf.get("ext", "").lower()
+        fname = uf.get("filename", "").lower()
+        # 확장자 매칭
+        if ext in file_ext_skill_map:
+            for sid, boost in file_ext_skill_map[ext]:
+                combined[sid] = combined.get(sid, 0) + boost
+                boosted.add(sid)
+        # 파일명에 키워드가 있으면 추가 매칭
+        fname_scores = _score_query(fname)
+        for sid, sc in fname_scores.items():
+            combined[sid] = combined.get(sid, 0) + sc * 0.5
+
+    # CSV 데이터가 로드되어 있으면 데이터 분석 스킬 부스트
+    if uploaded_csv_data.get("filename"):
+        for sid in ["exploratory-data-analysis", "statistical-analysis", "matplotlib"]:
+            combined[sid] = combined.get(sid, 0) + 5
+            boosted.add(sid)
+
+    # 6단계: 정렬 후 반환 (현재 질문 직접 매칭 우선)
+    sorted_skills = sorted(combined.items(), key=lambda x: -x[1])
+
+    # 6.5단계: Reranker 선택적 적용 (feature flag)
+    if RERANKER_ENABLED:
+        top_candidates = [sid for sid, _ in sorted_skills[:20]]
+        try:
+            reranked = rerank_skills(query, top_candidates, top_k=max_skills)
+            result = reranked
+        except Exception:
+            result = [(sid, sc) for sid, sc in sorted_skills[:max_skills] if sc > 0 and sid not in MANUAL_ONLY_SKILLS]
+    else:
+        # 최소 점수 임계값: 1위 점수의 30% 미만은 제외 (엉뚱한 스킬 방지)
+        min_threshold = 0
+        if sorted_skills:
+            top_score = sorted_skills[0][1]
+            min_threshold = max(3, top_score * 0.3)  # 최소 3점 이상 & 1위의 30% 이상
+        result = [(sid, sc) for sid, sc in sorted_skills[:max_skills]
+                  if sc >= min_threshold and sid not in MANUAL_ONLY_SKILLS]
+
+    return result, list(boosted)
+
+
+def rerank_skills(query, candidate_skill_ids, top_k=7):
+    """bge-reranker-v2-m3로 스킬 후보를 재정렬 (RERANKER_ENABLED=True일 때만 호출)
+
+    Returns:
+        [(skill_id, score), ...] 상위 top_k개
+    """
+    if not candidate_skill_ids:
+        return []
+    reg = MODEL_REGISTRY.get("bge-reranker")
+    if not reg:
+        return [(sid, 0) for sid in candidate_skill_ids[:top_k]]
+
+    # query-document 쌍 구성
+    pairs = []
+    for sid in candidate_skill_ids:
+        desc = SKILL_DESC_KO.get(sid, sid)
+        pairs.append({"text": [query, desc]})
+
+    headers = {"Content-Type": "application/json"}
+    if API_TOKEN:
+        headers["Authorization"] = f"Bearer {API_TOKEN}"
+
+    try:
+        resp = req.post(
+            reg["url"].replace("/chat/completions", "/rerank"),  # rerank 엔드포인트 시도
+            headers=headers,
+            json={
+                "model": reg["model"],
+                "query": query,
+                "documents": [SKILL_DESC_KO.get(sid, sid) for sid in candidate_skill_ids],
+                "top_n": top_k,
+            },
+            timeout=10,
+            verify=False,
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        # reranker 응답 형식: {"results": [{"index": 0, "relevance_score": 0.95}, ...]}
+        if "results" in result:
+            ranked = sorted(result["results"], key=lambda x: -x.get("relevance_score", 0))
+            return [(candidate_skill_ids[r["index"]], r.get("relevance_score", 0))
+                    for r in ranked[:top_k] if r["index"] < len(candidate_skill_ids)]
+    except Exception:
+        pass  # 실패 시 caller에서 키워드 점수로 폴백
+
+    return [(sid, 0) for sid in candidate_skill_ids[:top_k]]
+
+
+
+def get_registry_key_for_env(env_id):
+    """env_id → MODEL_REGISTRY 키 반환. GGUF 등 미등록 환경은 None."""
+    return ENV_TO_REGISTRY.get(env_id)
+
+
+def get_model_capabilities(env_id):
+    """env_id의 capability set 반환"""
+    reg_key = get_registry_key_for_env(env_id)
+    if reg_key and reg_key in MODEL_REGISTRY:
+        return MODEL_REGISTRY[reg_key].get("capabilities", set())
+    return set()
+
+
+def load_skill_content(skill_name):
+    """스킬 SKILL.md 내용 읽기"""
+    skill_md = os.path.join(SKILLS_DIR, skill_name, "SKILL.md")
+    if os.path.isfile(skill_md):
+        with open(skill_md, "r", encoding="utf-8") as f:
+            return f.read()
+    return ""
+
+
+def get_skill_catalog():
+    """프론트엔드에 보낼 스킬 카탈로그 생성"""
+    available = scan_skills()
+    catalog = {}
+
+    for domain_id, domain_info in DOMAIN_SKILLS.items():
+        skills_list = []
+        for skill_id in domain_info["skills"]:
+            info = available.get(skill_id, {})
+            skills_list.append({
+                "id": skill_id,
+                "name": skill_id.replace("-", " ").title(),
+                "desc": SKILL_DESC_KO.get(skill_id, ""),
+                "available": skill_id in available,
+                "scripts": len(info.get("scripts", [])),
+                "references": len(info.get("references", [])),
+                "assets": len(info.get("assets", [])),
+            })
+        catalog[domain_id] = {
+            "label": domain_info["label"],
+            "icon": domain_info["icon"],
+            "color": domain_info["color"],
+            "skills": skills_list,
+        }
+
+    # 매핑에 없지만 폴더에 존재하는 스킬도 추가
+    mapped_ids = set()
+    for d in DOMAIN_SKILLS.values():
+        mapped_ids.update(d["skills"])
+
+    extra = []
+    for sid in available:
+        if sid not in mapped_ids:
+            info = available[sid]
+            extra.append({
+                "id": sid,
+                "name": sid.replace("-", " ").title(),
+                "desc": SKILL_DESC_KO.get(sid, ""),
+                "available": True,
+                "scripts": len(info.get("scripts", [])),
+                "references": len(info.get("references", [])),
+                "assets": len(info.get("assets", [])),
+            })
+
+    if extra:
+        catalog["etc"] = {
+            "label": "기타 스킬",
+            "icon": "📦",
+            "color": "#6b7280",
+            "skills": extra,
+        }
+
+    return catalog
