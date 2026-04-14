@@ -1607,16 +1607,12 @@ function _makeEnvBtn(id, env, icons){
   btn.style.position='relative';
   btn.innerHTML = `${badge}<div class="env-name">${icons[id]||'🔗'} ${env.name}</div><div class="env-model">${env.model}</div>`;
   btn.onclick = ()=>{
-    selEnvs = selEnvs.filter(x=>x!=='auto');
-    const clickType = _envType(id);
-    const curType = selEnvs.length > 0 ? _envType(selEnvs[0]) : clickType;
-    if(curType !== clickType) selEnvs = [];
+    // 단일 선택만 허용 (병렬 제거)
     if(selEnvs.includes(id)){
-      selEnvs = selEnvs.filter(x=>x!==id);
+      selEnvs = ['auto'];
     } else {
-      selEnvs.push(id);
+      selEnvs = [id];
     }
-    if(selEnvs.length===0) selEnvs=['auto'];
     renderEnvs(); updateStatus();
   };
   return btn;
