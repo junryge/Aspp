@@ -40,23 +40,67 @@ for d in [KNOWLEDGE_DIR, RAW_DIR]:
 # LLM 클라이언트 (모델 선택 + 연결 실패 핸들링)
 # ============================================
 def _load_token():
-    """token.txt에서 API 토큰 로드 (대소문자 무관)"""
+    """token.txt에서 API 토큰 로드
+    1순위: 현재 작업 디렉토리(CWD) — 기존 ASAS 코드와 동일
+    2순위: 스크립트 파일 위치(BASE_DIR)
+    """
     for name in ["token.txt", "TOKEN.TXT", "Token.txt"]:
+        # CWD 기준 (open("token.txt")와 동일)
+        cwd_path = Path.cwd() / name
+        if cwd_path.exists():
+            print(f"  [TOKEN] 로드: {cwd_path}")
+            return cwd_path.read_text(encoding="utf-8").strip()
+    for name in ["token.txt", "TOKEN.TXT", "Token.txt"]:
+        # 스크립트 위치 기준
         p = BASE_DIR / name
         if p.exists():
+            print(f"  [TOKEN] 로드: {p}")
             return p.read_text(encoding="utf-8").strip()
+    print("  [TOKEN] token.txt 못 찾음! CWD:", Path.cwd())
     return os.environ.get("LLM_API_KEY", "")
 
 
-# BASE URL (chat/completions 없이)
+# ── 엔드포인트별 허용 모델 (사전 등록) ──
+LLM_ENDPOINTS = {
+    "hcp": {
+        "name": "HCP (dev.hcp.llm)",
+        "base_url": "http://dev.hcp.llm.skhynix.com",
+        "models": [
+            "Qwen3-Coder-480B-A35B-Instruct",
+            "Qwen2.5-VL-72B-Instruct",
+            "gpt-oss-20b",
+            "Qwen3-Coder-Next",
+            "Qwen3-VL-30B-A3B-Instruct",
+            "GLM-5",
+        ],
+    },
+    "common": {
+        "name": "Common (dev.common.llm)",
+        "base_url": "http://dev.common.llm.skhynix.com",
+        "models": [
+            "Qwen3-VL-30B-A3B-Instruct",
+            "Qwen3-VL-30B-Instruct",
+            "Qwen3-Coder-Next",
+            "Qwen3-VL-8B-Instruct",
+        ],
+    },
+    "summary": {
+        "name": "Summary (dev.summary.llm)",
+        "base_url": "http://dev.summary.llm.skhynix.com",
+        "models": [
+            "Qwen3-Next-80B-A3B-Instruct",
+        ],
+    },
+}
+
 LLM_CONFIG = {
-    "base_url": os.environ.get("LLM_BASE_URL", "http://dev.hcp.llm.skhynix.com"),
-    "model": os.environ.get("LLM_MODEL", ""),  # 빈값이면 첫 조회 시 자동 선택
+    "endpoint_key": "hcp",  # 현재 선택된 엔드포인트 키
+    "base_url": LLM_ENDPOINTS["hcp"]["base_url"],
+    "model": LLM_ENDPOINTS["hcp"]["models"][0],
     "api_key": _load_token(),
     "timeout": 120,
     "max_tokens": 4096,
-    "available_models": [],   # 서버에서 조회된 모델 목록
-    "last_error": "",         # 마지막 에러 메시지
+    "last_error": "",
 }
 
 
@@ -68,52 +112,31 @@ def _llm_headers():
     return h
 
 
-def fetch_models():
-    """서버에서 사용 가능한 모델 목록 조회
+def get_allowed_models(endpoint_key=None):
+    """현재 엔드포인트의 허용 모델 목록 반환"""
+    key = endpoint_key or LLM_CONFIG["endpoint_key"]
+    ep = LLM_ENDPOINTS.get(key, {})
+    return ep.get("models", [])
 
-    Returns:
-        list[str]: 모델 ID 목록, 실패 시 빈 리스트
-    """
-    url = f"{LLM_CONFIG['base_url']}/v1/models"
-    try:
-        resp = requests.get(url, headers=_llm_headers(), timeout=15)
-        if resp.status_code != 200:
-            LLM_CONFIG["last_error"] = f"모델 조회 실패: HTTP {resp.status_code}"
-            print(f"  [LLM] {LLM_CONFIG['last_error']}")
-            return []
-        data = resp.json()
-        if isinstance(data, dict):
-            data = data.get("data", [])
-        models = []
-        for m in data:
-            mid = m.get("id", "") if isinstance(m, dict) else str(m)
-            if mid:
-                models.append(mid)
-        LLM_CONFIG["available_models"] = models
-        LLM_CONFIG["last_error"] = ""
-        # 모델 미선택 시 기본값 자동 설정
-        if not LLM_CONFIG["model"] and models:
-            # Qwen3-235B 계열 우선, 없으면 첫 번째
-            for m in models:
-                if "Qwen3-235B" in m and "Instruct" in m:
-                    LLM_CONFIG["model"] = m
-                    break
-            if not LLM_CONFIG["model"]:
-                LLM_CONFIG["model"] = models[0]
-        print(f"  [LLM] 사용 가능 모델 {len(models)}개, 선택: {LLM_CONFIG['model']}")
-        return models
-    except requests.exceptions.ConnectionError:
-        LLM_CONFIG["last_error"] = f"연결 실패: {url} 접근 불가"
-        print(f"  [LLM] {LLM_CONFIG['last_error']}")
-        return []
-    except requests.exceptions.Timeout:
-        LLM_CONFIG["last_error"] = "연결 시간 초과 (15초)"
-        print(f"  [LLM] {LLM_CONFIG['last_error']}")
-        return []
-    except Exception as e:
-        LLM_CONFIG["last_error"] = f"모델 조회 오류: {e}"
-        print(f"  [LLM] {LLM_CONFIG['last_error']}")
-        return []
+
+def switch_endpoint(endpoint_key):
+    """엔드포인트 전환 + 첫 번째 모델 자동 선택"""
+    if endpoint_key not in LLM_ENDPOINTS:
+        return False
+    ep = LLM_ENDPOINTS[endpoint_key]
+    LLM_CONFIG["endpoint_key"] = endpoint_key
+    LLM_CONFIG["base_url"] = ep["base_url"]
+    LLM_CONFIG["model"] = ep["models"][0] if ep["models"] else ""
+    LLM_CONFIG["last_error"] = ""
+    print(f"  [LLM] 엔드포인트 전환: {ep['name']} → 모델: {LLM_CONFIG['model']}")
+    return True
+
+
+def fetch_models():
+    """허용 모델 반환 (사전 등록 기반, 서버 조회 안 함)"""
+    models = get_allowed_models()
+    print(f"  [LLM] {LLM_ENDPOINTS[LLM_CONFIG['endpoint_key']]['name']}: {len(models)}개 모델, 선택: {LLM_CONFIG['model']}")
+    return models
 
 
 def call_llm(system_prompt: str, user_prompt: str, max_tokens: int = None, retries: int = 2) -> str:
@@ -752,40 +775,56 @@ def register_wiki_routes(app):
     # ── LLM 상태/모델 관리 API ──
     @app.route("/api/wiki/llm/status", methods=["GET"])
     def api_llm_status():
+        ep = LLM_ENDPOINTS.get(LLM_CONFIG["endpoint_key"], {})
         return jsonify({
+            "endpoint_key": LLM_CONFIG["endpoint_key"],
+            "endpoint_name": ep.get("name", ""),
             "base_url": LLM_CONFIG["base_url"],
             "model": LLM_CONFIG["model"],
-            "available_models": LLM_CONFIG["available_models"],
+            "allowed_models": get_allowed_models(),
+            "endpoints": {k: {"name": v["name"], "models": v["models"]} for k, v in LLM_ENDPOINTS.items()},
             "token_loaded": bool(LLM_CONFIG["api_key"]),
             "last_error": LLM_CONFIG["last_error"],
         })
 
     @app.route("/api/wiki/llm/models", methods=["GET"])
     def api_llm_models():
-        models = fetch_models()
         return jsonify({
-            "models": models,
+            "models": get_allowed_models(),
             "selected": LLM_CONFIG["model"],
-            "error": LLM_CONFIG["last_error"],
+            "endpoint_key": LLM_CONFIG["endpoint_key"],
         })
 
     @app.route("/api/wiki/llm/select", methods=["POST"])
     def api_llm_select():
         data = request.json or {}
+        # 엔드포인트 전환
+        ep_key = data.get("endpoint", "").strip()
+        if ep_key and ep_key != LLM_CONFIG["endpoint_key"]:
+            if not switch_endpoint(ep_key):
+                return jsonify({"error": f"없는 엔드포인트: {ep_key}"}), 400
+        # 모델 선택
         model = data.get("model", "").strip()
-        if not model:
-            return jsonify({"error": "model 필요"}), 400
-        if LLM_CONFIG["available_models"] and model not in LLM_CONFIG["available_models"]:
-            return jsonify({"error": f"사용 불가 모델: {model}"}), 400
-        LLM_CONFIG["model"] = model
-        return jsonify({"status": "ok", "model": model})
+        if model:
+            allowed = get_allowed_models()
+            if model not in allowed:
+                return jsonify({"error": f"허용 안 된 모델: {model}", "allowed": allowed}), 400
+            LLM_CONFIG["model"] = model
+        return jsonify({
+            "status": "ok",
+            "endpoint": LLM_CONFIG["endpoint_key"],
+            "model": LLM_CONFIG["model"],
+            "base_url": LLM_CONFIG["base_url"],
+        })
 
     @app.route("/api/wiki/llm/test", methods=["POST"])
     def api_llm_test():
         result = call_llm("테스트.", "안녕. 한 문장으로 답해.", max_tokens=100, retries=0)
         if result:
-            return jsonify({"status": "ok", "response": result, "model": LLM_CONFIG["model"]})
-        return jsonify({"status": "error", "error": LLM_CONFIG["last_error"], "model": LLM_CONFIG["model"]})
+            return jsonify({"status": "ok", "response": result,
+                            "model": LLM_CONFIG["model"], "endpoint": LLM_CONFIG["endpoint_key"]})
+        return jsonify({"status": "error", "error": LLM_CONFIG["last_error"],
+                        "model": LLM_CONFIG["model"], "endpoint": LLM_CONFIG["endpoint_key"]})
 
     # ── 검색 API ──
     @app.route("/api/wiki/search", methods=["POST"])
@@ -1008,13 +1047,16 @@ textarea{min-height:120px;resize:vertical}
 <!-- LLM 설정 -->
 <div class="panel" id="panel-llm">
 <div style="margin-bottom:1rem">
-<div style="font-size:0.9rem;font-weight:600;margin-bottom:0.5rem">LLM 모델 선택</div>
+<div style="font-size:0.9rem;font-weight:600;margin-bottom:0.5rem">엔드포인트 선택</div>
+<select id="llm-endpoint" onchange="onEndpointChange()" style="width:100%;padding:0.6rem;background:#1a1e28;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#e2e4e8;font-size:0.9rem">
+</select>
+</div>
+<div style="margin-bottom:1rem">
+<div style="font-size:0.9rem;font-weight:600;margin-bottom:0.5rem">모델 선택</div>
 <div class="flex-row" style="align-items:center">
 <select id="llm-model" style="flex:1;padding:0.6rem;background:#1a1e28;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#e2e4e8;font-size:0.9rem">
-<option value="">모델 목록 조회 필요</option>
 </select>
-<button class="btn btn-primary" onclick="selectModel()">적용</button>
-<button class="btn btn-teal" onclick="refreshModels()">새로고침</button>
+<button class="btn btn-primary" onclick="applyModel()">적용</button>
 </div>
 </div>
 <div class="flex-row" style="margin-bottom:1rem">
@@ -1047,83 +1089,94 @@ function switchTab(name) {
   if (name === 'llm') loadLLMStatus();
 }
 
-async function refreshModels() {
-  document.getElementById('llm-status').innerHTML = '<div class="loading">모델 목록 조회 중...</div>';
-  const res = await fetch('/api/wiki/llm/models');
-  const data = await res.json();
+let _llmData = {};
+
+async function refreshModels() { await loadLLMStatus(); }
+
+function onEndpointChange() {
+  const epKey = document.getElementById('llm-endpoint').value;
+  if (!_llmData.endpoints) return;
+  const ep = _llmData.endpoints[epKey];
+  if (!ep) return;
   const sel = document.getElementById('llm-model');
   sel.innerHTML = '';
-  if (data.error) {
-    document.getElementById('llm-status').innerHTML = `<div class="status status-err">${data.error}</div>`;
-    sel.innerHTML = '<option value="">연결 실패</option>';
-    return;
-  }
-  if (!data.models.length) {
-    sel.innerHTML = '<option value="">모델 없음</option>';
-    return;
-  }
-  data.models.forEach(m => {
+  ep.models.forEach(m => {
     const opt = document.createElement('option');
     opt.value = m; opt.textContent = m;
-    if (m === data.selected) opt.selected = true;
     sel.appendChild(opt);
   });
-  document.getElementById('llm-status').innerHTML = `<div class="status status-ok">${data.models.length}개 모델 조회 완료. 선택: ${data.selected}</div>`;
-  updateLLMBadge(data.selected);
 }
 
-async function selectModel() {
+async function applyModel() {
+  const ep = document.getElementById('llm-endpoint').value;
   const model = document.getElementById('llm-model').value;
   if (!model) return;
-  const res = await fetch('/api/wiki/llm/select', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({model})});
+  const res = await fetch('/api/wiki/llm/select', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({endpoint:ep, model:model})});
   const data = await res.json();
   if (data.status === 'ok') {
-    document.getElementById('llm-status').innerHTML = `<div class="status status-ok">모델 변경: ${data.model}</div>`;
+    document.getElementById('llm-status').innerHTML = `<div class="status status-ok">${data.base_url} / ${data.model}</div>`;
     updateLLMBadge(data.model);
   } else {
     document.getElementById('llm-status').innerHTML = `<div class="status status-err">${data.error}</div>`;
   }
 }
 
+async function selectModel() { await applyModel(); }
+
 async function testLLM() {
   document.getElementById('llm-test-result').innerHTML = '<div class="loading">테스트 중...</div>';
   const res = await fetch('/api/wiki/llm/test', {method:'POST'});
   const data = await res.json();
   if (data.status === 'ok') {
-    document.getElementById('llm-test-result').innerHTML = `<div class="status status-ok">연결 성공 [${data.model}]: ${data.response}</div>`;
+    document.getElementById('llm-test-result').innerHTML = `<div class="status status-ok">[${data.model}] ${data.response}</div>`;
   } else {
-    document.getElementById('llm-test-result').innerHTML = `<div class="status status-err">실패 [${data.model}]: ${data.error}</div>`;
+    document.getElementById('llm-test-result').innerHTML = `<div class="status status-err">[${data.model}] ${data.error}</div>`;
   }
 }
 
 async function loadLLMStatus() {
   const res = await fetch('/api/wiki/llm/status');
-  const data = await res.json();
-  updateLLMBadge(data.model || '미선택');
-  if (data.available_models.length) {
-    const sel = document.getElementById('llm-model');
-    sel.innerHTML = '';
-    data.available_models.forEach(m => {
+  _llmData = await res.json();
+  updateLLMBadge(_llmData.model || '미선택');
+  // 엔드포인트 드롭다운
+  const epSel = document.getElementById('llm-endpoint');
+  if (epSel && _llmData.endpoints) {
+    epSel.innerHTML = '';
+    for (const [k, v] of Object.entries(_llmData.endpoints)) {
+      const opt = document.createElement('option');
+      opt.value = k;
+      opt.textContent = v.name + ' (' + v.models.length + '개)';
+      if (k === _llmData.endpoint_key) opt.selected = true;
+      epSel.appendChild(opt);
+    }
+  }
+  // 모델 드롭다운
+  const mSel = document.getElementById('llm-model');
+  if (mSel && _llmData.allowed_models) {
+    mSel.innerHTML = '';
+    _llmData.allowed_models.forEach(m => {
       const opt = document.createElement('option');
       opt.value = m; opt.textContent = m;
-      if (m === data.model) opt.selected = true;
-      sel.appendChild(opt);
+      if (m === _llmData.model) opt.selected = true;
+      mSel.appendChild(opt);
     });
   }
+  // 상태 표시
   let html = `<div style="font-size:0.82rem;color:#9ba1ad;line-height:1.8">`;
-  html += `서버: ${data.base_url}<br>`;
-  html += `모델: ${data.model || '미선택'}<br>`;
-  html += `토큰: ${data.token_loaded ? '로드됨' : '없음 (token.txt 확인)'}<br>`;
-  html += `모델 수: ${data.available_models.length}개<br>`;
-  if (data.last_error) html += `<span style="color:#fb7185">오류: ${data.last_error}</span><br>`;
+  html += `서버: ${_llmData.base_url}<br>`;
+  html += `모델: ${_llmData.model || '미선택'}<br>`;
+  html += `토큰: ${_llmData.token_loaded ? '로드됨' : '없음'}<br>`;
+  if (_llmData.last_error) html += `<span style="color:#fb7185">오류: ${_llmData.last_error}</span><br>`;
   html += '</div>';
   document.getElementById('llm-status').innerHTML = html;
 }
 
 function updateLLMBadge(model) {
-  const short = model ? (model.length > 20 ? model.substring(0,20)+'...' : model) : '미선택';
-  document.getElementById('st-llm').textContent = 'LLM: ' + short;
-  document.getElementById('st-llm').style.color = model ? '#4ade80' : '#fb7185';
+  const el = document.getElementById('st-llm');
+  if (!el) return;
+  const short = model ? (model.length > 25 ? model.substring(0,25)+'...' : model) : '미선택';
+  el.textContent = 'LLM: ' + short;
+  el.style.color = model ? '#4ade80' : '#fb7185';
 }
 
 async function doSearch() {
@@ -1242,35 +1295,24 @@ loadLLMStatus();
 
 
 # ============================================
-# 독립 실행
+# 독립 실행 — python knowledge_wiki.py --port 5555
+# 엔드포인트/모델 전환은 웹 UI LLM 설정 탭에서
 # ============================================
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="도메인 지식베이스 위키")
     parser.add_argument("--port", type=int, default=5555)
     parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--base-url", default=None, help="LLM 서버 URL (기본: http://dev.hcp.llm.skhynix.com)")
     args = parser.parse_args()
-
-    if args.base_url:
-        LLM_CONFIG["base_url"] = args.base_url
 
     app = Flask(__name__)
     build_bm25_index()
-
-    # LLM 모델 목록 조회 시도
-    print(f"\n  LLM 서버: {LLM_CONFIG['base_url']}")
-    print(f"  TOKEN: {'로드됨' if LLM_CONFIG['api_key'] else '없음 (token.txt 확인)'}")
-    models = fetch_models()
-    if models:
-        print(f"  사용 가능 모델: {len(models)}개")
-        print(f"  선택 모델: {LLM_CONFIG['model']}")
-    else:
-        print(f"  모델 조회 실패 — 웹 UI에서 수동 연결 가능")
-
     register_wiki_routes(app)
 
-    print(f"\n  도메인 지식베이스 위키")
-    print(f"  http://{args.host}:{args.port}/wiki")
-    print()
+    print(f"\n  === 도메인 지식베이스 위키 ===")
+    print(f"  TOKEN: {'로드됨' if LLM_CONFIG['api_key'] else '없음 (token.txt 확인)'}")
+    print(f"  엔드포인트 3개 등록됨 (웹 UI에서 전환)")
+    for k, v in LLM_ENDPOINTS.items():
+        print(f"    {v['name']}: {len(v['models'])}개 모델")
+    print(f"\n  http://{args.host}:{args.port}/wiki\n")
 
     app.run(host=args.host, port=args.port, debug=True)
