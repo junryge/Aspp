@@ -1,438 +1,2982 @@
 """
-demos_v1/engine.py - Agent system prompt building, GGUF/API agent calls,
-                     response synthesis, model assignment to groups
+demos_v1/routes_api.py - All API routes except /api/chat
 """
 import os
+import sys
+import io
+import csv
 import re
+import json
+import math
 import time
-import requests as req
-from demos_v1.utils import BASE_DIR
+import uuid
+import base64
+from flask import request, jsonify, render_template_string, send_file
+
+from demos_v1.utils import (
+    BASE_DIR, SKILLS_DIR, UPLOAD_DIR, PROMPTS_DIR, TOKEN_FILE,
+    uploaded_csv_data, uploaded_files,
+    HARNESS_AVAILABLE, chat_stop_flag,
+)
 from demos_v1.config import (
-    _gguf_pool, _gguf_pool_lock, MAX_POOL_SIZE, VRAM_BUDGET_GB,
-    TOKEN_SETTINGS, API_TOKEN
+    TOKEN_SETTINGS, API_TOKEN,
+    MAX_POOL_SIZE, VRAM_BUDGET_GB,
 )
-from demos_v1.gguf import _pool_get_or_load, _pool_release
-from demos_v1.models import MODEL_REGISTRY, API_MODEL_TIERS
-from demos_v1.skills import SKILL_DESC_KO, _SKILL_TO_GROUP, SKILL_GROUPS
-from demos_v1.quality import (
-    DOMAIN_PERSONAS, ANTI_RATIONALIZATION, VERIFICATION_GATE, ANALYSIS_LIFECYCLE,
-    _extract_skill_context, _detect_repetition, _validate_response, _fix_response_issues
+from demos_v1.models import MODEL_REGISTRY, ENV_CONFIG, ENV_TO_REGISTRY
+from demos_v1.skills import (
+    SKILL_DESC_KO, DOMAIN_SKILLS, MANUAL_ONLY_SKILLS,
+    scan_skills, auto_select_skills, context_aware_skill_select,
+    load_skill_content, get_skill_catalog,
 )
-
-def _build_agent_system_prompt(skill_ids, skill_contents, n_ctx=16384, csv_data=None, uploaded_files_data=None):
-    """병렬 에이전트용 컴팩트 시스템 프롬프트 생성."""
-    max_skill_chars = int(n_ctx * 0.3 / max(1, len(skill_ids)))  # 컨텍스트의 30%를 스킬에 할당
-
-    # 도메인 페르소나 결정 (첫 번째 스킬의 그룹 기반)
-    _agent_group = _SKILL_TO_GROUP.get(skill_ids[0], "general") if skill_ids else "general"
-    _persona = DOMAIN_PERSONAS.get(_agent_group, {"role": "전문 AI 어시스턴트", "instruction": ""})
-
-    parts = [
-        f"당신은 [{_persona['role']}]입니다. 아래 전문 지식을 활용하여 질문에 답하세요.",
-        _persona['instruction'],
-        "반드시 한국어로 답변하세요.",
-        "",
-        "[필수 규칙]",
-        "1. 반드시 한국어로만 답변하세요. 영어로 답변하지 마세요. 코드 주석도 한국어로.",
-        "2. <think> 태그를 절대 사용하지 마세요. 바로 답변만 출력하세요.",
-        "3. 가짜 데이터를 만들지 마세요! 업로드된 CSV/파일의 실제 컬럼명과 값만 사용하세요.",
-        "4. 존재하지 않는 컬럼명(Score1, Score2 등)을 지어내지 마세요.",
-        "5. 차트 데이터는 실제 데이터 기반으로 24개 이하로 요약하세요.",
-        "6. 응답이 길어질 것 같으면 핵심만 먼저 보여주고 '추가 분석이 필요하면 말씀해주세요'로 마무리하세요.",
-        "",
-        ANTI_RATIONALIZATION,
-        ANALYSIS_LIFECYCLE,
-        VERIFICATION_GATE,
-        "",
-    ]
-
-    for sid in skill_ids:
-        content = skill_contents.get(sid, "")
-        if content:
-            skill_name = SKILL_DESC_KO.get(sid, sid)
-            # Structured Context: 전체 텍스트 대신 구조화된 요약 사용 (토큰 절약)
-            summary = _extract_skill_context(content, max_chars=max_skill_chars)
-            if summary:
-                parts.append(f"=== [{skill_name}] ===")
-                parts.append(summary)
-                parts.append("")
-            else:
-                # 요약 추출 실패 시 기존 방식 폴백
-                truncated = content[:max_skill_chars]
-                if len(content) > max_skill_chars:
-                    truncated += "\n... (truncated)"
-                parts.append(f"=== [{skill_name}] 전문 지식 ===")
-                parts.append(truncated)
-                parts.append("")
-
-    # CSV 데이터 포함
-    if csv_data and csv_data.get("filename"):
-        csv_budget = int(n_ctx * 0.15)  # 컨텍스트의 15%
-        csv_info = csv_data.get("summary", "")
-        csv_rows = csv_data.get("headers", [])
-        csv_preview = ",".join(csv_rows) + "\n"
-        for row in csv_data.get("rows", [])[:30]:
-            csv_preview += ",".join(str(c) for c in row) + "\n"
-        csv_text = f"=== 업로드된 CSV: {csv_data['filename']} ===\n{csv_info}\n\n데이터:\n{csv_preview}"
-        parts.append(csv_text[:csv_budget])
-        parts.append("\n이 CSV 데이터를 기반으로 실제 컬럼명과 값을 사용해 분석하세요.\n")
-
-    # 업로드 파일 포함
-    if uploaded_files_data:
-        file_budget = int(n_ctx * 0.3)  # 컨텍스트의 30%
-        per_file_limit = max(8000, file_budget // max(1, len(uploaded_files_data)))
-        file_text = ""
-        for uf in uploaded_files_data:
-            content = uf.get("content_full", uf.get("content_preview", ""))
-            file_text += f"\n--- 파일: {uf['filename']} ({uf.get('type','')}, {uf.get('size',0)}바이트) ---\n{content[:per_file_limit]}\n"
-        if file_text:
-            parts.append(f"=== 업로드된 파일 ({len(uploaded_files_data)}개) ===\n{file_text[:file_budget]}")
-
-    return "\n".join(parts)
+from demos_v1.frontend import HTML_TEMPLATE
 
 
-def _trim_history_for_context(history, n_ctx, system_len):
-    """히스토리를 컨텍스트에 맞게 자름. 최근 3턴만 유지."""
-    budget_chars = int((n_ctx - system_len * 0.7) / 0.7 * 0.3)  # 컨텍스트의 30%
-    trimmed = []
-    total = 0
-    for msg in reversed(history[-6:]):  # 최근 6개 메시지 (3턴)
-        content = msg.get("content", "")
-        if isinstance(content, list):
-            content = " ".join(p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text")
-        msg_len = len(str(content))
-        if total + msg_len > budget_chars:
-            break
-        trimmed.insert(0, msg)
-        total += msg_len
-    return trimmed
+def register_api_routes(app):
+    """Register all API routes on the Flask app."""
+    from demos_v1.gguf import _pool_status
+
+    # ============================================
+    # API 라우트
+    # ============================================
+    @app.route("/")
+    def index():
+        return render_template_string(HTML_TEMPLATE)
 
 
+    @app.route("/uio")
+    @app.route("/uio/")
+    def uio_page():
+        """UIO 2D Pixel Office 페이지 서빙 (base href 주입으로 상대경로 해결)"""
+        uio_path = os.path.join(BASE_DIR, "UIO", "index.html")
+        if os.path.exists(uio_path):
+            with open(uio_path, "r", encoding="utf-8") as f:
+                html = f.read()
+            # <head> 바로 뒤에 <base href="/uio/"> 삽입 → 상대경로(img/, sound/)가 /uio/img/ 등으로 해석됨
+            html = html.replace("<head>", '<head>\n<base href="/uio/">', 1)
+            return html
+        return "UIO index.html not found", 404
 
 
-def _agent_call_gguf(model_path, skill_ids, skill_contents, query, history,
-                     n_ctx=16384, temperature=0.5, max_tokens=2048,
-                     csv_data=None, uploaded_files_data=None):
-    """단일 GGUF 에이전트: 풀에서 모델 acquire → 추론 → release.
-    Thread-safe: 각 스레드가 독립 Llama 인스턴스 사용.
-    """
-    group_name = _SKILL_TO_GROUP.get(skill_ids[0], "general") if skill_ids else "general"
+    @app.route("/uio/<path:filename>")
+    def uio_static(filename):
+        """UIO 정적 파일 서빙 (img, sound 등)"""
+        from flask import send_from_directory
+        uio_dir = os.path.join(BASE_DIR, "UIO")
+        return send_from_directory(uio_dir, filename)
 
-    try:
-        llama_instance = _pool_get_or_load(model_path, n_ctx=n_ctx)
-    except Exception as e:
-        return {
-            "group": group_name, "skills": skill_ids, "response": "",
-            "error": f"모델 로드 실패: {e}", "model": os.path.basename(model_path),
-        }
 
-    try:
-        system_prompt = _build_agent_system_prompt(skill_ids, skill_contents, n_ctx,
-                                                    csv_data=csv_data, uploaded_files_data=uploaded_files_data)
-        trimmed_history = _trim_history_for_context(history, n_ctx, len(system_prompt))
+    @app.route("/beno/<path:filename>")
+    def beno_static(filename):
+        """beno 폴더 정적 파일 서빙 (인트로 영상/이미지)"""
+        from flask import send_from_directory
+        return send_from_directory(os.path.join(BASE_DIR, "beno"), filename)
 
-        messages = [{"role": "system", "content": system_prompt}]
-        messages.extend(trimmed_history)
-        messages.append({"role": "user", "content": query})
 
-        # 논스트리밍 추론 (병렬 에이전트)
-        resp = llama_instance.create_chat_completion(
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
-
-        if resp and "choices" in resp and len(resp["choices"]) > 0:
-            answer = resp["choices"][0].get("message", {}).get("content") or ""
-            # <think> 태그 제거 (완전 쌍 + 불완전 태그 모두)
-            answer = re.sub(r'<think>[\s\S]*?</think>\s*', '', answer)
-            answer = re.sub(r'</?think>', '', answer).strip()
-            # 반복 루프 감지 및 절단
-            answer, was_repetitive = _detect_repetition(answer)
-            if was_repetitive:
-                try:
-                    print(f"     [WARN] [{group_name}] repetition detected, truncated")
-                except Exception:
-                    pass
-            return {
-                "group": group_name, "skills": skill_ids, "response": answer,
-                "error": None, "model": os.path.basename(model_path),
+    @app.route("/api/config")
+    def api_config():
+        """환경 설정 및 토큰 상태 반환"""
+        # 모델별 자동 토큰 정보 생성
+        model_token_info = {}
+        for reg_key, reg in MODEL_REGISTRY.items():
+            if "rerank" in reg.get("capabilities", set()):
+                continue
+            cost = reg.get("cost_tier", "medium")
+            ctx = reg.get("context_window", 128000)
+            auto_max = 16384 if cost == "high" else (8192 if cost == "medium" else 4096)
+            model_token_info[reg["env_id"]] = {
+                "model": reg["model"],
+                "context_window": ctx,
+                "cost_tier": cost,
+                "auto_max_tokens": auto_max,
             }
-
-        return {
-            "group": group_name, "skills": skill_ids, "response": "",
-            "error": "빈 응답", "model": os.path.basename(model_path),
-        }
-    except Exception as e:
-        return {
-            "group": group_name, "skills": skill_ids, "response": "",
-            "error": str(e), "model": os.path.basename(model_path),
-        }
-    finally:
-        _pool_release(model_path)
+        return jsonify({
+            "envs": {k: {"url": v["url"], "model": v["model"], "name": v["name"]} for k, v in ENV_CONFIG.items()},
+            "has_token": bool(API_TOKEN),
+            "token_file": TOKEN_FILE,
+            "token_optional": True,
+            "token_settings": TOKEN_SETTINGS,
+            "model_token_info": model_token_info,
+        })
 
 
-def _synthesize_responses_gguf(agent_results, query, synthesis_model_path, temperature=0.3, n_ctx=32768, synth_max_tokens=8192):
-    """여러 에이전트 응답을 가장 큰 모델로 합성.
+    @app.route("/api/config/tokens", methods=["GET", "POST"])
+    def api_config_tokens():
+        """토큰/컨텍스트 설정 조회 및 변경"""
+        if request.method == "GET":
+            return jsonify(TOKEN_SETTINGS)
 
-    Returns:
-        (answer: str|None, error: str|None, meta: dict)
-    """
-    successes = [r for r in agent_results if r.get("response") and not r.get("error")]
-    failures = [r for r in agent_results if r.get("error")]
-
-    if not successes:
-        error_summary = "; ".join(f"[{r['group']}] {r['error']}" for r in failures)
-        return None, f"모든 에이전트 실패: {error_summary}", {}
-
-    if len(successes) == 1:
-        r = successes[0]
-        return r["response"], None, {
-            "agents": 1, "failed": len(failures),
-            "groups": [r["group"]], "models": [r["model"]],
-        }
-
-    # 합성 프롬프트 구성
-    expert_sections = []
-    for r in successes:
-        skill_names = ", ".join(SKILL_DESC_KO.get(s, s) for s in r["skills"])
-        expert_sections.append(
-            f"=== [{r['group']}] 전문가 ({skill_names}) ===\n{r['response']}"
-        )
-
-    synthesis_system = (
-        f"당신은 여러 전문가의 분석을 통합하는 수석 연구원입니다.\n"
-        f"중요: 반드시 모든 내용을 한국어로만 작성하세요. 영어를 사용하지 마세요.\n"
-        f"<think> 태그를 사용하지 마세요.\n\n"
-        f"아래 {len(successes)}명의 전문가가 각자의 전문 영역에서 답변했습니다.\n\n"
-        + "\n\n".join(expert_sections) +
-        "\n\n[통합 원칙]\n"
-        "1. 반드시 한국어로만 답변하세요 (코드 주석도 한국어)\n"
-        "2. 각 전문가의 핵심 내용을 빠짐없이 포함\n"
-        "3. 중복 내용은 한 번만 언급\n"
-        "4. 하나의 자연스러운 답변으로 통합 (전문가별로 분리하지 말 것)\n"
-        "5. 코드가 있으면 통합된 하나의 코드로 합쳐서 제공\n"
-        "6. 가짜 데이터를 만들지 마세요. 실제 데이터만 사용하세요\n\n"
-        "[통합 보고 구조]\n"
-        "핵심 결론 → 분석 근거 → 코드/시각화 → 추가 제안 순서로 작성하세요.\n"
-        "각 전문가 영역의 기여를 자연스럽게 녹여내되, 출처는 명시하세요.\n\n"
-        + ANTI_RATIONALIZATION +
-        VERIFICATION_GATE
-    )
-
-    llama_synth = None
-    try:
-        llama_synth = _pool_get_or_load(synthesis_model_path, n_ctx=n_ctx)
-        messages = [
-            {"role": "system", "content": synthesis_system},
-            {"role": "user", "content": query},
-        ]
-
-        resp = llama_synth.create_chat_completion(
-            messages=messages,
-            temperature=temperature,
-            max_tokens=synth_max_tokens,
-        )
-
-        if resp and "choices" in resp and len(resp["choices"]) > 0:
-            answer = resp["choices"][0].get("message", {}).get("content") or ""
-            answer = re.sub(r'<think>[\s\S]*?</think>\s*', '', answer)
-            answer = re.sub(r'</?think>', '', answer).strip()
-            # Self-evaluation: 합성 응답 품질 검증
-            _valid, _issues = _validate_response(answer, query)
-            if _issues:
-                answer = _fix_response_issues(answer, _issues)
+        data = request.json or {}
+        changed = {}
+        for key in TOKEN_SETTINGS:
+            if key in data:
                 try:
-                    print(f"  [EVAL-GGUF] issues={_issues}, auto-fixed")
-                except Exception:
+                    val = int(data[key])
+                    if val > 0:
+                        TOKEN_SETTINGS[key] = val
+                        changed[key] = val
+                except (ValueError, TypeError):
                     pass
-            meta = {
-                "agents": len(successes),
-                "failed": len(failures),
-                "groups": [r["group"] for r in successes],
-                "models": list(set(r["model"] for r in successes)),
-                "synthesis": "model",
-            }
-            return answer, None, meta
-
-        # 합성 모델이 빈 응답 → 폴백
-        raise ValueError("합성 모델 빈 응답")
-
-    except Exception as e:
-        # 폴백: 응답 단순 연결
-        try:
-            print(f"     [SYNTH] fallback concat: {e}")
-        except Exception:
-            pass
-        fallback_parts = []
-        for r in successes:
-            skill_names = ", ".join(SKILL_DESC_KO.get(s, s) for s in r["skills"])
-            fallback_parts.append(f"### {skill_names}\n{r['response']}")
-        fallback = "\n\n---\n\n".join(fallback_parts)
-        return fallback, None, {
-            "agents": len(successes), "failed": len(failures),
-            "groups": [r["group"] for r in successes],
-            "models": list(set(r["model"] for r in successes)),
-            "synthesis": "fallback_concat",
-        }
-    finally:
-        try:
-            _pool_release(synthesis_model_path)
-        except Exception:
-            pass
+        if not changed:
+            return jsonify({"error": "변경할 설정이 없습니다.", "current": TOKEN_SETTINGS}), 400
+        return jsonify({"message": f"{len(changed)}개 설정 변경됨", "changed": changed, "current": TOKEN_SETTINGS})
 
 
 
-def _api_agent_call(api_info, skill_ids, skill_contents, query, hist,
-                    api_key, temperature, max_tokens=4096,
-                    csv_data=None, uploaded_files_data=None):
-    """단일 API 에이전트 호출 (수동/자동 병렬 공용).
 
-    Args:
-        api_info: {"url": str, "model": str} - API 엔드포인트 정보
-        skill_ids: list[str] - 이 에이전트가 담당할 스킬 ID 목록
-        skill_contents: dict - {skill_id: content_text}
-        query: str - 사용자 질문
-        hist: list[dict] - 대화 히스토리
-        api_key: str - API 인증 키
-        temperature: float - 생성 온도
-        max_tokens: int - 최대 응답 토큰
-        csv_data: dict|None - 업로드된 CSV 데이터
-        uploaded_files_data: list|None - 업로드된 파일 목록
-    """
-    group_name = _SKILL_TO_GROUP.get(skill_ids[0], "general") if skill_ids else "general"
-    try:
-        agent_system = _build_agent_system_prompt(skill_ids, skill_contents, 32768,
-                                                  csv_data=csv_data, uploaded_files_data=uploaded_files_data)
-        agent_msgs = [{"role": "system", "content": agent_system}]
-        agent_msgs.extend(hist[-6:])
-        agent_msgs.append({"role": "user", "content": query})
-        h = {"Content-Type": "application/json"}
-        if api_key:
-            h["Authorization"] = f"Bearer {api_key}"
-        resp = req.post(
-            api_info["url"],
-            headers=h,
-            json={
-                "model": api_info["model"],
-                "messages": agent_msgs,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                "stream": False, "tool_choice": "none",
-            },
-            timeout=120,
-            verify=False,
-        )
-        resp.raise_for_status()
-        result = resp.json()
-        if "choices" in result and len(result["choices"]) > 0:
-            answer = result["choices"][0].get("message", {}).get("content") or ""
-            return {"group": group_name, "skills": skill_ids, "response": answer,
-                    "error": None, "model": api_info["model"]}
-        return {"group": group_name, "skills": skill_ids, "response": "",
-                "error": "empty", "model": api_info["model"]}
-    except Exception as e:
-        return {"group": group_name, "skills": skill_ids, "response": "",
-                "error": str(e), "model": api_info.get("model", "?")}
+    @app.route("/api/gguf-pool-status")
+    def api_gguf_pool_status():
+        """GGUF 모델 풀 상태 확인 (디버그용)."""
+        return jsonify({"pool": _pool_status(), "max_pool_size": MAX_POOL_SIZE, "vram_budget_gb": VRAM_BUDGET_GB})
 
 
+    @app.route("/api/auto-skills", methods=["POST"])
+    def api_auto_skills():
+        """사용자 질문에 맞는 스킬을 자동 추천 (컨텍스트 인식)"""
+        data = request.json
+        query = data.get("query", "")
+        max_skills = data.get("max_skills", 7)
+        history = data.get("history", [])  # 대화 히스토리
 
-def _assign_models_to_groups(parallel_groups, gguf_paths_by_size):
-    """그룹별 선호 크기에 따라 GGUF 모델 할당.
+        if not query:
+            return jsonify({"skills": [], "message": "질문을 입력해주세요."})
 
-    Args:
-        parallel_groups: [{"group": name, "preferred_model_size": "large"|"medium"|"small"}]
-        gguf_paths_by_size: [(path, size_gb)] 크기 내림차순
-
-    Returns:
-        dict: {group_name: model_path}
-    """
-    if not gguf_paths_by_size:
-        return {}
-
-    n = len(gguf_paths_by_size)
-    assignments = {}
-
-    for pg in parallel_groups:
-        pref = pg["preferred_model_size"]
-        if pref == "large":
-            idx = 0  # 가장 큰 모델
-        elif pref == "small":
-            idx = n - 1  # 가장 작은 모델
-        else:  # medium
-            idx = n // 2  # 중간
-
-        # 이미 할당된 모델과 겹치면 다른 모델 시도
-        assigned_paths = set(assignments.values())
-        best_idx = idx
-        for offset in range(n):
-            candidate = (idx + offset) % n
-            if gguf_paths_by_size[candidate][0] not in assigned_paths:
-                best_idx = candidate
-                break
+        # 대화 히스토리가 있으면 컨텍스트 인식 모드
+        if history and len(history) > 0:
+            results, boosted = context_aware_skill_select(query, history, max_skills=max_skills)
         else:
-            # 모든 모델이 이미 할당됨 → 중복 할당 불가피 (로깅)
+            results = auto_select_skills(query, max_skills=max_skills)
+            boosted = []
+
+        # 하네스 라우터 결과 병합 (기존 키워드 매칭 + 하네스 토큰 매칭 + Expert Pool + 조합 추천)
+        if HARNESS_AVAILABLE:
             try:
-                print(f"     [ASSIGN] no unique model for [{pg['group']}], "
-                      f"reusing {os.path.basename(gguf_paths_by_size[best_idx][0])}")
+                from harness_bridge import harness_route, suggest_skill_combinations
+                from harness import select_experts
+                # 1) 하네스 라우터로 추가 매칭
+                harness_matches = harness_route(query, limit=5)
+                existing_ids = {sid for sid, _ in results}
+                for hm in harness_matches:
+                    if hm['name'] not in existing_ids and hm['name'] not in MANUAL_ONLY_SKILLS:
+                        results.append((hm['name'], hm['score']))
+                        boosted.append(hm['name'])
+                # 2) Expert Pool: 관련도 높은 스킬 최대 3개만 추가
+                try:
+                    from harness_bridge import get_router
+                    assignments = select_experts(query, get_router(), min_agents=1, max_agents=2)
+                    ep_added = 0
+                    for assign in assignments:
+                        for sid in assign.skills:
+                            if ep_added >= 3:
+                                break
+                            if sid not in existing_ids and sid not in MANUAL_ONLY_SKILLS:
+                                results.append((sid, assign.relevance_score + 2))
+                                boosted.append(sid)
+                                existing_ids.add(sid)
+                                ep_added += 1
+                except Exception:
+                    pass
+                # 3) 선택된 스킬과 함께 쓰면 좋을 보조 스킬 추천
+                selected = [sid for sid, _ in results]
+                combos = suggest_skill_combinations(query, selected, limit=2)
+                for combo_sid in combos:
+                    if combo_sid not in existing_ids and combo_sid not in MANUAL_ONLY_SKILLS:
+                        results.append((combo_sid, 1))
+                        boosted.append(combo_sid)
             except Exception:
                 pass
 
-        assignments[pg["group"]] = gguf_paths_by_size[best_idx][0]
+        # 실제 SKILL.md가 있는 스킬만 필터링 + max_skills 제한
+        available = scan_skills()
+        seen = set()
+        skills = []
+        for sid, score in results:
+            if sid in seen or sid in MANUAL_ONLY_SKILLS or sid not in available:
+                continue
+            seen.add(sid)
+            desc = SKILL_DESC_KO.get(sid, "")
+            skills.append({
+                "id": sid,
+                "desc": desc,
+                "score": score,
+                "boosted": sid in boosted,
+            })
+        # 점수 높은 순 정렬 + max_skills 제한
+        skills.sort(key=lambda x: -x["score"])
+        skills = skills[:max_skills]
 
-    return assignments
+        mode = "🧠 컨텍스트" if history else "🔍 키워드"
+        return jsonify({
+            "skills": skills,
+            "query": query,
+            "mode": mode,
+            "boosted_count": len(boosted),
+            "message": f"{mode} 매칭: {len(skills)}개 스킬" if skills else "매칭되는 스킬이 없습니다.",
+        })
 
 
-def _assign_api_models_to_groups(parallel_groups, primary_reg_key=None):
-    """그룹별 preferred_model_size에 따라 API 모델 할당 (서버사이드 병렬).
 
-    Args:
-        parallel_groups: [{"group": name, "preferred_model_size": "large"|"medium"|"small"}]
-        primary_reg_key: str|None - auto-routed primary model의 registry key
+    # ===================== 시스템 프롬프트 저장/불러오기 (TXT) =====================
 
-    Returns:
-        dict: {group_name: {"url": str, "model": str, "reg_key": str}}
-    """
-    used_keys = set()
-    assignments = {}
-    # 인접 티어 폴백 순서
-    _tier_fallback = {
-        "large": ["medium", "small"],
-        "medium": ["large", "small"],
-        "small": ["medium", "large"],
+    # 기본 프리셋 프롬프트 (파일로 저장 안 됨, 코드 내장)
+    PRESET_PROMPTS = {
+        "coding": {
+            "name": "코딩 전문가",
+            "icon": "💻",
+            "content": """당신은 숙련된 소프트웨어 개발자입니다. 다음 원칙을 따르세요:
+
+    [코드 작성 규칙]
+    - 코드는 반드시 즉시 실행 가능하게 작성 (import 포함, 필요 패키지 명시)
+    - 에러 처리(try/except)를 반드시 포함
+    - 함수/클래스 단위로 구조화, 재사용 가능하게
+    - 주석은 한국어로 '왜' 이렇게 했는지 설명
+    - 타입 힌트 사용 권장
+    - 변수명은 명확하고 의미 있게
+
+    [응답 구조]
+    1. 요구사항 분석 (1~2줄)
+    2. 핵심 코드 (주석 포함)
+    3. 사용법/실행 방법
+    4. 필요 패키지: pip install xxx"""
+        },
+        "code-fix": {
+            "name": "코드 수정/디버깅",
+            "icon": "🔧",
+            "content": """당신은 코드 디버깅 및 리팩토링 전문가입니다.
+
+    [분석 절차]
+    1. 원본 코드를 먼저 분석하고 문제점을 정확히 진단
+    2. 에러 메시지가 있으면 원인과 해결책을 명확히 설명
+    3. 수정 전/후 코드를 비교해서 보여주기
+    4. 왜 그렇게 고쳤는지 이유 설명
+
+    [코드 수정 원칙]
+    - 최소 변경 원칙: 문제를 고치는 데 필요한 최소한만 수정
+    - 기존 코딩 스타일 유지
+    - 성능 개선이 가능하면 제안 (하지만 강요하지 않음)
+    - 잠재적 버그나 취약점이 보이면 경고
+
+    [응답 형식]
+    - 문제 원인 → 수정 코드 → 설명 순서"""
+        },
+        "data-analysis": {
+            "name": "데이터 분석",
+            "icon": "📊",
+            "content": """당신은 데이터 분석 전문가입니다.
+
+    [분석 절차]
+    1. 데이터 형태 파악 (shape, dtypes, 결측치, 이상치)
+    2. 탐색적 분석 (EDA): 분포, 상관관계, 패턴
+    3. 시각화: matplotlib/seaborn으로 핵심 차트 생성
+    4. 인사이트 도출: 데이터가 말해주는 것을 명확히 해석
+
+    [코드 원칙]
+    - pandas/polars 활용, 코드와 해석을 함께 제공
+    - 차트에는 반드시 한글 제목/라벨 (plt.rcParams 설정 포함)
+    - 큰 데이터는 샘플링 전략 제시
+    - 통계적 검증이 필요하면 scipy/statsmodels 활용
+
+    [응답 구조]
+    데이터 개요 → 분석 코드 → 시각화 → 인사이트 요약"""
+        },
+        "general-dev": {
+            "name": "개발 올라운더",
+            "icon": "🛠️",
+            "content": """당신은 풀스택 개발 어시스턴트입니다. 코딩, 디버깅, 아키텍처, DevOps를 모두 지원합니다.
+
+    [핵심 원칙]
+    - 질문의 맥락을 파악하고 가장 적합한 방식으로 답변
+    - 코드는 실행 가능하게, 설명은 간결하게
+    - 한국어 주석, 필요 패키지 명시
+    - 모르는 건 모른다고 솔직히 말하기
+    - 여러 해결책이 있으면 장단점 비교 후 추천
+
+    [스킬 활용]
+    - 로드된 스킬의 방법론, 코드 패턴, API를 적극 활용
+    - 여러 스킬이 관련되면 조합해서 최적의 답변 생성"""
+        },
+        "llm-system-architect": {
+            "name": "LLM 시스템 아키텍트",
+            "icon": "🧠",
+            "content": """당신은 LLM 시스템 아키텍트입니다.
+
+    [우선 원칙]
+    1. 먼저 요구사항과 제약(성능/비용/보안/운영)을 분석하세요.
+    2. 분석 후 아키텍처 옵션 2~3개를 비교하고 최종안을 추천하세요.
+    3. 반드시 트레이드오프(장단점, 리스크, 운영 난이도)를 명시하세요.
+
+    [설계 범위]
+    - 모델 선택/라우팅 전략 (단일 vs 멀티모델)
+    - RAG 파이프라인 (임베딩, 검색, 리랭킹, 캐시)
+    - 프롬프트/가드레일/평가(Eval) 체계
+    - 서빙(vLLM/TGI), 모니터링, 비용 최적화
+    - 장애 대응(폴백, 재시도, 회로차단, 관측성)
+
+    [응답 구조]
+    1. 요구사항 분석
+    2. 아키텍처 옵션 비교표
+    3. 추천 아키텍처(이유 포함)
+    4. 단계별 구현 계획(POC→운영)
+    5. 운영 지표(SLO/비용/품질)"""
+        },
+        "semiconductor": {
+            "name": "반도체 엔지니어",
+            "icon": "🔬",
+            "content": """당신은 반도체 공정 및 소자 전문가입니다.
+
+    [전문 영역]
+    - DRAM/NAND Flash 구조, 공정 흐름, 불량 분석
+    - 웨이퍼 공정 데이터 분석 (수율, SPC, FDC)
+    - 장비 데이터 분석 및 공정 최적화
+    - 신뢰성 분석, 불량 메커니즘
+
+    [응답 원칙]
+    - 전문 용어를 정확히 사용하되, 필요시 설명 추가
+    - 데이터 분석 코드가 필요하면 pandas + matplotlib 활용
+    - 공정 파라미터 관계는 시각화로 보여주기
+    - 양산 환경을 고려한 실용적 제안"""
+        },
     }
 
-    for pg in parallel_groups:
-        pref = pg.get("preferred_model_size", "medium")
-        assigned = False
 
-        # 선호 티어 → 인접 티어 순으로 시도
-        tiers_to_try = [pref] + _tier_fallback.get(pref, [])
-        for tier in tiers_to_try:
-            candidates = API_MODEL_TIERS.get(tier, [])
-            for reg_key in candidates:
-                if reg_key not in used_keys and reg_key in MODEL_REGISTRY:
-                    reg = MODEL_REGISTRY[reg_key]
-                    assignments[pg["group"]] = {
-                        "url": reg["url"], "model": reg["model"], "reg_key": reg_key,
-                    }
-                    used_keys.add(reg_key)
-                    assigned = True
-                    break
-            if assigned:
+    @app.route("/api/prompts", methods=["GET"])
+    def api_list_prompts():
+        """저장된 프롬프트 목록 (프리셋 + 사용자 저장분)"""
+        result = []
+
+        # 1) 프리셋
+        for pid, p in PRESET_PROMPTS.items():
+            result.append({
+                "id": f"preset:{pid}",
+                "name": p["name"],
+                "icon": p["icon"],
+                "type": "preset",
+                "preview": p["content"][:80] + "...",
+            })
+
+        # 2) 사용자 저장 TXT 파일
+        if os.path.isdir(PROMPTS_DIR):
+            for fname in sorted(os.listdir(PROMPTS_DIR)):
+                if fname.endswith(".txt"):
+                    fpath = os.path.join(PROMPTS_DIR, fname)
+                    name = fname[:-4]  # .txt 제거
+                    try:
+                        with open(fpath, "r", encoding="utf-8") as f:
+                            content = f.read()
+                        result.append({
+                            "id": f"saved:{name}",
+                            "name": name,
+                            "icon": "💾",
+                            "type": "saved",
+                            "preview": content[:80] + "..." if len(content) > 80 else content,
+                        })
+                    except Exception:
+                        pass
+
+        return jsonify({"prompts": result})
+
+
+    @app.route("/api/prompts/<prompt_id>", methods=["GET"])
+    def api_get_prompt(prompt_id):
+        """프롬프트 내용 불러오기"""
+        if prompt_id.startswith("preset:"):
+            key = prompt_id[7:]
+            if key in PRESET_PROMPTS:
+                p = PRESET_PROMPTS[key]
+                return jsonify({"id": prompt_id, "name": p["name"], "content": p["content"]})
+            return jsonify({"error": "프리셋을 찾을 수 없습니다."}), 404
+
+        elif prompt_id.startswith("saved:"):
+            name = prompt_id[6:]
+            fpath = os.path.join(PROMPTS_DIR, f"{name}.txt")
+            if os.path.isfile(fpath):
+                with open(fpath, "r", encoding="utf-8") as f:
+                    content = f.read()
+                return jsonify({"id": prompt_id, "name": name, "content": content})
+            return jsonify({"error": "저장된 프롬프트를 찾을 수 없습니다."}), 404
+
+        return jsonify({"error": "잘못된 ID 형식"}), 400
+
+
+    @app.route("/api/prompts", methods=["POST"])
+    def api_save_prompt():
+        """시스템 프롬프트를 TXT로 저장"""
+        data = request.json
+        name = data.get("name", "").strip()
+        content = data.get("content", "").strip()
+
+        if not name or not content:
+            return jsonify({"error": "이름과 내용을 모두 입력해주세요."}), 400
+
+        # 파일명 안전하게
+        safe_name = "".join(c for c in name if c.isalnum() or c in (' ', '-', '_', '.', 'ㄱ', 'ㄴ', 'ㄷ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅅ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ') or ('\uac00' <= c <= '\ud7a3')).strip()
+        if not safe_name:
+            safe_name = "custom-prompt"
+
+        fpath = os.path.join(PROMPTS_DIR, f"{safe_name}.txt")
+        with open(fpath, "w", encoding="utf-8") as f:
+            f.write(content)
+
+        return jsonify({"success": True, "id": f"saved:{safe_name}", "name": safe_name, "path": fpath})
+
+
+    @app.route("/api/prompts/<prompt_id>", methods=["DELETE"])
+    def api_delete_prompt(prompt_id):
+        """저장된 프롬프트 삭제 (프리셋은 삭제 불가)"""
+        if prompt_id.startswith("preset:"):
+            return jsonify({"error": "프리셋은 삭제할 수 없습니다."}), 400
+
+        if prompt_id.startswith("saved:"):
+            name = prompt_id[6:]
+            if ".." in name or "/" in name or "\\" in name:
+                return jsonify({"error": "잘못된 프롬프트 ID입니다."}), 400
+            fpath = os.path.join(PROMPTS_DIR, f"{name}.txt")
+            if os.path.isfile(fpath):
+                try:
+                    os.remove(fpath)
+                except Exception as e:
+                    return jsonify({"error": f"삭제 실패: {str(e)}"}), 500
+                return jsonify({"success": True})
+            return jsonify({"error": "파일을 찾을 수 없습니다."}), 404
+
+        return jsonify({"error": "잘못된 ID 형식"}), 400
+
+
+    @app.route("/api/skills")
+    def api_skills():
+        """스킬 카탈로그 반환"""
+        return jsonify(get_skill_catalog())
+
+
+    @app.route("/api/skill/<skill_name>")
+    def api_skill_content(skill_name):
+        """개별 스킬 상세 반환 (SKILL.md + scripts/references/assets 목록)"""
+        content = load_skill_content(skill_name)
+        available = scan_skills()
+        info = available.get(skill_name, {})
+        return jsonify({
+            "name": skill_name,
+            "content": content,
+            "scripts": info.get("scripts", []),
+            "references": info.get("references", []),
+            "assets": info.get("assets", []),
+        })
+
+
+    @app.route("/api/skill/<skill_name>/file")
+    def api_skill_file(skill_name):
+        """스킬 내부 파일(scripts/references/assets) 내용 읽기"""
+        file_path = request.args.get("path", "")
+        if not file_path:
+            return jsonify({"error": "path 파라미터가 필요합니다."}), 400
+
+        # 보안: 상위 디렉토리 접근 차단
+        if ".." in file_path or file_path.startswith("/"):
+            return jsonify({"error": "잘못된 경로"}), 400
+
+        full_path = os.path.join(SKILLS_DIR, skill_name, file_path)
+        if not os.path.isfile(full_path):
+            return jsonify({"error": f"파일 없음: {file_path}"}), 404
+
+        try:
+            with open(full_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            return jsonify({
+                "name": os.path.basename(file_path),
+                "path": file_path,
+                "content": content,
+                "size": os.path.getsize(full_path),
+            })
+        except UnicodeDecodeError:
+            return jsonify({"error": "바이너리 파일은 읽을 수 없습니다."}), 400
+
+
+    @app.route("/api/skill/<skill_name>/run", methods=["POST"])
+    def api_skill_run(skill_name):
+        """스킬 내부 파이썬 스크립트 실행"""
+        import subprocess
+
+        data = request.json or {}
+        script_path = data.get("script", "")
+        args = data.get("args", [])
+
+        if not script_path:
+            return jsonify({"error": "script 파라미터가 필요합니다."}), 400
+        if ".." in script_path or script_path.startswith("/"):
+            return jsonify({"error": "잘못된 경로"}), 400
+        if not script_path.endswith(".py"):
+            return jsonify({"error": "파이썬 파일만 실행 가능합니다."}), 400
+
+        full_path = os.path.join(SKILLS_DIR, skill_name, script_path)
+        if not os.path.isfile(full_path):
+            return jsonify({"error": f"스크립트 없음: {script_path}"}), 404
+
+        try:
+            result = subprocess.run(
+                [sys.executable, full_path] + args,
+                capture_output=True, text=True,
+                timeout=60,
+                cwd=os.path.join(SKILLS_DIR, skill_name),
+            )
+            return jsonify({
+                "stdout": result.stdout[:8000] if len(result.stdout) > 8000 else result.stdout,
+                "stderr": result.stderr[:4000] if len(result.stderr) > 4000 else result.stderr,
+                "returncode": result.returncode,
+                "script": script_path,
+            })
+        except subprocess.TimeoutExpired:
+            return jsonify({"error": "스크립트 실행 시간 초과 (60초)"}), 504
+        except Exception as e:
+            return jsonify({"error": f"실행 오류: {str(e)}"}), 500
+
+
+    # ============================================
+    # 스킬 생성 / 검증 / 다운로드 API
+    # ============================================
+
+    def _clean_skill_content(raw):
+        """LLM 생성 결과에서 SKILL.md 본문만 추출 (코드블록/설명문 제거)"""
+        if not raw or not raw.strip():
+            return raw
+        text = raw.strip()
+        # ```markdown ... ``` 또는 ``` ... ``` 코드블록 추출
+        md_match = re.search(r'```(?:markdown|yaml|md)?\s*\n(.*?)```', text, re.DOTALL)
+        if md_match:
+            text = md_match.group(1).strip()
+        # 앞쪽 설명 텍스트 제거: --- 이전의 비-frontmatter 텍스트 스킵
+        if not text.startswith("---"):
+            idx = text.find("\n---\n")
+            if idx >= 0:
+                text = text[idx + 1:]
+            else:
+                idx = text.find("---\n")
+                if idx >= 0:
+                    text = text[idx:]
+        return text.strip()
+
+
+    def _validate_skill_content(content_text):
+        """SKILL.md 내용을 검증 (quick_validate.py 인라인 버전). returns (valid, errors[], warnings[])"""
+        errors = []
+        warnings = []
+
+        if not content_text or not content_text.strip():
+            return False, ["SKILL.md 내용이 비어 있습니다."], []
+
+        # LLM 출력 자동 정리
+        content_text = _clean_skill_content(content_text)
+
+        if not content_text.strip().startswith("---"):
+            return False, ["YAML frontmatter가 없습니다. '---'로 시작해야 합니다."], []
+
+        # frontmatter 추출
+        fm_match = re.match(r'^---\n(.*?)\n---', content_text, re.DOTALL)
+        if not fm_match:
+            return False, ["YAML frontmatter 형식이 잘못되었습니다. '---' 구분자를 확인하세요."], []
+
+        fm_text = fm_match.group(1)
+
+        # YAML 파싱 (yaml 모듈 없으면 간단 파싱)
+        try:
+            import yaml
+            frontmatter = yaml.safe_load(fm_text)
+            if not isinstance(frontmatter, dict):
+                return False, ["Frontmatter는 YAML 딕셔너리여야 합니다."], []
+        except ImportError:
+            # yaml 없으면 간단 파싱
+            frontmatter = {}
+            for line in fm_text.split("\n"):
+                line = line.strip()
+                if ":" in line and not line.startswith("#"):
+                    key, _, val = line.partition(":")
+                    frontmatter[key.strip()] = val.strip().strip('"').strip("'")
+        except Exception as e:
+            return False, [f"YAML 파싱 오류: {str(e)}"], []
+
+        # 허용 키 검사 (Claude Code 공식 스펙 + 확장 키)
+        ALLOWED_KEYS = {
+            "name", "description", "license", "allowed-tools", "metadata",  # 기본
+            "model", "color", "tools", "compatibility",  # 확장
+            "argument-hint", "disable-model-invocation", "user-invocable",  # 호출 제어
+            "effort", "context", "agent", "hooks", "paths", "shell",  # 실행 제어
+        }
+        unexpected = set(frontmatter.keys()) - ALLOWED_KEYS
+        if unexpected:
+            warnings.append(f"비표준 키 발견: {', '.join(sorted(unexpected))} (허용: {', '.join(sorted(ALLOWED_KEYS))})")
+
+        # 필수 필드
+        if "name" not in frontmatter:
+            errors.append("필수 필드 'name'이 없습니다.")
+        else:
+            name = str(frontmatter["name"]).strip()
+            if not re.match(r'^[a-z0-9]+(-[a-z0-9]+)*$', name):
+                errors.append(f"name '{name}'은 소문자+하이픈만 허용 (예: my-skill-name)")
+            if "--" in name:
+                errors.append(f"name '{name}'에 연속 하이픈 '--'이 포함되어 있습니다.")
+            if len(name) > 64:
+                errors.append(f"name이 너무 깁니다 ({len(name)}자). 최대 64자.")
+
+        if "description" not in frontmatter:
+            errors.append("필수 필드 'description'이 없습니다.")
+        else:
+            desc = str(frontmatter["description"]).strip()
+            if len(desc) < 20:
+                warnings.append(f"description이 짧습니다 ({len(desc)}자). 최소 20자 이상 권장 (트리거 정확도 향상).")
+            if len(desc) > 250:
+                warnings.append(f"description이 250자를 초과합니다 ({len(desc)}자). Claude가 250자에서 자르므로 핵심 용도를 앞에 배치하세요.")
+            if len(desc) > 1024:
+                errors.append(f"description이 너무 깁니다 ({len(desc)}자). 최대 1024자.")
+            if "<" in desc or ">" in desc:
+                errors.append("description에 꺽쇠(<, >)를 사용할 수 없습니다.")
+
+        # 본문 검사
+        body = content_text[fm_match.end():].strip()
+        if not body:
+            warnings.append("본문이 비어 있습니다. 지시문을 추가하세요.")
+        line_count = len(content_text.split("\n"))
+        if line_count > 500:
+            warnings.append(f"본문이 {line_count}줄입니다. 500줄 이하 권장 (상세 내용은 references/로 분리).")
+
+        return len(errors) == 0, errors, warnings
+
+
+    @app.route("/api/skill/validate", methods=["POST"])
+    def api_skill_validate():
+        """스킬 SKILL.md 내용 검증"""
+        data = request.json or {}
+        content = data.get("content", "")
+        valid, errors, warnings = _validate_skill_content(content)
+        return jsonify({"valid": valid, "errors": errors, "warnings": warnings})
+
+
+    @app.route("/api/skill/create", methods=["POST"])
+    def api_skill_create():
+        """새 스킬 생성 (scientific-skills/에 저장하지 않고 임시 파일로 다운로드용)"""
+        data = request.json or {}
+        name = data.get("name", "").strip()
+        description = data.get("description", "").strip()
+        body = data.get("body", "").strip()
+        references = data.get("references", [])  # [{filename, content}]
+
+        if not name:
+            return jsonify({"error": "스킬 이름을 입력하세요."}), 400
+        if not re.match(r'^[a-z0-9]+(-[a-z0-9]+)*$', name) or len(name) > 64:
+            return jsonify({"error": "이름은 소문자+하이픈만, 최대 64자"}), 400
+        if not description:
+            return jsonify({"error": "description을 입력하세요."}), 400
+
+        # SKILL.md 조합
+        skill_md = f"---\nname: {name}\ndescription: >\n  {description}\n---\n\n{body}"
+
+        # 검증
+        valid, errors, warnings = _validate_skill_content(skill_md)
+        if not valid:
+            return jsonify({"error": "검증 실패", "errors": errors, "warnings": warnings}), 400
+
+        # ZIP 생성 (메모리에서)
+        import zipfile
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(f"{name}/SKILL.md", skill_md)
+            # references 추가
+            for ref in references:
+                if ref.get("filename") and ref.get("content"):
+                    safe_fn = re.sub(r'[^\w\-. ]', '_', ref["filename"])
+                    zf.writestr(f"{name}/references/{safe_fn}", ref["content"])
+        buf.seek(0)
+
+        return send_file(
+            buf,
+            mimetype="application/zip",
+            as_attachment=True,
+            download_name=f"{name}.zip",
+        )
+
+
+    @app.route("/api/skill/apply", methods=["POST"])
+    def api_skill_apply():
+        """스킬을 scientific-skills/에 바로 저장하여 즉시 등록"""
+        data = request.json or {}
+        name = data.get("name", "").strip()
+        description = data.get("description", "").strip()
+        body = data.get("body", "").strip()
+        content = data.get("content", "")  # LLM 생성 시 전체 content로 전달
+
+        # content가 있으면 그대로 사용, 없으면 name/desc/body로 조합
+        if content.strip():
+            skill_md = _clean_skill_content(content)
+            # content에서 name 추출
+            m = re.search(r'name:\s*(.+)', skill_md)
+            if m:
+                name = m.group(1).strip()
+        else:
+            if not name:
+                return jsonify({"error": "스킬 이름을 입력하세요."}), 400
+            if not description:
+                return jsonify({"error": "description을 입력하세요."}), 400
+            skill_md = f"---\nname: {name}\ndescription: >\n  {description}\n---\n\n{body}"
+
+        if not name or not re.match(r'^[a-z0-9]+(-[a-z0-9]+)*$', name) or len(name) > 64:
+            return jsonify({"error": "이름은 소문자+하이픈만, 최대 64자"}), 400
+
+        # 검증
+        valid, errors, warnings = _validate_skill_content(skill_md)
+        if not valid:
+            return jsonify({"error": "검증 실패", "errors": errors, "warnings": warnings}), 400
+
+        # scientific-skills/{name}/ 디렉토리 생성 + SKILL.md 저장
+        skill_dir = os.path.join(SKILLS_DIR, name)
+        try:
+            os.makedirs(skill_dir, exist_ok=True)
+            skill_md_path = os.path.join(skill_dir, "SKILL.md")
+            with open(skill_md_path, "w", encoding="utf-8") as f:
+                f.write(skill_md)
+
+            # SKILL_DESC_KO에 없으면 추가 (description 앞 60자)
+            if name not in SKILL_DESC_KO:
+                desc_short = description[:60] if description else name
+                SKILL_DESC_KO[name] = desc_short
+
+            return jsonify({
+                "success": True,
+                "skill_name": name,
+                "path": skill_md_path,
+                "warnings": warnings,
+                "message": f"스킬 '{name}'이 등록되었습니다. 스킬 목록을 새로고침하세요."
+            })
+        except Exception as e:
+            return jsonify({"error": f"저장 실패: {str(e)}"}), 500
+
+
+    @app.route("/api/skill/<skill_name>/update", methods=["PUT"])
+    def api_skill_update(skill_name):
+        """기존 스킬 SKILL.md 수정"""
+        data = request.json or {}
+        content = data.get("content", "")
+
+        if not content.strip():
+            return jsonify({"error": "내용이 비어있습니다."}), 400
+
+        # 보안: 경로 순회 차단
+        if ".." in skill_name or "/" in skill_name or "\\" in skill_name:
+            return jsonify({"error": "잘못된 스킬 이름"}), 400
+
+        skill_md_path = os.path.join(SKILLS_DIR, skill_name, "SKILL.md")
+        if not os.path.isfile(skill_md_path):
+            return jsonify({"error": f"스킬 '{skill_name}'을 찾을 수 없습니다."}), 404
+
+        # 검증
+        valid, errors, warnings = _validate_skill_content(content)
+        if not valid:
+            return jsonify({"error": "검증 실패", "errors": errors, "warnings": warnings}), 400
+
+        try:
+            with open(skill_md_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            return jsonify({"success": True, "warnings": warnings})
+        except Exception as e:
+            return jsonify({"error": f"저장 실패: {str(e)}"}), 500
+
+
+    @app.route("/api/skill/<skill_name>/download")
+    def api_skill_download(skill_name):
+        """스킬 폴더 전체를 ZIP으로 다운로드"""
+        if ".." in skill_name or "/" in skill_name or "\\" in skill_name:
+            return jsonify({"error": "잘못된 스킬 이름"}), 400
+
+        skill_dir = os.path.join(SKILLS_DIR, skill_name)
+        if not os.path.isdir(skill_dir):
+            return jsonify({"error": f"스킬 '{skill_name}'을 찾을 수 없습니다."}), 404
+
+        import zipfile
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for root, dirs, files in os.walk(skill_dir):
+                for fn in files:
+                    full_path = os.path.join(root, fn)
+                    arcname = os.path.join(skill_name, os.path.relpath(full_path, skill_dir))
+                    zf.write(full_path, arcname)
+        buf.seek(0)
+
+        return send_file(
+            buf,
+            mimetype="application/zip",
+            as_attachment=True,
+            download_name=f"{skill_name}.zip",
+        )
+
+
+    @app.route("/api/skill/generate", methods=["POST"])
+    def api_skill_generate():
+        """LLM으로 스킬 SKILL.md 초안 자동 생성 (3개 메타스킬 지침 활용)"""
+        data = request.json or {}
+        topic = data.get("topic", "").strip()
+        skill_type = data.get("skill_type", "도구")  # 도구/에이전트/가이드
+        details = data.get("details", "").strip()
+        lang = data.get("lang", "ko").strip()  # ko 또는 en
+
+        if not topic:
+            return jsonify({"error": "스킬 주제를 입력하세요."}), 400
+
+        # 3개 메타스킬 지침 로드
+        meta_skills = ["skill-creator", "anthropic-prompt-engineer", "engineer-skill-creator"]
+        meta_instructions = ""
+        for ms in meta_skills:
+            ms_path = os.path.join(SKILLS_DIR, ms, "SKILL.md")
+            if os.path.isfile(ms_path):
+                try:
+                    with open(ms_path, "r", encoding="utf-8") as f:
+                        meta_instructions += f"\n\n=== {ms} 가이드 ===\n{f.read()[:3000]}\n"
+                except Exception:
+                    pass
+
+        if lang == "en":
+            system_prompt = f"""You are an expert Claude Code skill creator.
+    Refer to the 3 meta-skill guidelines below to generate a high-quality SKILL.md.
+
+    {meta_instructions}
+
+    ## Output Rules
+    1. Must start with YAML frontmatter (--- delimiters)
+    2. name: lowercase + hyphens only (e.g., my-new-skill)
+    3. description: Clearly describe the skill's purpose and trigger conditions (minimum 50 characters)
+    4. Body: Markdown-formatted instructions, include a "When to Use" section
+    5. Maximum 500 lines total
+    6. Output only SKILL.md content (no explanations)
+    7. Write ALL content in English
+    """
+            user_msg = f"Topic: {topic}\nType: {skill_type}\n"
+            if details:
+                user_msg += f"Detailed requirements: {details}\n"
+            user_msg += "\nPlease create a Claude Code SKILL.md based on the above. Write everything in English."
+        else:
+            system_prompt = f"""당신은 Claude Code 스킬 제작 전문가입니다.
+    아래 3개 메타스킬의 지침을 참고하여 고품질 SKILL.md를 생성하세요.
+
+    {meta_instructions}
+
+    ## 출력 규칙
+    1. 반드시 YAML frontmatter(--- 구분)로 시작
+    2. name: 소문자+하이픈만 (예: my-new-skill)
+    3. description: 스킬의 용도와 트리거 조건을 명확히 기술 (최소 50자)
+    4. 본문: 마크다운 형식의 지시문, "When to Use" 섹션 포함
+    5. 전체 500줄 이내
+    6. SKILL.md 내용만 출력 (설명 없이)
+    7. 모든 내용을 한글로 작성
+    """
+            user_msg = f"주제: {topic}\n유형: {skill_type}\n"
+            if details:
+                user_msg += f"상세 요구사항: {details}\n"
+            user_msg += "\n위 내용으로 Claude Code SKILL.md를 한글로 작성해주세요."
+
+        # 첫 번째 사용 가능한 API 환경 찾기
+        api_url = ""
+        model = ""
+        for eid, ecfg in ENV_CONFIG.items():
+            if not eid.startswith("gguf-"):
+                api_url = ecfg["url"]
+                model = ecfg["model"]
                 break
 
-        if not assigned:
-            # 모든 모델 소진 → 첫 번째 large 모델 재사용
-            fallback_key = API_MODEL_TIERS["large"][0]
-            reg = MODEL_REGISTRY[fallback_key]
-            assignments[pg["group"]] = {
-                "url": reg["url"], "model": reg["model"], "reg_key": fallback_key,
-            }
+        if not api_url:
+            return jsonify({"error": "사용 가능한 LLM API가 없습니다. API 환경을 설정하세요."}), 500
+
+        try:
+            headers = {"Content-Type": "application/json"}
+            if API_TOKEN:
+                headers["Authorization"] = f"Bearer {API_TOKEN}"
+
+            resp = req.post(
+                api_url,
+                headers=headers,
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_msg},
+                    ],
+                    "temperature": 0.7,
+                    "max_tokens": 8192,
+                    "stream": False,
+                },
+                timeout=120,
+                verify=False,
+            )
+            resp.raise_for_status()
+            result = resp.json()
+            if "choices" in result and len(result["choices"]) > 0:
+                generated = result["choices"][0].get("message", {}).get("content", "")
+                # ```markdown ... ``` 블록 추출
+                md_match = re.search(r'```(?:markdown)?\s*\n(.*?)```', generated, re.DOTALL)
+                if md_match:
+                    generated = md_match.group(1).strip()
+                return jsonify({"content": generated, "model": model})
+            return jsonify({"error": "LLM 응답이 비어있습니다."}), 500
+        except Exception as e:
+            return jsonify({"error": f"LLM 호출 실패: {str(e)}"}), 500
+
+
+    # ============================================
+    # 로그프레소 자연어 쿼리 API
+
+
+    @app.route("/api/upload_csv", methods=["POST"])
+    def api_upload_csv():
+        """CSV 파일 업로드 및 파싱"""
+        global uploaded_csv_data
+
+        if 'file' not in request.files:
+            return jsonify({"error": "파일이 없습니다."}), 400
+
+        file = request.files['file']
+        if not file.filename:
+            return jsonify({"error": "파일명이 없습니다."}), 400
+
+        fname = file.filename.lower()
+        if not (fname.endswith('.csv') or fname.endswith('.tsv') or fname.endswith('.txt')):
+            return jsonify({"error": "CSV, TSV, TXT 파일만 지원합니다."}), 400
+
+        try:
+            # 파일 읽기 (여러 인코딩 시도)
+            raw_bytes = file.read()
+            content = None
+            for enc in ["utf-8", "utf-8-sig", "cp949", "euc-kr", "latin-1"]:
+                try:
+                    content = raw_bytes.decode(enc)
+                    break
+                except (UnicodeDecodeError, LookupError):
+                    continue
+
+            if content is None:
+                return jsonify({"error": "파일 인코딩을 인식할 수 없습니다."}), 400
+
+            # 구분자 자동 감지
+            sample = content[:4096]
             try:
-                print(f"     [API-ASSIGN] no unique model for [{pg['group']}], "
-                      f"reusing {reg['model']}")
+                dialect = csv.Sniffer().sniff(sample, delimiters=',\t;|')
+                delimiter = dialect.delimiter
+            except csv.Error:
+                delimiter = '\t' if fname.endswith('.tsv') else ','
+
+            # CSV 파싱
+            reader = csv.reader(io.StringIO(content), delimiter=delimiter)
+            all_rows = []
+            for row in reader:
+                all_rows.append(row)
+                if len(all_rows) > 10000:  # 최대 10000행
+                    break
+
+            if len(all_rows) < 1:
+                return jsonify({"error": "빈 파일입니다."}), 400
+
+            headers = all_rows[0]
+            data_rows = all_rows[1:]
+
+            # 통계 요약 생성
+            total_rows = len(data_rows)
+            total_cols = len(headers)
+
+            # 각 컬럼 타입 추정 및 기본 통계
+            col_stats = []
+            for ci, h in enumerate(headers):
+                vals = [r[ci] for r in data_rows if ci < len(r) and r[ci].strip()]
+                # 숫자 판별
+                nums = []
+                for v in vals:
+                    try:
+                        nums.append(float(v.replace(',', '')))
+                    except ValueError:
+                        pass
+
+                if len(nums) > len(vals) * 0.5 and nums:
+                    col_stats.append(f"  {h}: 숫자형 ({len(vals)}건, 범위 {min(nums):.4g}~{max(nums):.4g}, 평균 {sum(nums)/len(nums):.4g})")
+                else:
+                    unique = len(set(vals))
+                    col_stats.append(f"  {h}: 문자형 ({len(vals)}건, 고유값 {unique}개)")
+
+            summary = f"파일: {file.filename}\n행: {total_rows}개, 열: {total_cols}개\n컬럼:\n" + "\n".join(col_stats)
+
+            # 미리보기 (상위 5행)
+            preview_rows = data_rows[:5]
+            preview_text = delimiter.join(headers) + "\n"
+            for r in preview_rows:
+                preview_text += delimiter.join(r) + "\n"
+            if total_rows > 5:
+                preview_text += f"... ({total_rows - 5}행 더 있음)"
+
+            # 저장
+            uploaded_csv_data.clear()
+            uploaded_csv_data.update({
+                "filename": file.filename,
+                "headers": headers,
+                "rows": data_rows,
+                "summary": summary,
+                "raw_preview": preview_text,
+            })
+
+            return jsonify({
+                "success": True,
+                "filename": file.filename,
+                "rows": total_rows,
+                "cols": total_cols,
+                "headers": headers,
+                "summary": summary,
+                "preview": preview_text,
+                "sample_rows": [dict(zip(headers, r)) for r in preview_rows[:3]],
+            })
+
+        except Exception as e:
+            return jsonify({"error": f"파일 처리 오류: {str(e)}"}), 500
+
+
+    @app.route("/api/upload_xlsx", methods=["POST"])
+    def api_upload_xlsx():
+        """XLSX 파일 업로드 — 시트별 파싱 + 이미지 추출"""
+        global uploaded_csv_data
+
+        if 'file' not in request.files:
+            return jsonify({"error": "파일이 없습니다."}), 400
+        file = request.files['file']
+        if not file.filename:
+            return jsonify({"error": "파일명이 없습니다."}), 400
+
+        import zipfile
+        import xml.etree.ElementTree as ET
+        import base64
+
+        raw_bytes = file.read()
+        try:
+            zf = zipfile.ZipFile(io.BytesIO(raw_bytes))
+        except zipfile.BadZipFile:
+            return jsonify({"error": "유효한 XLSX 파일이 아닙니다."}), 400
+
+        ns_s = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
+        ns_r = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+        ns_pr = 'http://schemas.openxmlformats.org/package/2006/relationships'
+
+        # ── shared strings ──
+        shared = []
+        if 'xl/sharedStrings.xml' in zf.namelist():
+            with zf.open('xl/sharedStrings.xml') as ss:
+                tree = ET.parse(ss)
+                for si in tree.findall(f'.//{{{ns_s}}}si'):
+                    parts = []
+                    for t_el in si.iter(f'{{{ns_s}}}t'):
+                        if t_el.text:
+                            parts.append(t_el.text)
+                    shared.append(''.join(parts))
+
+        # ── 시트 목록 (workbook.xml + rels) ──
+        sheet_names = []
+        sheet_rids = []
+        if 'xl/workbook.xml' in zf.namelist():
+            with zf.open('xl/workbook.xml') as wb:
+                tree = ET.parse(wb)
+                for s in tree.findall(f'.//{{{ns_s}}}sheet'):
+                    sheet_names.append(s.get('name', ''))
+                    sheet_rids.append(s.get(f'{{{ns_r}}}id', ''))
+
+        # rid → 파일 매핑
+        rid_to_file = {}
+        rels_path = 'xl/_rels/workbook.xml.rels'
+        if rels_path in zf.namelist():
+            with zf.open(rels_path) as rf:
+                tree = ET.parse(rf)
+                for rel in tree.findall(f'{{{ns_pr}}}Relationship'):
+                    rid_to_file[rel.get('Id', '')] = 'xl/' + rel.get('Target', '')
+
+        def _parse_sheet(sheet_file_path):
+            """시트 하나를 파싱하여 2D 리스트 반환"""
+            if sheet_file_path not in zf.namelist():
+                return []
+            with zf.open(sheet_file_path) as ws:
+                tree = ET.parse(ws)
+                all_rows = []
+                for row in tree.findall(f'.//{{{ns_s}}}row'):
+                    if len(all_rows) >= 10000:
+                        break
+                    cells = []
+                    for c in row.findall(f'{{{ns_s}}}c'):
+                        v_el = c.find(f'{{{ns_s}}}v')
+                        t_attr = c.get('t', '')
+                        if v_el is not None and v_el.text is not None:
+                            if t_attr == 's' and v_el.text.isdigit():
+                                idx = int(v_el.text)
+                                cells.append(shared[idx] if idx < len(shared) else v_el.text)
+                            else:
+                                cells.append(v_el.text)
+                        else:
+                            is_el = c.find(f'{{{ns_s}}}is')
+                            if is_el is not None:
+                                parts = []
+                                for t_el in is_el.iter(f'{{{ns_s}}}t'):
+                                    if t_el.text:
+                                        parts.append(t_el.text)
+                                cells.append(''.join(parts))
+                            else:
+                                cells.append('')
+                    all_rows.append(cells)
+                return all_rows
+
+        # ── 시트별 요약 ──
+        sheets_data = []
+        for si, (sname, rid) in enumerate(zip(sheet_names, sheet_rids)):
+            sf = rid_to_file.get(rid, f'xl/worksheets/sheet{si+1}.xml')
+            rows = _parse_sheet(sf)
+            sheets_data.append({
+                "name": sname,
+                "rows": max(0, len(rows) - 1),  # 헤더 제외
+                "cols": max((len(r) for r in rows), default=0),
+            })
+
+        # ── 선택된 시트 상세 ──
+        active_sheet_idx = int(request.form.get('sheet', 0))
+        if active_sheet_idx >= len(sheet_names):
+            active_sheet_idx = 0
+
+        target_rid = sheet_rids[active_sheet_idx] if active_sheet_idx < len(sheet_rids) else ''
+        target_file = rid_to_file.get(target_rid, f'xl/worksheets/sheet{active_sheet_idx+1}.xml')
+        all_rows = _parse_sheet(target_file)
+
+        headers = all_rows[0] if all_rows else []
+        data_rows = all_rows[1:] if len(all_rows) > 1 else []
+
+        # ── 이미지 추출 ──
+        images_info = []
+        for name in zf.namelist():
+            if name.startswith('xl/media/') and any(name.lower().endswith(e) for e in ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp')):
+                img_ext = name.rsplit('.', 1)[-1].lower()
+                with zf.open(name) as img_f:
+                    img_data = img_f.read()
+                    if len(img_data) <= 5 * 1024 * 1024:  # 5MB 제한
+                        b64 = base64.b64encode(img_data).decode('ascii')
+                        mime = {'jpg': 'jpeg', 'jpeg': 'jpeg'}.get(img_ext, img_ext)
+                        images_info.append({"name": name.split('/')[-1], "size": len(img_data), "mime": f"image/{mime}"})
+                        # VL 모델용으로 uploaded_files에 추가
+                        uploaded_files.append({
+                            "filename": f"{file.filename}/{name.split('/')[-1]}",
+                            "safe_name": name.split('/')[-1],
+                            "type": "image",
+                            "ext": img_ext,
+                            "size": len(img_data),
+                            "content_preview": f"(엑셀 내장 이미지: {name.split('/')[-1]})",
+                            "content_full": f"(엑셀 내장 이미지: {name.split('/')[-1]})",
+                            "img_base64": b64,
+                            "path": "",
+                        })
+
+        # ── 통계 ──
+        total_rows = len(data_rows)
+        total_cols = len(headers)
+        col_stats = []
+        for ci, h in enumerate(headers):
+            vals = [r[ci] for r in data_rows if ci < len(r) and r[ci].strip()]
+            nums = []
+            for v in vals:
+                try:
+                    nums.append(float(v.replace(',', '')))
+                except ValueError:
+                    pass
+            if len(nums) > len(vals) * 0.5 and nums:
+                col_stats.append(f"  {h}: 숫자형 ({len(vals)}건, 범위 {min(nums):.4g}~{max(nums):.4g}, 평균 {sum(nums)/len(nums):.4g})")
+            else:
+                unique = len(set(vals))
+                col_stats.append(f"  {h}: 문자형 ({len(vals)}건, 고유값 {unique}개)")
+
+        active_name = sheet_names[active_sheet_idx] if active_sheet_idx < len(sheet_names) else "Sheet1"
+
+        # 전체 시트 요약 (시스템 프롬프트용)
+        sheets_summary = ""
+        if len(sheet_names) > 1:
+            sheets_summary = f"\n전체 시트 목록 ({len(sheet_names)}개):\n"
+            for sd in sheets_data:
+                sheets_summary += f"  - {sd['name']}: {sd['rows']}행 × {sd['cols']}열\n"
+            sheets_summary += f"현재 분석 시트: {active_name}\n"
+
+        img_summary = ""
+        if images_info:
+            img_summary = f"\n내장 이미지: {len(images_info)}개\n"
+
+        summary = (
+            f"파일: {file.filename}\n"
+            f"시트: {active_name} ({len(sheet_names)}개 시트)\n"
+            f"행: {total_rows}개, 열: {total_cols}개\n"
+            f"컬럼:\n" + "\n".join(col_stats)
+            + sheets_summary + img_summary
+        )
+
+        preview_rows = data_rows[:5]
+        preview_text = '\t'.join(headers) + "\n"
+        for r in preview_rows:
+            preview_text += '\t'.join(r) + "\n"
+        if total_rows > 5:
+            preview_text += f"... ({total_rows - 5}행 더 있음)"
+
+        # uploaded_csv_data에 저장 (기존 CSV 분석 경로와 호환)
+        uploaded_csv_data.clear()
+        uploaded_csv_data.update({
+            "filename": file.filename,
+            "headers": headers,
+            "rows": data_rows,
+            "summary": summary,
+            "raw_preview": preview_text,
+        })
+
+        zf.close()
+
+        return jsonify({
+            "success": True,
+            "filename": file.filename,
+            "rows": total_rows,
+            "cols": total_cols,
+            "headers": headers,
+            "summary": summary,
+            "preview": preview_text,
+            "sample_rows": [dict(zip(headers, r)) for r in preview_rows[:3]],
+            "sheets": sheets_data,
+            "active_sheet": active_sheet_idx,
+            "active_sheet_name": active_name,
+            "images_count": len(images_info),
+            "images": images_info,
+        })
+
+
+    @app.route("/api/clear_csv", methods=["POST"])
+    def api_clear_csv():
+        """업로드된 CSV 데이터 삭제"""
+        global uploaded_csv_data
+        uploaded_csv_data.clear()
+        uploaded_csv_data.update({"filename": "", "headers": [], "rows": [], "summary": "", "raw_preview": ""})
+        return jsonify({"success": True})
+
+
+
+    # ===================== 범용 파일 업로드 =====================
+    ALLOWED_EXTENSIONS = {
+        'csv', 'tsv', 'txt', 'log', 'ini', 'cfg', 'conf', 'toml',
+        'docx', 'xlsx', 'pdf', 'pptx',
+        'md', 'markdown', 'rst',
+        'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg',
+        'py', 'js', 'ts', 'tsx', 'jsx', 'vue', 'svelte',
+        'html', 'css', 'scss', 'less', 'json', 'xml', 'yaml', 'yml',
+        'c', 'cpp', 'h', 'hpp', 'java', 'kt', 'scala', 'go', 'rs', 'sh', 'bat',
+        'rb', 'php', 'swift', 'r', 'sql', 'lua', 'dart', 'zig',
+    }
+
+
+    def _detect_drm(filepath, ext):
+        """파일의 DRM/암호화 보호 여부를 감지. 보호된 경우 설명 문자열 반환, 아니면 None."""
+        try:
+            if ext == 'pdf':
+                with open(filepath, 'rb') as f:
+                    head = f.read(4096)
+                # PDF 암호화 플래그 감지
+                if b'/Encrypt' in head:
+                    return "PDF 파일에 암호화(DRM)가 설정되어 있어 내용을 읽을 수 없습니다."
+
+            elif ext in ('docx', 'xlsx', 'pptx'):
+                import zipfile
+                # DRM 걸린 Office 파일은 ZIP이 아닌 OLE2(CFB) 형식인 경우가 많음
+                if not zipfile.is_zipfile(filepath):
+                    with open(filepath, 'rb') as f:
+                        magic = f.read(8)
+                    # Microsoft OLE2 Compound File (암호화된 Office)
+                    if magic[:4] == b'\xd0\xcf\x11\xe0':
+                        return f"{ext.upper()} 파일에 DRM 또는 암호 보호가 설정되어 있어 내용을 읽을 수 없습니다."
+                    return None
+                # ZIP 기반이어도 EncryptedPackage가 있으면 DRM
+                try:
+                    with zipfile.ZipFile(filepath) as z:
+                        names = z.namelist()
+                        if 'EncryptedPackage' in names or 'EncryptedInfo' in names:
+                            return f"{ext.upper()} 파일에 DRM 또는 암호 보호가 설정되어 있어 내용을 읽을 수 없습니다."
+                        # Office 365 IRM(Information Rights Management) 감지
+                        if any('irm' in n.lower() or 'rights' in n.lower() for n in names):
+                            return f"{ext.upper()} 파일에 IRM(정보 권한 관리)이 설정되어 있어 내용을 읽을 수 없습니다."
+                except zipfile.BadZipFile:
+                    pass
+
+            elif ext in ('epub',):
+                import zipfile
+                if zipfile.is_zipfile(filepath):
+                    try:
+                        with zipfile.ZipFile(filepath) as z:
+                            names = z.namelist()
+                            if any('encryption.xml' in n.lower() or 'rights.xml' in n.lower() for n in names):
+                                return "EPUB 파일에 DRM이 설정되어 있어 내용을 읽을 수 없습니다."
+                    except zipfile.BadZipFile:
+                        pass
+
+        except Exception:
+            pass
+        return None
+
+    def extract_file_text(filepath, filename):
+        """파일에서 텍스트 추출 (가능한 경우)"""
+        ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+        text = ""
+        file_type = "unknown"
+
+        # DRM/암호화 보호 감지
+        drm_msg = _detect_drm(filepath, ext)
+        if drm_msg:
+            return drm_msg, "drm_protected"
+
+        try:
+            # 텍스트 기반 파일
+            if ext in ('md', 'markdown', 'rst', 'txt', 'log', 'ini', 'cfg', 'conf', 'toml',
+                        'py', 'js', 'ts', 'tsx', 'jsx', 'vue', 'svelte',
+                        'html', 'css', 'scss', 'less', 'json', 'xml', 'yaml', 'yml',
+                        'c', 'cpp', 'h', 'hpp', 'java', 'kt', 'scala', 'go', 'rs', 'sh', 'bat',
+                        'rb', 'php', 'swift', 'r', 'sql', 'lua', 'dart', 'zig'):
+                for enc in ["utf-8", "utf-8-sig", "cp949", "euc-kr", "latin-1"]:
+                    try:
+                        with open(filepath, "r", encoding=enc) as f:
+                            text = f.read()
+                        break
+                    except (UnicodeDecodeError, LookupError):
+                        continue
+                file_type = "text"
+
+            # DOCX
+            elif ext == 'docx':
+                try:
+                    import zipfile
+                    with zipfile.ZipFile(filepath) as z:
+                        with z.open('word/document.xml') as doc:
+                            import xml.etree.ElementTree as ET
+                            tree = ET.parse(doc)
+                            ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
+                            paragraphs = tree.findall('.//w:p', ns)
+                            texts = []
+                            for p in paragraphs:
+                                runs = p.findall('.//w:t', ns)
+                                para_text = ''.join(r.text or '' for r in runs)
+                                if para_text.strip():
+                                    texts.append(para_text)
+                            text = '\n'.join(texts)
+                    file_type = "docx"
+                except Exception as e:
+                    text = f"(DOCX 텍스트 추출 실패: {e})"
+                    file_type = "docx"
+
+            # XLSX
+            elif ext == 'xlsx':
+                try:
+                    import zipfile
+                    import xml.etree.ElementTree as ET
+                    with zipfile.ZipFile(filepath) as z:
+                        # shared strings
+                        shared = []
+                        if 'xl/sharedStrings.xml' in z.namelist():
+                            with z.open('xl/sharedStrings.xml') as ss:
+                                tree = ET.parse(ss)
+                                ns = {'s': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
+                                for si in tree.findall('.//s:si', ns):
+                                    t_el = si.find('.//s:t', ns)
+                                    shared.append(t_el.text if t_el is not None and t_el.text else '')
+                        # sheet1
+                        with z.open('xl/worksheets/sheet1.xml') as ws:
+                            tree = ET.parse(ws)
+                            ns = {'s': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
+                            rows = tree.findall('.//s:row', ns)
+                            lines = []
+                            for row in rows[:100]:  # 최대 100행
+                                cells = []
+                                for c in row.findall('s:c', ns):
+                                    v_el = c.find('s:v', ns)
+                                    t_attr = c.get('t', '')
+                                    if v_el is not None and v_el.text is not None:
+                                        if t_attr == 's' and v_el.text.isdigit():
+                                            idx = int(v_el.text)
+                                            cells.append(shared[idx] if idx < len(shared) else v_el.text)
+                                        else:
+                                            cells.append(v_el.text)
+                                    else:
+                                        cells.append('')
+                                lines.append('\t'.join(cells))
+                            text = '\n'.join(lines)
+                    file_type = "xlsx"
+                except Exception as e:
+                    text = f"(XLSX 텍스트 추출 실패: {e})"
+                    file_type = "xlsx"
+
+            # PDF (기본 텍스트 추출)
+            elif ext == 'pdf':
+                try:
+                    with open(filepath, 'rb') as f:
+                        content = f.read()
+                    # 간단한 PDF 텍스트 추출 (stream 기반)
+                    import re as re_mod
+                    texts = re_mod.findall(rb'\((.*?)\)', content)
+                    decoded = []
+                    for t in texts[:500]:
+                        try:
+                            decoded.append(t.decode('utf-8', errors='ignore'))
+                        except:
+                            pass
+                    text = ' '.join(decoded)
+                    if len(text.strip()) < 50:
+                        text = f"(PDF 텍스트 추출 제한 - 바이너리 PDF. 파일크기: {os.path.getsize(filepath)}바이트)"
+                    file_type = "pdf"
+                except Exception as e:
+                    text = f"(PDF 텍스트 추출 실패: {e})"
+                    file_type = "pdf"
+
+            # PPTX (텍스트 + 이미지 추출)
+            elif ext == 'pptx':
+                try:
+                    import zipfile
+                    import xml.etree.ElementTree as ET
+                    import base64 as _b64
+                    with zipfile.ZipFile(filepath) as z:
+                        slide_texts = []
+                        for name in sorted(z.namelist()):
+                            if name.startswith('ppt/slides/slide') and name.endswith('.xml'):
+                                with z.open(name) as sl:
+                                    tree = ET.parse(sl)
+                                    ns = {'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'}
+                                    texts_in_slide = []
+                                    for t in tree.findall('.//a:t', ns):
+                                        if t.text and t.text.strip():
+                                            texts_in_slide.append(t.text)
+                                    if texts_in_slide:
+                                        slide_num = name.split('slide')[-1].split('.')[0]
+                                        slide_texts.append(f"[슬라이드 {slide_num}] {' | '.join(texts_in_slide)}")
+                        # 내장 이미지 추출 → uploaded_files에 추가 (VL 모델 분석용)
+                        img_count = 0
+                        for name in z.namelist():
+                            if name.startswith('ppt/media/') and any(name.lower().endswith(e) for e in ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp')):
+                                with z.open(name) as img_f:
+                                    img_data = img_f.read()
+                                    if len(img_data) <= 5 * 1024 * 1024:
+                                        img_ext = name.rsplit('.', 1)[-1].lower()
+                                        b64 = _b64.b64encode(img_data).decode('ascii')
+                                        img_name = name.split('/')[-1]
+                                        uploaded_files.append({
+                                            "filename": f"{filename}/{img_name}",
+                                            "safe_name": img_name,
+                                            "type": "image",
+                                            "ext": img_ext,
+                                            "size": len(img_data),
+                                            "content_preview": f"(PPT 내장 이미지: {img_name})",
+                                            "content_full": f"(PPT 내장 이미지: {img_name})",
+                                            "img_base64": b64,
+                                            "path": "",
+                                        })
+                                        img_count += 1
+                        if img_count > 0:
+                            slide_texts.append(f"\n[내장 이미지 {img_count}개 추출됨 — VL 모델로 분석 가능]")
+                        text = '\n'.join(slide_texts)
+                    file_type = "pptx"
+                except Exception as e:
+                    text = f"(PPTX 텍스트 추출 실패: {e})"
+                    file_type = "pptx"
+
+            # 이미지
+            elif ext in ('png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg'):
+                import base64
+                with open(filepath, 'rb') as f:
+                    img_data = base64.b64encode(f.read()).decode('ascii')
+                text = f"[이미지 파일: {filename}, 크기: {os.path.getsize(filepath)}바이트, base64 길이: {len(img_data)}]"
+                file_type = "image"
+                # img_data는 caller에서 file_info에 저장 (VL 모델용)
+
+            else:
+                text = f"(지원하지 않는 파일 형식: .{ext})"
+                file_type = ext
+
+        except Exception as e:
+            text = f"(파일 읽기 오류: {e})"
+
+        return text, file_type
+
+
+    @app.route("/api/upload_file", methods=["POST"])
+    def api_upload_file():
+        """범용 파일 업로드 (docx, xlsx, pdf, pptx, md, 이미지, 코드 등)"""
+        global uploaded_files
+
+        if 'file' not in request.files:
+            return jsonify({"error": "파일이 없습니다."}), 400
+
+        file = request.files['file']
+        if not file.filename:
+            return jsonify({"error": "파일명이 없습니다."}), 400
+
+        fname = file.filename
+        ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else ''
+
+        if ext not in ALLOWED_EXTENSIONS:
+            return jsonify({"error": f"지원하지 않는 파일 형식입니다: .{ext}"}), 400
+
+        try:
+            # 파일 저장
+            import time as _time
+            safe_name = f"{int(_time.time())}_{fname}"
+            filepath = os.path.join(UPLOAD_DIR, safe_name)
+            file.save(filepath)
+            file_size = os.path.getsize(filepath)
+
+            # 텍스트 추출
+            text, file_type = extract_file_text(filepath, fname)
+
+            # DRM 보호 파일 감지 → 업로드는 정상 진행, 경고만 추가
+            drm_warning = None
+            if file_type == "drm_protected":
+                drm_warning = text  # DRM 안내 메시지
+                file_type = ext  # 원래 확장자를 타입으로 사용
+
+            # 미리보기 (최대 3000자)
+            preview = text[:3000]
+            if len(text) > 3000:
+                preview += f"\n... (총 {len(text)}자 중 3000자 표시)"
+
+            # 파일 정보 저장
+            file_info = {
+                "filename": fname,
+                "safe_name": safe_name,
+                "type": file_type,
+                "ext": ext,
+                "size": file_size,
+                "content_preview": preview,
+                "content_full": text[:60000],  # 시스템 프롬프트용 최대 60000자
+                "path": filepath,
+            }
+            # VL 모델용: 이미지 base64 데이터 저장 (최대 10MB)
+            if file_type == "image" and ext in ('png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg'):
+                import base64 as _b64
+                if file_size <= 10 * 1024 * 1024:  # 10MB 제한
+                    with open(filepath, 'rb') as _imgf:
+                        file_info["img_base64"] = _b64.b64encode(_imgf.read()).decode('ascii')
+                else:
+                    file_info["img_base64"] = None  # 너무 큰 이미지
+            uploaded_files.append(file_info)
+
+            # 아이콘 매핑
+            icon_map = {
+                "docx": "📄", "xlsx": "📊", "pdf": "📕", "pptx": "📽️",
+                "text": "📝", "image": "🖼️",
+            }
+            icon = icon_map.get(file_type, "📎")
+            if drm_warning:
+                icon = "🔒"
+
+            resp = {
+                "success": True,
+                "filename": fname,
+                "type": file_type,
+                "ext": ext,
+                "size": file_size,
+                "icon": icon,
+                "preview": preview[:500],
+                "total_files": len(uploaded_files),
+            }
+            if drm_warning:
+                resp["drm_warning"] = drm_warning
+            return jsonify(resp)
+
+        except Exception as e:
+            return jsonify({"error": f"파일 처리 오류: {str(e)}"}), 500
+
+
+    @app.route("/api/uploaded_files", methods=["GET"])
+    def api_uploaded_files():
+        """업로드된 파일 목록"""
+        return jsonify({
+            "files": [{
+                "filename": f["filename"],
+                "type": f["type"],
+                "ext": f["ext"],
+                "size": f["size"],
+            } for f in uploaded_files]
+        })
+
+
+    @app.route("/api/remove_file", methods=["POST"])
+    def api_remove_file():
+        """업로드된 파일 제거"""
+        global uploaded_files
+        data = request.json
+        fname = data.get("filename", "")
+
+        removed = False
+        new_files = []
+        for f in uploaded_files:
+            if f["filename"] == fname and not removed:
+                # 파일 삭제
+                try:
+                    os.remove(f["path"])
+                except Exception:
+                    pass
+                removed = True
+            else:
+                new_files.append(f)
+        uploaded_files[:] = new_files  # in-place 수정 (routes_chat과 공유 유지)
+        return jsonify({"success": removed, "total_files": len(uploaded_files)})
+
+
+    @app.route("/api/clear_files", methods=["POST"])
+    def api_clear_files():
+        """모든 업로드 파일 제거"""
+        global uploaded_files
+        for f in uploaded_files:
+            try:
+                os.remove(f["path"])
             except Exception:
                 pass
+        uploaded_files.clear()  # in-place 수정 (routes_chat과 공유 유지)
+        return jsonify({"success": True})
 
-    return assignments
+
+
+
+    # ===================== Draw.io XML 검증/수정 =====================
+    def _sanitize_drawio_xml(xml_str: str) -> str:
+        """Draw.io XML의 흔한 오류를 자동 수정"""
+        import xml.etree.ElementTree as ET
+        import re as _re
+
+        if not xml_str or not xml_str.strip():
+            return xml_str
+
+        # 1) mxfile 래퍼가 없으면 추가
+        if '<mxfile' not in xml_str and '<mxGraphModel' in xml_str:
+            xml_str = f'<mxfile host="app.diagrams.net" type="device">\n<diagram id="d1" name="Page-1">\n{xml_str}\n</diagram>\n</mxfile>'
+        elif '<mxfile' not in xml_str and '<mxCell' in xml_str:
+            xml_str = (
+                '<mxfile host="app.diagrams.net" type="device">\n'
+                '<diagram id="d1" name="Page-1">\n'
+                '<mxGraphModel dx="1422" dy="762" grid="1" pageWidth="1169" pageHeight="827">\n'
+                '<root>\n<mxCell id="0"/>\n<mxCell id="1" parent="0"/>\n'
+                f'{xml_str}\n</root>\n</mxGraphModel>\n</diagram>\n</mxfile>'
+            )
+
+        # 2) XML 파싱 시도
+        try:
+            ET.fromstring(xml_str)
+            return xml_str  # 정상이면 그대로 반환
+        except ET.ParseError:
+            pass  # 파싱 실패 → 수정 시도
+
+        # 3) value/label 속성 안의 & 이스케이프
+        xml_str = _re.sub(
+            r'((?:value|label)=")([^"]*?)(")',
+            lambda m: m.group(1) + _re.sub(r'&(?!amp;|lt;|gt;|quot;|apos;|#)', '&amp;', m.group(2)) + m.group(3),
+            xml_str
+        )
+
+        # 4) 구조 재구성: <root>...</root> 안의 요소들을 추출해서 올바르게 재조립
+        try:
+            ET.fromstring(xml_str)
+            return xml_str
+        except ET.ParseError:
+            pass
+
+        # 5) 최후 수단: root 내부의 모든 완전한 mxCell/UserObject 요소만 추출하여 재조립
+        wrap_match = _re.search(r'([\s\S]*?<root\b[^>]*>)([\s\S]*?)(</root>[\s\S]*)', xml_str)
+        if wrap_match:
+            header, body, footer = wrap_match.group(1), wrap_match.group(2), wrap_match.group(3)
+            elements = []
+            # mxCell with children (mxGeometry 포함)
+            for m in _re.finditer(r'<mxCell\s[^>]*?>(?:\s*<(?:mxGeometry|Array|mxPoint)[\s\S]*?(?:/>|</(?:mxGeometry|Array|mxPoint)>))*\s*</mxCell>', body):
+                elements.append(m.group(0))
+            # self-closing mxCell
+            for m in _re.finditer(r'<mxCell\s[^>]*?/>', body):
+                if not any(m.group(0) in e for e in elements):
+                    elements.append(m.group(0))
+            # UserObject
+            for m in _re.finditer(r'<UserObject[\s\S]*?</UserObject>', body):
+                elements.append(m.group(0))
+
+            if elements:
+                xml_str = header + '\n' + '\n'.join(elements) + '\n' + footer
+
+        # 최종 검증
+        try:
+            ET.fromstring(xml_str)
+        except ET.ParseError:
+            pass  # 최선을 다했으나 여전히 문제가 있으면 그냥 반환
+
+        return xml_str
+
+
+    # ===================== Draw.io 다운로드 =====================
+    @app.route("/api/download_drawio", methods=["POST"])
+    def api_download_drawio():
+        """Draw.io XML을 .drawio 파일로 다운로드"""
+        data = request.json
+        xml_content = data.get("xml", "")
+        filename = data.get("filename", "diagram.drawio")
+        if not filename.endswith(".drawio"):
+            filename += ".drawio"
+
+        # --- XML 구조 검증 및 자동 수정 ---
+        xml_content = _sanitize_drawio_xml(xml_content)
+
+        from io import BytesIO
+        buf = BytesIO(xml_content.encode("utf-8"))
+        buf.seek(0)
+        return send_file(buf, as_attachment=True, download_name=filename, mimetype="application/xml")
+
+
+    @app.route("/api/save_md", methods=["POST"])
+    def api_save_md():
+        """마크다운 내용을 .md 파일로 다운로드"""
+        data = request.json
+        content = data.get("content", "")
+        filename = data.get("filename", "report.md")
+        if not filename.endswith(".md"):
+            filename += ".md"
+
+        from io import BytesIO
+        buf = BytesIO(content.encode("utf-8"))
+        buf.seek(0)
+        return send_file(buf, as_attachment=True, download_name=filename, mimetype="text/markdown")
+
+
+    @app.route("/api/feedback", methods=["POST"])
+    def api_feedback():
+        """사용자 피드백 저장 (좋아요/싫어요 + 코멘트)"""
+        import json as _json
+        data = request.json
+        rating = data.get("rating", "")       # "good" or "bad"
+        comment = data.get("comment", "")
+        message = data.get("message", "")[:500]  # 해당 응답 내용 (앞 500자)
+        user_query = data.get("user_query", "")[:300]
+
+        if rating not in ("good", "bad"):
+            return jsonify({"error": "invalid rating"}), 400
+
+        feedback_dir = os.path.join(BASE_DIR, "feedback")
+        os.makedirs(feedback_dir, exist_ok=True)
+
+        from datetime import datetime
+        entry = {
+            "timestamp": datetime.now().isoformat(),
+            "rating": rating,
+            "comment": comment.strip(),
+            "user_query": user_query,
+            "message_preview": message,
+        }
+
+        feedback_file = os.path.join(feedback_dir, "feedback.jsonl")
+        with open(feedback_file, "a", encoding="utf-8") as f:
+            f.write(_json.dumps(entry, ensure_ascii=False) + "\n")
+
+        return jsonify({"ok": True})
+
+
+    @app.route("/api/analyze_ppt_style", methods=["POST"])
+    def api_analyze_ppt_style():
+        """참고 PPT에서 디자인 스타일(색상, 폰트, 레이아웃) 추출"""
+        import zipfile
+        import xml.etree.ElementTree as ET
+
+        if "file" not in request.files:
+            return jsonify({"error": "파일이 없습니다"}), 400
+        f = request.files["file"]
+        if not f.filename.lower().endswith(".pptx"):
+            return jsonify({"error": ".pptx 파일만 지원됩니다"}), 400
+
+        # 임시 저장
+        tmp_path = os.path.join(UPLOAD_DIR, f"_ppt_ref_{int(__import__('time').time())}.pptx")
+        f.save(tmp_path)
+
+        try:
+            colors = []
+            fonts = set()
+            bg_colors = []
+            slide_count = 0
+
+            with zipfile.ZipFile(tmp_path) as z:
+                # 1) 테마 색상 추출 (ppt/theme/theme1.xml)
+                theme_ns = {
+                    'a': 'http://schemas.openxmlformats.org/drawingml/2006/main',
+                }
+                for name in z.namelist():
+                    if name.startswith('ppt/theme/') and name.endswith('.xml'):
+                        with z.open(name) as tf:
+                            tree = ET.parse(tf)
+                            root = tree.getroot()
+                            # 색상 스킴
+                            for scheme in root.iter('{http://schemas.openxmlformats.org/drawingml/2006/main}clrScheme'):
+                                for child in scheme:
+                                    tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+                                    for sub in child:
+                                        val = sub.get('val') or sub.get('lastClr') or ''
+                                        if val and len(val) == 6:
+                                            colors.append((tag, f"#{val}"))
+                            # 폰트 스킴
+                            for font_el in root.iter('{http://schemas.openxmlformats.org/drawingml/2006/main}latin'):
+                                ft = font_el.get('typeface', '')
+                                if ft and ft not in ('+mj-lt', '+mn-lt'):
+                                    fonts.add(ft)
+                            for font_el in root.iter('{http://schemas.openxmlformats.org/drawingml/2006/main}ea'):
+                                ft = font_el.get('typeface', '')
+                                if ft and ft not in ('+mj-ea', '+mn-ea'):
+                                    fonts.add(ft)
+                        break  # 첫 번째 테마만
+
+                # 2) 슬라이드에서 배경색, 폰트, 폰트크기 샘플링
+                slide_fonts = set()
+                font_sizes = []
+                ns_a = 'http://schemas.openxmlformats.org/drawingml/2006/main'
+                ns_p = 'http://schemas.openxmlformats.org/presentationml/2006/main'
+                for name in sorted(z.namelist()):
+                    if name.startswith('ppt/slides/slide') and name.endswith('.xml'):
+                        slide_count += 1
+                        if slide_count > 5:
+                            break  # 최대 5슬라이드 샘플링
+                        with z.open(name) as sf:
+                            tree = ET.parse(sf)
+                            # 배경 색상
+                            for solid in tree.iter(f'{{{ns_a}}}solidFill'):
+                                for srgb in solid.iter(f'{{{ns_a}}}srgbClr'):
+                                    val = srgb.get('val', '')
+                                    if val and len(val) == 6:
+                                        bg_colors.append(f"#{val}")
+                            # 폰트 & 크기
+                            for rpr in tree.iter(f'{{{ns_a}}}rPr'):
+                                sz = rpr.get('sz')
+                                if sz:
+                                    try:
+                                        font_sizes.append(int(sz) // 100)
+                                    except ValueError:
+                                        pass
+                            for latin in tree.iter(f'{{{ns_a}}}latin'):
+                                ft = latin.get('typeface', '')
+                                if ft and not ft.startswith('+'):
+                                    slide_fonts.add(ft)
+
+            # 결과 조합
+            fonts.update(slide_fonts)
+            unique_bg = list(dict.fromkeys(bg_colors))[:6]  # 중복 제거, 최대 6개
+
+            # 디자인 지시문 구성
+            parts = []
+            if colors:
+                color_str = ", ".join(f"{name}({hex_val})" for name, hex_val in colors[:10])
+                parts.append(f"테마 색상: {color_str}")
+            if unique_bg:
+                parts.append(f"슬라이드 배경/채우기 색상: {', '.join(unique_bg)}")
+            if fonts:
+                parts.append(f"폰트: {', '.join(sorted(fonts)[:5])}")
+            if font_sizes:
+                min_sz, max_sz = min(font_sizes), max(font_sizes)
+                parts.append(f"폰트 크기 범위: {min_sz}pt ~ {max_sz}pt")
+            parts.append(f"슬라이드 수: {slide_count}장")
+
+            design_prompt = "참고 PPT에서 추출한 디자인 스타일:\n" + "\n".join(f"- {p}" for p in parts)
+            design_prompt += "\n\n위 색상 팔레트, 폰트, 레이아웃 스타일을 최대한 동일하게 적용하여 새 PPT를 제작하세요."
+
+            summary = " / ".join(parts[:3])
+
+            return jsonify({"design": design_prompt, "summary": summary})
+
+        except Exception as e:
+            return jsonify({"error": f"PPT 분석 실패: {str(e)}"}), 500
+        finally:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+
+    def _prepare_pptx_code_for_copy(code):
+        """복사/실행용 python-pptx 코드를 손상 없이 정리."""
+        import re as _re
+
+        if not isinstance(code, str):
+            return ""
+
+        code = code.strip()
+
+        # 0) 바깥 코드펜스 제거
+        code = _re.sub(r'^\s*```(?:python|py)?\s*\n', '', code, flags=_re.IGNORECASE)
+        code = _re.sub(r'\n```\s*$', '', code)
+
+        # 1) 특수 따옴표/전각 문자 정리
+        _quote_map = {
+            '\u201c': '"', '\u201d': '"',
+            '\u2018': "'", '\u2019': "'",
+            '\u300c': "'", '\u300d': "'",
+            '\u300e': '"', '\u300f': '"',
+            '\uff02': '"', '\uff07': "'",
+        }
+        for _old, _new in _quote_map.items():
+            code = code.replace(_old, _new)
+
+        _fullwidth_map = {
+            '\uff08': '(', '\uff09': ')',
+            '\uff1a': ':', '\uff1b': ';',
+            '\uff0c': ',', '\uff0e': '.',
+            '\uff1d': '=', '\uff0b': '+',
+        }
+        for _old, _new in _fullwidth_map.items():
+            code = code.replace(_old, _new)
+
+        # 2) 이어붙은 "from ... import ..."만 안전하게 줄바꿈
+        code = _re.sub(
+            r'(\bfrom\s+[A-Za-z_][\w\.]*\s+import\s+[^\n#;]+?)\s+(?=from\s+[A-Za-z_][\w\.]*\s+import\s+)',
+            r'\1\n',
+            code
+        )
+
+        def _looks_like_code_line(s):
+            return bool(_re.match(
+                r'^(from\s+|import\s+|def\s+|class\s+|if\s+|elif\s+|else:|for\s+|while\s+|try:|except\b|finally:|with\s+|return\b|yield\b|pass\b|break\b|continue\b|@|#|\"\"\"|\'\'\'|[A-Za-z_]\w*\s*=|[A-Za-z_][\w\.]*\s*\(|\)|\]|\})',
+                s
+            ))
+
+        # 3) 명백한 메타/설명 라인만 주석 처리 (실제 코드는 보존)
+        cleaned = []
+        for ln in code.splitlines():
+            s = ln.strip()
+            if not s:
+                cleaned.append(ln)
+                continue
+
+            if any(k in s for k in ('자동 스킬', '[LOCAL', 'prompt~', 'ctx=', 'max_tokens=')):
+                continue
+
+            if _re.match(r'^[=\-]{3,}$', s):
+                cleaned.append('# ' + s)
+                continue
+
+            if _re.match(r'^\d+\.\s+', s) and not _looks_like_code_line(s):
+                cleaned.append('# ' + s)
+                continue
+
+            if _re.search(r'[가-힣]', s) and not _looks_like_code_line(s):
+                cleaned.append('# ' + s)
+                continue
+
+            cleaned.append(ln)
+
+        code = '\n'.join(cleaned)
+
+        # 4) 자주 틀리는 python-pptx 패턴 보정
+        code = code.replace('.add_text_box(', '.add_textbox(').replace('.add_text_box (', '.add_textbox(')
+        code = _re.sub(
+            r'\b(?:content|body|placeholder|text_frame|title_shape|subtitle|body_shape|content_placeholder)\s*\.\s*shapes\s*\.',
+            'slide.shapes.',
+            code
+        )
+
+        # 5) 문법 실패 시, 문제 라인이 비코드로 보이면 그 라인만 주석 처리
+        lines = code.splitlines()
+        for _ in range(10):
+            code_try = '\n'.join(lines)
+            try:
+                compile(code_try, '<pptx_copy_code>', 'exec')
+                return code_try
+            except SyntaxError as e:
+                idx = (e.lineno or 1) - 1
+                if idx < 0 or idx >= len(lines):
+                    break
+                s = lines[idx].strip()
+                if (not s) or s.startswith('#'):
+                    break
+                if _looks_like_code_line(s):
+                    break
+                lines[idx] = '# ' + lines[idx]
+
+        return '\n'.join(lines)
+
+
+    @app.route("/api/prepare_pptx_code", methods=["POST"])
+    def api_prepare_pptx_code():
+        """PPT 코드 복사 전에 실행 가능하도록 정리된 Python 코드를 반환"""
+        data = request.json or {}
+        code = data.get("code", "")
+        if not isinstance(code, str) or not code.strip():
+            return jsonify({"error": "code가 비어있습니다."}), 400
+
+        try:
+            prepared = _prepare_pptx_code_for_copy(code)
+            return jsonify({"code": prepared})
+        except Exception as e:
+            return jsonify({"error": f"코드 정리 실패: {str(e)}"}), 500
+    # ===================== PPT 생성 (python-pptx) =====================
+    @app.route("/api/generate_pptx", methods=["POST"])
+    def api_generate_pptx():
+        """LLM이 생성한 python-pptx 코드를 실행해 .pptx 파일 반환"""
+        data = request.json
+        code = data.get("code", "")
+        filename = data.get("filename", "presentation.pptx") or "presentation.pptx"
+        if not filename.endswith(".pptx"):
+            filename += ".pptx"
+
+        try:
+            from pptx import Presentation as _PptxCheck
+        except ImportError:
+            return jsonify({"error": "python-pptx 패키지가 설치되어 있지 않습니다.\npip install python-pptx"}), 500
+
+        import tempfile, subprocess, json as _json
+
+        # --- LLM 생성 코드 자동 정리 (SyntaxError 방지) ---
+        import re as _re
+
+        # 1) 특수 따옴표 → ASCII 따옴표
+        _quote_map = {
+            '\u201c': '"', '\u201d': '"',   # " " (curly double)
+            '\u2018': "'", '\u2019': "'",   # ' ' (curly single)
+            '\u300c': "'", '\u300d': "'",   # 「 」
+            '\u300e': '"', '\u300f': '"',   # 『 』
+            '\uff02': '"', '\uff07': "'",   # ＂ ＇ (fullwidth)
+        }
+        for _old, _new in _quote_map.items():
+            code = code.replace(_old, _new)
+
+        # 2) 전각 문자 → 반각 (코드 안에서 자주 문제됨)
+        _fullwidth_map = {
+            '\uff08': '(', '\uff09': ')',   # （ ）
+            '\uff1a': ':', '\uff1b': ';',   # ： ；
+            '\uff0c': ',', '\uff0e': '.',   # ， ．
+            '\uff1d': '=', '\uff0b': '+',   # ＝ ＋
+        }
+        for _old, _new in _fullwidth_map.items():
+            code = code.replace(_old, _new)
+
+        # 2.5) LLM이 자주 틀리는 pptx 메서드/속성 자동 교정
+        _method_typo_map = {
+            '.add_text_box(': '.add_textbox(',
+            '.add_text_box (': '.add_textbox(',
+            'XLCT.XL_LEGEND_POSITION': 'XL_LEGEND_POSITION',
+            'XL_CHART_TYPE.XL_LEGEND_POSITION': 'XL_LEGEND_POSITION',
+            'chart.plot_area.shapes': '[]',
+            'chart.plot_area.data_labels': 'chart.plots[0].data_labels',
+        }
+        for _old, _new in _method_typo_map.items():
+            code = code.replace(_old, _new)
+
+        if 'XL_LEGEND_POSITION' in code and 'from pptx.enum.chart import XL_LEGEND_POSITION' not in code:
+            code = "from pptx.enum.chart import XL_LEGEND_POSITION\n" + code
+
+        # 2.7~2.8) chart.title / slide.shapes.title 오류는 런타임 monkey-patch로 처리
+        # (wrapped_code 내 Chart.__getattr__ + SlideShapes.title property 패치)
+
+        # 3) placeholder.shapes → slide.shapes 자동 수정
+        # LLM이 content/body/placeholder 등에 .shapes를 호출하는 실수 수정
+        code = _re.sub(
+            r'\b(?:content|body|placeholder|text_frame|title_shape|subtitle|body_shape|content_placeholder)\s*\.\s*shapes\s*\.',
+            'slide.shapes.',
+            code
+        )
+
+        # 3.5) 주석 형식 자동 수정: # === 내용 === 또는 === 내용 === → ## 내용
+        def _fix_comments(code_str):
+            lines = code_str.split('\n')
+            for i, line in enumerate(lines):
+                stripped = line.strip()
+                # 패턴1: "=== 내용 ===" (주석 기호 없이 === 로만 된 줄)
+                m = _re.match(r'^([ \t]*)(=+\s*)(.+?)\s*=*\s*$', stripped)
+                if m and not any(kw in stripped for kw in ('import ', 'from ', 'def ', 'class ', '=========')):
+                    content = m.group(3).strip().rstrip('=').strip()
+                    if content and not '=' in content.replace('==', ''):
+                        indent = line[:len(line) - len(line.lstrip())]
+                        lines[i] = f"{indent}## {content}"
+                        continue
+                # 패턴2: "# === 내용 ===" → "## 내용"
+                m = _re.match(r'^([ \t]*)#\s*(=+\s*)(.+?)\s*=*\s*$', stripped)
+                if m:
+                    content = m.group(3).strip().rstrip('=').strip()
+                    if content:
+                        indent = line[:len(line) - len(line.lstrip())]
+                        lines[i] = f"{indent}## {content}"
+                        continue
+                # 패턴3: "# --- 내용 ---" → "## 내용"
+                m = _re.match(r'^([ \t]*)#\s*(-+\s*)(.+?)\s*-*\s*$', stripped)
+                if m:
+                    content = m.group(3).strip().rstrip('-').strip()
+                    if content:
+                        indent = line[:len(line) - len(line.lstrip())]
+                        lines[i] = f"{indent}## {content}"
+                        continue
+                # 패턴4: 단일 "#" 주석을 "##"로 변환 (코드가 아닌 순수 주석 라인)
+                m = _re.match(r'^([ \t]*)#\s+([^#!].+)$', stripped)
+                if m and not stripped.startswith('#!'):
+                    content = m.group(2)
+                    # 코드 라인이 아닌 순수 주석인지 확인
+                    if not any(kw in content for kw in ('coding:', 'type:', 'noqa', 'pylint', 'pragma')):
+                        indent = line[:len(line) - len(line.lstrip())]
+                        lines[i] = f"{indent}## {content}"
+            return '\n'.join(lines)
+
+        code = _fix_comments(code)
+
+        # 4) 중첩 따옴표 패턴 수정: p.text = ""내용"" → p.text = "내용"
+        code = _re.sub(r'= ""([^"]*?)""', r"= '\1'", code)
+        code = _re.sub(r"= ''([^']*?)''", r"= '\1'", code)
+        # "text" 안에 이스케이프 안 된 "가 있는 패턴도 수정
+        code = _re.sub(r'""([^"]{2,}?)""', r"'\1'", code)
+
+        # 4.5) f-string 숫자 포맷팅 시도 시 변수를 _safe_float()로 강제 캐스팅 (문자열 등 포맷불가 값 대비)
+        code = _re.sub(r'\{([^:}]+?):([^{}]*?\.?\d+[fF%])\}', r'{_safe_float(\1):\2}', code)
+        code = code.replace("_safe_float(float(", "_safe_float(")
+        code = code.replace("_safe_float(_safe_float(", "_safe_float(")
+
+        # 5) 괄호 불일치 자동 수정 (예: slide_layouts[6) → slide_layouts[6])
+        def _fix_bracket_mismatch(code_str):
+            lines = code_str.split('\n')
+            for i, line in enumerate(lines):
+                # 각 라인에서 괄호 스택 추적
+                stack = []
+                pairs = {'(': ')', '[': ']', '{': '}'}
+                reverse = {')': '(', ']': '[', '}': '{'}
+                in_str = None
+                chars = list(line)
+                fixed = False
+                for j, ch in enumerate(chars):
+                    # 문자열 안에서는 괄호 무시
+                    if ch in ('"', "'") and (j == 0 or chars[j-1] != '\\' or (j >= 2 and chars[j-2] == '\\')):
+                        if in_str is None:
+                            in_str = ch
+                        elif in_str == ch:
+                            in_str = None
+                        continue
+                    if in_str:
+                        continue
+                    if ch in pairs:
+                        stack.append((ch, j))
+                    elif ch in reverse:
+                        expected_open = reverse[ch]
+                        if stack and stack[-1][0] == expected_open:
+                            stack.pop()
+                        elif stack and stack[-1][0] != expected_open:
+                            # 불일치: 올바른 닫는 괄호로 교체
+                            chars[j] = pairs[stack[-1][0]]
+                            stack.pop()
+                            fixed = True
+                if fixed:
+                    lines[i] = ''.join(chars)
+            return '\n'.join(lines)
+
+        # 6) 미종료 문자열 리터럴 자동 수정
+        def _fix_unterminated_strings(code_str):
+            lines = code_str.split('\n')
+            for i, line in enumerate(lines):
+                stripped = line.rstrip()
+                if not stripped:
+                    continue
+                # 코드 라인에서 문자열이 열렸는데 닫히지 않은 경우 감지
+                in_str = None
+                escaped = False
+                for ch in stripped:
+                    if escaped:
+                        escaped = False
+                        continue
+                    if ch == '\\':
+                        escaped = True
+                        continue
+                    if ch in ('"', "'"):
+                        if in_str is None:
+                            # 삼중 따옴표 시작 여부는 무시 (복잡)
+                            in_str = ch
+                        elif in_str == ch:
+                            in_str = None
+                # 문자열이 닫히지 않았으면 끝에 닫는 따옴표 추가
+                if in_str is not None:
+                    lines[i] = stripped + in_str
+            return '\n'.join(lines)
+
+        # 7) 구문 검증 → 실패 시 추가 정리 시도
+        try:
+            compile(code, '<pptx_code>', 'exec')
+        except SyntaxError as _e:
+            # 미종료 문자열 수정 시도
+            code = _fix_unterminated_strings(code)
+            # 괄호 불일치 자동 수정 시도
+            code = _fix_bracket_mismatch(code)
+            # 문자열 안 따옴표 충돌 최후 수단: 문제 라인의 바깥 따옴표를 삼중따옴표로 교체
+            lines = code.split('\n')
+            for i, line in enumerate(lines):
+                stripped = line.strip()
+                # .text = "..." 또는 .text = '...' 패턴에서 내부 따옴표 충돌 수정
+                m = _re.match(r'''(.*(?:\.text|\.value)\s*=\s*)(['"])(.*)\2\s*$''', stripped)
+                if m:
+                    prefix, quote, content = m.groups()
+                    alt_quote = "'" if quote == '"' else '"'
+                    if quote in content and alt_quote not in content:
+                        indent = line[:len(line) - len(stripped)]
+                        lines[i] = f"{indent}{prefix}{alt_quote}{content}{alt_quote}"
+                    elif quote in content:
+                        content_escaped = content.replace(quote, '\\' + quote)
+                        indent = line[:len(line) - len(stripped)]
+                        lines[i] = f"{indent}{prefix}{quote}{content_escaped}{quote}"
+            code = '\n'.join(lines)
+            # 수정 후 재검증
+            try:
+                compile(code, '<pptx_code>', 'exec')
+            except SyntaxError:
+                pass  # 자동 수정 실패 — 원래 에러 그대로 출력될 것
+
+        # 임시 파일에 코드 작성 → 별도 프로세스에서 실행
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_path = os.path.join(tmpdir, filename)
+            # 코드에서 writeFile/save 경로를 out_path로 강제 교체
+            wrapped_code = (
+                "import sys, os\n"
+                "def _safe_float(val):\n"
+                "    try: return float(val)\n"
+                "    except: return 0.0\n"
+                f"_OUTPUT_PATH = {repr(out_path)}\n"
+                "# --- monkey-patch: fix default.pptx template path resolution ---\n"
+                "import pptx.api as _pptx_api\n"
+                "def _fixed_default_pptx_path():\n"
+                "    import pptx as _pptx_pkg\n"
+                "    _pkg_dir = os.path.dirname(_pptx_pkg.__file__)\n"
+                "    return os.path.join(_pkg_dir, 'templates', 'default.pptx')\n"
+                "_pptx_api._default_pptx_path = _fixed_default_pptx_path\n"
+                "# --- monkey-patch: auto-convert float to int for pptx coordinates ---\n"
+                "import pptx.oxml.simpletypes as _st\n"
+                "_orig_validate_int = _st.BaseSimpleType.validate_int\n"
+                "@classmethod\n"
+                "def _patched_validate_int(cls, value):\n"
+                "    if isinstance(value, float):\n"
+                "        value = int(round(value))\n"
+                "    return _orig_validate_int.__func__(cls, value)\n"
+                "_st.BaseSimpleType.validate_int = _patched_validate_int\n"
+                "# --- monkey-patch: fix vertical_anchor using PP_ALIGN instead of MSO_ANCHOR ---\n"
+                "import pptx.text.text as _pptx_text\n"
+                "_orig_va_setter = _pptx_text.TextFrame.vertical_anchor.fset\n"
+                "def _patched_va_setter(self, value):\n"
+                "    try:\n"
+                "        _orig_va_setter(self, value)\n"
+                "    except (ValueError, TypeError):\n"
+                "        from pptx.enum.text import MSO_ANCHOR\n"
+                "        _map = {0: MSO_ANCHOR.TOP, 1: MSO_ANCHOR.MIDDLE, 2: MSO_ANCHOR.MIDDLE, 3: MSO_ANCHOR.BOTTOM}\n"
+                "        v = _map.get(int(value), MSO_ANCHOR.MIDDLE) if hasattr(value, '__int__') else MSO_ANCHOR.MIDDLE\n"
+                "        _orig_va_setter(self, v)\n"
+                "_pptx_text.TextFrame.vertical_anchor = property(_pptx_text.TextFrame.vertical_anchor.fget, _patched_va_setter)\n"
+                "# --- monkey-patch: safe table.cell() to prevent IndexError ---\n"
+                "import pptx.table as _pptx_table\n"
+                "_orig_table_cell = _pptx_table.Table.cell\n"
+                "def _safe_table_cell(self, row_idx, col_idx):\n"
+                "    row_count = len(self._tbl.tr_lst)\n"
+                "    col_count = len(self._tbl.tr_lst[0].tc_lst) if row_count > 0 else 0\n"
+                "    if row_idx >= row_count:\n"
+                "        for _ in range(row_idx - row_count + 1):\n"
+                "            from pptx.oxml.ns import qn as _qn\n"
+                "            from lxml import etree as _etree\n"
+                "            new_tr = _etree.SubElement(self._tbl, _qn('a:tr'))\n"
+                "            new_tr.set('h', self._tbl.tr_lst[0].get('h', '370840'))\n"
+                "            for c in range(col_count):\n"
+                "                tc = _etree.SubElement(new_tr, _qn('a:tc'))\n"
+                "                txBody = _etree.SubElement(tc, _qn('a:txBody'))\n"
+                "                _etree.SubElement(txBody, _qn('a:bodyPr'))\n"
+                "                p = _etree.SubElement(txBody, _qn('a:p'))\n"
+                "                tc_pr = _etree.SubElement(tc, _qn('a:tcPr'))\n"
+                "    return _orig_table_cell(self, row_idx, col_idx)\n"
+                "_pptx_table.Table.cell = _safe_table_cell\n"
+                "# --- monkey-patch: allow GraphicFrame.rows and GraphicFrame.cell --- \n"
+                "import pptx.shapes.graphfrm as _gf\n"
+                "if hasattr(_gf, 'GraphicFrame'):\n"
+                "    _gf.GraphicFrame.rows = property(lambda self: self.table.rows if self.has_table else None)\n"
+                "    _gf.GraphicFrame.columns = property(lambda self: self.table.columns if self.has_table else None)\n"
+                "    _gf.GraphicFrame.cell = lambda self, r, c: self.table.cell(r, c) if self.has_table else None\n"
+                "# --- monkey-patch: Chart.__getattr__ — chart.title → chart.chart_title 자동 변환 ---\n"
+                "from pptx.chart.chart import Chart as _Chart\n"
+                "_orig_chart_getattr = getattr(_Chart, '__getattr__', None)\n"
+                "def _chart_getattr(self, name):\n"
+                "    if name == 'title':\n"
+                "        self.has_title = True\n"
+                "        return self.chart_title\n"
+                "    if _orig_chart_getattr:\n"
+                "        return _orig_chart_getattr(self, name)\n"
+                "    raise AttributeError(f\"'Chart' object has no attribute '{name}'\")\n"
+                "_Chart.__getattr__ = _chart_getattr\n"
+                "# --- monkey-patch: slide.shapes.title이 None일 때 textbox로 대체 ---\n"
+                "from pptx.util import Inches as _Inches, Pt as _Pt\n"
+                "import pptx.shapes.shapetree as _st_mod\n"
+                "_orig_title_prop = _st_mod.SlideShapes.title.fget\n"
+                "def _safe_shapes_title(self):\n"
+                "    t = _orig_title_prop(self)\n"
+                "    if t is not None:\n"
+                "        return t\n"
+                "    txBox = self.add_textbox(_Inches(0.5), _Inches(0.2), _Inches(9), _Inches(0.8))\n"
+                "    txBox.text_frame.word_wrap = True\n"
+                "    return txBox\n"
+                "_st_mod.SlideShapes.title = property(_safe_shapes_title)\n"
+                "# --- helper: _safe_title (backward compat) ---\n"
+                "def _safe_title(slide):\n"
+                "    return slide.shapes.title\n"
+                "# --- user code ---\n"
+                f"{code}\n"
+            )
+            # .save() 호출이 없으면 자동 추가
+            if ".save(" not in code:
+                wrapped_code += f"\nprs.save(_OUTPUT_PATH)\n"
+            else:
+                # 사용자 코드 부분에서만 save 경로를 _OUTPUT_PATH로 교체
+                import re as _save_re
+                marker = "# --- user code ---\n"
+                idx = wrapped_code.find(marker)
+                if idx >= 0:
+                    prefix = wrapped_code[:idx + len(marker)]
+                    user_part = wrapped_code[idx + len(marker):]
+                    user_part = _save_re.sub(r'\.save\([^)]*\)', '.save(_OUTPUT_PATH)', user_part)
+                    wrapped_code = prefix + user_part
+                else:
+                    wrapped_code = _save_re.sub(r'\.save\([^)]*\)', '.save(_OUTPUT_PATH)', wrapped_code)
+
+            script_path = os.path.join(tmpdir, "_gen_pptx.py")
+            with open(script_path, "w", encoding="utf-8") as f:
+                f.write(wrapped_code)
+
+            result = subprocess.run(
+                [sys.executable, script_path],
+                capture_output=True, text=True, timeout=30,
+                cwd=tmpdir,
+                encoding="utf-8", errors="replace"
+            )
+
+            if result.returncode != 0:
+                err_msg = (result.stderr.strip() if result.stderr else "알 수 없는 오류")[-1000:]
+                return jsonify({
+                    "error": f"PPT 생성 코드 실행 실패:\n{err_msg}"
+                }), 500
+
+            if not os.path.exists(out_path):
+                # save 경로가 다를 수 있으니 tmpdir에서 .pptx 파일 탐색
+                pptx_files = [f for f in os.listdir(tmpdir) if f.endswith(".pptx")]
+                if pptx_files:
+                    out_path = os.path.join(tmpdir, pptx_files[0])
+                else:
+                    return jsonify({"error": "PPT 파일이 생성되지 않았습니다."}), 500
+
+            import shutil, datetime
+
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            final_filename = f"presentation_{timestamp}.pptx"
+
+            # uploads 폴더에 저장 후 브라우저 다운로드 URL 반환
+            uploads_dir = os.path.join(BASE_DIR, 'uploads')
+            os.makedirs(uploads_dir, exist_ok=True)
+            save_path = os.path.join(uploads_dir, final_filename)
+            shutil.copy2(out_path, save_path)
+
+            return jsonify({
+                "download_url": f"/api/download_static/presentation.pptx?id={timestamp}",
+                "message": f"'{final_filename}' PPT 생성 완료!"
+            })
+
+    @app.route("/api/download_static/presentation.pptx", methods=["GET"])
+    def api_download_static():
+        file_id = request.args.get('id', '')
+        if not file_id: return "Invalid ID", 400
+        save_name = f"presentation_{file_id}.pptx"
+        static_dir = os.path.join(BASE_DIR, 'uploads')
+        return send_file(
+            os.path.join(static_dir, save_name),
+            as_attachment=True,
+            download_name="presentation.pptx",
+            mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        )
+
+    # ── 주간보고 PPT 생성 API ──────────────────────────────────
+    @app.route("/api/weekly-report/generate", methods=["POST"])
+    def api_weekly_report_generate():
+        """주간보고 PPT 자동 생성 - JSON 데이터 → PPT 파일"""
+        import datetime
+        from flask import send_file
+
+        try:
+            from pptx import Presentation
+            from pptx.util import Inches, Pt, Cm
+            from pptx.dml.color import RGBColor
+            from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+        except ImportError:
+            return jsonify({"error": "python-pptx가 설치되지 않았습니다. pip install python-pptx"}), 500
+
+        data = request.get_json(force=True)
+        projects = data.get("projects", [])
+        filename = data.get("filename", "")
+        if not projects:
+            return jsonify({"error": "projects 데이터가 비어있습니다."}), 400
+
+        if not filename:
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"주간보고_{timestamp}.pptx"
+
+        def _set_cell(table, row, col, text, bold=False, bg=None, align=PP_ALIGN.LEFT, size=10):
+            cell = table.cell(row, col)
+            cell.text = ""
+            p = cell.text_frame.paragraphs[0]
+            p.text = str(text)
+            p.font.size = Pt(size)
+            p.font.bold = bold
+            p.font.name = "맑은 고딕"
+            p.alignment = align
+            cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+            if bg is not None:
+                cell.fill.solid()
+                cell.fill.fore_color.rgb = bg
+
+        def _add_text(slide, left, top, width, height, text, size=10, bold=False, align=PP_ALIGN.LEFT):
+            box = slide.shapes.add_textbox(left, top, width, height)
+            tf = box.text_frame
+            tf.word_wrap = True
+            p = tf.paragraphs[0]
+            p.text = str(text)
+            p.font.size = Pt(size)
+            p.font.bold = bold
+            p.font.name = "맑은 고딕"
+            p.alignment = align
+
+        try:
+            GRAY = RGBColor(0xD9, 0xD9, 0xD9)
+            LGRAY = RGBColor(0xF2, 0xF2, 0xF2)
+            RED = RGBColor(0xFF, 0x00, 0x00)
+            YELLOW = RGBColor(0xFF, 0xD7, 0x00)
+            BLUE = RGBColor(0x44, 0x72, 0xC4)
+
+            prs = Presentation()
+            prs.slide_width = Inches(13.33)
+            prs.slide_height = Inches(7.5)
+
+            for idx, proj in enumerate(projects):
+                slide = prs.slides.add_slide(prs.slide_layouts[6])
+
+                _add_text(slide, Cm(1), Cm(0.5), Cm(20), Cm(1.2),
+                          f"{idx+1}. {proj['name']}", size=24, bold=True)
+
+                for i, c in enumerate([RED, YELLOW, BLUE]):
+                    bar = slide.shapes.add_shape(1, Cm(1 + 10.5 * i), Cm(2.0), Cm(10.5), Cm(0.25))
+                    bar.fill.solid()
+                    bar.fill.fore_color.rgb = c
+                    bar.line.fill.background()
+
+                n_cur = len(proj.get("current", []))
+                n_nxt = len(proj.get("next", []))
+                data_rows = max(n_cur, n_nxt, 1)
+                total_rows = 2 + data_rows + 1
+
+                ts = slide.shapes.add_table(total_rows, 6, Cm(1), Cm(2.5), Cm(31.5), Cm(1.2 * total_rows))
+                tbl = ts.table
+
+                tbl.columns[0].width = Cm(12)
+                tbl.columns[1].width = Cm(2.5)
+                tbl.columns[2].width = Cm(2.5)
+                tbl.columns[3].width = Cm(12)
+                tbl.columns[4].width = Cm(2.5)
+                tbl.columns[5].width = Cm(2.5)
+
+                tbl.cell(0, 0).merge(tbl.cell(0, 2))
+                tbl.cell(0, 3).merge(tbl.cell(0, 5))
+                _set_cell(tbl, 0, 0, "금주 실적", bold=True, bg=GRAY, align=PP_ALIGN.CENTER, size=12)
+                _set_cell(tbl, 0, 3, "차주 계획", bold=True, bg=GRAY, align=PP_ALIGN.CENTER, size=12)
+
+                for ci, h in enumerate(["추진 내용", "납기", "진척율", "추진 내용", "납기", "진척율"]):
+                    _set_cell(tbl, 1, ci, h, bold=True, bg=LGRAY, align=PP_ALIGN.CENTER)
+
+                for ri in range(data_rows):
+                    r = ri + 2
+                    if ri < n_cur:
+                        it = proj["current"][ri]
+                        _set_cell(tbl, r, 0, it.get("content", ""), size=9)
+                        _set_cell(tbl, r, 1, it.get("date", ""), align=PP_ALIGN.CENTER, size=9)
+                        _set_cell(tbl, r, 2, it.get("progress", ""), align=PP_ALIGN.CENTER, size=9)
+                    if ri < n_nxt:
+                        it = proj["next"][ri]
+                        _set_cell(tbl, r, 3, it.get("content", ""), size=9)
+                        _set_cell(tbl, r, 4, it.get("date", ""), align=PP_ALIGN.CENTER, size=9)
+                        _set_cell(tbl, r, 5, it.get("progress", ""), align=PP_ALIGN.CENTER, size=9)
+
+                ir = 2 + data_rows
+                tbl.cell(ir, 0).merge(tbl.cell(ir, 5))
+                itxt = "Issue 및 협의사항"
+                if proj.get("issues"):
+                    itxt = f"Issue 및 협의사항: {proj['issues']}"
+                _set_cell(tbl, ir, 0, itxt, bold=True, bg=GRAY)
+
+                _add_text(slide, Cm(1), Cm(17), Cm(20), Cm(0.8),
+                          "● : 완료  ○ : 계획  ▶ : 진행중  ※ : Issue/특이사항", size=9)
+                _add_text(slide, Cm(15), Cm(17.5), Cm(3), Cm(0.6),
+                          str(idx + 1), size=10, align=PP_ALIGN.CENTER)
+
+            uploads_dir = os.path.join(BASE_DIR, 'uploads')
+            os.makedirs(uploads_dir, exist_ok=True)
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_name = f"weekly_report_{timestamp}.pptx"
+            save_path = os.path.join(uploads_dir, save_name)
+            prs.save(save_path)
+
+            return jsonify({
+                "download_url": f"/api/weekly-report/download?id={timestamp}",
+                "filename": filename,
+                "message": f"주간보고 PPT 생성 완료! ({len(projects)}개 프로젝트)"
+            })
+        except Exception as e:
+            return jsonify({"error": f"PPT 생성 실패: {str(e)}"}), 500
+
+    @app.route("/api/weekly-report/download", methods=["GET"])
+    def api_weekly_report_download():
+        """주간보고 PPT 다운로드"""
+        from flask import send_file
+        file_id = request.args.get('id', '')
+        if not file_id or not re.match(r'^[a-zA-Z0-9_]+$', file_id):
+            return "Invalid ID", 400
+        save_name = f"weekly_report_{file_id}.pptx"
+        static_dir = os.path.join(BASE_DIR, 'uploads')
+        fpath = os.path.join(static_dir, save_name)
+        if not os.path.isfile(fpath):
+            return "File not found", 404
+        dl_name = request.args.get('filename', '주간보고.pptx')
+        dl_name = os.path.basename(dl_name)
+        if not dl_name:
+            dl_name = '주간보고.pptx'
+        return send_file(fpath, as_attachment=True, download_name=dl_name,
+                         mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation")
+
+    # ── Markdown → HTML 변환 ──────────────────────────────────
+    @app.route("/api/generate_html", methods=["POST"])
+    def api_generate_html():
+        """Markdown 텍스트를 스타일 포함 HTML 문서로 변환"""
+        import datetime, shutil, markdown as md_lib
+
+        data = request.get_json(force=True)
+        md_text = data.get("markdown", "").strip()
+        title = data.get("title", "")
+        if not md_text:
+            return jsonify({"error": "markdown 텍스트가 비어 있습니다."}), 400
+
+        # 제목 자동 추출: 첫 번째 # 헤딩에서 가져옴
+        if not title:
+            for line in md_text.split("\n"):
+                stripped = line.strip()
+                if stripped.startswith("# ") and not stripped.startswith("## "):
+                    title = stripped.lstrip("# ").strip()
+                    break
+            if not title:
+                title = "문서"
+
+        extensions = [
+            "tables", "fenced_code", "codehilite", "toc",
+            "nl2br", "sane_lists", "smarty",
+        ]
+        body_html = md_lib.markdown(md_text, extensions=extensions)
+
+        full_html = f"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title}</title>
+<style>
+  body {{ font-family: 'Pretendard','Noto Sans KR',sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; color: #1a1a2e; line-height: 1.7; }}
+  h1,h2,h3 {{ color: #16213e; border-bottom: 2px solid #e2e8f0; padding-bottom: .3em; }}
+  table {{ border-collapse: collapse; width: 100%; margin: 1em 0; }}
+  th,td {{ border: 1px solid #cbd5e1; padding: .6em 1em; text-align: left; }}
+  th {{ background: #f1f5f9; font-weight: 700; }}
+  code {{ background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: .9em; }}
+  pre {{ background: #1e293b; color: #e2e8f0; padding: 1em; border-radius: 8px; overflow-x: auto; }}
+  pre code {{ background: none; color: inherit; padding: 0; }}
+  blockquote {{ border-left: 4px solid #6366f1; margin: 1em 0; padding: .5em 1em; background: #f8fafc; }}
+  a {{ color: #6366f1; }}
+  img {{ max-width: 100%; border-radius: 8px; }}
+</style>
+</head>
+<body>
+{body_html}
+</body>
+</html>"""
+
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"document_{timestamp}.html"
+        uploads_dir = os.path.join(BASE_DIR, 'uploads')
+        os.makedirs(uploads_dir, exist_ok=True)
+        save_path = os.path.join(uploads_dir, filename)
+
+        with open(save_path, "w", encoding="utf-8") as f:
+            f.write(full_html)
+
+        return jsonify({
+            "download_url": f"/api/download_static/document.html?id={timestamp}",
+            "message": f"'{title}' HTML 문서 생성 완료!",
+            "filename": filename,
+        })
+
+    @app.route("/api/download_static/document.html", methods=["GET"])
+    def api_download_html_static():
+        file_id = request.args.get('id', '')
+        if not file_id:
+            return "Invalid ID", 400
+        save_name = f"document_{file_id}.html"
+        static_dir = os.path.join(BASE_DIR, 'uploads')
+        fpath = os.path.join(static_dir, save_name)
+        if not os.path.exists(fpath):
+            return "File not found", 404
+        return send_file(fpath, as_attachment=True,
+                         download_name="document.html",
+                         mimetype="text/html")
+
+    @app.route("/api/download_static/document.md", methods=["GET"])
+    def api_download_md_static():
+        file_id = request.args.get('id', '')
+        if not file_id:
+            return "Invalid ID", 400
+        save_name = f"document_{file_id}.md"
+        static_dir = os.path.join(BASE_DIR, 'uploads')
+        fpath = os.path.join(static_dir, save_name)
+        if not os.path.exists(fpath):
+            return "File not found", 404
+        return send_file(fpath, as_attachment=True,
+                         download_name="document.md",
+                         mimetype="text/markdown")
+
+    # ── 사용자별 지식 도메인 관리 ──────────────────────────────
+    import hashlib as _kd_hashlib
+    import datetime as _kd_dt
+
+    KNOWLEDGE_DIR = os.path.join(BASE_DIR, "knowledge")
+
+    def _auto_frontmatter(filename, content, user_id):
+        """파일 내용에서 프론트매터 자동 생성"""
+        import re as _re
+        fl = filename.lower()
+        # 카테고리 추론
+        cat = "guide"
+        if "컬럼" in fl: cat = "column_definition"
+        elif "아키텍처" in fl or "architecture" in fl: cat = "architecture"
+        elif "변경" in fl: cat = "changelog"
+        elif "산출물" in fl or "제작" in fl: cat = "specification"
+        elif "계획" in fl: cat = "plan"
+        # FAB 추출
+        fabs = _re.findall(r'(M\d+[A-Z]?|C2[A-Z]?|R3|ICPKG|ICPRB|CJPKG|CJPRB)', filename.upper())
+        fabs = sorted(set(fabs))
+        # 태그: 핵심 도메인 키워드
+        tags = set()
+        domain_kw = ['OHT','STK','LFT','AGV','MCS','PDT','QUE','CNV','ALERT',
+                     '저장률','반송','큐','장비','디스크','CPU','메모리','데드락','급증','아키텍처']
+        cu = content.upper()
+        for kw in domain_kw:
+            if kw.upper() in cu: tags.add(kw)
+        # 제목
+        title = filename.rsplit('.', 1)[0].replace('_', ' ')
+        for line in content.split('\n')[:10]:
+            if line.startswith('# ') and not line.startswith('## '):
+                title = line.lstrip('# ').strip()
+                break
+        today = _kd_dt.datetime.now().strftime('%Y-%m-%d')
+        fm = f"""---
+title: "{title}"
+date: {today}
+updated: {today}
+category: {cat}
+fab: [{', '.join(fabs)}]
+tags: [{', '.join(sorted(tags)[:15])}]
+description: "{title}"
+owner: {user_id}
+---
+"""
+        return fm
+
+    @app.route("/api/knowledge/upload", methods=["POST"])
+    def api_knowledge_upload():
+        """지식 도메인 파일 업로드 (MD/TXT) - 사용자별 폴더에 저장"""
+        user_id = request.form.get("user_id", "").strip()
+        if not user_id:
+            return jsonify({"error": "사용자 ID가 필요합니다."}), 400
+
+        user_dir = os.path.join(KNOWLEDGE_DIR, user_id)
+        os.makedirs(user_dir, exist_ok=True)
+
+        # 파일 업로드
+        if "file" in request.files:
+            f = request.files["file"]
+            if not f.filename:
+                return jsonify({"error": "파일이 없습니다."}), 400
+            fname = f.filename
+            if not fname.lower().endswith(('.md', '.txt')):
+                return jsonify({"error": "MD 또는 TXT 파일만 가능합니다."}), 400
+            content = f.read().decode("utf-8", errors="replace")
+        else:
+            # 수동 입력
+            data = request.get_json(force=True) if request.is_json else {}
+            fname = data.get("filename", "").strip()
+            content = data.get("content", "").strip()
+            if not fname or not content:
+                return jsonify({"error": "파일명과 내용을 입력하세요."}), 400
+            if not fname.lower().endswith(('.md', '.txt')):
+                fname += ".md"
+
+        # 프론트매터 자동 생성 (이미 있으면 스킵)
+        if not content.startswith('---'):
+            fm = _auto_frontmatter(fname, content, user_id)
+            content = fm + content
+
+        fpath = os.path.join(user_dir, fname)
+        with open(fpath, "w", encoding="utf-8") as wf:
+            wf.write(content)
+
+        return jsonify({
+            "message": f"'{fname}' 등록 완료!",
+            "filename": fname,
+            "user_id": user_id,
+            "path": f"knowledge/{user_id}/{fname}",
+        })
+
+    @app.route("/api/knowledge/manual", methods=["POST"])
+    def api_knowledge_manual():
+        """수동 입력으로 지식 등록"""
+        data = request.get_json(force=True)
+        user_id = data.get("user_id", "").strip()
+        title = data.get("title", "").strip()
+        category = data.get("category", "guide")
+        content = data.get("content", "").strip()
+        tags = data.get("tags", "")
+
+        if not user_id or not title or not content:
+            return jsonify({"error": "사용자ID, 제목, 내용을 모두 입력하세요."}), 400
+
+        user_dir = os.path.join(KNOWLEDGE_DIR, user_id)
+        os.makedirs(user_dir, exist_ok=True)
+
+        fname = title.replace(" ", "_").replace("/", "_") + ".md"
+        today = _kd_dt.datetime.now().strftime('%Y-%m-%d')
+
+        fm = f"""---
+title: "{title}"
+date: {today}
+updated: {today}
+category: {category}
+fab: []
+tags: [{tags}]
+description: "{title}"
+owner: {user_id}
+---
+"""
+        full = fm + f"# {title}\n\n{content}\n"
+        fpath = os.path.join(user_dir, fname)
+        with open(fpath, "w", encoding="utf-8") as wf:
+            wf.write(full)
+
+        return jsonify({"message": f"'{title}' 등록 완료!", "filename": fname})
+
+    @app.route("/api/knowledge/list", methods=["POST"])
+    def api_knowledge_list():
+        """사용자 지식 파일 목록"""
+        data = request.get_json(force=True)
+        user_id = data.get("user_id", "").strip()
+        if not user_id:
+            return jsonify({"error": "사용자 ID 필요"}), 400
+
+        user_dir = os.path.join(KNOWLEDGE_DIR, user_id)
+        if not os.path.isdir(user_dir):
+            return jsonify({"files": [], "count": 0})
+
+        files = []
+        for fname in sorted(os.listdir(user_dir)):
+            if not fname.lower().endswith(('.md', '.txt')):
+                continue
+            fpath = os.path.join(user_dir, fname)
+            # 프론트매터에서 메타 추출
+            meta = {"title": fname, "category": "", "date": ""}
+            try:
+                with open(fpath, "r", encoding="utf-8") as rf:
+                    fc = rf.read(1000)
+                if fc.startswith('---'):
+                    parts = fc.split('---', 2)
+                    if len(parts) >= 3:
+                        for line in parts[1].split('\n'):
+                            line = line.strip()
+                            if line.startswith('title:'):
+                                meta["title"] = line.split(':', 1)[1].strip().strip('"')
+                            elif line.startswith('category:'):
+                                meta["category"] = line.split(':', 1)[1].strip()
+                            elif line.startswith('date:'):
+                                meta["date"] = line.split(':', 1)[1].strip()
+            except Exception:
+                pass
+            files.append({
+                "filename": fname,
+                "title": meta["title"],
+                "category": meta["category"],
+                "date": meta["date"],
+                "size_kb": round(os.path.getsize(fpath) / 1024, 1),
+            })
+        return jsonify({"files": files, "count": len(files)})
+
+    @app.route("/api/knowledge/delete", methods=["POST"])
+    def api_knowledge_delete():
+        """지식 파일 삭제"""
+        data = request.get_json(force=True)
+        user_id = data.get("user_id", "").strip()
+        filename = data.get("filename", "").strip()
+        if not user_id or not filename:
+            return jsonify({"error": "사용자ID와 파일명 필요"}), 400
+        if ".." in filename or "/" in filename or "\\" in filename:
+            return jsonify({"error": "잘못된 파일명"}), 400
+        fpath = os.path.join(KNOWLEDGE_DIR, user_id, filename)
+        if not os.path.exists(fpath):
+            return jsonify({"error": "파일 없음"}), 404
+        os.remove(fpath)
+        return jsonify({"message": f"'{filename}' 삭제 완료"})
+
+    @app.route("/api/knowledge/categories")
+    def api_knowledge_categories():
+        """카테고리 목록"""
+        return jsonify({"categories": [
+            {"id": "column_definition", "label": "컬럼 사전"},
+            {"id": "architecture", "label": "아키텍처"},
+            {"id": "specification", "label": "기술 명세"},
+            {"id": "changelog", "label": "변경 이력"},
+            {"id": "plan", "label": "계획 문서"},
+            {"id": "guide", "label": "가이드"},
+            {"id": "etc", "label": "기타"},
+        ]})
+
+    # ── 사용자 인증 시스템 ──────────────────────────────────
+    import hashlib
+    USERS_FILE = os.path.join(BASE_DIR, "users.json")
+
+    def _load_users():
+        if not os.path.exists(USERS_FILE):
+            # 초기 ADMIN 계정 자동 생성
+            admin = {
+                "ggg3g": {
+                    "name": "관리자",
+                    "password_hash": hashlib.sha256("zxcv170210!".encode()).hexdigest(),
+                    "role": "admin",
+                    "created": "2026-04-12",
+                }
+            }
+            with open(USERS_FILE, "w", encoding="utf-8") as f:
+                json.dump(admin, f, ensure_ascii=False, indent=2)
+            return admin
+        with open(USERS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def _save_users(users):
+        with open(USERS_FILE, "w", encoding="utf-8") as f:
+            json.dump(users, f, ensure_ascii=False, indent=2)
+
+    # 서버 시작 시 ADMIN 계정 확인
+    _load_users()
+
+    @app.route("/api/auth/login", methods=["POST"])
+    def api_auth_login():
+        data = request.get_json(force=True)
+        uid = data.get("id", "").strip()
+        pw = data.get("password", "")
+        if not uid or not pw:
+            return jsonify({"error": "아이디와 비밀번호를 입력하세요."}), 400
+        users = _load_users()
+        user = users.get(uid)
+        if not user:
+            return jsonify({"error": "존재하지 않는 아이디입니다."}), 401
+        pw_hash = hashlib.sha256(pw.encode()).hexdigest()
+        if user["password_hash"] != pw_hash:
+            return jsonify({"error": "비밀번호가 틀렸습니다."}), 401
+        # 세션 토큰 생성
+        token = hashlib.sha256(f"{uid}:{time.time()}".encode()).hexdigest()[:32]
+        return jsonify({
+            "token": token,
+            "id": uid,
+            "name": user["name"],
+            "role": user["role"],
+        })
+
+    @app.route("/api/auth/me", methods=["POST"])
+    def api_auth_me():
+        """현재 로그인 사용자 확인 (프론트에서 토큰+id 전송)"""
+        data = request.get_json(force=True)
+        uid = data.get("id", "")
+        users = _load_users()
+        user = users.get(uid)
+        if not user:
+            return jsonify({"error": "인증 실패"}), 401
+        return jsonify({"id": uid, "name": user["name"], "role": user["role"]})
+
+    @app.route("/api/auth/register", methods=["POST"])
+    def api_auth_register():
+        """사용자 등록 (admin만 가능)"""
+        data = request.get_json(force=True)
+        admin_id = data.get("admin_id", "")
+        users = _load_users()
+        admin = users.get(admin_id)
+        if not admin or admin["role"] != "admin":
+            return jsonify({"error": "관리자 권한이 필요합니다."}), 403
+
+        new_id = data.get("new_id", "").strip()
+        new_name = data.get("new_name", "").strip()
+        new_pw = data.get("new_password", "")
+        new_role = data.get("new_role", "user")
+
+        if not new_id or not new_name or not new_pw:
+            return jsonify({"error": "아이디, 이름, 비밀번호를 모두 입력하세요."}), 400
+        if new_id in users:
+            return jsonify({"error": f"'{new_id}' 아이디가 이미 존재합니다."}), 409
+
+        import datetime
+        users[new_id] = {
+            "name": new_name,
+            "password_hash": hashlib.sha256(new_pw.encode()).hexdigest(),
+            "role": new_role,
+            "created": datetime.datetime.now().strftime("%Y-%m-%d"),
+        }
+        _save_users(users)
+        # 사용자 지식 도메인 폴더 자동 생성
+        user_kd_dir = os.path.join(KNOWLEDGE_DIR, new_id)
+        os.makedirs(user_kd_dir, exist_ok=True)
+        return jsonify({"message": f"'{new_name}' 사용자 등록 완료!", "id": new_id})
+
+    @app.route("/api/auth/users", methods=["POST"])
+    def api_auth_users():
+        """사용자 목록 (admin만)"""
+        data = request.get_json(force=True)
+        admin_id = data.get("admin_id", "")
+        users = _load_users()
+        admin = users.get(admin_id)
+        if not admin or admin["role"] != "admin":
+            return jsonify({"error": "관리자 권한이 필요합니다."}), 403
+        user_list = [
+            {"id": uid, "name": u["name"], "role": u["role"], "created": u.get("created", "")}
+            for uid, u in users.items()
+        ]
+        return jsonify({"users": user_list})
+
+    @app.route("/api/auth/delete", methods=["POST"])
+    def api_auth_delete():
+        """사용자 삭제 (admin만, 자기 자신은 삭제 불가)"""
+        data = request.get_json(force=True)
+        admin_id = data.get("admin_id", "")
+        target_id = data.get("target_id", "")
+        users = _load_users()
+        admin = users.get(admin_id)
+        if not admin or admin["role"] != "admin":
+            return jsonify({"error": "관리자 권한이 필요합니다."}), 403
+        if target_id == admin_id:
+            return jsonify({"error": "자기 자신은 삭제할 수 없습니다."}), 400
+        if target_id not in users:
+            return jsonify({"error": "존재하지 않는 사용자입니다."}), 404
+        del users[target_id]
+        _save_users(users)
+        # 지식 도메인 폴더도 삭제
+        import shutil
+        user_kd_dir = os.path.join(KNOWLEDGE_DIR, target_id)
+        if os.path.isdir(user_kd_dir):
+            shutil.rmtree(user_kd_dir, ignore_errors=True)
+        return jsonify({"message": f"'{target_id}' 삭제 완료 (지식 도메인 포함)"})
+
+    @app.route("/api/auth/update", methods=["POST"])
+    def api_auth_update():
+        """사용자 정보 수정 (admin만)"""
+        data = request.get_json(force=True)
+        admin_id = data.get("admin_id", "")
+        target_id = data.get("target_id", "")
+        users = _load_users()
+        admin = users.get(admin_id)
+        if not admin or admin["role"] != "admin":
+            return jsonify({"error": "관리자 권한이 필요합니다."}), 403
+        if target_id not in users:
+            return jsonify({"error": "존재하지 않는 사용자입니다."}), 404
+        if data.get("new_name"):
+            users[target_id]["name"] = data["new_name"]
+        if data.get("new_password"):
+            users[target_id]["password_hash"] = hashlib.sha256(data["new_password"].encode()).hexdigest()
+        if data.get("new_role") and admin_id != target_id:
+            users[target_id]["role"] = data["new_role"]
+        _save_users(users)
+        return jsonify({"message": f"'{target_id}' 정보 수정 완료"})
