@@ -1,0 +1,777 @@
+import React, { useState, useCallback, useMemo, useRef } from 'react';
+import { Upload, FileText, AlertCircle, Activity, BarChart3, Search, X, Download, ChevronRight, ChevronDown, Trash2 } from 'lucide-react';
+
+// ============================================================
+// Parser (Python secs2_parser.py → JS 포팅)
+// ============================================================
+
+const FILE_DATE_RE = /(\d{4})-(\d{2})-(\d{2})/;
+const HEADER_RE = /^\[(\d{2}:\d{2}:\d{2}\.\d{3})\]\[\s*(Send|Recv)\s*\]\s*\[SB:\s*(\d+)\]\s*S(\d+)F(\d+)(?:\s*\[(W)\])?\s*S\d+F\d+\s*\[Length=(\d+)\]/;
+const NONMSG_RE = /^\[\d{2}:\d{2}:\d{2}\.\d{3}\]\[\*+\]/;
+const ITEM_OPEN_RE = /<\s*(L|A|J|B|BL|BOOLEAN|U1|U2|U4|U8|I1|I2|I4|I8|F4|F8)\s+(\d+)(?:\s+([A-Za-z_][A-Za-z0-9_]*))?\s*\.*\s*(?:"([^"]*)")?/;
+
+function castValue(fmt, raw) {
+  if (raw === null || raw === undefined) return null;
+  if (fmt === 'A' || fmt === 'J') return raw;
+  if (fmt === 'B') {
+    const parts = raw.split(/\s+/).filter(Boolean);
+    const out = parts.map(p => p.toLowerCase().startsWith('0x') ? parseInt(p, 16) : parseInt(p, 10));
+    if (out.some(isNaN)) return raw;
+    return out.length === 1 ? out[0] : out;
+  }
+  if (fmt === 'BL' || fmt === 'BOOLEAN') {
+    const s = raw.trim().toLowerCase();
+    if (['true', 't', '1'].includes(s)) return true;
+    if (['false', 'f', '0'].includes(s)) return false;
+    return raw;
+  }
+  if (['U1','U2','U4','U8','I1','I2','I4','I8'].includes(fmt)) {
+    const parts = raw.split(/\s+/).filter(Boolean);
+    const vals = parts.map(p => p.toLowerCase().startsWith('0x') ? parseInt(p, 16) : parseInt(p, 10));
+    if (vals.some(isNaN)) return raw;
+    return vals.length === 1 ? vals[0] : vals;
+  }
+  if (fmt === 'F4' || fmt === 'F8') {
+    const parts = raw.split(/\s+/).filter(Boolean);
+    const vals = parts.map(p => parseFloat(p));
+    if (vals.some(isNaN)) return raw;
+    return vals.length === 1 ? vals[0] : vals;
+  }
+  return raw;
+}
+
+class BodyParser {
+  constructor(text) {
+    this.text = text;
+    this.pos = 0;
+    this.n = text.length;
+  }
+  skipWs() {
+    while (this.pos < this.n && /[ \t\r\n]/.test(this.text[this.pos])) this.pos++;
+  }
+  findClose(start) {
+    let i = start, inStr = false;
+    while (i < this.n) {
+      const c = this.text[i];
+      if (c === '"') inStr = !inStr;
+      else if (c === '>' && !inStr) return i;
+      else if (c === '\n' && !inStr) return i;
+      i++;
+    }
+    return this.n;
+  }
+  parseItem() {
+    this.skipWs();
+    if (this.pos >= this.n) return null;
+    const sub = this.text.slice(this.pos);
+    const m = ITEM_OPEN_RE.exec(sub);
+    if (!m || m.index !== 0) return null;
+
+    const fmt = m[1].toUpperCase();
+    const length = parseInt(m[2], 10);
+    const name = m[3] || null;
+    const rawVal = m[4] !== undefined ? m[4] : null;
+    this.pos += m[0].length;
+
+    if (fmt === 'L') {
+      const children = [];
+      while (children.length < length) {
+        this.skipWs();
+        if (this.pos >= this.n || this.text[this.pos] === '>') break;
+        const child = this.parseItem();
+        if (child === null) { this.pos++; continue; }
+        children.push(child);
+      }
+      this.skipWs();
+      if (this.pos < this.n && this.text[this.pos] === '>') this.pos++;
+      return { type: 'L', length, name, value: children };
+    }
+
+    const close = this.findClose(this.pos);
+    if (close < this.n && this.text[close] === '>') this.pos = close + 1;
+    else this.pos = close;
+    return { type: fmt, length, name, value: castValue(fmt, rawVal) };
+  }
+}
+
+function fileDate(filename) {
+  const m = filename.match(FILE_DATE_RE);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+}
+
+function findByName(item, name) {
+  if (!item) return null;
+  if (item.name === name) return item.value;
+  if (item.type === 'L') {
+    for (const c of item.value) {
+      const v = findByName(c, name);
+      if (v !== null && v !== undefined) return v;
+    }
+  }
+  return null;
+}
+
+function parseLogText(text, filename) {
+  const lines = text.split(/\r?\n/);
+  const dateStr = fileDate(filename);
+  const messages = [];
+  let i = 0;
+  while (i < lines.length) {
+    const hm = lines[i].match(HEADER_RE);
+    if (!hm) { i++; continue; }
+    const start = i;
+    const bodyLines = [];
+    let j = i + 1;
+    while (j < lines.length) {
+      if (HEADER_RE.test(lines[j]) || NONMSG_RE.test(lines[j])) break;
+      bodyLines.push(lines[j]);
+      j++;
+    }
+    const bodyText = bodyLines.join('\n').trim();
+    const timeStr = hm[1];
+    const sf = `S${parseInt(hm[4], 10)}F${parseInt(hm[5], 10)}`;
+    const level = hm[2] === 'Send' ? 'SEND' : 'RECV';
+    const body = bodyText ? new BodyParser(bodyText).parseItem() : null;
+
+    const msg = {
+      TIME_EX: dateStr ? `${dateStr}T${timeStr}` : timeStr,
+      LEVEL: level,
+      SF: sf,
+      W: hm[6] === 'W',
+      SB: hm[3],
+      LENGTH: parseInt(hm[7], 10),
+      LINE_NO: start + 1,
+      SRC_FILE: filename,
+      DATA: bodyText || null,
+      BODY: body,
+    };
+
+    if (sf === 'S6F11' && body?.type === 'L' && body.value.length >= 2) {
+      msg.DATAID = body.value[0].value;
+      msg.CEID = body.value[1].value;
+      if (body.value.length >= 3 && body.value[2].type === 'L') {
+        const reports = body.value[2].value;
+        msg.REPORT_COUNT = reports.length;
+        const rptids = reports.filter(r => r.type === 'L' && r.value.length >= 1).map(r => r.value[0].value);
+        if (rptids.length) msg.RPTIDS = rptids;
+      }
+    } else if (sf === 'S5F1' && body?.type === 'L' && body.value.length >= 3) {
+      msg.ALCD = body.value[0].value;
+      msg.ALID = body.value[1].value;
+      msg.ALTX = body.value[2].value;
+    } else if (sf === 'S1F14') {
+      const mdln = findByName(body, 'MDLN');
+      const softrev = findByName(body, 'SOFTREV');
+      if (mdln) msg.MDLN = mdln;
+      if (softrev) msg.SOFTREV = softrev;
+    }
+
+    messages.push(msg);
+    i = j;
+  }
+  return messages;
+}
+
+// ============================================================
+// UI Components
+// ============================================================
+
+function DropZone({ onDrop, onFileSelect, dragging, setDragging }) {
+  const inputRef = useRef(null);
+  return (
+    <div
+      onDragEnter={(e) => { e.preventDefault(); setDragging(true); }}
+      onDragLeave={(e) => { e.preventDefault(); setDragging(false); }}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => { e.preventDefault(); setDragging(false); onDrop(e.dataTransfer.files); }}
+      onClick={() => inputRef.current?.click()}
+      className={`border-2 border-dashed rounded-xl p-16 text-center cursor-pointer transition-all ${
+        dragging ? 'border-blue-500 bg-blue-50 scale-[1.01]' : 'border-slate-300 bg-white hover:border-slate-400 hover:bg-slate-50'
+      }`}
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        accept=".log,.txt"
+        className="hidden"
+        onChange={(e) => onFileSelect(e.target.files)}
+      />
+      <Upload className="mx-auto mb-4 text-slate-400" size={56} strokeWidth={1.5} />
+      <p className="text-xl font-semibold text-slate-700 mb-2">SECS-II 로그 파일을 여기에 드래그</p>
+      <p className="text-sm text-slate-500">또는 클릭해서 파일 선택 · 여러 파일 동시 처리 가능 (.log)</p>
+      <p className="text-xs text-slate-400 mt-4">
+        예: 2026-02-05-09_SECS_Data.log · 날짜는 파일명에서 자동 추출
+      </p>
+    </div>
+  );
+}
+
+function StatCard({ label, value, sub, tone = 'slate' }) {
+  const tones = {
+    slate: 'bg-slate-50 border-slate-200 text-slate-900',
+    blue: 'bg-blue-50 border-blue-200 text-blue-900',
+    red: 'bg-red-50 border-red-200 text-red-900',
+    green: 'bg-green-50 border-green-200 text-green-900',
+    amber: 'bg-amber-50 border-amber-200 text-amber-900',
+  };
+  return (
+    <div className={`rounded-lg border p-4 ${tones[tone]}`}>
+      <div className="text-xs font-medium opacity-70 uppercase tracking-wide">{label}</div>
+      <div className="text-3xl font-bold mt-1">{value.toLocaleString()}</div>
+      {sub && <div className="text-xs opacity-60 mt-1">{sub}</div>}
+    </div>
+  );
+}
+
+function DistBar({ items, total, colorFn }) {
+  const max = Math.max(...items.map(([, v]) => v), 1);
+  return (
+    <div className="space-y-1.5">
+      {items.map(([k, v]) => (
+        <div key={k} className="flex items-center gap-3 text-sm">
+          <div className="w-24 font-mono text-slate-700 shrink-0">{k}</div>
+          <div className="flex-1 bg-slate-100 rounded h-6 relative overflow-hidden">
+            <div
+              className={`h-full ${colorFn ? colorFn(k) : 'bg-blue-400'} transition-all`}
+              style={{ width: `${(v / max) * 100}%` }}
+            />
+            <div className="absolute inset-0 flex items-center px-2 text-xs font-medium text-slate-800">
+              {v.toLocaleString()} ({((v / total) * 100).toFixed(1)}%)
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TreeNode({ item, depth = 0 }) {
+  const [open, setOpen] = useState(depth < 3);
+  const pad = { paddingLeft: `${depth * 16}px` };
+  if (item.type === 'L') {
+    return (
+      <div>
+        <div style={pad} className="font-mono text-xs py-0.5 flex items-center gap-1 hover:bg-slate-50 cursor-pointer" onClick={() => setOpen(!open)}>
+          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          <span className="text-blue-600 font-semibold">&lt;L [{item.length}]</span>
+          {item.name && <span className="text-amber-700 ml-1">{item.name}</span>}
+        </div>
+        {open && item.value.map((c, i) => <TreeNode key={i} item={c} depth={depth + 1} />)}
+        {open && <div style={pad} className="font-mono text-xs py-0.5 text-blue-600">&gt;</div>}
+      </div>
+    );
+  }
+  const valStr = typeof item.value === 'string' ? `"${item.value}"` : JSON.stringify(item.value);
+  return (
+    <div style={pad} className="font-mono text-xs py-0.5 hover:bg-slate-50">
+      <span className="text-purple-600 font-semibold">&lt;{item.type}</span>
+      <span className="text-slate-400 ml-1">[{item.length}]</span>
+      {item.name && <span className="text-amber-700 ml-2">{item.name}</span>}
+      <span className="text-green-700 ml-2">{valStr}</span>
+      <span className="text-purple-600">&gt;</span>
+    </div>
+  );
+}
+
+function DetailPanel({ msg, onClose }) {
+  if (!msg) return null;
+  const rows = [
+    ['TIME_EX', msg.TIME_EX],
+    ['LEVEL', msg.LEVEL],
+    ['SF', msg.SF],
+    ['W-bit', msg.W ? 'true' : 'false'],
+    ['SB', msg.SB],
+    ['LENGTH', msg.LENGTH],
+    ['LINE_NO', msg.LINE_NO],
+    ['SRC_FILE', msg.SRC_FILE],
+  ];
+  const semanticKeys = ['DATAID', 'CEID', 'REPORT_COUNT', 'RPTIDS', 'ALCD', 'ALID', 'ALTX', 'MDLN', 'SOFTREV'];
+  const semantic = semanticKeys.filter(k => k in msg).map(k => [k, msg[k]]);
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/40 z-50 flex justify-end" onClick={onClose}>
+      <div className="bg-white w-full max-w-2xl h-full overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
+          <div>
+            <div className="text-xs text-slate-500">{msg.TIME_EX}</div>
+            <div className="flex items-center gap-2 mt-1">
+              <span className={`px-2 py-0.5 text-xs font-semibold rounded ${msg.LEVEL === 'SEND' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                {msg.LEVEL}
+              </span>
+              <span className="text-lg font-bold font-mono">{msg.SF}</span>
+              {msg.W && <span className="px-1.5 py-0.5 text-xs font-semibold rounded bg-amber-100 text-amber-700">W</span>}
+              <span className="text-xs text-slate-500 font-mono">SB:{msg.SB}</span>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded"><X size={20} /></button>
+        </div>
+        <div className="p-6 space-y-5">
+          <div>
+            <div className="text-sm font-semibold text-slate-700 mb-2">헤더</div>
+            <div className="bg-slate-50 rounded border border-slate-200 divide-y divide-slate-200">
+              {rows.map(([k, v]) => (
+                <div key={k} className="flex px-3 py-2 text-sm">
+                  <div className="w-28 font-mono text-slate-500 text-xs">{k}</div>
+                  <div className="font-mono text-slate-900">{String(v)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {semantic.length > 0 && (
+            <div>
+              <div className="text-sm font-semibold text-slate-700 mb-2">의미 필드</div>
+              <div className="bg-amber-50 rounded border border-amber-200 divide-y divide-amber-200">
+                {semantic.map(([k, v]) => (
+                  <div key={k} className="flex px-3 py-2 text-sm">
+                    <div className="w-28 font-mono text-amber-700 text-xs font-semibold">{k}</div>
+                    <div className="font-mono text-amber-900 break-all">{typeof v === 'object' ? JSON.stringify(v) : String(v)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {msg.BODY && (
+            <div>
+              <div className="text-sm font-semibold text-slate-700 mb-2">BODY 트리</div>
+              <div className="bg-slate-900 rounded p-3 overflow-x-auto">
+                <div className="text-slate-100">
+                  <TreeNodeDark item={msg.BODY} depth={0} />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {msg.DATA && (
+            <div>
+              <div className="text-sm font-semibold text-slate-700 mb-2">원본 SML</div>
+              <pre className="bg-slate-50 border border-slate-200 rounded p-3 text-xs font-mono overflow-x-auto whitespace-pre text-slate-700">
+{msg.DATA}
+              </pre>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TreeNodeDark({ item, depth = 0 }) {
+  const [open, setOpen] = useState(depth < 4);
+  const pad = { paddingLeft: `${depth * 16}px` };
+  if (item.type === 'L') {
+    return (
+      <div>
+        <div style={pad} className="font-mono text-xs py-0.5 flex items-center gap-1 hover:bg-slate-800 cursor-pointer" onClick={() => setOpen(!open)}>
+          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          <span className="text-cyan-400 font-semibold">&lt;L [{item.length}]</span>
+          {item.name && <span className="text-amber-300 ml-1">{item.name}</span>}
+        </div>
+        {open && item.value.map((c, i) => <TreeNodeDark key={i} item={c} depth={depth + 1} />)}
+        {open && <div style={pad} className="font-mono text-xs py-0.5 text-cyan-400">&gt;</div>}
+      </div>
+    );
+  }
+  const valStr = typeof item.value === 'string' ? `"${item.value}"` : JSON.stringify(item.value);
+  return (
+    <div style={pad} className="font-mono text-xs py-0.5 hover:bg-slate-800">
+      <span className="text-pink-400 font-semibold">&lt;{item.type}</span>
+      <span className="text-slate-500 ml-1">[{item.length}]</span>
+      {item.name && <span className="text-amber-300 ml-2">{item.name}</span>}
+      <span className="text-green-400 ml-2">{valStr}</span>
+      <span className="text-pink-400">&gt;</span>
+    </div>
+  );
+}
+
+function MessageRow({ m, onClick }) {
+  return (
+    <tr onClick={() => onClick(m)} className="border-b border-slate-100 hover:bg-blue-50 cursor-pointer text-sm">
+      <td className="px-3 py-2 font-mono text-xs text-slate-500 whitespace-nowrap">{m.TIME_EX}</td>
+      <td className="px-3 py-2">
+        <span className={`px-1.5 py-0.5 text-xs font-semibold rounded ${m.LEVEL === 'SEND' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+          {m.LEVEL}
+        </span>
+      </td>
+      <td className="px-3 py-2 font-mono font-semibold">{m.SF}</td>
+      <td className="px-3 py-2 font-mono text-xs text-center">{m.W ? <span className="text-amber-600 font-bold">W</span> : ''}</td>
+      <td className="px-3 py-2 font-mono text-xs text-slate-600">{m.SB}</td>
+      <td className="px-3 py-2 font-mono text-xs text-slate-600">{m.LENGTH}</td>
+      <td className="px-3 py-2 text-xs text-slate-600 max-w-md truncate">
+        {m.ALTX && <span className="text-red-700 font-medium">🚨 {m.ALTX} (ALID={m.ALID})</span>}
+        {!m.ALTX && m.CEID !== undefined && <span>CEID={m.CEID} · DATAID={m.DATAID}{m.REPORT_COUNT ? ` · reports=${m.REPORT_COUNT}` : ''}</span>}
+        {!m.ALTX && m.CEID === undefined && m.MDLN && <span>MDLN={m.MDLN} · SOFTREV={m.SOFTREV}</span>}
+      </td>
+    </tr>
+  );
+}
+
+// ============================================================
+// Main App
+// ============================================================
+
+export default function App() {
+  const [messages, setMessages] = useState([]);
+  const [files, setFiles] = useState([]);
+  const [tab, setTab] = useState('stats');
+  const [filter, setFilter] = useState({ sf: '', level: '', search: '' });
+  const [selected, setSelected] = useState(null);
+  const [dragging, setDragging] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 50;
+
+  const handleFiles = useCallback(async (fileList) => {
+    if (!fileList || fileList.length === 0) return;
+    setLoading(true);
+    const allMsgs = [];
+    const fileNames = [];
+    for (const f of Array.from(fileList)) {
+      if (!/\.(log|txt)$/i.test(f.name)) continue;
+      fileNames.push(f.name);
+      try {
+        const text = await f.text();
+        const msgs = parseLogText(text, f.name);
+        allMsgs.push(...msgs);
+      } catch (e) {
+        console.error('파싱 실패', f.name, e);
+      }
+    }
+    allMsgs.sort((a, b) => (a.TIME_EX < b.TIME_EX ? -1 : a.TIME_EX > b.TIME_EX ? 1 : 0));
+    setFiles(prev => [...prev, ...fileNames]);
+    setMessages(prev => [...prev, ...allMsgs]);
+    setLoading(false);
+    setPage(0);
+  }, []);
+
+  const clear = () => {
+    setMessages([]);
+    setFiles([]);
+    setTab('stats');
+    setFilter({ sf: '', level: '', search: '' });
+  };
+
+  const stats = useMemo(() => {
+    const bySF = {}, byLvl = {}, byStream = {};
+    let wCount = 0;
+    for (const m of messages) {
+      bySF[m.SF] = (bySF[m.SF] || 0) + 1;
+      byLvl[m.LEVEL] = (byLvl[m.LEVEL] || 0) + 1;
+      const s = m.SF.split('F')[0];
+      byStream[s] = (byStream[s] || 0) + 1;
+      if (m.W) wCount++;
+    }
+    const sortDesc = (o) => Object.entries(o).sort((a, b) => b[1] - a[1]);
+    return {
+      total: messages.length, wCount,
+      bySF: sortDesc(bySF), byLvl: sortDesc(byLvl), byStream: sortDesc(byStream),
+    };
+  }, [messages]);
+
+  const alarms = useMemo(() => messages.filter(m => m.SF === 'S5F1'), [messages]);
+  const events = useMemo(() => messages.filter(m => m.SF === 'S6F11'), [messages]);
+
+  const filtered = useMemo(() => {
+    let out = messages;
+    if (filter.sf) {
+      const q = filter.sf.toUpperCase();
+      out = out.filter(m => m.SF.includes(q));
+    }
+    if (filter.level) out = out.filter(m => m.LEVEL === filter.level);
+    if (filter.search) {
+      const q = filter.search.toLowerCase();
+      out = out.filter(m =>
+        m.SF.toLowerCase().includes(q) ||
+        (m.ALTX || '').toLowerCase().includes(q) ||
+        (m.DATA || '').toLowerCase().includes(q) ||
+        String(m.CEID ?? '').includes(q) ||
+        String(m.ALID ?? '').includes(q) ||
+        String(m.SB ?? '').includes(q)
+      );
+    }
+    return out;
+  }, [messages, filter]);
+
+  const pageRows = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+
+  const downloadJson = () => {
+    const blob = new Blob([JSON.stringify(messages, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'secs_parsed.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadAlarmsCsv = () => {
+    const header = 'TIME_EX,LEVEL,SB,W,ALCD,ALID,ALTX,SRC_FILE\n';
+    const rows = alarms.map(m =>
+      [m.TIME_EX, m.LEVEL, m.SB, m.W, m.ALCD, m.ALID, `"${(m.ALTX || '').replace(/"/g, '""')}"`, m.SRC_FILE].join(',')
+    ).join('\n');
+    const blob = new Blob([header + rows], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'alarms.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const tabs = [
+    { id: 'stats', label: '통계', icon: BarChart3, count: stats.total },
+    { id: 'all', label: '전체 메시지', icon: FileText, count: filtered.length },
+    { id: 'alarms', label: '알람 (S5F1)', icon: AlertCircle, count: alarms.length, accent: 'text-red-600' },
+    { id: 'events', label: '이벤트 (S6F11)', icon: Activity, count: events.length, accent: 'text-green-600' },
+  ];
+
+  return (
+    <div className="min-h-screen bg-slate-50">
+      <div className="max-w-7xl mx-auto p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">SECS-II Log Parser</h1>
+            <p className="text-sm text-slate-500 mt-1">로그 파일을 드래그하면 자동 파싱 · 통계 · 알람/이벤트 추출</p>
+          </div>
+          {messages.length > 0 && (
+            <div className="flex gap-2">
+              <button onClick={downloadJson} className="px-3 py-1.5 text-sm bg-slate-800 text-white rounded hover:bg-slate-900 flex items-center gap-1.5">
+                <Download size={14} /> JSON
+              </button>
+              {alarms.length > 0 && (
+                <button onClick={downloadAlarmsCsv} className="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 flex items-center gap-1.5">
+                  <Download size={14} /> 알람 CSV
+                </button>
+              )}
+              <button onClick={clear} className="px-3 py-1.5 text-sm bg-white border border-slate-300 text-slate-700 rounded hover:bg-slate-50 flex items-center gap-1.5">
+                <Trash2 size={14} /> 초기화
+              </button>
+            </div>
+          )}
+        </div>
+
+        {messages.length === 0 && (
+          <DropZone
+            onDrop={handleFiles}
+            onFileSelect={handleFiles}
+            dragging={dragging}
+            setDragging={setDragging}
+          />
+        )}
+
+        {loading && (
+          <div className="text-center py-12 text-slate-500">파싱 중...</div>
+        )}
+
+        {messages.length > 0 && (
+          <>
+            <div className="bg-white rounded-lg border border-slate-200 p-4 mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-sm font-semibold text-slate-700">로드된 파일 ({files.length})</div>
+                <label className="text-xs text-blue-600 hover:underline cursor-pointer">
+                  + 파일 추가
+                  <input type="file" multiple accept=".log,.txt" className="hidden" onChange={(e) => handleFiles(e.target.files)} />
+                </label>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {files.map((f, i) => (
+                  <span key={i} className="px-2 py-0.5 text-xs bg-slate-100 text-slate-600 rounded font-mono">{f}</span>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex border-b border-slate-200 mb-4">
+              {tabs.map(t => {
+                const Icon = t.icon;
+                const active = tab === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => { setTab(t.id); setPage(0); }}
+                    className={`px-4 py-2.5 flex items-center gap-2 text-sm font-medium border-b-2 transition-colors ${
+                      active
+                        ? 'border-blue-600 text-blue-600'
+                        : 'border-transparent text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Icon size={16} className={active ? '' : (t.accent || '')} />
+                    {t.label}
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${active ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>
+                      {t.count.toLocaleString()}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {tab === 'stats' && (
+              <div className="space-y-5">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                  <StatCard label="총 메시지" value={stats.total} tone="slate" />
+                  <StatCard label="W-bit" value={stats.wCount} sub="응답 요구" tone="amber" />
+                  <StatCard label="SEND" value={stats.byLvl.find(([k]) => k === 'SEND')?.[1] || 0} tone="blue" />
+                  <StatCard label="RECV" value={stats.byLvl.find(([k]) => k === 'RECV')?.[1] || 0} tone="green" />
+                  <StatCard label="알람 (S5F1)" value={alarms.length} sub={`이벤트 ${events.length}`} tone="red" />
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-5">
+                  <div className="bg-white rounded-lg border border-slate-200 p-5">
+                    <div className="text-sm font-semibold text-slate-700 mb-3">Stream별 분포</div>
+                    <DistBar
+                      items={stats.byStream}
+                      total={stats.total}
+                      colorFn={(k) => k === 'S5' ? 'bg-red-300' : k === 'S6' ? 'bg-green-300' : 'bg-blue-300'}
+                    />
+                  </div>
+
+                  <div className="bg-white rounded-lg border border-slate-200 p-5">
+                    <div className="text-sm font-semibold text-slate-700 mb-3">S/F별 빈도 (상위 15)</div>
+                    <DistBar
+                      items={stats.bySF.slice(0, 15)}
+                      total={stats.total}
+                      colorFn={(k) => k.startsWith('S5') ? 'bg-red-300' : k.startsWith('S6') ? 'bg-green-300' : 'bg-blue-300'}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {tab === 'all' && (
+              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                <div className="p-3 border-b border-slate-200 flex flex-wrap gap-2 items-center">
+                  <div className="relative flex-1 min-w-64">
+                    <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="검색 (SF, ALTX, SB, CEID, ALID, DATA)"
+                      value={filter.search}
+                      onChange={(e) => { setFilter({ ...filter, search: e.target.value }); setPage(0); }}
+                      className="w-full pl-8 pr-3 py-1.5 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="SF 필터 (예: S6F11)"
+                    value={filter.sf}
+                    onChange={(e) => { setFilter({ ...filter, sf: e.target.value }); setPage(0); }}
+                    className="px-3 py-1.5 text-sm border border-slate-300 rounded w-40 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <select
+                    value={filter.level}
+                    onChange={(e) => { setFilter({ ...filter, level: e.target.value }); setPage(0); }}
+                    className="px-3 py-1.5 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">전체 방향</option>
+                    <option value="SEND">SEND</option>
+                    <option value="RECV">RECV</option>
+                  </select>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-slate-50 text-xs uppercase text-slate-600">
+                      <tr>
+                        <th className="px-3 py-2 text-left">시간</th>
+                        <th className="px-3 py-2 text-left">방향</th>
+                        <th className="px-3 py-2 text-left">S/F</th>
+                        <th className="px-3 py-2 text-center">W</th>
+                        <th className="px-3 py-2 text-left">SB</th>
+                        <th className="px-3 py-2 text-left">Len</th>
+                        <th className="px-3 py-2 text-left">요약</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pageRows.map((m, i) => <MessageRow key={`${m.SRC_FILE}-${m.LINE_NO}-${i}`} m={m} onClick={setSelected} />)}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="px-3 py-2 border-t border-slate-200 flex items-center justify-between text-sm">
+                  <div className="text-slate-600">{filtered.length.toLocaleString()} 건 중 {page * PAGE_SIZE + 1}-{Math.min((page + 1) * PAGE_SIZE, filtered.length)}</div>
+                  <div className="flex gap-1">
+                    <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0} className="px-3 py-1 border border-slate-300 rounded disabled:opacity-40 hover:bg-slate-50">이전</button>
+                    <span className="px-3 py-1 font-mono text-xs">{page + 1} / {totalPages}</span>
+                    <button onClick={() => setPage(Math.min(totalPages - 1, page + 1))} disabled={page >= totalPages - 1} className="px-3 py-1 border border-slate-300 rounded disabled:opacity-40 hover:bg-slate-50">다음</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {tab === 'alarms' && (
+              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                <table className="w-full">
+                  <thead className="bg-red-50 text-xs uppercase text-red-700">
+                    <tr>
+                      <th className="px-3 py-2 text-left">시간</th>
+                      <th className="px-3 py-2 text-left">방향</th>
+                      <th className="px-3 py-2 text-left">SB</th>
+                      <th className="px-3 py-2 text-left">ALCD</th>
+                      <th className="px-3 py-2 text-left">ALID</th>
+                      <th className="px-3 py-2 text-left">ALTX</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {alarms.map((m, i) => (
+                      <tr key={i} onClick={() => setSelected(m)} className="border-b border-slate-100 hover:bg-red-50 cursor-pointer text-sm">
+                        <td className="px-3 py-2 font-mono text-xs">{m.TIME_EX}</td>
+                        <td className="px-3 py-2">
+                          <span className={`px-1.5 py-0.5 text-xs font-semibold rounded ${m.LEVEL === 'SEND' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>{m.LEVEL}</span>
+                        </td>
+                        <td className="px-3 py-2 font-mono text-xs">{m.SB}</td>
+                        <td className="px-3 py-2 font-mono text-xs">{m.ALCD}</td>
+                        <td className="px-3 py-2 font-mono font-semibold">{m.ALID}</td>
+                        <td className="px-3 py-2 text-red-700">{m.ALTX}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {alarms.length === 0 && <div className="py-12 text-center text-slate-400">알람 없음</div>}
+              </div>
+            )}
+
+            {tab === 'events' && (
+              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                <table className="w-full">
+                  <thead className="bg-green-50 text-xs uppercase text-green-700">
+                    <tr>
+                      <th className="px-3 py-2 text-left">시간</th>
+                      <th className="px-3 py-2 text-left">방향</th>
+                      <th className="px-3 py-2 text-left">W</th>
+                      <th className="px-3 py-2 text-left">SB</th>
+                      <th className="px-3 py-2 text-left">DATAID</th>
+                      <th className="px-3 py-2 text-left">CEID</th>
+                      <th className="px-3 py-2 text-left">RPTIDS</th>
+                      <th className="px-3 py-2 text-left">Reports</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {events.map((m, i) => (
+                      <tr key={i} onClick={() => setSelected(m)} className="border-b border-slate-100 hover:bg-green-50 cursor-pointer text-sm">
+                        <td className="px-3 py-2 font-mono text-xs">{m.TIME_EX}</td>
+                        <td className="px-3 py-2">
+                          <span className={`px-1.5 py-0.5 text-xs font-semibold rounded ${m.LEVEL === 'SEND' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>{m.LEVEL}</span>
+                        </td>
+                        <td className="px-3 py-2 text-center">{m.W ? <span className="text-amber-600 font-bold">W</span> : ''}</td>
+                        <td className="px-3 py-2 font-mono text-xs">{m.SB}</td>
+                        <td className="px-3 py-2 font-mono text-xs">{m.DATAID}</td>
+                        <td className="px-3 py-2 font-mono font-semibold">{m.CEID}</td>
+                        <td className="px-3 py-2 font-mono text-xs">{Array.isArray(m.RPTIDS) ? `[${m.RPTIDS.join(',')}]` : '-'}</td>
+                        <td className="px-3 py-2 font-mono text-xs">{m.REPORT_COUNT ?? 0}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {events.length === 0 && <div className="py-12 text-center text-slate-400">이벤트 없음</div>}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      <DetailPanel msg={selected} onClose={() => setSelected(null)} />
+    </div>
+  );
+}
