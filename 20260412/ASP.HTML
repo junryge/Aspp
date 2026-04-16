@@ -1,777 +1,807 @@
-import React, { useState, useCallback, useMemo, useRef } from 'react';
-import { Upload, FileText, AlertCircle, Activity, BarChart3, Search, X, Download, ChevronRight, ChevronDown, Trash2 } from 'lucide-react';
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>로그 XML 태그 분석기</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; font-family: -apple-system, "Segoe UI", "Noto Sans KR", sans-serif; background: #f1f5f9; color: #0f172a; font-size: 13px; }
+  body { display: flex; flex-direction: column; overflow: hidden; }
 
+  /* Header */
+  header { background: white; border-bottom: 1px solid #e2e8f0; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+  h1 { font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  .actions { display: flex; gap: 6px; }
+  .btn { padding: 6px 12px; font-size: 12px; border: 1px solid #cbd5e1; background: white; border-radius: 4px; cursor: pointer; }
+  .btn:hover { background: #f8fafc; }
+  .btn-primary { background: #2563eb; color: white; border-color: #2563eb; }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-danger { background: white; color: #dc2626; border-color: #fca5a5; }
+  .btn-danger:hover { background: #fef2f2; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* DropZone */
+  .dropzone-wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px; }
+  .dropzone { width: 100%; max-width: 700px; border: 2px dashed #cbd5e1; border-radius: 12px; padding: 80px 20px; text-align: center; background: white; cursor: pointer; transition: all 0.15s; }
+  .dropzone:hover { border-color: #94a3b8; background: #f8fafc; }
+  .dropzone.dragging { border-color: #2563eb; background: #eff6ff; transform: scale(1.005); }
+  .dz-icon { font-size: 48px; color: #cbd5e1; margin-bottom: 12px; }
+  .dz-title { font-size: 18px; font-weight: 600; color: #334155; margin-bottom: 6px; }
+  .dz-sub { font-size: 13px; color: #64748b; }
+
+  /* Main Grid */
+  .main { flex: 1; display: grid; grid-template-columns: 320px 1fr; gap: 12px; padding: 12px; overflow: hidden; }
+
+  /* Sidebar */
+  .sidebar { background: white; border: 1px solid #e2e8f0; border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; }
+  .sidebar-header { padding: 12px 16px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; }
+  .sidebar-title { font-size: 12px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.05em; }
+  .sidebar-stats { margin-top: 4px; font-size: 11px; color: #64748b; }
+  .selected-tag-info { padding: 10px 16px; border-bottom: 1px solid #e2e8f0; background: #eff6ff; font-size: 12px; color: #1e40af; display: flex; justify-content: space-between; align-items: center; }
+  .selected-tag-info .clear-btn { font-size: 11px; color: #2563eb; cursor: pointer; background: none; border: none; }
+  .selected-tag-info .clear-btn:hover { text-decoration: underline; }
+  .tag-list { flex: 1; overflow-y: auto; padding: 8px; }
+  .tag-row { padding: 8px 10px; border-radius: 6px; cursor: pointer; margin-bottom: 2px; transition: background 0.1s; }
+  .tag-row:hover { background: #f1f5f9; }
+  .tag-row.active { background: #dbeafe; }
+  .tag-name-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .tag-name { font-weight: 600; font-size: 12px; color: #1e293b; word-break: break-all; }
+  .tag-count { font-family: ui-monospace, monospace; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 3px; background: #e2e8f0; color: #334155; }
+  .tag-row.active .tag-count { background: #2563eb; color: white; }
+  .tag-bar-track { height: 6px; background: #f1f5f9; border-radius: 3px; overflow: hidden; }
+  .tag-bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+
+  /* Content */
+  .content { display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
+
+  /* Log Table */
+  .log-table-wrap { flex: 1; background: white; border: 1px solid #e2e8f0; border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+  .toolbar { padding: 10px 12px; border-bottom: 1px solid #e2e8f0; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; background: #f8fafc; }
+  .input { padding: 5px 10px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px; outline: none; background: white; }
+  .input:focus { border-color: #2563eb; box-shadow: 0 0 0 2px #dbeafe; }
+  .input-search { flex: 1; min-width: 200px; }
+  .table-scroll { flex: 1; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  thead { position: sticky; top: 0; background: #f8fafc; z-index: 1; }
+  th { padding: 8px 10px; text-align: left; font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 700; border-bottom: 1px solid #e2e8f0; }
+  tbody tr { border-bottom: 1px solid #f1f5f9; cursor: pointer; }
+  tbody tr:hover { background: #eff6ff; }
+  tbody tr.selected { background: #dbeafe; }
+  td { padding: 6px 10px; font-size: 12px; vertical-align: top; }
+  .mono { font-family: ui-monospace, monospace; font-size: 11px; }
+  .level-chip { display: inline-block; padding: 1px 6px; font-size: 10px; font-weight: 700; border-radius: 3px; font-family: ui-monospace, monospace; }
+  .level-INFO { background: #dbeafe; color: #1e40af; }
+  .level-WARN { background: #fef3c7; color: #92400e; }
+  .level-ERROR { background: #fee2e2; color: #991b1b; }
+  .level-DEBUG { background: #e0e7ff; color: #3730a3; }
+  .level-TRACE { background: #f1f5f9; color: #475569; }
+  .tag-chip { display: inline-block; padding: 1px 6px; font-size: 10px; font-weight: 600; border-radius: 3px; font-family: ui-monospace, monospace; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+  .preview { color: #64748b; font-size: 11px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Viewer */
+  .viewer-wrap { height: 38%; background: white; border: 1px solid #e2e8f0; border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; min-height: 200px; }
+  .viewer-tabs { display: flex; border-bottom: 1px solid #e2e8f0; background: #f8fafc; }
+  .viewer-tab { padding: 8px 14px; font-size: 12px; font-weight: 500; color: #64748b; background: transparent; border: none; border-bottom: 2px solid transparent; cursor: pointer; }
+  .viewer-tab.active { color: #2563eb; border-bottom-color: #2563eb; background: white; }
+  .viewer-tab:hover:not(.active) { color: #0f172a; }
+  .viewer-content { flex: 1; overflow: auto; padding: 12px 16px; font-family: ui-monospace, monospace; font-size: 11px; white-space: pre; color: #334155; }
+  .viewer-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #94a3b8; font-size: 13px; }
+
+  /* JSON syntax highlight */
+  .j-key { color: #2563eb; }
+  .j-str { color: #059669; }
+  .j-num { color: #7c3aed; }
+  .j-bool { color: #db2777; }
+  .j-null { color: #64748b; }
+
+  /* XML syntax highlight */
+  .x-tag { color: #2563eb; }
+  .x-tagname { color: #dc2626; font-weight: 600; }
+  .x-attr { color: #7c3aed; }
+  .x-val { color: #059669; }
+  .x-text { color: #334155; }
+
+  /* Pagination */
+  .pagination { padding: 8px 12px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 12px; background: #f8fafc; }
+  .page-btn { padding: 3px 10px; font-size: 11px; border: 1px solid #cbd5e1; background: white; border-radius: 3px; cursor: pointer; margin: 0 2px; }
+  .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .page-btn:not(:disabled):hover { background: #f8fafc; }
+
+  .empty-msg { padding: 40px; text-align: center; color: #94a3b8; font-size: 13px; }
+  .hidden { display: none !important; }
+  .loading { padding: 40px; text-align: center; color: #64748b; }
+
+  /* Stat badge */
+  .mini-stats { display: flex; gap: 12px; font-size: 11px; color: #64748b; padding: 8px 16px; border-bottom: 1px solid #e2e8f0; }
+  .mini-stats b { color: #0f172a; font-weight: 700; font-family: ui-monospace, monospace; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📊 로그 XML 태그 분석기</h1>
+  <div class="actions">
+    <button class="btn btn-primary" onclick="document.getElementById('fileInput2').click()">📁 파일 선택</button>
+    <button class="btn" id="btn-dl-json" onclick="downloadJSON()" disabled>⬇ JSON</button>
+    <button class="btn" id="btn-dl-csv" onclick="downloadCSV()" disabled>⬇ CSV</button>
+    <button class="btn btn-danger" id="btn-clear" onclick="clearAll()" disabled>🗑 초기화</button>
+    <input type="file" id="fileInput2" multiple accept=".log,.txt" style="display:none" onchange="handleFiles(this.files)">
+  </div>
+</header>
+
+<!-- Dropzone (초기) -->
+<div class="dropzone-wrap" id="dropzoneWrap">
+  <div class="dropzone" id="dropzone">
+    <input type="file" id="fileInput" multiple accept=".log,.txt" style="display:none">
+    <div class="dz-icon">📄</div>
+    <div class="dz-title">로그 파일을 여기에 드래그</div>
+    <div class="dz-sub">또는 클릭해서 선택 · 여러 파일 동시 처리 가능 (.log, .txt)</div>
+  </div>
+</div>
+
+<div class="loading hidden" id="loading">파싱 중...</div>
+
+<!-- Main -->
+<div class="main hidden" id="main">
+  <!-- 좌측: 태그 통계 -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-title">📑 태그 통계</div>
+      <div class="sidebar-stats" id="sidebar-stats"></div>
+    </div>
+    <div class="selected-tag-info">
+      <span>선택: <b id="selected-tag-label">전체</b></span>
+      <button class="clear-btn" id="clear-tag-btn" onclick="selectTag(null)">초기화</button>
+    </div>
+    <div class="tag-list" id="tag-list"></div>
+  </aside>
+
+  <!-- 우측 -->
+  <section class="content">
+    <!-- 상단: 로그 테이블 -->
+    <div class="log-table-wrap">
+      <div class="mini-stats">
+        <div>전체 <b id="ms-total">0</b></div>
+        <div>XML 포함 <b id="ms-xml">0</b></div>
+        <div>태그 종류 <b id="ms-tagcount">0</b></div>
+      </div>
+      <div class="toolbar">
+        <input type="text" class="input input-search" id="search" placeholder="🔍 검색 (전체 로그 · 타임스탬프 · 클래스 · XML 내용)" oninput="setPage(0); render()">
+        <select class="input" id="filter-level" onchange="setPage(0); render()">
+          <option value="">전체 레벨</option>
+          <option value="INFO">INFO</option>
+          <option value="WARN">WARN</option>
+          <option value="ERROR">ERROR</option>
+          <option value="DEBUG">DEBUG</option>
+          <option value="TRACE">TRACE</option>
+        </select>
+        <select class="input" id="filter-xml" onchange="setPage(0); render()">
+          <option value="">XML 유무 전체</option>
+          <option value="has">XML 있음만</option>
+          <option value="none">XML 없음만</option>
+        </select>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:160px">시간</th>
+              <th style="width:60px">레벨</th>
+              <th style="width:60px">Thread</th>
+              <th style="width:180px">XML 태그</th>
+              <th>미리보기</th>
+            </tr>
+          </thead>
+          <tbody id="log-tbody"></tbody>
+        </table>
+        <div class="empty-msg hidden" id="log-empty">조건에 맞는 로그 없음</div>
+      </div>
+      <div class="pagination">
+        <div id="page-info" style="color:#475569"></div>
+        <div>
+          <button class="page-btn" id="page-prev" onclick="prevPage()">이전</button>
+          <span class="mono" id="page-num"></span>
+          <button class="page-btn" id="page-next" onclick="nextPage()">다음</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 하단: 뷰어 -->
+    <div class="viewer-wrap">
+      <div class="viewer-tabs">
+        <button class="viewer-tab active" data-view="json" onclick="switchView('json')">JSON</button>
+        <button class="viewer-tab" data-view="xml" onclick="switchView('xml')">XML 원본</button>
+        <button class="viewer-tab" data-view="raw" onclick="switchView('raw')">전체 로그</button>
+        <button class="viewer-tab" data-view="meta" onclick="switchView('meta')">메타정보</button>
+      </div>
+      <div class="viewer-content hidden" id="viewer-content"></div>
+      <div class="viewer-empty" id="viewer-empty">로그 행을 클릭하면 상세 내용이 표시됩니다</div>
+    </div>
+  </section>
+</div>
+
+<script>
 // ============================================================
-// Parser (Python secs2_parser.py → JS 포팅)
+// 1. 로그 파싱
 // ============================================================
 
-const FILE_DATE_RE = /(\d{4})-(\d{2})-(\d{2})/;
-const HEADER_RE = /^\[(\d{2}:\d{2}:\d{2}\.\d{3})\]\[\s*(Send|Recv)\s*\]\s*\[SB:\s*(\d+)\]\s*S(\d+)F(\d+)(?:\s*\[(W)\])?\s*S\d+F\d+\s*\[Length=(\d+)\]/;
-const NONMSG_RE = /^\[\d{2}:\d{2}:\d{2}\.\d{3}\]\[\*+\]/;
-const ITEM_OPEN_RE = /<\s*(L|A|J|B|BL|BOOLEAN|U1|U2|U4|U8|I1|I2|I4|I8|F4|F8)\s+(\d+)(?:\s+([A-Za-z_][A-Za-z0-9_]*))?\s*\.*\s*(?:"([^"]*)")?/;
+// [timestamp] [ level] [threadId] [class] - message
+// 레벨/threadId 좌측 공백 패딩 허용 ([ INFO], [            main])
+const LOG_LINE_RE = /^\[([^\]]+)\]\s*\[\s*(\w+)\s*\]\s*\[\s*([^\]]*?)\s*\]\s*\[([^\]]+)\]\s*-\s*(.*)$/;
 
-function castValue(fmt, raw) {
-  if (raw === null || raw === undefined) return null;
-  if (fmt === 'A' || fmt === 'J') return raw;
-  if (fmt === 'B') {
-    const parts = raw.split(/\s+/).filter(Boolean);
-    const out = parts.map(p => p.toLowerCase().startsWith('0x') ? parseInt(p, 16) : parseInt(p, 10));
-    if (out.some(isNaN)) return raw;
-    return out.length === 1 ? out[0] : out;
-  }
-  if (fmt === 'BL' || fmt === 'BOOLEAN') {
-    const s = raw.trim().toLowerCase();
-    if (['true', 't', '1'].includes(s)) return true;
-    if (['false', 'f', '0'].includes(s)) return false;
-    return raw;
-  }
-  if (['U1','U2','U4','U8','I1','I2','I4','I8'].includes(fmt)) {
-    const parts = raw.split(/\s+/).filter(Boolean);
-    const vals = parts.map(p => p.toLowerCase().startsWith('0x') ? parseInt(p, 16) : parseInt(p, 10));
-    if (vals.some(isNaN)) return raw;
-    return vals.length === 1 ? vals[0] : vals;
-  }
-  if (fmt === 'F4' || fmt === 'F8') {
-    const parts = raw.split(/\s+/).filter(Boolean);
-    const vals = parts.map(p => parseFloat(p));
-    if (vals.some(isNaN)) return raw;
-    return vals.length === 1 ? vals[0] : vals;
-  }
-  return raw;
-}
+function parseLogText(text, filename) {
+  const lines = text.split(/\r?\n/);
+  const entries = [];
+  let current = null;
 
-class BodyParser {
-  constructor(text) {
-    this.text = text;
-    this.pos = 0;
-    this.n = text.length;
-  }
-  skipWs() {
-    while (this.pos < this.n && /[ \t\r\n]/.test(this.text[this.pos])) this.pos++;
-  }
-  findClose(start) {
-    let i = start, inStr = false;
-    while (i < this.n) {
-      const c = this.text[i];
-      if (c === '"') inStr = !inStr;
-      else if (c === '>' && !inStr) return i;
-      else if (c === '\n' && !inStr) return i;
-      i++;
-    }
-    return this.n;
-  }
-  parseItem() {
-    this.skipWs();
-    if (this.pos >= this.n) return null;
-    const sub = this.text.slice(this.pos);
-    const m = ITEM_OPEN_RE.exec(sub);
-    if (!m || m.index !== 0) return null;
-
-    const fmt = m[1].toUpperCase();
-    const length = parseInt(m[2], 10);
-    const name = m[3] || null;
-    const rawVal = m[4] !== undefined ? m[4] : null;
-    this.pos += m[0].length;
-
-    if (fmt === 'L') {
-      const children = [];
-      while (children.length < length) {
-        this.skipWs();
-        if (this.pos >= this.n || this.text[this.pos] === '>') break;
-        const child = this.parseItem();
-        if (child === null) { this.pos++; continue; }
-        children.push(child);
+  for (let idx = 0; idx < lines.length; idx++) {
+    const line = lines[idx];
+    const m = line.match(LOG_LINE_RE);
+    if (m) {
+      if (current) {
+        finalizeEntry(current);
+        entries.push(current);
       }
-      this.skipWs();
-      if (this.pos < this.n && this.text[this.pos] === '>') this.pos++;
-      return { type: 'L', length, name, value: children };
+      current = {
+        timestamp: m[1].trim(),
+        level: m[2].toUpperCase(),
+        threadId: m[3].trim(),
+        class: m[4].trim(),
+        message: m[5] || '',
+        rawLog: line,
+        xmlTag: null,
+        xmlContent: null,
+        jsonContent: null,
+        srcFile: filename,
+        lineNo: idx + 1,
+      };
+    } else if (current) {
+      current.message += '\n' + line;
+      current.rawLog += '\n' + line;
     }
+  }
+  if (current) { finalizeEntry(current); entries.push(current); }
+  return entries;
+}
 
-    const close = this.findClose(this.pos);
-    if (close < this.n && this.text[close] === '>') this.pos = close + 1;
-    else this.pos = close;
-    return { type: fmt, length, name, value: castValue(fmt, rawVal) };
+function finalizeEntry(entry) {
+  const xml = extractXml(entry.message);
+  if (xml) {
+    entry.xmlTag = xml.tag;
+    entry.xmlContent = xml.content;
+    try {
+      entry.jsonContent = xmlToJson(xml.content);
+    } catch (e) {
+      entry.jsonContent = { _parseError: e.message };
+    }
   }
 }
 
-function fileDate(filename) {
-  const m = filename.match(FILE_DATE_RE);
-  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
-}
+// 메시지에서 최상단 XML 블록 추출
+function extractXml(message) {
+  let text = message.replace(/<\?xml[^?]*\?>/g, '');
+  const m = text.match(/<([A-Za-z][A-Za-z0-9_\-]*)(\s|>|\/)/);
+  if (!m) return null;
+  const tagName = m[1];
+  const tagStart = text.indexOf(m[0]);
 
-function findByName(item, name) {
-  if (!item) return null;
-  if (item.name === name) return item.value;
-  if (item.type === 'L') {
-    for (const c of item.value) {
-      const v = findByName(c, name);
-      if (v !== null && v !== undefined) return v;
+  // self-closing 확인
+  const selfClosingRe = new RegExp(`<${escRe(tagName)}[^>]*\\/>`);
+  const scMatch = text.slice(tagStart).match(selfClosingRe);
+  if (scMatch && scMatch.index === 0) {
+    return { tag: tagName, content: scMatch[0] };
+  }
+
+  // 닫는 태그 매칭 (같은 이름 nested 고려 → 카운트)
+  const openRe = new RegExp(`<${escRe(tagName)}(\\s[^>]*)?>`, 'g');
+  const closeRe = new RegExp(`</${escRe(tagName)}\\s*>`, 'g');
+  let depth = 0;
+  let pos = tagStart;
+  let scanPos = tagStart;
+  while (scanPos < text.length) {
+    openRe.lastIndex = scanPos;
+    closeRe.lastIndex = scanPos;
+    const oM = openRe.exec(text);
+    const cM = closeRe.exec(text);
+    if (!cM) return null;
+    if (oM && oM.index < cM.index) {
+      depth++;
+      scanPos = oM.index + oM[0].length;
+    } else {
+      depth--;
+      scanPos = cM.index + cM[0].length;
+      if (depth === 0) {
+        return { tag: tagName, content: text.slice(tagStart, cM.index + cM[0].length) };
+      }
     }
   }
   return null;
 }
 
-function parseLogText(text, filename) {
-  const lines = text.split(/\r?\n/);
-  const dateStr = fileDate(filename);
-  const messages = [];
-  let i = 0;
-  while (i < lines.length) {
-    const hm = lines[i].match(HEADER_RE);
-    if (!hm) { i++; continue; }
-    const start = i;
-    const bodyLines = [];
-    let j = i + 1;
-    while (j < lines.length) {
-      if (HEADER_RE.test(lines[j]) || NONMSG_RE.test(lines[j])) break;
-      bodyLines.push(lines[j]);
-      j++;
+function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+// ============================================================
+// 2. XML → JSON 변환 (자체 구현)
+// ============================================================
+
+class XMLParser {
+  constructor(text) { this.text = text; this.pos = 0; this.n = text.length; }
+  skipWs() { while (this.pos < this.n && /\s/.test(this.text[this.pos])) this.pos++; }
+
+  parse() {
+    // <?xml?> skip
+    while (true) {
+      this.skipWs();
+      if (this.text.startsWith('<?', this.pos)) {
+        const e = this.text.indexOf('?>', this.pos);
+        this.pos = e === -1 ? this.n : e + 2;
+      } else if (this.text.startsWith('<!--', this.pos)) {
+        const e = this.text.indexOf('-->', this.pos);
+        this.pos = e === -1 ? this.n : e + 3;
+      } else break;
     }
-    const bodyText = bodyLines.join('\n').trim();
-    const timeStr = hm[1];
-    const sf = `S${parseInt(hm[4], 10)}F${parseInt(hm[5], 10)}`;
-    const level = hm[2] === 'Send' ? 'SEND' : 'RECV';
-    const body = bodyText ? new BodyParser(bodyText).parseItem() : null;
-
-    const msg = {
-      TIME_EX: dateStr ? `${dateStr}T${timeStr}` : timeStr,
-      LEVEL: level,
-      SF: sf,
-      W: hm[6] === 'W',
-      SB: hm[3],
-      LENGTH: parseInt(hm[7], 10),
-      LINE_NO: start + 1,
-      SRC_FILE: filename,
-      DATA: bodyText || null,
-      BODY: body,
-    };
-
-    if (sf === 'S6F11' && body?.type === 'L' && body.value.length >= 2) {
-      msg.DATAID = body.value[0].value;
-      msg.CEID = body.value[1].value;
-      if (body.value.length >= 3 && body.value[2].type === 'L') {
-        const reports = body.value[2].value;
-        msg.REPORT_COUNT = reports.length;
-        const rptids = reports.filter(r => r.type === 'L' && r.value.length >= 1).map(r => r.value[0].value);
-        if (rptids.length) msg.RPTIDS = rptids;
-      }
-    } else if (sf === 'S5F1' && body?.type === 'L' && body.value.length >= 3) {
-      msg.ALCD = body.value[0].value;
-      msg.ALID = body.value[1].value;
-      msg.ALTX = body.value[2].value;
-    } else if (sf === 'S1F14') {
-      const mdln = findByName(body, 'MDLN');
-      const softrev = findByName(body, 'SOFTREV');
-      if (mdln) msg.MDLN = mdln;
-      if (softrev) msg.SOFTREV = softrev;
-    }
-
-    messages.push(msg);
-    i = j;
+    return this.parseElement();
   }
-  return messages;
-}
 
-// ============================================================
-// UI Components
-// ============================================================
+  parseElement() {
+    this.skipWs();
+    if (this.text[this.pos] !== '<') return null;
+    this.pos++;
 
-function DropZone({ onDrop, onFileSelect, dragging, setDragging }) {
-  const inputRef = useRef(null);
-  return (
-    <div
-      onDragEnter={(e) => { e.preventDefault(); setDragging(true); }}
-      onDragLeave={(e) => { e.preventDefault(); setDragging(false); }}
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => { e.preventDefault(); setDragging(false); onDrop(e.dataTransfer.files); }}
-      onClick={() => inputRef.current?.click()}
-      className={`border-2 border-dashed rounded-xl p-16 text-center cursor-pointer transition-all ${
-        dragging ? 'border-blue-500 bg-blue-50 scale-[1.01]' : 'border-slate-300 bg-white hover:border-slate-400 hover:bg-slate-50'
-      }`}
-    >
-      <input
-        ref={inputRef}
-        type="file"
-        multiple
-        accept=".log,.txt"
-        className="hidden"
-        onChange={(e) => onFileSelect(e.target.files)}
-      />
-      <Upload className="mx-auto mb-4 text-slate-400" size={56} strokeWidth={1.5} />
-      <p className="text-xl font-semibold text-slate-700 mb-2">SECS-II 로그 파일을 여기에 드래그</p>
-      <p className="text-sm text-slate-500">또는 클릭해서 파일 선택 · 여러 파일 동시 처리 가능 (.log)</p>
-      <p className="text-xs text-slate-400 mt-4">
-        예: 2026-02-05-09_SECS_Data.log · 날짜는 파일명에서 자동 추출
-      </p>
-    </div>
-  );
-}
+    // name
+    const ns = this.pos;
+    while (this.pos < this.n && /[A-Za-z0-9_\-:.]/.test(this.text[this.pos])) this.pos++;
+    const name = this.text.slice(ns, this.pos);
+    if (!name) return null;
 
-function StatCard({ label, value, sub, tone = 'slate' }) {
-  const tones = {
-    slate: 'bg-slate-50 border-slate-200 text-slate-900',
-    blue: 'bg-blue-50 border-blue-200 text-blue-900',
-    red: 'bg-red-50 border-red-200 text-red-900',
-    green: 'bg-green-50 border-green-200 text-green-900',
-    amber: 'bg-amber-50 border-amber-200 text-amber-900',
-  };
-  return (
-    <div className={`rounded-lg border p-4 ${tones[tone]}`}>
-      <div className="text-xs font-medium opacity-70 uppercase tracking-wide">{label}</div>
-      <div className="text-3xl font-bold mt-1">{value.toLocaleString()}</div>
-      {sub && <div className="text-xs opacity-60 mt-1">{sub}</div>}
-    </div>
-  );
-}
-
-function DistBar({ items, total, colorFn }) {
-  const max = Math.max(...items.map(([, v]) => v), 1);
-  return (
-    <div className="space-y-1.5">
-      {items.map(([k, v]) => (
-        <div key={k} className="flex items-center gap-3 text-sm">
-          <div className="w-24 font-mono text-slate-700 shrink-0">{k}</div>
-          <div className="flex-1 bg-slate-100 rounded h-6 relative overflow-hidden">
-            <div
-              className={`h-full ${colorFn ? colorFn(k) : 'bg-blue-400'} transition-all`}
-              style={{ width: `${(v / max) * 100}%` }}
-            />
-            <div className="absolute inset-0 flex items-center px-2 text-xs font-medium text-slate-800">
-              {v.toLocaleString()} ({((v / total) * 100).toFixed(1)}%)
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function TreeNode({ item, depth = 0 }) {
-  const [open, setOpen] = useState(depth < 3);
-  const pad = { paddingLeft: `${depth * 16}px` };
-  if (item.type === 'L') {
-    return (
-      <div>
-        <div style={pad} className="font-mono text-xs py-0.5 flex items-center gap-1 hover:bg-slate-50 cursor-pointer" onClick={() => setOpen(!open)}>
-          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          <span className="text-blue-600 font-semibold">&lt;L [{item.length}]</span>
-          {item.name && <span className="text-amber-700 ml-1">{item.name}</span>}
-        </div>
-        {open && item.value.map((c, i) => <TreeNode key={i} item={c} depth={depth + 1} />)}
-        {open && <div style={pad} className="font-mono text-xs py-0.5 text-blue-600">&gt;</div>}
-      </div>
-    );
-  }
-  const valStr = typeof item.value === 'string' ? `"${item.value}"` : JSON.stringify(item.value);
-  return (
-    <div style={pad} className="font-mono text-xs py-0.5 hover:bg-slate-50">
-      <span className="text-purple-600 font-semibold">&lt;{item.type}</span>
-      <span className="text-slate-400 ml-1">[{item.length}]</span>
-      {item.name && <span className="text-amber-700 ml-2">{item.name}</span>}
-      <span className="text-green-700 ml-2">{valStr}</span>
-      <span className="text-purple-600">&gt;</span>
-    </div>
-  );
-}
-
-function DetailPanel({ msg, onClose }) {
-  if (!msg) return null;
-  const rows = [
-    ['TIME_EX', msg.TIME_EX],
-    ['LEVEL', msg.LEVEL],
-    ['SF', msg.SF],
-    ['W-bit', msg.W ? 'true' : 'false'],
-    ['SB', msg.SB],
-    ['LENGTH', msg.LENGTH],
-    ['LINE_NO', msg.LINE_NO],
-    ['SRC_FILE', msg.SRC_FILE],
-  ];
-  const semanticKeys = ['DATAID', 'CEID', 'REPORT_COUNT', 'RPTIDS', 'ALCD', 'ALID', 'ALTX', 'MDLN', 'SOFTREV'];
-  const semantic = semanticKeys.filter(k => k in msg).map(k => [k, msg[k]]);
-
-  return (
-    <div className="fixed inset-0 bg-slate-900/40 z-50 flex justify-end" onClick={onClose}>
-      <div className="bg-white w-full max-w-2xl h-full overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
-          <div>
-            <div className="text-xs text-slate-500">{msg.TIME_EX}</div>
-            <div className="flex items-center gap-2 mt-1">
-              <span className={`px-2 py-0.5 text-xs font-semibold rounded ${msg.LEVEL === 'SEND' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
-                {msg.LEVEL}
-              </span>
-              <span className="text-lg font-bold font-mono">{msg.SF}</span>
-              {msg.W && <span className="px-1.5 py-0.5 text-xs font-semibold rounded bg-amber-100 text-amber-700">W</span>}
-              <span className="text-xs text-slate-500 font-mono">SB:{msg.SB}</span>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded"><X size={20} /></button>
-        </div>
-        <div className="p-6 space-y-5">
-          <div>
-            <div className="text-sm font-semibold text-slate-700 mb-2">헤더</div>
-            <div className="bg-slate-50 rounded border border-slate-200 divide-y divide-slate-200">
-              {rows.map(([k, v]) => (
-                <div key={k} className="flex px-3 py-2 text-sm">
-                  <div className="w-28 font-mono text-slate-500 text-xs">{k}</div>
-                  <div className="font-mono text-slate-900">{String(v)}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {semantic.length > 0 && (
-            <div>
-              <div className="text-sm font-semibold text-slate-700 mb-2">의미 필드</div>
-              <div className="bg-amber-50 rounded border border-amber-200 divide-y divide-amber-200">
-                {semantic.map(([k, v]) => (
-                  <div key={k} className="flex px-3 py-2 text-sm">
-                    <div className="w-28 font-mono text-amber-700 text-xs font-semibold">{k}</div>
-                    <div className="font-mono text-amber-900 break-all">{typeof v === 'object' ? JSON.stringify(v) : String(v)}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {msg.BODY && (
-            <div>
-              <div className="text-sm font-semibold text-slate-700 mb-2">BODY 트리</div>
-              <div className="bg-slate-900 rounded p-3 overflow-x-auto">
-                <div className="text-slate-100">
-                  <TreeNodeDark item={msg.BODY} depth={0} />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {msg.DATA && (
-            <div>
-              <div className="text-sm font-semibold text-slate-700 mb-2">원본 SML</div>
-              <pre className="bg-slate-50 border border-slate-200 rounded p-3 text-xs font-mono overflow-x-auto whitespace-pre text-slate-700">
-{msg.DATA}
-              </pre>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TreeNodeDark({ item, depth = 0 }) {
-  const [open, setOpen] = useState(depth < 4);
-  const pad = { paddingLeft: `${depth * 16}px` };
-  if (item.type === 'L') {
-    return (
-      <div>
-        <div style={pad} className="font-mono text-xs py-0.5 flex items-center gap-1 hover:bg-slate-800 cursor-pointer" onClick={() => setOpen(!open)}>
-          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          <span className="text-cyan-400 font-semibold">&lt;L [{item.length}]</span>
-          {item.name && <span className="text-amber-300 ml-1">{item.name}</span>}
-        </div>
-        {open && item.value.map((c, i) => <TreeNodeDark key={i} item={c} depth={depth + 1} />)}
-        {open && <div style={pad} className="font-mono text-xs py-0.5 text-cyan-400">&gt;</div>}
-      </div>
-    );
-  }
-  const valStr = typeof item.value === 'string' ? `"${item.value}"` : JSON.stringify(item.value);
-  return (
-    <div style={pad} className="font-mono text-xs py-0.5 hover:bg-slate-800">
-      <span className="text-pink-400 font-semibold">&lt;{item.type}</span>
-      <span className="text-slate-500 ml-1">[{item.length}]</span>
-      {item.name && <span className="text-amber-300 ml-2">{item.name}</span>}
-      <span className="text-green-400 ml-2">{valStr}</span>
-      <span className="text-pink-400">&gt;</span>
-    </div>
-  );
-}
-
-function MessageRow({ m, onClick }) {
-  return (
-    <tr onClick={() => onClick(m)} className="border-b border-slate-100 hover:bg-blue-50 cursor-pointer text-sm">
-      <td className="px-3 py-2 font-mono text-xs text-slate-500 whitespace-nowrap">{m.TIME_EX}</td>
-      <td className="px-3 py-2">
-        <span className={`px-1.5 py-0.5 text-xs font-semibold rounded ${m.LEVEL === 'SEND' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
-          {m.LEVEL}
-        </span>
-      </td>
-      <td className="px-3 py-2 font-mono font-semibold">{m.SF}</td>
-      <td className="px-3 py-2 font-mono text-xs text-center">{m.W ? <span className="text-amber-600 font-bold">W</span> : ''}</td>
-      <td className="px-3 py-2 font-mono text-xs text-slate-600">{m.SB}</td>
-      <td className="px-3 py-2 font-mono text-xs text-slate-600">{m.LENGTH}</td>
-      <td className="px-3 py-2 text-xs text-slate-600 max-w-md truncate">
-        {m.ALTX && <span className="text-red-700 font-medium">🚨 {m.ALTX} (ALID={m.ALID})</span>}
-        {!m.ALTX && m.CEID !== undefined && <span>CEID={m.CEID} · DATAID={m.DATAID}{m.REPORT_COUNT ? ` · reports=${m.REPORT_COUNT}` : ''}</span>}
-        {!m.ALTX && m.CEID === undefined && m.MDLN && <span>MDLN={m.MDLN} · SOFTREV={m.SOFTREV}</span>}
-      </td>
-    </tr>
-  );
-}
-
-// ============================================================
-// Main App
-// ============================================================
-
-export default function App() {
-  const [messages, setMessages] = useState([]);
-  const [files, setFiles] = useState([]);
-  const [tab, setTab] = useState('stats');
-  const [filter, setFilter] = useState({ sf: '', level: '', search: '' });
-  const [selected, setSelected] = useState(null);
-  const [dragging, setDragging] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [page, setPage] = useState(0);
-  const PAGE_SIZE = 50;
-
-  const handleFiles = useCallback(async (fileList) => {
-    if (!fileList || fileList.length === 0) return;
-    setLoading(true);
-    const allMsgs = [];
-    const fileNames = [];
-    for (const f of Array.from(fileList)) {
-      if (!/\.(log|txt)$/i.test(f.name)) continue;
-      fileNames.push(f.name);
-      try {
-        const text = await f.text();
-        const msgs = parseLogText(text, f.name);
-        allMsgs.push(...msgs);
-      } catch (e) {
-        console.error('파싱 실패', f.name, e);
+    // attrs
+    const attrs = {};
+    while (true) {
+      this.skipWs();
+      if (this.pos >= this.n) break;
+      const c = this.text[this.pos];
+      if (c === '>' || c === '/') break;
+      const as = this.pos;
+      while (this.pos < this.n && /[A-Za-z0-9_\-:.]/.test(this.text[this.pos])) this.pos++;
+      const aName = this.text.slice(as, this.pos);
+      if (!aName) { this.pos++; continue; }
+      this.skipWs();
+      if (this.text[this.pos] === '=') {
+        this.pos++;
+        this.skipWs();
+        const q = this.text[this.pos];
+        if (q === '"' || q === "'") {
+          this.pos++;
+          const vs = this.pos;
+          while (this.pos < this.n && this.text[this.pos] !== q) this.pos++;
+          attrs[aName] = decodeEntities(this.text.slice(vs, this.pos));
+          if (this.pos < this.n) this.pos++;
+        }
+      } else {
+        attrs[aName] = true;
       }
     }
-    allMsgs.sort((a, b) => (a.TIME_EX < b.TIME_EX ? -1 : a.TIME_EX > b.TIME_EX ? 1 : 0));
-    setFiles(prev => [...prev, ...fileNames]);
-    setMessages(prev => [...prev, ...allMsgs]);
-    setLoading(false);
-    setPage(0);
-  }, []);
 
-  const clear = () => {
-    setMessages([]);
-    setFiles([]);
-    setTab('stats');
-    setFilter({ sf: '', level: '', search: '' });
-  };
-
-  const stats = useMemo(() => {
-    const bySF = {}, byLvl = {}, byStream = {};
-    let wCount = 0;
-    for (const m of messages) {
-      bySF[m.SF] = (bySF[m.SF] || 0) + 1;
-      byLvl[m.LEVEL] = (byLvl[m.LEVEL] || 0) + 1;
-      const s = m.SF.split('F')[0];
-      byStream[s] = (byStream[s] || 0) + 1;
-      if (m.W) wCount++;
+    // self-closing
+    if (this.text[this.pos] === '/') {
+      this.pos++;
+      if (this.text[this.pos] === '>') this.pos++;
+      return { name, attrs, text: '', children: [] };
     }
-    const sortDesc = (o) => Object.entries(o).sort((a, b) => b[1] - a[1]);
-    return {
-      total: messages.length, wCount,
-      bySF: sortDesc(bySF), byLvl: sortDesc(byLvl), byStream: sortDesc(byStream),
+    if (this.text[this.pos] === '>') this.pos++;
+
+    // content
+    const children = [];
+    let textBuf = '';
+    while (this.pos < this.n) {
+      if (this.text.startsWith('</', this.pos)) {
+        const e = this.text.indexOf('>', this.pos);
+        this.pos = e === -1 ? this.n : e + 1;
+        break;
+      }
+      if (this.text.startsWith('<!--', this.pos)) {
+        const e = this.text.indexOf('-->', this.pos);
+        this.pos = e === -1 ? this.n : e + 3;
+        continue;
+      }
+      if (this.text.startsWith('<![CDATA[', this.pos)) {
+        const e = this.text.indexOf(']]>', this.pos);
+        textBuf += this.text.slice(this.pos + 9, e === -1 ? this.n : e);
+        this.pos = e === -1 ? this.n : e + 3;
+        continue;
+      }
+      if (this.text[this.pos] === '<') {
+        const child = this.parseElement();
+        if (child) children.push(child);
+        else this.pos++;
+      } else {
+        textBuf += this.text[this.pos];
+        this.pos++;
+      }
+    }
+    return { name, attrs, text: decodeEntities(textBuf.trim()), children };
+  }
+}
+
+function decodeEntities(s) {
+  return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+          .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+          .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
+          .replace(/&#x([0-9a-fA-F]+);/g, (_, n) => String.fromCharCode(parseInt(n, 16)));
+}
+
+function nodeToValue(node) {
+  const hasAttrs = Object.keys(node.attrs).length > 0;
+  const hasChildren = node.children.length > 0;
+  const hasText = node.text && node.text.length > 0;
+
+  if (!hasAttrs && !hasChildren) return hasText ? coerceScalar(node.text) : '';
+
+  const result = {};
+  if (hasAttrs) result._attrs = node.attrs;
+
+  if (hasChildren) {
+    const byName = {};
+    for (const child of node.children) {
+      if (!(child.name in byName)) byName[child.name] = [];
+      byName[child.name].push(nodeToValue(child));
+    }
+    for (const [n, arr] of Object.entries(byName)) {
+      result[n] = arr.length === 1 ? arr[0] : arr;
+    }
+  }
+
+  if (hasText) result._text = coerceScalar(node.text);
+  return result;
+}
+
+function coerceScalar(s) {
+  if (s === 'true') return true;
+  if (s === 'false') return false;
+  // 15자리 이상 정수는 JS number 정밀도 한계 → 문자열 유지 (transactionId 등)
+  if (/^-?\d+$/.test(s)) {
+    if (s.length > 15) return s;
+    return parseInt(s, 10);
+  }
+  if (/^-?\d+\.\d+$/.test(s)) return parseFloat(s);
+  return s;
+}
+
+function xmlToJson(xmlStr) {
+  const parser = new XMLParser(xmlStr);
+  const root = parser.parse();
+  if (!root) return {};
+  return { [root.name]: nodeToValue(root) };
+}
+
+// ============================================================
+// 3. 상태 및 UI
+// ============================================================
+
+const state = {
+  entries: [],
+  files: [],
+  selectedTag: null,
+  selectedIdx: null,
+  view: 'json',
+  page: 0,
+  PAGE_SIZE: 100,
+};
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+const TAG_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6','#f97316','#6366f1','#84cc16','#06b6d4','#d946ef'];
+function tagColor(tag) {
+  if (!tag) return '#94a3b8';
+  let h = 0;
+  for (let i = 0; i < tag.length; i++) h = (h * 31 + tag.charCodeAt(i)) >>> 0;
+  return TAG_COLORS[h % TAG_COLORS.length];
+}
+
+async function handleFiles(fileList) {
+  if (!fileList || fileList.length === 0) return;
+  $('dropzoneWrap').classList.add('hidden');
+  $('loading').classList.remove('hidden');
+  await new Promise(r => setTimeout(r, 10));
+
+  for (const f of Array.from(fileList)) {
+    if (!/\.(log|txt)$/i.test(f.name)) continue;
+    state.files.push(f.name);
+    try {
+      const text = await f.text();
+      const entries = parseLogText(text, f.name);
+      state.entries.push(...entries);
+    } catch (e) { console.error('파싱 실패', f.name, e); }
+  }
+
+  state.entries.sort((a, b) => a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0);
+  // 정렬 후 인덱스 부여 (indexOf O(n) 회피, 10만행 대응)
+  for (let i = 0; i < state.entries.length; i++) state.entries[i]._idx = i;
+
+  $('loading').classList.add('hidden');
+  $('main').classList.remove('hidden');
+  ['btn-dl-json', 'btn-dl-csv', 'btn-clear'].forEach(id => $(id).disabled = false);
+  render();
+}
+
+function clearAll() {
+  state.entries = []; state.files = []; state.selectedTag = null; state.selectedIdx = null;
+  state.page = 0; state.view = 'json';
+  $('main').classList.add('hidden');
+  $('dropzoneWrap').classList.remove('hidden');
+  ['btn-dl-json', 'btn-dl-csv', 'btn-clear'].forEach(id => $(id).disabled = true);
+  $('search').value = ''; $('filter-level').value = ''; $('filter-xml').value = '';
+  $('viewer-empty').classList.remove('hidden');
+  $('viewer-content').classList.add('hidden');
+}
+
+function selectTag(tag) {
+  state.selectedTag = tag;
+  state.page = 0;
+  render();
+}
+
+function setPage(p) { state.page = p; }
+function prevPage() { if (state.page > 0) { state.page--; render(); } }
+function nextPage() {
+  const filtered = getFiltered();
+  const maxP = Math.max(0, Math.ceil(filtered.length / state.PAGE_SIZE) - 1);
+  if (state.page < maxP) { state.page++; render(); }
+}
+
+function getFiltered() {
+  const q = ($('search')?.value || '').toLowerCase();
+  const lvl = $('filter-level')?.value || '';
+  const xml = $('filter-xml')?.value || '';
+  let out = state.entries;
+  if (state.selectedTag) out = out.filter(e => e.xmlTag === state.selectedTag);
+  if (lvl) out = out.filter(e => e.level === lvl);
+  if (xml === 'has') out = out.filter(e => !!e.xmlTag);
+  else if (xml === 'none') out = out.filter(e => !e.xmlTag);
+  if (q) {
+    out = out.filter(e =>
+      (e.rawLog || '').toLowerCase().includes(q) ||
+      (e.class || '').toLowerCase().includes(q) ||
+      (e.xmlContent || '').toLowerCase().includes(q) ||
+      (e.timestamp || '').toLowerCase().includes(q) ||
+      (e.xmlTag || '').toLowerCase().includes(q)
+    );
+  }
+  return out;
+}
+
+function render() {
+  // 태그 카운트
+  const tagCounts = {};
+  let xmlCount = 0;
+  for (const e of state.entries) {
+    if (e.xmlTag) {
+      tagCounts[e.xmlTag] = (tagCounts[e.xmlTag] || 0) + 1;
+      xmlCount++;
+    }
+  }
+  const tagEntries = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
+  const maxCount = tagEntries.length ? tagEntries[0][1] : 1;
+
+  // Sidebar
+  $('sidebar-stats').textContent = `총 ${state.entries.length.toLocaleString()}건 · XML ${xmlCount.toLocaleString()}건`;
+  $('selected-tag-label').textContent = state.selectedTag || '전체';
+  $('clear-tag-btn').style.visibility = state.selectedTag ? 'visible' : 'hidden';
+
+  // 전체 항목
+  const allRow = `
+    <div class="tag-row ${!state.selectedTag ? 'active' : ''}" onclick="selectTag(null)">
+      <div class="tag-name-row">
+        <div class="tag-name">🔘 전체</div>
+        <div class="tag-count">${state.entries.length.toLocaleString()}</div>
+      </div>
+      <div class="tag-bar-track"><div class="tag-bar-fill" style="width:100%;background:#94a3b8"></div></div>
+    </div>`;
+  const xmlRows = tagEntries.map(([tag, cnt]) => {
+    const color = tagColor(tag);
+    const pct = (cnt / maxCount) * 100;
+    const active = state.selectedTag === tag ? 'active' : '';
+    return `<div class="tag-row ${active}" onclick="selectTag('${esc(tag)}')">
+      <div class="tag-name-row">
+        <div class="tag-name" style="color:${color}">● ${esc(tag)}</div>
+        <div class="tag-count">${cnt.toLocaleString()}</div>
+      </div>
+      <div class="tag-bar-track"><div class="tag-bar-fill" style="width:${pct}%;background:${color}"></div></div>
+    </div>`;
+  }).join('');
+  $('tag-list').innerHTML = allRow + xmlRows;
+
+  // Mini stats
+  $('ms-total').textContent = state.entries.length.toLocaleString();
+  $('ms-xml').textContent = xmlCount.toLocaleString();
+  $('ms-tagcount').textContent = tagEntries.length.toLocaleString();
+
+  // 테이블
+  const filtered = getFiltered();
+  const totalPages = Math.max(1, Math.ceil(filtered.length / state.PAGE_SIZE));
+  if (state.page >= totalPages) state.page = totalPages - 1;
+  if (state.page < 0) state.page = 0;
+  const rows = filtered.slice(state.page * state.PAGE_SIZE, (state.page + 1) * state.PAGE_SIZE);
+
+  $('log-tbody').innerHTML = rows.map(e => {
+    const globalIdx = e._idx;
+    const selected = state.selectedIdx === globalIdx ? 'selected' : '';
+    const tagBadge = e.xmlTag
+      ? `<span class="tag-chip" style="background:${tagColor(e.xmlTag)}22;color:${tagColor(e.xmlTag)};border:1px solid ${tagColor(e.xmlTag)}55" title="${esc(e.xmlTag)}">${esc(e.xmlTag)}</span>`
+      : `<span style="color:#cbd5e1;font-size:11px">—</span>`;
+    const preview = (e.message || '').replace(/\s+/g, ' ').slice(0, 200);
+    return `<tr class="${selected}" onclick="selectEntry(${globalIdx})">
+      <td class="mono">${esc(e.timestamp)}</td>
+      <td><span class="level-chip level-${e.level}">${esc(e.level)}</span></td>
+      <td class="mono">${esc(e.threadId)}</td>
+      <td>${tagBadge}</td>
+      <td class="preview">${esc(preview)}</td>
+    </tr>`;
+  }).join('');
+
+  $('log-empty').classList.toggle('hidden', filtered.length > 0);
+  $('page-info').textContent = filtered.length === 0 ? '0 건'
+    : `${filtered.length.toLocaleString()} 건 중 ${state.page * state.PAGE_SIZE + 1}-${Math.min((state.page + 1) * state.PAGE_SIZE, filtered.length)}`;
+  $('page-num').textContent = `${state.page + 1} / ${totalPages}`;
+  $('page-prev').disabled = state.page === 0;
+  $('page-next').disabled = state.page >= totalPages - 1;
+
+  renderViewer();
+}
+
+function selectEntry(idx) {
+  state.selectedIdx = idx;
+  render();
+}
+
+// ============================================================
+// 4. 뷰어
+// ============================================================
+
+function switchView(v) {
+  state.view = v;
+  document.querySelectorAll('.viewer-tab').forEach(el => el.classList.toggle('active', el.dataset.view === v));
+  renderViewer();
+}
+
+function renderViewer() {
+  const e = state.entries[state.selectedIdx];
+  if (!e) {
+    $('viewer-empty').classList.remove('hidden');
+    $('viewer-content').classList.add('hidden');
+    return;
+  }
+  $('viewer-empty').classList.add('hidden');
+  $('viewer-content').classList.remove('hidden');
+
+  const c = $('viewer-content');
+  if (state.view === 'json') {
+    if (e.jsonContent) {
+      c.innerHTML = highlightJson(e.jsonContent);
+    } else {
+      c.innerHTML = `<span style="color:#94a3b8">이 로그에는 XML이 없습니다</span>`;
+    }
+  } else if (state.view === 'xml') {
+    if (e.xmlContent) {
+      c.innerHTML = highlightXml(e.xmlContent);
+    } else {
+      c.innerHTML = `<span style="color:#94a3b8">이 로그에는 XML이 없습니다</span>`;
+    }
+  } else if (state.view === 'raw') {
+    c.innerHTML = `<span style="color:#334155">${esc(e.rawLog)}</span>`;
+  } else if (state.view === 'meta') {
+    const meta = {
+      timestamp: e.timestamp, level: e.level, threadId: e.threadId,
+      class: e.class, xmlTag: e.xmlTag, srcFile: e.srcFile, lineNo: e.lineNo,
     };
-  }, [messages]);
+    c.innerHTML = highlightJson(meta);
+  }
+}
 
-  const alarms = useMemo(() => messages.filter(m => m.SF === 'S5F1'), [messages]);
-  const events = useMemo(() => messages.filter(m => m.SF === 'S6F11'), [messages]);
+function highlightJson(obj) {
+  let s = JSON.stringify(obj, null, 2);
+  s = s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  s = s.replace(/(&quot;(?:\\.|(?!&quot;).)*&quot;)(\s*:)/g, '<span class="j-key">$1</span>$2');
+  s = s.replace(/:\s*(&quot;(?:\\.|(?!&quot;).)*&quot;)/g, ': <span class="j-str">$1</span>');
+  s = s.replace(/:\s*(-?\d+\.?\d*)/g, ': <span class="j-num">$1</span>');
+  s = s.replace(/:\s*(true|false)/g, ': <span class="j-bool">$1</span>');
+  s = s.replace(/:\s*(null)/g, ': <span class="j-null">$1</span>');
+  return s;
+}
 
-  const filtered = useMemo(() => {
-    let out = messages;
-    if (filter.sf) {
-      const q = filter.sf.toUpperCase();
-      out = out.filter(m => m.SF.includes(q));
-    }
-    if (filter.level) out = out.filter(m => m.LEVEL === filter.level);
-    if (filter.search) {
-      const q = filter.search.toLowerCase();
-      out = out.filter(m =>
-        m.SF.toLowerCase().includes(q) ||
-        (m.ALTX || '').toLowerCase().includes(q) ||
-        (m.DATA || '').toLowerCase().includes(q) ||
-        String(m.CEID ?? '').includes(q) ||
-        String(m.ALID ?? '').includes(q) ||
-        String(m.SB ?? '').includes(q)
-      );
-    }
+function highlightXml(xml) {
+  // 포맷팅
+  let formatted = formatXml(xml);
+  let s = formatted.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  // 태그/속성 하이라이트
+  s = s.replace(/(&lt;\/?)([A-Za-z][A-Za-z0-9_\-:.]*)([^&]*?)(\/?&gt;)/g,
+    (match, open, name, attrs, close) => {
+      const attrsH = attrs.replace(/([A-Za-z_][A-Za-z0-9_\-:.]*)=(&quot;[^&]*?&quot;)/g,
+        '<span class="x-attr">$1</span>=<span class="x-val">$2</span>');
+      return `<span class="x-tag">${open}</span><span class="x-tagname">${name}</span>${attrsH}<span class="x-tag">${close}</span>`;
+    });
+  return s;
+}
+
+function formatXml(xml) {
+  // 태그 사이에 개행 넣어 들여쓰기
+  let s = xml.trim();
+  // 기존 공백 정규화
+  s = s.replace(/>\s+</g, '><');
+  // 태그 사이 개행
+  s = s.replace(/(<[^\/][^>]*[^\/]>)(?=[^<])/g, '$1');
+  s = s.replace(/>(<\/)/g, '>\n$1');
+  s = s.replace(/(<[^\/!?][^>]*[^\/]>)(<)/g, '$1\n$2');
+  s = s.replace(/(>)(<[^\/])/g, '$1\n$2');
+  // 들여쓰기
+  const lines = s.split('\n');
+  let depth = 0;
+  return lines.map(ln => {
+    const trimmed = ln.trim();
+    if (trimmed.startsWith('</')) depth = Math.max(0, depth - 1);
+    const out = '  '.repeat(depth) + trimmed;
+    if (trimmed.startsWith('<') && !trimmed.startsWith('</') && !trimmed.startsWith('<?') && !trimmed.startsWith('<!')
+        && !trimmed.endsWith('/>') && !trimmed.includes('</')) depth++;
     return out;
-  }, [messages, filter]);
-
-  const pageRows = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-
-  const downloadJson = () => {
-    const blob = new Blob([JSON.stringify(messages, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'secs_parsed.json';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const downloadAlarmsCsv = () => {
-    const header = 'TIME_EX,LEVEL,SB,W,ALCD,ALID,ALTX,SRC_FILE\n';
-    const rows = alarms.map(m =>
-      [m.TIME_EX, m.LEVEL, m.SB, m.W, m.ALCD, m.ALID, `"${(m.ALTX || '').replace(/"/g, '""')}"`, m.SRC_FILE].join(',')
-    ).join('\n');
-    const blob = new Blob([header + rows], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'alarms.csv';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const tabs = [
-    { id: 'stats', label: '통계', icon: BarChart3, count: stats.total },
-    { id: 'all', label: '전체 메시지', icon: FileText, count: filtered.length },
-    { id: 'alarms', label: '알람 (S5F1)', icon: AlertCircle, count: alarms.length, accent: 'text-red-600' },
-    { id: 'events', label: '이벤트 (S6F11)', icon: Activity, count: events.length, accent: 'text-green-600' },
-  ];
-
-  return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="max-w-7xl mx-auto p-6">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">SECS-II Log Parser</h1>
-            <p className="text-sm text-slate-500 mt-1">로그 파일을 드래그하면 자동 파싱 · 통계 · 알람/이벤트 추출</p>
-          </div>
-          {messages.length > 0 && (
-            <div className="flex gap-2">
-              <button onClick={downloadJson} className="px-3 py-1.5 text-sm bg-slate-800 text-white rounded hover:bg-slate-900 flex items-center gap-1.5">
-                <Download size={14} /> JSON
-              </button>
-              {alarms.length > 0 && (
-                <button onClick={downloadAlarmsCsv} className="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 flex items-center gap-1.5">
-                  <Download size={14} /> 알람 CSV
-                </button>
-              )}
-              <button onClick={clear} className="px-3 py-1.5 text-sm bg-white border border-slate-300 text-slate-700 rounded hover:bg-slate-50 flex items-center gap-1.5">
-                <Trash2 size={14} /> 초기화
-              </button>
-            </div>
-          )}
-        </div>
-
-        {messages.length === 0 && (
-          <DropZone
-            onDrop={handleFiles}
-            onFileSelect={handleFiles}
-            dragging={dragging}
-            setDragging={setDragging}
-          />
-        )}
-
-        {loading && (
-          <div className="text-center py-12 text-slate-500">파싱 중...</div>
-        )}
-
-        {messages.length > 0 && (
-          <>
-            <div className="bg-white rounded-lg border border-slate-200 p-4 mb-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-sm font-semibold text-slate-700">로드된 파일 ({files.length})</div>
-                <label className="text-xs text-blue-600 hover:underline cursor-pointer">
-                  + 파일 추가
-                  <input type="file" multiple accept=".log,.txt" className="hidden" onChange={(e) => handleFiles(e.target.files)} />
-                </label>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {files.map((f, i) => (
-                  <span key={i} className="px-2 py-0.5 text-xs bg-slate-100 text-slate-600 rounded font-mono">{f}</span>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex border-b border-slate-200 mb-4">
-              {tabs.map(t => {
-                const Icon = t.icon;
-                const active = tab === t.id;
-                return (
-                  <button
-                    key={t.id}
-                    onClick={() => { setTab(t.id); setPage(0); }}
-                    className={`px-4 py-2.5 flex items-center gap-2 text-sm font-medium border-b-2 transition-colors ${
-                      active
-                        ? 'border-blue-600 text-blue-600'
-                        : 'border-transparent text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    <Icon size={16} className={active ? '' : (t.accent || '')} />
-                    {t.label}
-                    <span className={`text-xs px-1.5 py-0.5 rounded ${active ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>
-                      {t.count.toLocaleString()}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {tab === 'stats' && (
-              <div className="space-y-5">
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                  <StatCard label="총 메시지" value={stats.total} tone="slate" />
-                  <StatCard label="W-bit" value={stats.wCount} sub="응답 요구" tone="amber" />
-                  <StatCard label="SEND" value={stats.byLvl.find(([k]) => k === 'SEND')?.[1] || 0} tone="blue" />
-                  <StatCard label="RECV" value={stats.byLvl.find(([k]) => k === 'RECV')?.[1] || 0} tone="green" />
-                  <StatCard label="알람 (S5F1)" value={alarms.length} sub={`이벤트 ${events.length}`} tone="red" />
-                </div>
-
-                <div className="grid md:grid-cols-2 gap-5">
-                  <div className="bg-white rounded-lg border border-slate-200 p-5">
-                    <div className="text-sm font-semibold text-slate-700 mb-3">Stream별 분포</div>
-                    <DistBar
-                      items={stats.byStream}
-                      total={stats.total}
-                      colorFn={(k) => k === 'S5' ? 'bg-red-300' : k === 'S6' ? 'bg-green-300' : 'bg-blue-300'}
-                    />
-                  </div>
-
-                  <div className="bg-white rounded-lg border border-slate-200 p-5">
-                    <div className="text-sm font-semibold text-slate-700 mb-3">S/F별 빈도 (상위 15)</div>
-                    <DistBar
-                      items={stats.bySF.slice(0, 15)}
-                      total={stats.total}
-                      colorFn={(k) => k.startsWith('S5') ? 'bg-red-300' : k.startsWith('S6') ? 'bg-green-300' : 'bg-blue-300'}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {tab === 'all' && (
-              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-                <div className="p-3 border-b border-slate-200 flex flex-wrap gap-2 items-center">
-                  <div className="relative flex-1 min-w-64">
-                    <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
-                    <input
-                      type="text"
-                      placeholder="검색 (SF, ALTX, SB, CEID, ALID, DATA)"
-                      value={filter.search}
-                      onChange={(e) => { setFilter({ ...filter, search: e.target.value }); setPage(0); }}
-                      className="w-full pl-8 pr-3 py-1.5 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="SF 필터 (예: S6F11)"
-                    value={filter.sf}
-                    onChange={(e) => { setFilter({ ...filter, sf: e.target.value }); setPage(0); }}
-                    className="px-3 py-1.5 text-sm border border-slate-300 rounded w-40 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <select
-                    value={filter.level}
-                    onChange={(e) => { setFilter({ ...filter, level: e.target.value }); setPage(0); }}
-                    className="px-3 py-1.5 text-sm border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">전체 방향</option>
-                    <option value="SEND">SEND</option>
-                    <option value="RECV">RECV</option>
-                  </select>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-slate-50 text-xs uppercase text-slate-600">
-                      <tr>
-                        <th className="px-3 py-2 text-left">시간</th>
-                        <th className="px-3 py-2 text-left">방향</th>
-                        <th className="px-3 py-2 text-left">S/F</th>
-                        <th className="px-3 py-2 text-center">W</th>
-                        <th className="px-3 py-2 text-left">SB</th>
-                        <th className="px-3 py-2 text-left">Len</th>
-                        <th className="px-3 py-2 text-left">요약</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pageRows.map((m, i) => <MessageRow key={`${m.SRC_FILE}-${m.LINE_NO}-${i}`} m={m} onClick={setSelected} />)}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="px-3 py-2 border-t border-slate-200 flex items-center justify-between text-sm">
-                  <div className="text-slate-600">{filtered.length.toLocaleString()} 건 중 {page * PAGE_SIZE + 1}-{Math.min((page + 1) * PAGE_SIZE, filtered.length)}</div>
-                  <div className="flex gap-1">
-                    <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0} className="px-3 py-1 border border-slate-300 rounded disabled:opacity-40 hover:bg-slate-50">이전</button>
-                    <span className="px-3 py-1 font-mono text-xs">{page + 1} / {totalPages}</span>
-                    <button onClick={() => setPage(Math.min(totalPages - 1, page + 1))} disabled={page >= totalPages - 1} className="px-3 py-1 border border-slate-300 rounded disabled:opacity-40 hover:bg-slate-50">다음</button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {tab === 'alarms' && (
-              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-                <table className="w-full">
-                  <thead className="bg-red-50 text-xs uppercase text-red-700">
-                    <tr>
-                      <th className="px-3 py-2 text-left">시간</th>
-                      <th className="px-3 py-2 text-left">방향</th>
-                      <th className="px-3 py-2 text-left">SB</th>
-                      <th className="px-3 py-2 text-left">ALCD</th>
-                      <th className="px-3 py-2 text-left">ALID</th>
-                      <th className="px-3 py-2 text-left">ALTX</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {alarms.map((m, i) => (
-                      <tr key={i} onClick={() => setSelected(m)} className="border-b border-slate-100 hover:bg-red-50 cursor-pointer text-sm">
-                        <td className="px-3 py-2 font-mono text-xs">{m.TIME_EX}</td>
-                        <td className="px-3 py-2">
-                          <span className={`px-1.5 py-0.5 text-xs font-semibold rounded ${m.LEVEL === 'SEND' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>{m.LEVEL}</span>
-                        </td>
-                        <td className="px-3 py-2 font-mono text-xs">{m.SB}</td>
-                        <td className="px-3 py-2 font-mono text-xs">{m.ALCD}</td>
-                        <td className="px-3 py-2 font-mono font-semibold">{m.ALID}</td>
-                        <td className="px-3 py-2 text-red-700">{m.ALTX}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {alarms.length === 0 && <div className="py-12 text-center text-slate-400">알람 없음</div>}
-              </div>
-            )}
-
-            {tab === 'events' && (
-              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-                <table className="w-full">
-                  <thead className="bg-green-50 text-xs uppercase text-green-700">
-                    <tr>
-                      <th className="px-3 py-2 text-left">시간</th>
-                      <th className="px-3 py-2 text-left">방향</th>
-                      <th className="px-3 py-2 text-left">W</th>
-                      <th className="px-3 py-2 text-left">SB</th>
-                      <th className="px-3 py-2 text-left">DATAID</th>
-                      <th className="px-3 py-2 text-left">CEID</th>
-                      <th className="px-3 py-2 text-left">RPTIDS</th>
-                      <th className="px-3 py-2 text-left">Reports</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {events.map((m, i) => (
-                      <tr key={i} onClick={() => setSelected(m)} className="border-b border-slate-100 hover:bg-green-50 cursor-pointer text-sm">
-                        <td className="px-3 py-2 font-mono text-xs">{m.TIME_EX}</td>
-                        <td className="px-3 py-2">
-                          <span className={`px-1.5 py-0.5 text-xs font-semibold rounded ${m.LEVEL === 'SEND' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>{m.LEVEL}</span>
-                        </td>
-                        <td className="px-3 py-2 text-center">{m.W ? <span className="text-amber-600 font-bold">W</span> : ''}</td>
-                        <td className="px-3 py-2 font-mono text-xs">{m.SB}</td>
-                        <td className="px-3 py-2 font-mono text-xs">{m.DATAID}</td>
-                        <td className="px-3 py-2 font-mono font-semibold">{m.CEID}</td>
-                        <td className="px-3 py-2 font-mono text-xs">{Array.isArray(m.RPTIDS) ? `[${m.RPTIDS.join(',')}]` : '-'}</td>
-                        <td className="px-3 py-2 font-mono text-xs">{m.REPORT_COUNT ?? 0}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {events.length === 0 && <div className="py-12 text-center text-slate-400">이벤트 없음</div>}
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      <DetailPanel msg={selected} onClose={() => setSelected(null)} />
-    </div>
-  );
+  }).join('\n');
 }
+
+// ============================================================
+// 5. 다운로드
+// ============================================================
+
+function downloadJSON() {
+  const data = state.entries.map(e => ({
+    timestamp: e.timestamp, level: e.level, threadId: e.threadId, class: e.class,
+    xmlTag: e.xmlTag, xmlContent: e.xmlContent, jsonContent: e.jsonContent,
+    message: e.message, srcFile: e.srcFile, lineNo: e.lineNo,
+  }));
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'log_analysis.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function downloadCSV() {
+  const header = 'timestamp,level,threadId,class,xmlTag,srcFile,lineNo,preview\n';
+  const rows = state.entries.map(e => {
+    const prev = (e.message || '').replace(/\s+/g, ' ').slice(0, 300).replace(/"/g, '""');
+    return `"${e.timestamp}",${e.level},"${e.threadId}","${e.class}","${e.xmlTag || ''}","${e.srcFile}",${e.lineNo},"${prev}"`;
+  }).join('\n');
+  const blob = new Blob(['\uFEFF' + header + rows], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'log_entries.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ============================================================
+// 6. DropZone 이벤트
+// ============================================================
+
+const dropzone = $('dropzone');
+const fileInput = $('fileInput');
+dropzone.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => handleFiles(e.target.files));
+dropzone.addEventListener('dragenter', e => { e.preventDefault(); dropzone.classList.add('dragging'); });
+dropzone.addEventListener('dragover', e => e.preventDefault());
+dropzone.addEventListener('dragleave', e => { e.preventDefault(); dropzone.classList.remove('dragging'); });
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('dragging');
+  handleFiles(e.dataTransfer.files);
+});
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => {
+  if ($('main').classList.contains('hidden')) return;
+  e.preventDefault();
+  handleFiles(e.dataTransfer.files);
+});
+</script>
+
+</body>
+</html>
