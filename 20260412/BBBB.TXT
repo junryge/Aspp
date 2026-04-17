@@ -48,6 +48,30 @@ body { font-family:'Malgun Gothic','Segoe UI',sans-serif; background:#0a0e17; co
 #map-container { flex:1; position:relative; background:#0a0e17; overflow:hidden; min-height:200px; }
 #map-canvas { width:100%; height:100%; }
 
+/* 상단 통계 배지 */
+#stat-badges {
+  position:absolute; top:8px; left:50%; transform:translateX(-50%);
+  display:flex; gap:6px; z-index:50; pointer-events:none;
+  font-family:'Malgun Gothic','Segoe UI',sans-serif;
+}
+.stat-badge {
+  background:rgba(10,14,23,0.88); border:1px solid #1f2937; border-radius:6px;
+  padding:4px 10px; display:flex; align-items:center; gap:6px;
+  font-size:12px; backdrop-filter:blur(4px);
+}
+.stat-badge .dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.stat-badge .lbl { color:#9ca3af; font-size:11px; }
+.stat-badge .val { color:#fff; font-weight:bold; font-size:13px; min-width:20px; text-align:right; }
+.stat-badge.idle { border-color:#22c55e40; }
+.stat-badge.loaded { border-color:#3b82f640; }
+.stat-badge.obs { border-color:#f59e0b40; }
+.stat-badge.stopped { border-color:#6b728040; }
+.stat-badge.railcut { border-color:#ef444440; animation:badgePulse 1.2s infinite; }
+@keyframes badgePulse {
+  0%,100% { box-shadow:0 0 0 0 rgba(239,68,68,0); }
+  50% { box-shadow:0 0 0 4px rgba(239,68,68,0.25); }
+}
+
 #bottom-panels { display:flex; height:200px; border-top:1px solid #1f2937; flex-shrink:0; }
 .cpanel { flex:1; padding:6px; background:#111827; border-right:1px solid #1f2937; overflow:hidden; }
 .cpanel:last-child { border-right:none; }
@@ -127,12 +151,6 @@ canvas.chart { width:100%; height:calc(100% - 18px); }
   <span style="font-size:11px;margin-left:12px;opacity:0.8;">(클릭하면 닫힘)</span>
 </div>
 
-<!-- 레일 차단 알람 배너 -->
-<div id="railcut-banner" style="display:none;background:#dc2626;color:#fff;text-align:center;padding:6px 16px;font-weight:bold;font-size:13px;animation:alarmBlink 1s infinite;cursor:pointer;" onclick="this.style.display='none'">
-  <span id="railcut-text"></span>
-  <span style="font-size:10px;margin-left:12px;opacity:0.8;">(클릭하면 닫힘)</span>
-</div>
-
 <div id="main">
   <div id="sidebar-toggle" onclick="toggleSidebar()" title="사이드바 열기/닫기">&#9654;</div>
   <div id="sidebar" class="collapsed">
@@ -180,6 +198,14 @@ canvas.chart { width:100%; height:calc(100% - 18px); }
     <div style="display:flex;flex:1;overflow:hidden;">
       <div id="map-container" style="flex:1;">
         <canvas id="map-canvas"></canvas>
+        <!-- 상단 통계 배지 -->
+        <div id="stat-badges">
+          <div class="stat-badge idle"><span class="dot" style="background:#22c55e;"></span><span class="lbl">공차운행</span><span class="val" id="cnt-idle">0</span></div>
+          <div class="stat-badge loaded"><span class="dot" style="background:#3b82f6;"></span><span class="lbl">적재</span><span class="val" id="cnt-loaded">0</span></div>
+          <div class="stat-badge obs"><span class="dot" style="background:#f59e0b;"></span><span class="lbl">OBS</span><span class="val" id="cnt-obs">0</span></div>
+          <div class="stat-badge stopped"><span class="dot" style="background:#6b7280;"></span><span class="lbl">정지</span><span class="val" id="cnt-stopped">0</span></div>
+          <div class="stat-badge railcut"><span class="dot" style="background:#ef4444;"></span><span class="lbl">레일차단</span><span class="val" id="cnt-railcut">0</span></div>
+        </div>
       </div>
       <!-- 오른쪽 사이드바: OHT/Zone -->
       <div id="rsidebar-toggle" class="open" onclick="toggleRSidebar()" title="OHT/Zone 목록 열기/닫기">&#9664;</div>
@@ -288,6 +314,7 @@ async function loadDate(dateKey) {
 const statusMap = { stopped:'정지', playing:'재생중', paused:'일시정지' };
 function updateUI(d) {
   document.getElementById('time-display').textContent = d.time_short || '--:--:--';
+  mapData.currentTimeStr = d.time_short || '';
   document.getElementById('frame-display').textContent = `${d.frame||0}/${d.totalFrames||0}`;
   const slider = document.getElementById('time-slider');
   if (d.totalFrames) slider.max = d.totalFrames;
@@ -370,8 +397,8 @@ function updateUI(d) {
   const blockedEdges = {};  // "from_to" -> { rc, from, to }
   for (const rc of rcs) {
     const st = (rc.state || '').toUpperCase();
-    // 복구 이벤트는 스킵
-    const isRestore = st.includes('RESTORE') || st.includes('CLEAR') || st.includes('RECOVER') || st === 'OFF' || st === 'FREE';
+    // 복구 이벤트(NORMAL/RESTORE/CLEAR/RECOVER)는 스킵 — 맵에 표시 안 함
+    const isRestore = st.includes('NORMAL') || st.includes('RESTORE') || st.includes('CLEAR') || st.includes('RECOVER') || st === 'OFF' || st === 'FREE';
     if (isRestore) continue;
 
     // affect_addrs 배열 전체 표시, 없으면 from/to만
@@ -386,30 +413,21 @@ function updateUI(d) {
   mapData.blockedEdges = blockedEdges;
   const activeCount = Object.keys(blockedEdges).length;
 
-  // 사이드바 로그 (최근 5건 + 활성 카운트)
+  // 사이드바 로그 (활성 ABNORMAL만 표시 — NORMAL은 맵에서 사라지는 것으로 충분)
+  const activeOnly = rcs.filter(rc => {
+    const st = (rc.state || '').toUpperCase();
+    // NORMAL/RESTORE/CLEAR/RECOVER 계열은 로그 제외
+    return !st.includes('NORMAL') && !st.includes('RESTORE') && !st.includes('CLEAR') && !st.includes('RECOVER');
+  });
   const rcLog = document.getElementById('railcut-log');
-  if (rcs.length > 0) {
+  if (activeOnly.length > 0) {
     let html = `<div style="color:#ef4444;font-weight:bold;margin-bottom:4px;">⛔ 활성 차단: ${activeCount}개 edge</div>`;
-    html += rcs.slice(-5).reverse().map(rc => {
-      const st = (rc.state || '').toUpperCase();
-      const isRestore = st.includes('RESTORE') || st.includes('CLEAR') || st.includes('RECOVER');
-      const color = isRestore ? '#10b981' : '#ef4444';
-      const icon = isRestore ? '✓' : '⛔';
-      return `<div class="ev-item" style="color:${color};">${icon} ${rc.from_addr}→${rc.to_addr} [${rc.state}] (${rc.affect_count||0})</div>`;
+    html += activeOnly.slice(-5).reverse().map(rc => {
+      return `<div class="ev-item" style="color:#ef4444;">⛔ ${rc.from_addr}→${rc.to_addr} [${rc.state}] (${rc.affect_count||0})</div>`;
     }).join('');
     rcLog.innerHTML = html;
   } else {
     rcLog.innerHTML = '<div style="color:#6b7280;font-size:11px;">없음</div>';
-  }
-
-  // 상단 배너 (활성 차단 있을 때)
-  const rcBanner = document.getElementById('railcut-banner');
-  const rcText = document.getElementById('railcut-text');
-  if (activeCount > 0) {
-    rcBanner.style.display = 'block';
-    rcText.textContent = `⛔ 레일 차단 ${activeCount}개 구간 발생 — 맵 확인 필요`;
-  } else {
-    rcBanner.style.display = 'none';
   }
 
   // 차량 위치 보간 업데이트
@@ -435,6 +453,21 @@ function updateUI(d) {
   }
   mapData.vehicles = newVehicles;
   mapData.zoneCounts = d.zoneCounts || {};
+
+  // ===== 상단 통계 배지 업데이트 (공차운행/적재/OBS/정지/레일차단) =====
+  let cntIdle = 0, cntLoaded = 0, cntObs = 0, cntStopped = 0, cntJam = 0;
+  for (const v of newVehicles) {
+    if (v.state === 6) cntObs++;
+    else if (v.state === 7) cntJam++;
+    else if (v.state === 2 || v.state === 8 || v.state === 9) cntStopped++;
+    else if (v.isFull) cntLoaded++;
+    else cntIdle++;
+  }
+  setText('cnt-idle', cntIdle);
+  setText('cnt-loaded', cntLoaded);
+  setText('cnt-obs', cntObs);
+  setText('cnt-stopped', cntStopped + cntJam);  // 정지 + JAM 합산
+  setText('cnt-railcut', activeCount);
 }
 function setText(id, val) { const el=document.getElementById(id); if(el) el.textContent=val; }
 function updateDataSources(stats) {
@@ -620,18 +653,18 @@ function drawMap() {
   }
   mapCtx.drawImage(railCacheCanvas, 0, 0);
 
-  // ===== 1.5. 레일 차단 edge 렌더링 (동적, 깜빡임) =====
+  // ===== 1.5. 레일 차단 edge 렌더링 (기존 모양 유지, 작고 투명하게) =====
   const blockedEdges = mapData.blockedEdges || {};
   const blockedKeys = Object.keys(blockedEdges);
   if (showRailCut && blockedKeys.length > 0 && railGraph) {
     const nodes = railGraph.nodes;
-    const blink = (Date.now() / 500) % 2 < 1;
+    const blink = (Date.now() / 600) % 2 < 1;
 
-    // (A) 차단 edge — 빨간 굵은 점선
+    // (A) 차단 edge — 빨간 점선 (얇게 + 투명)
     mapCtx.strokeStyle = '#ef4444';
-    mapCtx.lineWidth = Math.max(2.5, 3 * mapZoom);
-    mapCtx.setLineDash([8 * mapZoom, 4 * mapZoom]);
-    mapCtx.globalAlpha = blink ? 1.0 : 0.5;
+    mapCtx.lineWidth = Math.max(1, 1.2 * mapZoom);
+    mapCtx.setLineDash([5 * mapZoom, 3 * mapZoom]);
+    mapCtx.globalAlpha = blink ? 0.45 : 0.18;
     mapCtx.lineCap = 'round';
     mapCtx.beginPath();
     const visibleBlocked = [];
@@ -647,36 +680,39 @@ function drawMap() {
     }
     mapCtx.stroke();
     mapCtx.setLineDash([]);
-    mapCtx.globalAlpha = 1.0;
 
-    // (B) edge 중앙에 ⛔ 마커 (빨간 원 + 흰 X)
-    const markerR = Math.max(6, 7 * mapZoom);
-    const xSize = Math.max(4, 5 * mapZoom);
+    // (B) edge 중앙에 ⛔ 마커 — 빨간 원 + 흰 테두리 + 흰 X (작고 투명하게)
+    const markerR = Math.max(2.5, 3 * mapZoom);
+    const xSize = Math.max(1.8, 2 * mapZoom);
     for (const vb of visibleBlocked) {
       const mx = (vb.fx + vb.tx) / 2, my = (vb.fy + vb.ty) / 2;
 
-      // 빨간 원 배경 (깜빡임)
-      mapCtx.fillStyle = blink ? '#ef4444' : '#991b1b';
+      // 빨간 원 배경 (깜빡임, 투명)
+      mapCtx.globalAlpha = blink ? 0.6 : 0.25;
+      mapCtx.fillStyle = '#ef4444';
       mapCtx.beginPath();
       mapCtx.arc(mx, my, markerR, 0, 6.283);
       mapCtx.fill();
-      // 흰 테두리
+
+      // 흰 테두리 (얇게)
       mapCtx.strokeStyle = '#fff';
-      mapCtx.lineWidth = 1.5;
+      mapCtx.lineWidth = 0.8;
       mapCtx.stroke();
 
-      // 흰 X 마커
+      // 흰 X 마커 (얇게)
+      mapCtx.globalAlpha = blink ? 0.75 : 0.3;
       mapCtx.strokeStyle = '#fff';
-      mapCtx.lineWidth = Math.max(1.8, 2 * mapZoom);
+      mapCtx.lineWidth = Math.max(0.8, 1 * mapZoom);
       mapCtx.beginPath();
       mapCtx.moveTo(mx - xSize, my - xSize); mapCtx.lineTo(mx + xSize, my + xSize);
       mapCtx.moveTo(mx + xSize, my - xSize); mapCtx.lineTo(mx - xSize, my + xSize);
       mapCtx.stroke();
     }
+    mapCtx.globalAlpha = 1.0;
   }
 
-  // 2. 차량 (보간된 위치)
-  const colors = {1:'#22c55e',2:'#6b7280',3:'#22c55e',4:'#22c55e',5:'#22c55e',6:'#f59e0b',7:'#ef4444',8:'#ef4444',9:'#ef4444'};
+  // 2. 차량 (보간된 위치) — 카테고리별 색상 분리
+  // 공차운행: 초록 #22c55e | 적재: 주황 #f59e0b | OBS: 노랑 #eab308 | 정지: 회색 #6b7280 | JAM: 빨강 #ef4444
   const r = Math.max(1.5, Math.min(4, 1.5*mapZoom));
   for (const vid in vehicleDisplay) {
     const v = vehicleDisplay[vid];
@@ -684,7 +720,13 @@ function drawMap() {
     if (sx<-5||sx>w+5||sy<-5||sy>h+5) continue;
     mapCtx.beginPath();
     mapCtx.arc(sx, sy, r, 0, 6.283);
-    mapCtx.fillStyle = (v.isFull&&v.state===1) ? '#f59e0b' : (colors[v.state]||'#6b7280');
+    let color;
+    if (v.state === 6) color = '#f59e0b';                      // OBS (주황)
+    else if (v.state === 7) color = '#ef4444';                 // JAM (빨강)
+    else if (v.state === 2 || v.state === 8 || v.state === 9) color = '#6b7280';  // 정지 (회색)
+    else if (v.isFull) color = '#3b82f6';                      // 적재 (파랑)
+    else color = '#22c55e';                                    // 공차운행 (초록)
+    mapCtx.fillStyle = color;
     mapCtx.fill();
   }
 
@@ -747,32 +789,8 @@ function drawMap() {
     }
   }
 
-  // 3. 범례 + 정보
-  mapCtx.font = '11px sans-serif'; mapCtx.textAlign = 'left';
-  const vCounts = {run:0, loaded:0, obs:0, jam:0, stop:0};
-  for (const vid in vehicleDisplay) {
-    const v = vehicleDisplay[vid];
-    if (v.state===1 && !v.isFull) vCounts.run++;
-    else if (v.isFull) vCounts.loaded++;
-    if (v.state===6) vCounts.obs++;
-    if (v.state===7) vCounts.jam++;
-    if (v.state===2||v.state===8||v.state===9) vCounts.stop++;
-  }
-  const leg = [
-    ['#22c55e',`공차 운행 (${vCounts.run})`],
-    ['#f59e0b',`적재/OBS (${vCounts.loaded+vCounts.obs})`],
-    ['#ef4444',`JAM/정지 (${vCounts.jam+vCounts.stop})`],
-  ];
-  // 레일 차단 범례 추가
-  if (showRailCut && blockedKeys.length > 0) {
-    leg.push(['#ef4444',`⛔ 레일 차단 (${blockedKeys.length})`]);
-  }
-  let ly = h - 8 - leg.length*16;
-  for (const [c,label] of leg) {
-    mapCtx.fillStyle='rgba(10,14,23,0.85)'; mapCtx.fillRect(4,ly-6,160,16);
-    mapCtx.fillStyle=c; mapCtx.beginPath(); mapCtx.arc(14,ly+3,4,0,6.283); mapCtx.fill();
-    mapCtx.fillStyle='#d1d5db'; mapCtx.fillText(label,24,ly+7); ly+=16;
-  }
+  // 3. 정보 표시 (범례는 상단 배지로 이동됨)
+  mapCtx.font = '11px sans-serif';
   mapCtx.fillStyle='rgba(10,14,23,0.85)'; mapCtx.fillRect(w-130,4,126,18);
   mapCtx.fillStyle='#60a5fa'; mapCtx.textAlign='right'; mapCtx.fillText(`차량 ${Object.keys(vehicleDisplay).length}대`, w-8, 16);
   mapCtx.fillStyle='rgba(10,14,23,0.85)'; mapCtx.fillRect(w-180,24,176,16);
@@ -804,15 +822,88 @@ function drawQueueChart() {
   const pad={left:35,right:5,top:8,bottom:18}, cw=w-pad.left-pad.right, ch=h-pad.top-pad.bottom;
   const queues=starHistory.map(s=>s.queue_total||0).filter(v=>v>0), obs=starHistory.map(s=>s.obs_bz_stop||0);
   const maxQ=Math.max(...queues,1), maxObs=Math.max(...obs,1);
+
+  // 차트 영역 좌표 저장 (클릭 이벤트용)
+  canvas._chartGeom = { padLeft: pad.left, padTop: pad.top, cw, ch, count: starHistory.length };
+
+  // 큐 라인
   ctx.strokeStyle='#3b82f6'; ctx.lineWidth=1.5; ctx.beginPath();
   for(let i=0;i<queues.length;i++){const x=pad.left+(i/queues.length)*cw,y=pad.top+ch-(queues[i]/maxQ)*ch;i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);}ctx.stroke();
+  // OBS 라인
   ctx.strokeStyle='#f59e0b'; ctx.lineWidth=1.5; ctx.beginPath();
   for(let i=0;i<obs.length;i++){const x=pad.left+(i/obs.length)*cw,y=pad.top+ch-(obs[i]/maxObs)*ch;i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);}ctx.stroke();
+
+  // 현재 재생 시간 세로선 (노란색)
+  if (mapData.currentTimeStr && starHistory.length > 0) {
+    const curHHMM = mapData.currentTimeStr.substring(0, 5);  // "HH:MM"
+    let curIdx = -1;
+    for (let i = 0; i < starHistory.length; i++) {
+      if (starHistory[i].time === curHHMM) { curIdx = i; break; }
+      if (starHistory[i].time > curHHMM && i > 0) { curIdx = i - 1; break; }
+    }
+    if (curIdx < 0 && curHHMM > starHistory[starHistory.length-1].time) curIdx = starHistory.length - 1;
+    if (curIdx >= 0) {
+      const cx = pad.left + (curIdx / starHistory.length) * cw;
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.moveTo(cx, pad.top);
+      ctx.lineTo(cx, pad.top + ch);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // 현재 시간 라벨
+      ctx.fillStyle = '#fbbf24';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      const labelX = Math.max(pad.left + 20, Math.min(w - 20, cx));
+      ctx.fillText('▼ ' + curHHMM, labelX, pad.top + 8);
+    }
+  }
+
+  // 라벨
   ctx.fillStyle='#6b7280';ctx.font='9px sans-serif';ctx.textAlign='right';ctx.fillText(maxQ.toString(),pad.left-4,pad.top+10);ctx.fillText('0',pad.left-4,pad.top+ch);
   ctx.textAlign='left';ctx.fillStyle='#3b82f6';ctx.fillText('큐',pad.left+5,pad.top+10);ctx.fillStyle='#f59e0b';ctx.fillText('OBS',pad.left+30,pad.top+10);
   ctx.fillStyle='#6b7280';ctx.textAlign='center';const step=Math.max(1,Math.floor(starHistory.length/8));
   for(let i=0;i<starHistory.length;i+=step){ctx.fillText(starHistory[i].time||'',pad.left+(i/starHistory.length)*cw,h-4);}
+
+  // 힌트 텍스트
+  ctx.fillStyle = '#4b5563';
+  ctx.font = '9px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('💡 클릭 → 해당 시간 이동', w - 4, h - 4);
 }
+
+// 차트 클릭 → 해당 시간으로 점프
+document.getElementById('chart-queue').addEventListener('click', function(e) {
+  if (!starHistory.length) return;
+  const canvas = e.currentTarget;
+  const geom = canvas._chartGeom;
+  if (!geom) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  // 차트 영역 밖이면 무시
+  if (x < geom.padLeft || x > geom.padLeft + geom.cw) return;
+  const ratio = (x - geom.padLeft) / geom.cw;
+  const idx = Math.max(0, Math.min(starHistory.length - 1, Math.floor(ratio * starHistory.length)));
+  const timeStr = starHistory[idx].time;  // "HH:MM"
+  if (!timeStr) return;
+  // 시간으로 점프
+  sendCmd('jump', { time: timeStr + ':00' });
+  // 시각적 피드백: 잠깐 세로선 강조
+  mapData.currentTimeStr = timeStr + ':00';
+  drawQueueChart();
+});
+
+// 마우스 커서 변경
+document.getElementById('chart-queue').addEventListener('mousemove', function(e) {
+  const canvas = e.currentTarget;
+  const geom = canvas._chartGeom;
+  if (!geom) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  canvas.style.cursor = (x >= geom.padLeft && x <= geom.padLeft + geom.cw) ? 'pointer' : 'default';
+});
 
 function drawHIDChart(hidData) {
   const canvas=document.getElementById('chart-hid');
@@ -970,6 +1061,10 @@ updateUI = function(d) {
     for (const vid in vehicleDisplay) vehicleDisplay[vid]._vid = vid;
     renderOHTList();
     renderZoneList();
+  }
+  // 큐 차트 세로선 갱신 (3프레임마다)
+  if (_uiFrameCount % 3 === 0 && starHistory.length > 0) {
+    drawQueueChart();
   }
 };
 
