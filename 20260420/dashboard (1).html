@@ -1,0 +1,1714 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>OHT 월드모델 시뮬레이션</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Malgun Gothic','Segoe UI',sans-serif; background:#0a0e17; color:#e0e0e0; overflow:hidden; height:100vh; }
+
+#topbar { display:flex; align-items:center; gap:10px; padding:6px 12px; background:#111827; border-bottom:1px solid #1f2937; height:44px; }
+#topbar select, #topbar button, #topbar input { font-size:13px; padding:4px 10px; border:1px solid #374151; border-radius:4px; background:#1f2937; color:#e0e0e0; cursor:pointer; }
+#topbar button:hover { background:#374151; }
+.speed-btn.selected { background:#f59e0b !important; color:#000 !important; }
+#time-display { font-size:18px; font-weight:bold; color:#60a5fa; min-width:80px; text-align:center; }
+#frame-display { font-size:11px; color:#6b7280; }
+#slider-container { flex:1; display:flex; align-items:center; }
+#time-slider { flex:1; accent-color:#3b82f6; }
+.badge { padding:2px 8px; border-radius:10px; font-size:11px; font-weight:bold; }
+.badge-stopped { background:#dc2626; }
+.badge-playing { background:#16a34a; }
+.badge-paused { background:#f59e0b; color:#000; }
+#loading-msg { color:#f59e0b; display:none; font-size:12px; }
+.toggle-btn { font-size:11px !important; padding:3px 8px !important; }
+.toggle-btn.on { background:#0891b2 !important; color:#fff !important; border-color:#06b6d4 !important; }
+
+#main { display:flex; height:calc(100vh - 44px); }
+/* ===== 스크롤바 숨김 처리 (기능은 유지, 외관만 숨김) ===== */
+#sidebar::-webkit-scrollbar,
+#rsidebar::-webkit-scrollbar,
+.rlist::-webkit-scrollbar,
+.event-log::-webkit-scrollbar,
+#p-zone-alerts::-webkit-scrollbar,
+#corr-panel::-webkit-scrollbar,
+#data-sources::-webkit-scrollbar { width:0; height:0; display:none; }
+#sidebar, #rsidebar, .rlist, .event-log, #p-zone-alerts, #corr-panel, #data-sources {
+  scrollbar-width:none; -ms-overflow-style:none;
+}
+
+/* ===== 왼쪽 사이드바 (오른쪽 사이드바와 동일 스타일) ===== */
+#sidebar { width:260px; background:#111827; border-right:1px solid #1f2937; overflow-y:auto; padding:6px; flex-shrink:0; transition:margin-left 0.3s; }
+#sidebar.collapsed { margin-left:-260px; }
+#sidebar-toggle { position:absolute; top:50px; left:0; z-index:100; width:22px; height:44px; background:#111827; border:1px solid #1f2937; border-left:none; border-radius:0 6px 6px 0; cursor:pointer; display:flex; align-items:center; justify-content:center; color:#06b6d4; font-size:12px; transition:left 0.3s; }
+#sidebar-toggle.open { left:260px; }
+
+.panel { background:#1a2234; border:1px solid #1f2937; border-radius:6px; padding:8px; margin-bottom:6px; }
+.panel h3 { font-size:11px; color:#9ca3af; letter-spacing:1px; margin-bottom:6px; border-bottom:1px solid #1f2937; padding-bottom:3px; }
+.sr { display:flex; justify-content:space-between; padding:1px 0; font-size:12px; }
+.sl { color:#9ca3af; }
+.sv { font-weight:bold; }
+.sv.b { color:#60a5fa; } .sv.g { color:#10b981; } .sv.y { color:#f59e0b; } .sv.r { color:#ef4444; }
+
+.risk { display:inline-block; padding:1px 6px; border-radius:3px; font-size:11px; font-weight:bold; }
+.risk-NORMAL { background:#065f46; color:#6ee7b7; }
+.risk-WARNING { background:#78350f; color:#fbbf24; }
+.risk-DANGER { background:#7f1d1d; color:#fca5a5; }
+.risk-CRITICAL { background:#ef4444; color:#fff; animation:blink .5s infinite; }
+@keyframes blink { 50%{opacity:.5} }
+@keyframes alarmBlink { 0%,100%{background:#ef4444;} 50%{background:#991b1b;} }
+@keyframes alarmWarn { 0%,100%{background:#f59e0b;} 50%{background:#92400e;} }
+
+#content { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+#map-container { flex:1; position:relative; background:#0a0e17; overflow:hidden; min-height:200px; }
+#map-canvas { width:100%; height:100%; }
+
+/* 상단 통계 배지 */
+#stat-badges {
+  position:absolute; top:8px; left:50%; transform:translateX(-50%);
+  display:flex; gap:6px; z-index:50; pointer-events:none;
+  font-family:'Malgun Gothic','Segoe UI',sans-serif;
+}
+.stat-badge {
+  background:rgba(10,14,23,0.88); border:1px solid #1f2937; border-radius:6px;
+  padding:4px 10px; display:flex; align-items:center; gap:6px;
+  font-size:12px; backdrop-filter:blur(4px);
+}
+.stat-badge .dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.stat-badge .lbl { color:#9ca3af; font-size:11px; }
+.stat-badge .val { color:#fff; font-weight:bold; font-size:13px; min-width:20px; text-align:right; }
+.stat-badge.idle { border-color:#22c55e40; }
+.stat-badge.loaded { border-color:#3b82f640; }
+.stat-badge.obs { border-color:#f59e0b40; }
+.stat-badge.stopped { border-color:#6b728040; }
+.stat-badge.railcut { border-color:#ef444440; animation:badgePulse 1.2s infinite; }
+@keyframes badgePulse {
+  0%,100% { box-shadow:0 0 0 0 rgba(239,68,68,0); }
+  50% { box-shadow:0 0 0 4px rgba(239,68,68,0.25); }
+}
+
+#bottom-panels { display:flex; height:170px; border-top:1px solid #1f2937; flex-shrink:0; background:#0a0e17; }
+.cpanel { flex:1; padding:8px 10px; background:#111827; border-right:1px solid #1f2937; overflow:hidden; display:flex; flex-direction:column; }
+.cpanel:last-child { border-right:none; }
+.cpanel h4 { font-size:10px; color:#60a5fa; margin-bottom:4px; letter-spacing:1px; text-transform:uppercase; font-weight:bold; text-align:left; padding-left:2px; }
+canvas.chart { width:100%; flex:1; }
+
+/* 오른쪽 사이드바 */
+#rsidebar { width:260px; background:#111827; border-left:1px solid #1f2937; overflow-y:auto; flex-shrink:0; padding:6px; transition:margin-right 0.3s; }
+#rsidebar.collapsed { margin-right:-260px; }
+#rsidebar-toggle { position:absolute; top:50px; right:0; z-index:100; width:22px; height:44px; background:#111827; border:1px solid #1f2937; border-right:none; border-radius:6px 0 0 6px; cursor:pointer; display:flex; align-items:center; justify-content:center; color:#06b6d4; font-size:12px; transition:right 0.3s; }
+#rsidebar-toggle.open { right:260px; }
+.rtabs { display:flex; gap:4px; margin-bottom:8px; }
+.rtab { flex:1; padding:7px 4px; font-size:12px; font-weight:bold; background:#1a1a2e; color:#888; border:1px solid #333; border-radius:6px; cursor:pointer; }
+.rtab:hover { background:#252550; }
+.rtab.active { background:#0891b2; color:#fff; border-color:#06b6d4; }
+.rfilter { display:flex; gap:3px; flex-wrap:wrap; margin-bottom:6px; }
+.rfilter button { padding:3px 7px; font-size:10px; background:#333; color:#fff; border:none; border-radius:3px; cursor:pointer; }
+.rfilter button.active { background:#0891b2; color:#fff; }
+.rfilter button:hover { background:#444; }
+.rsearch { width:100%; padding:5px 8px; background:#1a1a3e; color:#fff; border:1px solid #444; border-radius:4px; font-size:11px; margin-bottom:6px; }
+.rlist { max-height:calc(100vh - 200px); overflow-y:auto; }
+.ritem { background:#1a1a2e; padding:6px 8px; border-radius:5px; margin-bottom:4px; border-left:3px solid #444; font-size:11px; cursor:pointer; }
+.ritem:hover { background:#252550; }
+.ritem.running { border-left-color:#22c55e; }
+.ritem.loaded { border-left-color:#f59e0b; }
+.ritem.stopped { border-left-color:#6b7280; }
+.ritem.jam { border-left-color:#ef4444; }
+.ritem.obs { border-left-color:#f59e0b; }
+.ritem .rh { display:flex; justify-content:space-between; align-items:center; }
+.ritem .rid { font-weight:bold; color:#06b6d4; }
+.ritem .rst { font-size:9px; padding:1px 5px; border-radius:3px; background:#333; color:#fff; }
+.ritem .rv { font-size:10px; margin-top:3px; font-weight:bold; }
+.ritem .rdetail { font-size:10px; margin-top:5px; padding:5px 6px; background:#0d1a2e; border-radius:3px; color:#cbd5e1; line-height:1.6; }
+.ritem .rdetail div { margin-bottom:1px; }
+.jam-entry { padding:3px 4px; border-radius:3px; cursor:help; transition:background 0.15s; }
+.jam-entry:hover { background:#252550; }
+.zone-bar { height:3px; background:#333; border-radius:2px; margin-top:4px; }
+.zone-bar-fill { height:100%; border-radius:2px; }
+.zone-normal .zone-bar-fill { background:#22c55e; }
+.zone-precaution .zone-bar-fill { background:#f59e0b; }
+.zone-full .zone-bar-fill { background:#ef4444; }
+
+.event-log { max-height:120px; overflow-y:auto; font-size:11px; }
+.ev-item { padding:2px 0; border-bottom:1px solid #1f2937; }
+.corr-item { font-size:11px; padding:2px 0; border-bottom:1px solid #1f2937; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <select id="date-select" onchange="loadDate(this.value)">
+    <option value="">-- 날짜 선택 --</option>
+  </select>
+  <button onclick="sendCmd('play')">&#9654; 재생</button>
+  <button onclick="sendCmd('pause')">&#9208; 일시정지</button>
+  <button onclick="sendCmd('stop')">&#9632; 정지</button>
+  <span>|</span>
+  <button class="speed-btn" onclick="setSpeed(1)">x1</button>
+  <button class="speed-btn" onclick="setSpeed(2)">x2</button>
+  <button class="speed-btn" onclick="setSpeed(5)">x5</button>
+  <button class="speed-btn" onclick="setSpeed(10)">x10</button>
+  <button class="speed-btn" onclick="setSpeed(0)">MAX</button>
+  <span>|</span>
+  <span id="time-display">--:--:--</span>
+  <span id="frame-display"></span>
+  <div id="slider-container">
+    <input type="range" id="time-slider" min="0" max="100" value="0" oninput="jumpFrame(this.value)">
+  </div>
+  <span id="status-badge" class="badge badge-stopped">정지</span>
+  <span id="loading-msg">로딩중...</span>
+  <span>|</span>
+  <button onclick="resetMapView()" style="background:#065f46 !important;">전체보기</button>
+  <button id="btn-zone" class="toggle-btn on" onclick="toggleLayer('zone')">Zone 표시</button>
+  <button id="btn-railcut" class="toggle-btn on" onclick="toggleLayer('railcut')">차단 표시</button>
+  <button id="btn-id" class="toggle-btn" onclick="toggleLayer('id')">ID 표시</button>
+  <button id="btn-name" class="toggle-btn" onclick="toggleLayer('name')">이름 표시</button>
+</div>
+
+<!-- 데드락 알람 배너 -->
+<div id="alarm-banner" style="display:none;background:#ef4444;color:#fff;text-align:center;padding:8px 16px;font-weight:bold;font-size:14px;animation:alarmBlink 0.8s infinite;cursor:pointer;" onclick="this.style.display='none'">
+  <span id="alarm-text"></span>
+  <span style="font-size:11px;margin-left:12px;opacity:0.8;">(클릭하면 닫힘)</span>
+</div>
+
+<div id="main">
+  <div id="sidebar-toggle" onclick="toggleSidebar()" title="사이드바 열기/닫기">&#9654;</div>
+  <div id="sidebar" class="collapsed">
+    <!-- 상태 패널 (차량 현황 + 스타 지표 + 10분 후 예측 + 위험 Zone + 레일 차단 + 데이터 소스) -->
+    <div class="panel">
+      <h3>차량 현황</h3>
+      <div class="sr"><span class="sl">전체 차량</span><span class="sv" id="s-total">-</span></div>
+      <div class="sr"><span class="sl">운행중</span><span class="sv g" id="s-running">-</span></div>
+      <div class="sr"><span class="sl">OBS 정지</span><span class="sv y" id="s-obs">-</span></div>
+      <div class="sr"><span class="sl">JAM</span><span class="sv r" id="s-jam">-</span></div>
+      <div class="sr"><span class="sl">가동률</span><span class="sv b" id="s-util">-</span></div>
+      <div class="sr"><span class="sl">적재율</span><span class="sv" id="s-loaded">-</span></div>
+    </div>
+    <div class="panel">
+      <h3>스타 지표</h3>
+      <div class="sr"><span class="sl">반송 큐</span><span class="sv b" id="s-queue">-</span></div>
+      <div class="sr"><span class="sl">OHT 큐</span><span class="sv" id="s-queue-oht">-</span></div>
+      <div class="sr"><span class="sl">완료/10분</span><span class="sv" id="s-completed">-</span></div>
+      <div class="sr"><span class="sl">평균 반송시간</span><span class="sv" id="s-loadtime">-</span></div>
+      <div class="sr"><span class="sl">4분+ 지연</span><span class="sv y" id="s-delay">-</span></div>
+    </div>
+    <div class="panel">
+      <h3>10분 후 예측</h3>
+      <div class="sr"><span class="sl">큐 예측</span><span class="sv b" id="p-queue">-</span></div>
+      <div class="sr"><span class="sl">큐 추세</span><span class="sv" id="p-trend">-</span></div>
+      <div class="sr"><span class="sl">TAT</span><span class="sv">2.88분</span></div>
+      <div class="sr"><span class="sl">물동량</span><span class="sv">~20,000건/시</span></div>
+      <div style="margin-top:6px;">
+        <span class="sl">데드락 위험:</span>
+        <span id="p-dl-badge" class="risk risk-NORMAL" ondblclick="openRiskModal()" style="cursor:pointer;" title="더블클릭 → 과거 위험 이력 보기">정상</span>
+      </div>
+      <div id="p-dl-msg" style="font-size:11px;color:#9ca3af;margin-top:3px;"></div>
+      <div class="sr" style="margin-top:6px;"><span class="sl">현재 OBS</span><span class="sv" id="p-obs-now">-</span></div>
+      <div class="sr"><span class="sl">평균 OBS</span><span class="sv" id="p-obs-avg">-</span></div>
+      <div class="sr"><span class="sl">JAM 발생</span><span class="sv r" id="p-jam-cnt">0</span></div>
+      <button onclick="openSpikeModal()" style="margin-top:8px;width:100%;padding:6px;background:#0891b2;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:bold;">📊 OBS 추이 상세보기</button>
+    </div>
+    <div class="panel">
+      <h3>위험 Zone</h3>
+      <div id="p-zone-alerts" style="font-size:11px;max-height:400px;overflow-y:auto;"><div style="color:#6b7280;">없음</div></div>
+    </div>
+    <div class="panel">
+      <h3>레일 차단 이벤트</h3>
+      <div id="railcut-log" class="event-log"><div style="color:#6b7280;font-size:11px;">없음</div></div>
+    </div>
+    <div class="panel">
+      <h3>데이터 소스</h3>
+      <div id="data-sources" style="font-size:11px;color:#6b7280;">미로드</div>
+    </div>
+  </div>
+
+  <div id="content">
+    <div style="display:flex;flex:1;overflow:hidden;">
+      <div id="map-container" style="flex:1;">
+        <canvas id="map-canvas"></canvas>
+        <!-- 상단 통계 배지 -->
+        <div id="stat-badges">
+          <div class="stat-badge idle"><span class="dot" style="background:#22c55e;"></span><span class="lbl">공차운행</span><span class="val" id="cnt-idle">0</span></div>
+          <div class="stat-badge loaded"><span class="dot" style="background:#3b82f6;"></span><span class="lbl">적재</span><span class="val" id="cnt-loaded">0</span></div>
+          <div class="stat-badge obs"><span class="dot" style="background:#f59e0b;"></span><span class="lbl">OBS</span><span class="val" id="cnt-obs">0</span></div>
+          <div class="stat-badge stopped"><span class="dot" style="background:#6b7280;"></span><span class="lbl">정지</span><span class="val" id="cnt-stopped">0</span></div>
+          <div class="stat-badge railcut"><span class="dot" style="background:#ef4444;"></span><span class="lbl">레일차단</span><span class="val" id="cnt-railcut">0</span></div>
+        </div>
+      </div>
+      <!-- 오른쪽 사이드바: OHT/Zone -->
+      <div id="rsidebar-toggle" class="open" onclick="toggleRSidebar()" title="OHT/Zone 목록 열기/닫기">&#9664;</div>
+      <div id="rsidebar">
+        <div class="rtabs">
+          <button class="rtab active" onclick="switchRTab('oht')">OHT 상태</button>
+          <button class="rtab" onclick="switchRTab('zone')">HID Zone</button>
+        </div>
+        <div id="rtab-oht">
+          <div class="rfilter">
+            <button class="active" onclick="filterOHT('all',this)">전체</button>
+            <button onclick="filterOHT('running',this)">운행</button>
+            <button onclick="filterOHT('loaded',this)">적재</button>
+            <button onclick="filterOHT('stopped',this)">정지</button>
+            <button onclick="filterOHT('jam',this)">JAM</button>
+          </div>
+          <input type="text" id="ohtSearch" placeholder="OHT ID 검색..." oninput="renderOHTList()" class="rsearch">
+          <div id="ohtList" class="rlist"></div>
+        </div>
+        <div id="rtab-zone" style="display:none;">
+          <div class="rfilter">
+            <button class="active" onclick="filterZone('all',this)">전체</button>
+            <button onclick="filterZone('full',this)">포화</button>
+            <button onclick="filterZone('precaution',this)">주의</button>
+            <button onclick="filterZone('normal',this)">정상</button>
+          </div>
+          <input type="text" id="zoneSearch" placeholder="Zone ID 검색..." oninput="renderZoneList()" class="rsearch">
+          <div id="zoneList" class="rlist"></div>
+        </div>
+      </div>
+    </div>
+    <div id="bottom-panels">
+      <div class="cpanel">
+        <h4>큐 & OBS 추이 (스타)</h4>
+        <canvas id="chart-queue" class="chart"></canvas>
+      </div>
+      <div class="cpanel">
+        <h4>데이터 상관관계</h4>
+        <div id="corr-panel" style="font-size:11px;overflow-y:auto;flex:1;line-height:1.5;">
+          <div class="corr-item"><span class="sl">큐-TAT: </span><span class="sv" style="color:#60a5fa;">r=0.12 (약한 양의 상관)</span></div>
+          <div class="corr-item"><span class="sl">큐-OBS: </span><span class="sv" style="color:#6b7280;">r=0.03 (무관)</span></div>
+          <div class="corr-item"><span class="sl">큐-HID속도: </span><span class="sv" style="color:#6b7280;">r=-0.01 (무관)</span></div>
+          <div class="corr-item" style="margin-top:4px;color:#9ca3af;">TAT 24시간 균일 (~2.88분)</div>
+          <div class="corr-item" style="color:#9ca3af;">물동량 ~20,000건/시 (균일)</div>
+          <div class="corr-item" style="color:#9ca3af;">OBS 물리 구조, 큐와 무관</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// WebSocket
+// ============================================================
+let ws = null;
+let mapData = { vehicles: [], bounds: null, railCuts: [], blockedEdges: {} };
+let starHistory = [];
+let currentSpeed = 1;
+
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onopen = () => console.log('WS connected');
+  ws.onmessage = (e) => { try { updateUI(JSON.parse(e.data)); } catch(err) {} };
+  ws.onclose = () => setTimeout(connectWS, 2000);
+  ws.onerror = () => ws.close();
+}
+function sendCmd(action, extra) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ action, ...extra }));
+}
+function setSpeed(s) {
+  currentSpeed = s;
+  sendCmd('speed', { speed: s });
+  document.querySelectorAll('.speed-btn').forEach(b => b.classList.toggle('selected', b.textContent === (s===0?'MAX':`x${s}`)));
+}
+function jumpFrame(val) { sendCmd('jump_frame', { frame: parseInt(val) }); }
+
+async function loadDate(dateKey) {
+  if (!dateKey) return;
+  document.getElementById('loading-msg').style.display = 'inline';
+  try {
+    const resp = await fetch('/api/replay/load', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({date:dateKey}) });
+    const data = await resp.json();
+    document.getElementById('time-slider').max = data.total_frames || 100;
+    updateDataSources(data.stats);
+
+    if (!railGraph) await loadRailGraph();
+    const starResp = await fetch('/api/star-history');
+    starHistory = await starResp.json();
+    drawQueueChart();
+    const hidResp = await fetch('/api/hid-speeds');
+    hidSpeeds = await hidResp.json();
+    renderZoneList();
+    // OBS/JAM 전체 시계열 (재생과 무관, 데이터 로드 직후 한 번만)
+    const obsResp = await fetch('/api/obs-jam-history');
+    fullObsHistory = await obsResp.json();
+    // 누적 history/jamEvents 초기화 (날짜 변경 시)
+    obsHistory = []; jamEvents = []; _lastObsSampleTime = ''; _lastJamCount = 0;
+    sendCmd('load', { date: dateKey });
+  } catch(e) { console.error('Load failed:', e); }
+  document.getElementById('loading-msg').style.display = 'none';
+}
+
+// ============================================================
+// UI 업데이트
+// ============================================================
+const statusMap = { stopped:'정지', playing:'재생중', paused:'일시정지' };
+function updateUI(d) {
+  document.getElementById('time-display').textContent = d.time_short || '--:--:--';
+  mapData.currentTimeStr = d.time_short || '';
+  document.getElementById('frame-display').textContent = `${d.frame||0}/${d.totalFrames||0}`;
+  const slider = document.getElementById('time-slider');
+  if (d.totalFrames) slider.max = d.totalFrames;
+  slider.value = d.frame || 0;
+
+  const badge = document.getElementById('status-badge');
+  badge.textContent = statusMap[d.state] || d.state;
+  badge.className = 'badge badge-' + (d.state || 'stopped');
+
+  const vs = d.vehicleStats || {};
+  setText('s-total', vs.total||0); setText('s-running', vs.running||0);
+  setText('s-obs', vs.obs_bz_stop||0); setText('s-jam', vs.jam||0);
+  setText('s-util', (vs.utilization||0)+'%'); setText('s-loaded', (vs.loaded_pct||0)+'%');
+
+  const star = d.star || {};
+  setText('s-queue', star.queue_total||'-'); setText('s-queue-oht', star.queue_oht||'-');
+  setText('s-completed', star.queue_completed||'-');
+  setText('s-loadtime', star.avg_load_time ? star.avg_load_time.toFixed(2)+'분' : '-');
+  setText('s-delay', star.transport_4min_over||0);
+
+  const pred = d.prediction || {};
+  const qp = pred.queue_10min || {};
+  setText('p-queue', qp.value||'-');
+  const td = qp.trend_direction||'stable';
+  document.getElementById('p-trend').innerHTML = (td==='up'?'&#9650;':td==='down'?'&#9660;':'&#9644;') + ' ' + (qp.trend||0) + '/분';
+
+  const dr = pred.deadlock_risk || {};
+  const dlLabels = {NORMAL:'정상',WATCH:'관찰',WARNING:'주의',DANGER:'위험',CRITICAL:'심각',unknown:'확인중'};
+  const dlBadge = document.getElementById('p-dl-badge');
+  dlBadge.textContent = dlLabels[dr.level] || dr.level || '정상';
+  dlBadge.className = 'risk risk-' + (dr.level||'NORMAL');
+  setText('p-dl-msg', dr.message||'');
+
+  // OBS + JAM 추적 (client-side history) — JAM 발생만 진짜 이벤트로 본다
+  const obsCurrent = dr.obs_current || 0;
+  const jamCount = (d.vehicleStats && d.vehicleStats.jam) || 0;
+  currentPlayTime = d.time_short || '';
+  trackOBSHistory(obsCurrent, currentPlayTime, jamCount);
+  updateSpikePanel();
+
+  // 데드락 알람 배너
+  const banner = document.getElementById('alarm-banner');
+  const bannerTxt = document.getElementById('alarm-text');
+  const dlLevel = dr.level || 'NORMAL';
+  if (dlLevel === 'CRITICAL') {
+    banner.style.display = 'block';
+    banner.style.animation = 'alarmBlink 0.5s infinite';
+    bannerTxt.textContent = '⚠ 데드락 발생 예측! OBS ' + (dr.obs_current||0) + '대 — 즉시 확인 필요!';
+  } else if (dlLevel === 'DANGER') {
+    banner.style.display = 'block';
+    banner.style.animation = 'alarmBlink 0.8s infinite';
+    bannerTxt.textContent = '⚠ 데드락 위험! OBS ' + (dr.obs_current||0) + '대 — 빌드업 감지';
+  } else {
+    banner.style.display = 'none';
+  }
+
+  // Zone별 위험 표시
+  const zc = mapData.zoneCounts || {};
+  const zoneAlerts = [];
+  if (railGraph && railGraph.zones) {
+    for (const z of railGraph.zones) {
+      const count = zc[z.id] || 0;
+      const max = z.max || 37;
+      const pct = Math.round(count / max * 100);
+      if (count >= max) {
+        zoneAlerts.push(`<div style="color:#ef4444;">&#9679; HID ${z.id} <b>포화</b> (${count}/${max})</div>`);
+      } else if (pct >= 70) {
+        zoneAlerts.push(`<div style="color:#f59e0b;">&#9679; HID ${z.id} <b>주의</b> (${count}/${max})</div>`);
+      }
+    }
+  }
+  const alertEl = document.getElementById('p-zone-alerts');
+  if (alertEl) {
+    if (zoneAlerts.length > 0) {
+      alertEl.innerHTML = `<div style="color:#9ca3af;margin-bottom:2px;">위험 Zone (${zoneAlerts.length}개):</div>` + zoneAlerts.join('');
+    } else {
+      alertEl.innerHTML = '';
+    }
+  }
+
+
+  // ===== 레일 차단 이벤트 처리 (맵 표시 + 사이드바 로그 + 배너) =====
+  const rcs = d.railCuts || [];
+  mapData.railCuts = rcs;
+
+  // 활성 차단 edge 집합 계산 (drawMap에서 재사용)
+  const blockedEdges = {};  // "from_to" -> { rc, from, to }
+  for (const rc of rcs) {
+    const st = (rc.state || '').toUpperCase().trim();
+    // 복구 이벤트 스킵 — 정확히 일치 (ABNORMAL이 NORMAL을 포함하는 버그 방지!)
+    const isRestore = (st === 'NORMAL' || st === 'RESTORE' || st === 'CLEAR' || st === 'RECOVER' || st === 'OFF' || st === 'FREE');
+    if (isRestore) continue;
+
+    // affect_addrs 배열 전체 표시, 없으면 from/to만
+    if (rc.affect_addrs && rc.affect_addrs.length > 0) {
+      for (const aa of rc.affect_addrs) {
+        blockedEdges[`${aa[0]}_${aa[1]}`] = { rc, from: aa[0], to: aa[1] };
+      }
+    } else if (rc.from_addr && rc.to_addr) {
+      blockedEdges[`${rc.from_addr}_${rc.to_addr}`] = { rc, from: rc.from_addr, to: rc.to_addr };
+    }
+  }
+  mapData.blockedEdges = blockedEdges;
+  const activeCount = Object.keys(blockedEdges).length;
+
+  // 사이드바 로그 (활성 ABNORMAL만 표시 — NORMAL은 맵에서 사라지는 것으로 충분)
+  const activeOnly = rcs.filter(rc => {
+    const st = (rc.state || '').toUpperCase().trim();
+    // 정확히 일치로 필터 (ABNORMAL이 NORMAL을 포함하는 버그 방지!)
+    return !(st === 'NORMAL' || st === 'RESTORE' || st === 'CLEAR' || st === 'RECOVER');
+  });
+  const rcLog = document.getElementById('railcut-log');
+  if (activeOnly.length > 0) {
+    let html = `<div style="color:#ef4444;font-weight:bold;margin-bottom:4px;">⛔ 활성 차단: ${activeCount}개 edge</div>`;
+    html += activeOnly.slice(-5).reverse().map(rc => {
+      return `<div class="ev-item" style="color:#ef4444;">⛔ ${rc.from_addr}→${rc.to_addr} [${rc.state}] (${rc.affect_count||0})</div>`;
+    }).join('');
+    rcLog.innerHTML = html;
+  } else {
+    rcLog.innerHTML = '<div style="color:#6b7280;font-size:11px;">없음</div>';
+  }
+
+  // 차량 위치 보간 업데이트
+  const newVehicles = d.vehicles || [];
+  for (const v of newVehicles) {
+    if (vehicleDisplay[v.vid]) {
+      vehicleDisplay[v.vid].tx = v.x;
+      vehicleDisplay[v.vid].ty = v.y;
+      vehicleDisplay[v.vid].state = v.state;
+      vehicleDisplay[v.vid].isFull = v.isFull;
+      vehicleDisplay[v.vid].velocity = v.velocity;
+      vehicleDisplay[v.vid].currentNode = v.currentNode;
+      vehicleDisplay[v.vid].nextNode = v.nextNode;
+      vehicleDisplay[v.vid].destination = v.destination;
+      vehicleDisplay[v.vid].ratio = v.ratio;
+    } else {
+      vehicleDisplay[v.vid] = {
+        dx:v.x, dy:v.y, tx:v.x, ty:v.y,
+        state:v.state, isFull:v.isFull, velocity:v.velocity,
+        currentNode:v.currentNode, nextNode:v.nextNode,
+        destination:v.destination, ratio:v.ratio
+      };
+    }
+  }
+  const activeIds = new Set(newVehicles.map(v=>v.vid));
+  for (const vid in vehicleDisplay) {
+    if (!activeIds.has(vid)) {
+      vehicleDisplay[vid]._gone = (vehicleDisplay[vid]._gone||0) + 1;
+      if (vehicleDisplay[vid]._gone > 5) delete vehicleDisplay[vid];
+    } else {
+      vehicleDisplay[vid]._gone = 0;
+    }
+  }
+  mapData.vehicles = newVehicles;
+  mapData.zoneCounts = d.zoneCounts || {};
+
+  // ===== 상단 통계 배지 업데이트 (공차운행/적재/OBS/정지/레일차단) =====
+  let cntIdle = 0, cntLoaded = 0, cntObs = 0, cntStopped = 0, cntJam = 0;
+  for (const v of newVehicles) {
+    if (v.state === 6) cntObs++;
+    else if (v.state === 7) cntJam++;
+    else if (v.state === 2 || v.state === 8 || v.state === 9) cntStopped++;
+    else if (v.isFull) cntLoaded++;
+    else cntIdle++;
+  }
+  setText('cnt-idle', cntIdle);
+  setText('cnt-loaded', cntLoaded);
+  setText('cnt-obs', cntObs);
+  setText('cnt-stopped', cntStopped + cntJam);  // 정지 + JAM 합산
+  setText('cnt-railcut', activeCount);
+}
+function setText(id, val) { const el=document.getElementById(id); if(el) el.textContent=val; }
+function updateDataSources(stats) {
+  const el = document.getElementById('data-sources');
+  if (!stats) { el.textContent='미로드'; return; }
+  const nameMap = {oht:'OHT 차량',star:'스타 지표',hid:'HID 통과',rail_cut:'레일 차단',ts_resource:'작업 명령',oht_time_avg:'TAT 평균'};
+  let html='';
+  for (const [k,v] of Object.entries(stats)) {
+    const ok = v.status==='loaded';
+    html += `<div style="color:${ok?'#10b981':'#6b7280'};">${ok?'&#10003;':'-'} ${nameMap[k]||k}: ${(v.count||0).toLocaleString()}건</div>`;
+  }
+  el.innerHTML = html;
+}
+
+// ============================================================
+// 맵 - 레일 네트워크 + 차량 + 레일 차단
+// ============================================================
+const mapCanvas = document.getElementById('map-canvas');
+const mapCtx = mapCanvas.getContext('2d');
+let mapZoom = 1, mapPanX = 0, mapPanY = 0;
+let isDragging = false, dragStartX = 0, dragStartY = 0;
+let railGraph = null;
+let railCacheCanvas = null;
+let railCacheKey = '';
+
+// 표시 레이어 토글
+let showZone = true, showRailCut = true, showId = false, showName = false;
+function toggleLayer(layer) {
+  if (layer==='zone') showZone = !showZone;
+  if (layer==='railcut') showRailCut = !showRailCut;
+  if (layer==='id') showId = !showId;
+  if (layer==='name') showName = !showName;
+  document.getElementById('btn-zone').classList.toggle('on', showZone);
+  document.getElementById('btn-railcut').classList.toggle('on', showRailCut);
+  document.getElementById('btn-id').classList.toggle('on', showId);
+  document.getElementById('btn-name').classList.toggle('on', showName);
+  railCacheCanvas = null;
+  drawMap();
+}
+
+let vehicleDisplay = {};
+let selectedZone = null;
+
+// 보간 애니메이션 루프 (60fps)
+let lastAnimTime = 0;
+function interpolateLoop(now) {
+  const dt = now - lastAnimTime;
+  lastAnimTime = now;
+  const lerp = Math.min(1, dt * 0.008);
+  let moved = false;
+  for (const vid in vehicleDisplay) {
+    const v = vehicleDisplay[vid];
+    const ddx = v.tx - v.dx, ddy = v.ty - v.dy;
+    const dist = Math.sqrt(ddx*ddx + ddy*ddy);
+    if (dist > 200) { v.dx = v.tx; v.dy = v.ty; }
+    else if (dist > 0.05) { v.dx += ddx * lerp; v.dy += ddy * lerp; moved = true; }
+    else { v.dx = v.tx; v.dy = v.ty; }
+  }
+  // 차단 edge가 있으면 깜빡임 위해 계속 그리기
+  const hasBlocked = showRailCut && mapData.blockedEdges && Object.keys(mapData.blockedEdges).length > 0;
+  if (moved || hasBlocked) drawMap();
+  requestAnimationFrame(interpolateLoop);
+}
+requestAnimationFrame(interpolateLoop);
+
+async function loadRailGraph() {
+  try {
+    const resp = await fetch('/api/layout-graph');
+    railGraph = await resp.json();
+    mapData.bounds = railGraph.bounds;
+    railCacheCanvas = null;
+    console.log('레일 그래프 로드:', Object.keys(railGraph.nodes).length, '노드,', railGraph.edges.length, '엣지');
+    drawMap();
+  } catch(e) { console.error('레일 그래프 로드 실패:', e); }
+}
+
+function drawMap() {
+  const rect = mapCanvas.parentElement.getBoundingClientRect();
+  const w = Math.max(100, Math.floor(rect.width));
+  const h = Math.max(100, Math.floor(rect.height));
+  if (mapCanvas.width !== w || mapCanvas.height !== h) {
+    mapCanvas.width = w; mapCanvas.height = h;
+    railCacheCanvas = null;
+  }
+
+  const b = mapData.bounds || (railGraph && railGraph.bounds);
+  if (!b) {
+    mapCtx.fillStyle = '#0a0e17'; mapCtx.fillRect(0,0,w,h);
+    mapCtx.fillStyle = '#374151'; mapCtx.font = '14px sans-serif'; mapCtx.textAlign = 'center';
+    mapCtx.fillText('날짜를 선택하고 재생을 누르세요', w/2, h/2);
+    return;
+  }
+
+  const dataW = b.max_x-b.min_x||1, dataH = b.max_y-b.min_y||1;
+  const sc = Math.min((w-20)/dataW, (h-20)/dataH) * mapZoom;
+  const ox = 10 + mapPanX + (w-20-dataW*sc)/2;
+  const oy = 10 + mapPanY + (h-20-dataH*sc)/2;
+  const toS = (x,y) => [ox+(x-b.min_x)*sc, oy+(y-b.min_y)*sc];
+
+  // 1. 레일 배경 (캐시)
+  const cacheKey = `${w}_${h}_${mapZoom.toFixed(3)}_${mapPanX}_${mapPanY}`;
+  if (!railCacheCanvas || railCacheKey !== cacheKey) {
+    railCacheCanvas = document.createElement('canvas');
+    railCacheCanvas.width = w; railCacheCanvas.height = h;
+    const rc = railCacheCanvas.getContext('2d');
+    rc.fillStyle = '#0a0e17'; rc.fillRect(0,0,w,h);
+
+    if (railGraph) {
+      const nodes = railGraph.nodes, edges = railGraph.edges;
+      rc.strokeStyle = '#2a4a6a';
+      rc.lineWidth = Math.max(0.6, 0.8*mapZoom);
+      rc.lineCap = 'round';
+      rc.beginPath();
+      for (let i=0; i<edges.length; i++) {
+        const from=nodes[edges[i][0]], to=nodes[edges[i][1]];
+        if (!from||!to) continue;
+        const [fx,fy]=toS(from[0],from[1]), [tx,ty]=toS(to[0],to[1]);
+        if ((fx<-50&&tx<-50)||(fx>w+50&&tx>w+50)||(fy<-50&&ty<-50)||(fy>h+50&&ty>h+50)) continue;
+        rc.moveTo(fx,fy); rc.lineTo(tx,ty);
+      }
+      rc.stroke();
+
+      if (mapZoom >= 3) {
+        rc.fillStyle = '#2a4a6a';
+        for (const [nid, c] of Object.entries(nodes)) {
+          const [sx,sy]=toS(c[0],c[1]);
+          if (sx<-5||sx>w+5||sy<-5||sy>h+5) continue;
+          rc.fillRect(sx-0.5, sy-0.5, 1, 1);
+        }
+      }
+
+      if (showZone && railGraph.zones) {
+        const nodes = railGraph.nodes;
+        const zoneLineW = Math.max(1.5, 2*mapZoom);
+
+        const visibleZones = [];
+        for (const z of railGraph.zones) {
+          const [cx,cy] = toS(z.cx, z.cy);
+          if (cx >= -100 && cx <= w+100 && cy >= -100 && cy <= h+100) {
+            visibleZones.push({...z, _sx: cx, _sy: cy});
+          }
+        }
+
+        if (mapZoom >= 2) {
+          for (const z of visibleZones) {
+            rc.strokeStyle = '#00ff88';
+            rc.lineWidth = zoneLineW;
+            rc.globalAlpha = 0.4;
+            rc.setLineDash([]);
+            for (const lane of z.inLanes) {
+              const from=nodes[lane.from], to=nodes[lane.to];
+              if (!from||!to) continue;
+              const [fx,fy]=toS(from[0],from[1]), [tx,ty]=toS(to[0],to[1]);
+              rc.beginPath(); rc.moveTo(fx,fy); rc.lineTo(tx,ty); rc.stroke();
+            }
+            rc.setLineDash([3*mapZoom, 2*mapZoom]);
+            for (const lane of z.outLanes) {
+              const from=nodes[lane.from], to=nodes[lane.to];
+              if (!from||!to) continue;
+              const [fx,fy]=toS(from[0],from[1]), [tx,ty]=toS(to[0],to[1]);
+              rc.beginPath(); rc.moveTo(fx,fy); rc.lineTo(tx,ty); rc.stroke();
+            }
+          }
+          rc.setLineDash([]);
+          rc.globalAlpha = 1.0;
+        }
+
+        const fontSize = Math.max(7, Math.min(11, 5*mapZoom));
+        rc.font = `bold ${fontSize}px sans-serif`;
+        rc.textAlign = 'center';
+        for (const z of visibleZones) {
+          const cx = z._sx, cy = z._sy;
+          const label = `HID ${z.id}`;
+          const tw = rc.measureText(label).width;
+          rc.fillStyle = 'rgba(0,0,0,0.7)';
+          rc.fillRect(cx-tw/2-2, cy-fontSize/2-1, tw+4, fontSize+2);
+          rc.fillStyle = '#00ffcc';
+          rc.fillText(label, cx, cy + fontSize*0.3);
+        }
+      }
+    }
+    railCacheKey = cacheKey;
+  }
+  mapCtx.drawImage(railCacheCanvas, 0, 0);
+
+  // ===== 1.5. 레일 차단 edge 렌더링 (기존 모양 유지, 작고 투명하게) =====
+  const blockedEdges = mapData.blockedEdges || {};
+  const blockedKeys = Object.keys(blockedEdges);
+  if (showRailCut && blockedKeys.length > 0 && railGraph) {
+    const nodes = railGraph.nodes;
+    const blink = (Date.now() / 600) % 2 < 1;
+
+    // (A) 차단 edge — 빨간 점선 (얇게 + 투명)
+    mapCtx.strokeStyle = '#ef4444';
+    mapCtx.lineWidth = Math.max(1, 1.2 * mapZoom);
+    mapCtx.setLineDash([5 * mapZoom, 3 * mapZoom]);
+    mapCtx.globalAlpha = blink ? 0.45 : 0.18;
+    mapCtx.lineCap = 'round';
+    mapCtx.beginPath();
+    const visibleBlocked = [];
+    for (const key of blockedKeys) {
+      const be = blockedEdges[key];
+      const from = nodes[be.from], to = nodes[be.to];
+      if (!from || !to) continue;
+      const [fx, fy] = toS(from[0], from[1]);
+      const [tx, ty] = toS(to[0], to[1]);
+      if ((fx<-50 && tx<-50) || (fx>w+50 && tx>w+50) || (fy<-50 && ty<-50) || (fy>h+50 && ty>h+50)) continue;
+      mapCtx.moveTo(fx, fy); mapCtx.lineTo(tx, ty);
+      visibleBlocked.push({ be, fx, fy, tx, ty });
+    }
+    mapCtx.stroke();
+    mapCtx.setLineDash([]);
+
+    // (B) edge 중앙에 ⛔ 마커 — 빨간 원 + 흰 테두리 + 흰 X (작고 투명하게)
+    const markerR = Math.max(2.5, 3 * mapZoom);
+    const xSize = Math.max(1.8, 2 * mapZoom);
+    for (const vb of visibleBlocked) {
+      const mx = (vb.fx + vb.tx) / 2, my = (vb.fy + vb.ty) / 2;
+
+      // 빨간 원 배경 (깜빡임, 투명)
+      mapCtx.globalAlpha = blink ? 0.6 : 0.25;
+      mapCtx.fillStyle = '#ef4444';
+      mapCtx.beginPath();
+      mapCtx.arc(mx, my, markerR, 0, 6.283);
+      mapCtx.fill();
+
+      // 흰 테두리 (얇게)
+      mapCtx.strokeStyle = '#fff';
+      mapCtx.lineWidth = 0.8;
+      mapCtx.stroke();
+
+      // 흰 X 마커 (얇게)
+      mapCtx.globalAlpha = blink ? 0.75 : 0.3;
+      mapCtx.strokeStyle = '#fff';
+      mapCtx.lineWidth = Math.max(0.8, 1 * mapZoom);
+      mapCtx.beginPath();
+      mapCtx.moveTo(mx - xSize, my - xSize); mapCtx.lineTo(mx + xSize, my + xSize);
+      mapCtx.moveTo(mx + xSize, my - xSize); mapCtx.lineTo(mx - xSize, my + xSize);
+      mapCtx.stroke();
+    }
+    mapCtx.globalAlpha = 1.0;
+  }
+
+  // 2. 차량 (보간된 위치) — 카테고리별 색상 분리
+  // 공차운행: 초록 #22c55e | 적재: 주황 #f59e0b | OBS: 노랑 #eab308 | 정지: 회색 #6b7280 | JAM: 빨강 #ef4444
+  const r = Math.max(1.5, Math.min(4, 1.5*mapZoom));
+  for (const vid in vehicleDisplay) {
+    const v = vehicleDisplay[vid];
+    const [sx,sy] = toS(v.dx, v.dy);
+    if (sx<-5||sx>w+5||sy<-5||sy>h+5) continue;
+    mapCtx.beginPath();
+    mapCtx.arc(sx, sy, r, 0, 6.283);
+    let color;
+    if (v.state === 6) color = '#f59e0b';                      // OBS (주황)
+    else if (v.state === 7) color = '#ef4444';                 // JAM (빨강)
+    else if (v.state === 2 || v.state === 8 || v.state === 9) color = '#6b7280';  // 정지 (회색)
+    else if (v.isFull) color = '#3b82f6';                      // 적재 (파랑)
+    else color = '#22c55e';                                    // 공차운행 (초록)
+    mapCtx.fillStyle = color;
+    mapCtx.fill();
+  }
+
+  // 2.4. 선택된 OHT 강조 (노란 링 + 라벨)
+  if (selectedOHT && vehicleDisplay[selectedOHT]) {
+    const v = vehicleDisplay[selectedOHT];
+    const [sx,sy] = toS(v.dx, v.dy);
+    const ringR = Math.max(8, r * 4);
+    mapCtx.beginPath();
+    mapCtx.arc(sx, sy, ringR, 0, 6.283);
+    mapCtx.strokeStyle = '#ffff00';
+    mapCtx.lineWidth = 2.5;
+    mapCtx.setLineDash([6, 3]);
+    mapCtx.stroke();
+    mapCtx.setLineDash([]);
+    // 라벨
+    const labelFS = Math.max(11, 12*Math.min(mapZoom, 2));
+    mapCtx.font = `bold ${labelFS}px sans-serif`;
+    const label = selectedOHT;
+    const tw = mapCtx.measureText(label).width;
+    const lx = sx, ly = sy - ringR - 8;
+    mapCtx.fillStyle = 'rgba(0,0,0,0.85)';
+    mapCtx.fillRect(lx-tw/2-5, ly-labelFS-2, tw+10, labelFS+6);
+    mapCtx.fillStyle = '#ffff00';
+    mapCtx.textAlign = 'center';
+    mapCtx.fillText(label, lx, ly);
+  }
+
+  // 2.5. 선택된 Zone 하이라이트
+  if (selectedZone && railGraph) {
+    const z = selectedZone;
+    const zData = railGraph.zones.find(zz => zz.id === z.id);
+    if (zData) {
+      const nodes = railGraph.nodes;
+      let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
+      for (const lane of [...zData.inLanes, ...zData.outLanes]) {
+        const from=nodes[lane.from], to=nodes[lane.to];
+        if (from) { minX=Math.min(minX,from[0]); maxX=Math.max(maxX,from[0]); minY=Math.min(minY,from[1]); maxY=Math.max(maxY,from[1]); }
+        if (to) { minX=Math.min(minX,to[0]); maxX=Math.max(maxX,to[0]); minY=Math.min(minY,to[1]); maxY=Math.max(maxY,to[1]); }
+      }
+      if (minX < Infinity) {
+        const pad = 15;
+        const [sx1,sy1] = toS(minX-pad, minY-pad);
+        const [sx2,sy2] = toS(maxX+pad, maxY+pad);
+        mapCtx.strokeStyle = '#ffff00';
+        mapCtx.lineWidth = 2.5;
+        mapCtx.setLineDash([8, 4]);
+        mapCtx.strokeRect(sx1, sy1, sx2-sx1, sy2-sy1);
+        mapCtx.setLineDash([]);
+        mapCtx.fillStyle = 'rgba(255,255,0,0.06)';
+        mapCtx.fillRect(sx1, sy1, sx2-sx1, sy2-sy1);
+        const cx = (sx1+sx2)/2, cy2 = sy1 - 5;
+        const labelFS = Math.max(12, 14*mapZoom);
+        mapCtx.font = `bold ${labelFS}px sans-serif`;
+        mapCtx.textAlign = 'center';
+        const label = `HID ${z.id}`;
+        const tw = mapCtx.measureText(label).width;
+        mapCtx.fillStyle = 'rgba(0,0,0,0.8)';
+        mapCtx.fillRect(cx-tw/2-6, cy2-labelFS-4, tw+12, labelFS+8);
+        mapCtx.fillStyle = '#ffff00';
+        mapCtx.fillText(label, cx, cy2-4);
+        const countLabel = `0/${z.max}`;
+        const countFS = Math.max(10, 11*mapZoom);
+        mapCtx.font = `${countFS}px sans-serif`;
+        const ctw = mapCtx.measureText(countLabel).width;
+        const cy3 = sy2 + countFS + 4;
+        mapCtx.fillStyle = 'rgba(0,0,0,0.8)';
+        mapCtx.fillRect(cx-ctw/2-4, cy3-countFS-2, ctw+8, countFS+4);
+        mapCtx.fillStyle = '#ffffff';
+        mapCtx.fillText(countLabel, cx, cy3-2);
+      }
+    }
+  }
+
+  // 2.6. 차량 ID 표시
+  if (showId && mapZoom > 1) {
+    mapCtx.font = `${Math.max(7, 7*mapZoom)}px sans-serif`;
+    mapCtx.fillStyle = '#e0e0e0';
+    mapCtx.textAlign = 'left';
+    for (const vid in vehicleDisplay) {
+      const v = vehicleDisplay[vid];
+      const [sx,sy] = toS(v.dx, v.dy);
+      if (sx<-5||sx>w+5||sy<-5||sy>h+5) continue;
+      mapCtx.fillText(vid, sx+r+2, sy+3);
+    }
+  }
+
+  // 3. 정보 표시 (범례는 상단 배지로 이동됨)
+  mapCtx.font = '11px sans-serif';
+  mapCtx.fillStyle='rgba(10,14,23,0.85)'; mapCtx.fillRect(w-130,4,126,18);
+  mapCtx.fillStyle='#60a5fa'; mapCtx.textAlign='right'; mapCtx.fillText(`차량 ${Object.keys(vehicleDisplay).length}대`, w-8, 16);
+  mapCtx.fillStyle='rgba(10,14,23,0.85)'; mapCtx.fillRect(w-180,24,176,16);
+  mapCtx.fillStyle='#4b5563'; mapCtx.fillText('스크롤:줌 | 드래그:이동', w-8, 36);
+}
+
+// 줌/팬
+mapCanvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  mapZoom = Math.max(0.3, Math.min(20, mapZoom * (e.deltaY>0?0.9:1.1)));
+  railCacheCanvas = null;
+  requestAnimationFrame(drawMap);
+});
+mapCanvas.addEventListener('mousedown', e => { isDragging=true; dragStartX=e.clientX-mapPanX; dragStartY=e.clientY-mapPanY; });
+mapCanvas.addEventListener('mousemove', e => { if(!isDragging) return; mapPanX=e.clientX-dragStartX; mapPanY=e.clientY-dragStartY; railCacheCanvas=null; requestAnimationFrame(drawMap); });
+mapCanvas.addEventListener('mouseup', () => isDragging=false);
+mapCanvas.addEventListener('mouseleave', () => isDragging=false);
+
+// ESC 키 → OHT / Zone 선택 해제
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  // 검색 입력 중이면 인풋만 비움
+  const ae = document.activeElement;
+  if (ae && (ae.id === 'ohtSearch' || ae.id === 'zoneSearch')) {
+    ae.value = '';
+    if (ae.id === 'ohtSearch') renderOHTList(); else renderZoneList();
+    return;
+  }
+  let changed = false;
+  if (selectedOHT !== null) { selectedOHT = null; changed = true; renderOHTList(); }
+  if (selectedZone !== null) { selectedZone = null; changed = true; renderZoneList(); }
+  if (changed) { railCacheCanvas = null; drawMap(); }
+});
+
+// ============================================================
+// 차트: 큐 & OBS 추이
+// ============================================================
+function drawQueueChart() {
+  const canvas = document.getElementById('chart-queue');
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width; canvas.height = rect.height - 18;
+  const ctx = canvas.getContext('2d'), w = canvas.width, h = canvas.height;
+  ctx.fillStyle = '#111827'; ctx.fillRect(0,0,w,h);
+  if (!starHistory.length) { ctx.fillStyle='#374151'; ctx.font='11px sans-serif'; ctx.textAlign='center'; ctx.fillText('데이터 로드 필요',w/2,h/2); return; }
+  const pad={left:35,right:5,top:8,bottom:18}, cw=w-pad.left-pad.right, ch=h-pad.top-pad.bottom;
+  const queues=starHistory.map(s=>s.queue_total||0).filter(v=>v>0), obs=starHistory.map(s=>s.obs_bz_stop||0);
+  const maxQ=Math.max(...queues,1), maxObs=Math.max(...obs,1);
+
+  // 차트 영역 좌표 저장 (클릭 이벤트용)
+  canvas._chartGeom = { padLeft: pad.left, padTop: pad.top, cw, ch, count: starHistory.length };
+
+  // 큐 라인
+  ctx.strokeStyle='#3b82f6'; ctx.lineWidth=1.5; ctx.beginPath();
+  for(let i=0;i<queues.length;i++){const x=pad.left+(i/queues.length)*cw,y=pad.top+ch-(queues[i]/maxQ)*ch;i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);}ctx.stroke();
+  // OBS 라인
+  ctx.strokeStyle='#f59e0b'; ctx.lineWidth=1.5; ctx.beginPath();
+  for(let i=0;i<obs.length;i++){const x=pad.left+(i/obs.length)*cw,y=pad.top+ch-(obs[i]/maxObs)*ch;i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);}ctx.stroke();
+
+  // 현재 재생 시간 세로선 (노란색)
+  if (mapData.currentTimeStr && starHistory.length > 0) {
+    const curHHMM = mapData.currentTimeStr.substring(0, 5);  // "HH:MM"
+    let curIdx = -1;
+    for (let i = 0; i < starHistory.length; i++) {
+      if (starHistory[i].time === curHHMM) { curIdx = i; break; }
+      if (starHistory[i].time > curHHMM && i > 0) { curIdx = i - 1; break; }
+    }
+    if (curIdx < 0 && curHHMM > starHistory[starHistory.length-1].time) curIdx = starHistory.length - 1;
+    if (curIdx >= 0) {
+      const cx = pad.left + (curIdx / starHistory.length) * cw;
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.moveTo(cx, pad.top);
+      ctx.lineTo(cx, pad.top + ch);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // 현재 시간 라벨
+      ctx.fillStyle = '#fbbf24';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      const labelX = Math.max(pad.left + 20, Math.min(w - 20, cx));
+      ctx.fillText('▼ ' + curHHMM, labelX, pad.top + 8);
+    }
+  }
+
+  // 라벨
+  ctx.fillStyle='#6b7280';ctx.font='9px sans-serif';ctx.textAlign='right';ctx.fillText(maxQ.toString(),pad.left-4,pad.top+10);ctx.fillText('0',pad.left-4,pad.top+ch);
+  ctx.textAlign='left';ctx.fillStyle='#3b82f6';ctx.fillText('큐',pad.left+5,pad.top+10);ctx.fillStyle='#f59e0b';ctx.fillText('OBS',pad.left+30,pad.top+10);
+  ctx.fillStyle='#6b7280';ctx.textAlign='center';const step=Math.max(1,Math.floor(starHistory.length/8));
+  for(let i=0;i<starHistory.length;i+=step){ctx.fillText(starHistory[i].time||'',pad.left+(i/starHistory.length)*cw,h-4);}
+
+  // 힌트 텍스트
+  ctx.fillStyle = '#4b5563';
+  ctx.font = '9px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('💡 클릭 → 해당 시간 이동', w - 4, h - 4);
+}
+
+// ============================================================
+// OBS Spike 추적 (데드락 전조)
+// ============================================================
+const OBS_HISTORY_MAX = 60;       // 최근 60샘플 보관
+const OBS_SPIKE_SIGMA = 1.5;      // 평균 + 1.5σ를 spike로 판정
+let obsHistory = [];              // [{time, obs}, ...]
+let jamEvents = [];               // [{time, obs, jam}] — 재생 누적 (호환성용)
+let fullObsHistory = [];          // 전체 데이터 시계열 [{time, obs, jam}, ...] — 데이터 로드 시 1회 채움
+let currentPlayTime = '';         // 현재 재생 시각 (HH:MM:SS) — 차트의 노란 세로선 위치
+let _lastObsSampleTime = '';
+let _lastJamCount = 0;
+
+function trackOBSHistory(obs, timeStr, jamCount) {
+  if (!timeStr || timeStr === _lastObsSampleTime) return;
+  _lastObsSampleTime = timeStr;
+  obsHistory.push({ time: timeStr, obs: obs, jam: jamCount });
+  if (obsHistory.length > OBS_HISTORY_MAX) obsHistory.shift();
+
+  // JAM 발생 (state=7 차량이 0→1 이상으로 새로 등장한 시점만)
+  if (jamCount > 0 && _lastJamCount === 0) {
+    jamEvents.push({ time: timeStr, obs: obs, jam: jamCount });
+    if (jamEvents.length > 50) jamEvents.shift();
+  }
+  _lastJamCount = jamCount;
+}
+
+function updateSpikePanel() {
+  // 현재 OBS = 재생 시점 (최신)
+  const cur = obsHistory.length ? obsHistory[obsHistory.length - 1].obs : '-';
+  setText('p-obs-now', cur);
+
+  // 평균 OBS / JAM 발생 = 전체 데이터 (재생과 무관)
+  if (fullObsHistory.length) {
+    const vals = fullObsHistory.map(h => h.obs);
+    const avg = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+    const allJam = fullObsHistory.filter(h => h.jam && h.jam > 0).length;
+    setText('p-obs-avg', avg);
+    setText('p-jam-cnt', allJam);
+  } else {
+    setText('p-obs-avg', '-');
+    setText('p-jam-cnt', 0);
+  }
+
+  // 모달이 열려있으면 모달 내용도 갱신 (현재 시간 마커 이동)
+  if (document.getElementById('spike-modal').style.display === 'flex') {
+    renderSpikeModal();
+  }
+}
+
+// ============================================================
+// 위험 레벨 이력 모달 (정상 제외)
+// ============================================================
+// macro_predictor 임계값과 동일
+const RISK_THRESHOLDS = { WARNING: 180, DANGER: 200, CRITICAL: 300 };
+
+function computeRiskLevel(avg_obs, trend) {
+  if (avg_obs >= RISK_THRESHOLDS.CRITICAL) return 'CRITICAL';
+  if (avg_obs >= RISK_THRESHOLDS.DANGER) return 'DANGER';
+  if (avg_obs >= RISK_THRESHOLDS.WARNING) return 'WARNING';
+  if (trend > 10) return 'WATCH';
+  return 'NORMAL';
+}
+
+function buildRiskHistory() {
+  // fullObsHistory 분당 데이터에서 위험 레벨 시계열 생성
+  // 같은 레벨이 연속되면 한 구간으로 묶음
+  if (!fullObsHistory.length) return [];
+  const segments = [];
+  let curSeg = null;
+  for (let i = 0; i < fullObsHistory.length; i++) {
+    const recent = fullObsHistory.slice(Math.max(0, i - 9), i + 1);
+    const avg = recent.reduce((s, h) => s + h.obs, 0) / recent.length;
+    let trend = 0;
+    if (recent.length >= 5) {
+      const half = Math.floor(recent.length / 2);
+      const f = recent.slice(0, half).reduce((s, h) => s + h.obs, 0) / half;
+      const sec = recent.slice(half).reduce((s, h) => s + h.obs, 0) / (recent.length - half);
+      trend = sec - f;
+    }
+    const level = computeRiskLevel(avg, trend);
+    if (level === 'NORMAL') {
+      if (curSeg) { segments.push(curSeg); curSeg = null; }
+    } else {
+      if (!curSeg || curSeg.level !== level) {
+        if (curSeg) segments.push(curSeg);
+        curSeg = { level: level, start: fullObsHistory[i].time, end: fullObsHistory[i].time, peak: fullObsHistory[i].obs };
+      } else {
+        curSeg.end = fullObsHistory[i].time;
+        if (fullObsHistory[i].obs > curSeg.peak) curSeg.peak = fullObsHistory[i].obs;
+      }
+    }
+  }
+  if (curSeg) segments.push(curSeg);
+  return segments;
+}
+
+function openRiskModal() {
+  document.getElementById('risk-modal').style.display = 'flex';
+  renderRiskModal();
+}
+
+function closeRiskModal() {
+  document.getElementById('risk-modal').style.display = 'none';
+}
+
+function renderRiskModal() {
+  const segments = buildRiskHistory();
+  const counts = { WATCH: 0, WARNING: 0, DANGER: 0, CRITICAL: 0 };
+  segments.forEach(s => { if (counts[s.level] !== undefined) counts[s.level]++; });
+  setText('r-cnt-watch', counts.WATCH);
+  setText('r-cnt-warning', counts.WARNING);
+  setText('r-cnt-danger', counts.DANGER);
+  setText('r-cnt-critical', counts.CRITICAL);
+
+  const lvlMeta = {
+    WATCH:    { label: '관찰',  color: '#60a5fa', icon: '👁️' },
+    WARNING:  { label: '주의',  color: '#f59e0b', icon: '⚠️' },
+    DANGER:   { label: '위험',  color: '#ef4444', icon: '🔴' },
+    CRITICAL: { label: '심각',  color: '#dc2626', icon: '🚨' },
+  };
+
+  const logEl = document.getElementById('risk-log');
+  if (segments.length === 0) {
+    logEl.innerHTML = '<span style="color:#22c55e;">정상 외 이벤트 없음 (전 시간 안정)</span>';
+    return;
+  }
+  // 최신순 정렬
+  const timeToSec = (s) => {
+    const p = (s || '').split(':');
+    return (parseInt(p[0])||0)*3600 + (parseInt(p[1])||0)*60;
+  };
+  const sorted = segments.slice().sort((a, b) => timeToSec(b.start) - timeToSec(a.start));
+  logEl.innerHTML = sorted.map(s => {
+    const m = lvlMeta[s.level] || { label: s.level, color: '#888', icon: '•' };
+    const dur = (s.start === s.end) ? '1분' : `${s.start}~${s.end}`;
+    return `<div class="jam-entry" title="${m.label}(${s.level}) — 최대 OBS ${s.peak}, 지속 ${dur}">${m.icon} <b style="color:${m.color};">${m.label}</b> ${s.start}${s.start !== s.end ? '~'+s.end : ''} (피크 OBS ${s.peak})</div>`;
+  }).join('');
+}
+
+function openSpikeModal() {
+  document.getElementById('spike-modal').style.display = 'flex';
+  renderSpikeModal();
+}
+
+function closeSpikeModal() {
+  document.getElementById('spike-modal').style.display = 'none';
+}
+
+function renderSpikeModal() {
+  // 전체 데이터 우선 사용. 없으면 재생 누적 fallback.
+  const src = fullObsHistory.length ? fullObsHistory : obsHistory;
+  if (!src.length) return;
+  const vals = src.map(h => h.obs);
+  const cur = vals[vals.length - 1];
+  const avg = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+  const max = Math.max(...vals);
+  // JAM 발생 시점 (전체 데이터 기준)
+  const allJam = src.filter(h => h.jam && h.jam > 0);
+  setText('m-obs-now', cur);
+  setText('m-obs-avg', avg);
+  setText('m-obs-max', max);
+  setText('m-spike-cnt', allJam.length);
+
+  // JAM 이벤트 표시 (시간 내림차순)
+  const logEl = document.getElementById('spike-log');
+  const timeToSec = (s) => {
+    const p = (s || '').split(':');
+    return (parseInt(p[0])||0)*3600 + (parseInt(p[1])||0)*60 + (parseInt(p[2])||0);
+  };
+
+  // 연속 구간(인접 분) 그룹핑: jam>=1 인 분들을 이어붙여 세그먼트 구성.
+  // 각 세그먼트에서 durationMin(지속 분 수), maxJam(최대 JAM 수),
+  // sustained10min(연속해서 jam>=10 이 유지된 최대 분 수) 을 계산.
+  const chrono = src.slice().sort((a, b) => timeToSec(a.time) - timeToSec(b.time));
+  const segments = [];
+  let curSeg = null;
+  for (const h of chrono) {
+    const hSec = timeToSec(h.time);
+    if (h.jam && h.jam > 0) {
+      if (curSeg && (hSec - curSeg.lastSec) <= 75) {
+        curSeg.entries.push(h);
+        curSeg.maxJam = Math.max(curSeg.maxJam, h.jam);
+        curSeg.lastSec = hSec;
+      } else {
+        curSeg = { entries: [h], maxJam: h.jam, lastSec: hSec };
+        segments.push(curSeg);
+      }
+    } else {
+      curSeg = null;
+    }
+  }
+  const segByTime = {};
+  for (const seg of segments) {
+    seg.durationMin = seg.entries.length;
+    let maxRun10 = 0, runLen = 0;
+    for (const h of seg.entries) {
+      if (h.jam >= 10) { runLen++; if (runLen > maxRun10) maxRun10 = runLen; }
+      else runLen = 0;
+    }
+    seg.sustained10min = maxRun10;
+    seg.startTime = seg.entries[0].time;
+    seg.endTime = seg.entries[seg.entries.length - 1].time;
+    for (const h of seg.entries) segByTime[h.time] = seg;
+  }
+
+  const sorted = allJam.slice().sort((a, b) => timeToSec(b.time) - timeToSec(a.time));
+  if (sorted.length === 0) {
+    logEl.innerHTML = '<span style="color:#22c55e;">JAM 발생 없음 (시스템 안정)</span>';
+  } else {
+    logEl.innerHTML = sorted.map(e => {
+      const seg = segByTime[e.time] || { durationMin: 1, maxJam: e.jam, sustained10min: e.jam>=10?1:0, startTime: e.time, endTime: e.time };
+      // 판정: 지속 시간 + 최대 JAM 수 + 10대 이상 유지 기반
+      let status, statusColor, icon, tooltip;
+      if (seg.sustained10min >= 4) {
+        status = '데드락 발생';
+        statusColor = '#ef4444';
+        icon = '🚨';
+        tooltip = `데드락 발생: ${seg.startTime}~${seg.endTime} 구간 ${seg.durationMin}분 지속, 최대 ${seg.maxJam}대. 10대 이상이 ${seg.sustained10min}분 연속 유지 = 풀리지 않는 잠금. 즉시 운영 개입 필요.`;
+      } else if (seg.durationMin >= 2 || e.jam >= 5) {
+        status = '주의 (다수 정지)';
+        statusColor = '#f59e0b';
+        icon = '⚠️';
+        tooltip = `주의: ${seg.startTime}~${seg.endTime} 구간 ${seg.durationMin}분 지속, 최대 ${seg.maxJam}대. 다수 차량 동시 정지이나 자동 회복 범위. 회복 양상 확인 필요.`;
+      } else {
+        status = '데드락 미발생 (경고)';
+        statusColor = '#fbbf24';
+        icon = '🟡';
+        tooltip = `데드락 미발생: 1분 단발 ${e.jam}대 JAM 후 즉시 회복. 단발성 경고. 시스템 정상.`;
+      }
+      return `<div class="jam-entry" title="${tooltip}">${icon} <b>${e.time}</b> — JAM (OBS ${e.obs}, ${e.jam}대) <span style="color:${statusColor};font-weight:bold;">— ${status}</span></div>`;
+    }).join('');
+  }
+  drawSpikeChart();
+}
+
+function drawSpikeChart() {
+  const canvas = document.getElementById('spike-chart');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const w = Math.max(400, Math.floor(rect.width));
+  const h = Math.max(200, Math.floor(rect.height));
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = '#0a0e17';
+  ctx.fillRect(0, 0, w, h);
+
+  // 전체 데이터 우선. 없으면 재생 누적 fallback.
+  const data = fullObsHistory.length ? fullObsHistory : obsHistory;
+  if (data.length < 2) {
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('데이터 로드 대기 중...', w / 2, h / 2);
+    return;
+  }
+
+  const vals = data.map(h => h.obs);
+  const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+  const variance = vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length;
+  const threshold = mean + OBS_SPIKE_SIGMA * Math.sqrt(variance);
+  const yMax = Math.max(...vals, threshold) * 1.1;
+  const yMin = Math.min(...vals) * 0.9;
+
+  const px = 40, py = 20;
+  const pw = w - px - 10, ph = h - py - 30;
+
+  // JAM 발생 시점 빨간 세로선 (진짜 데드락만 강조)
+  data.forEach((h, i) => {
+    if (h.jam && h.jam > 0) {
+      const x = px + (i / Math.max(1, data.length - 1)) * pw;
+      ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x, py);
+      ctx.lineTo(x, py + ph);
+      ctx.stroke();
+      // JAM 라벨
+      ctx.fillStyle = '#ef4444';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('JAM', x, py - 4);
+    }
+  });
+
+  // 임계선
+  const thY = py + ph - ((threshold - yMin) / (yMax - yMin)) * ph;
+  ctx.strokeStyle = '#ef4444';
+  ctx.setLineDash([5, 3]);
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(px, thY);
+  ctx.lineTo(px + pw, thY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#ef4444';
+  ctx.font = '10px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(`임계 ${Math.round(threshold)}`, px + 4, thY - 3);
+
+  // 평균선
+  const avgY = py + ph - ((mean - yMin) / (yMax - yMin)) * ph;
+  ctx.strokeStyle = '#60a5fa';
+  ctx.setLineDash([2, 2]);
+  ctx.beginPath();
+  ctx.moveTo(px, avgY);
+  ctx.lineTo(px + pw, avgY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#60a5fa';
+  ctx.fillText(`평균 ${Math.round(mean)}`, px + 4, avgY - 3);
+
+  // 시계열 라인 (전체 데이터)
+  ctx.strokeStyle = '#22c55e';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  data.forEach((h, i) => {
+    const x = px + (i / (data.length - 1)) * pw;
+    const y = py + ph - ((h.obs - yMin) / (yMax - yMin)) * ph;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // 현재 PLAY 위치 표시 (노란 세로선)
+  const curTime = (typeof currentPlayTime === 'string') ? currentPlayTime : '';
+  if (curTime) {
+    const curHM = curTime.substring(0, 5);  // "HH:MM"
+    const curIdx = data.findIndex(h => h.time === curHM);
+    if (curIdx >= 0) {
+      const x = px + (curIdx / Math.max(1, data.length - 1)) * pw;
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([3, 2]);
+      ctx.beginPath();
+      ctx.moveTo(x, py);
+      ctx.lineTo(x, py + ph);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#fbbf24';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('▼ 현재', x, py + ph + 12);
+    }
+  }
+
+  // Y축 라벨
+  ctx.fillStyle = '#6b7280';
+  ctx.font = '10px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText(Math.round(yMax), px - 4, py + 8);
+  ctx.fillText(Math.round(yMin), px - 4, py + ph);
+
+  // X축 (첫/끝 시간)
+  ctx.textAlign = 'left';
+  ctx.fillText(data[0].time, px, h - 8);
+  ctx.textAlign = 'right';
+  ctx.fillText(data[data.length - 1].time, px + pw, h - 8);
+}
+
+// ESC 키로 모달 닫기
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (document.getElementById('spike-modal').style.display === 'flex') {
+    closeSpikeModal();
+  }
+  if (document.getElementById('risk-modal').style.display === 'flex') {
+    closeRiskModal();
+  }
+});
+
+// 창 크기 변경 시 모달 차트 다시 그리기
+window.addEventListener('resize', () => {
+  if (document.getElementById('spike-modal').style.display === 'flex') {
+    drawSpikeChart();
+  }
+});
+
+// 차트 클릭 → 해당 시간으로 점프
+document.getElementById('chart-queue').addEventListener('click', function(e) {
+  if (!starHistory.length) return;
+  const canvas = e.currentTarget;
+  const geom = canvas._chartGeom;
+  if (!geom) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  // 차트 영역 밖이면 무시
+  if (x < geom.padLeft || x > geom.padLeft + geom.cw) return;
+  const ratio = (x - geom.padLeft) / geom.cw;
+  const idx = Math.max(0, Math.min(starHistory.length - 1, Math.floor(ratio * starHistory.length)));
+  const timeStr = starHistory[idx].time;  // "HH:MM"
+  if (!timeStr) return;
+  // 시간으로 점프
+  sendCmd('jump', { time: timeStr + ':00' });
+  // 시각적 피드백: 잠깐 세로선 강조
+  mapData.currentTimeStr = timeStr + ':00';
+  drawQueueChart();
+});
+
+// 마우스 커서 변경
+document.getElementById('chart-queue').addEventListener('mousemove', function(e) {
+  const canvas = e.currentTarget;
+  const geom = canvas._chartGeom;
+  if (!geom) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  canvas.style.cursor = (x >= geom.padLeft && x <= geom.padLeft + geom.cw) ? 'pointer' : 'default';
+});
+
+function drawHIDChart(hidData) {
+  const canvas=document.getElementById('chart-hid');
+  const rect=canvas.parentElement.getBoundingClientRect();
+  canvas.width=rect.width;canvas.height=rect.height-18;
+  const ctx=canvas.getContext('2d'),w=canvas.width,h=canvas.height;
+  ctx.fillStyle='#111827';ctx.fillRect(0,0,w,h);
+  if(!hidData||Object.keys(hidData).length===0){ctx.fillStyle='#374151';ctx.font='11px sans-serif';ctx.textAlign='center';ctx.fillText('데이터 로드 필요',w/2,h/2);return;}
+  const sorted=Object.values(hidData).sort((a,b)=>a.avg_speed-b.avg_speed).slice(0,20);
+  const pad={left:30,right:5,top:5,bottom:10},barH=Math.min(12,(h-pad.top-pad.bottom)/sorted.length-2),maxSpd=120;
+  for(let i=0;i<sorted.length;i++){const d=sorted[i],y=pad.top+i*(barH+2),barW=(d.avg_speed/maxSpd)*(w-pad.left-pad.right);
+  const ratio=d.avg_speed/maxSpd;ctx.fillStyle=`rgb(${Math.floor(255*(1-ratio))},${Math.floor(200*ratio)},50)`;ctx.fillRect(pad.left,y,barW,barH);
+  ctx.fillStyle='#9ca3af';ctx.font='9px sans-serif';ctx.textAlign='right';ctx.fillText(`H${d.hid_id}`,pad.left-3,y+barH-1);
+  ctx.textAlign='left';ctx.fillText(d.avg_speed.toFixed(0),pad.left+barW+3,y+barH-1);}
+}
+
+// ============================================================
+// 오른쪽 사이드바: OHT 목록 / Zone 목록
+// ============================================================
+let ohtFilter = 'all';
+let zoneFilter = 'all';
+let hidSpeeds = {};  // {hid_id: {avg_speed, min_speed, max_speed, count}}
+let selectedOHT = null;  // 선택된 OHT vid
+
+function switchRTab(tab) {
+  document.getElementById('rtab-oht').style.display = tab==='oht' ? 'block' : 'none';
+  document.getElementById('rtab-zone').style.display = tab==='zone' ? 'block' : 'none';
+  document.querySelectorAll('.rtab').forEach(b => b.classList.toggle('active', b.textContent.includes(tab==='oht'?'OHT':'Zone')));
+}
+
+function filterOHT(f, btn) {
+  ohtFilter = f;
+  if(btn) btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  renderOHTList();
+}
+
+function filterZone(f, btn) {
+  zoneFilter = f;
+  if(btn) btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  renderZoneList();
+}
+
+const stateNames = {1:'운행',2:'정지',3:'가속',4:'감속',5:'커브',6:'OBS',7:'JAM',8:'HT정지',9:'타임아웃'};
+const stateClasses = {1:'running',2:'stopped',3:'running',4:'running',5:'running',6:'obs',7:'jam',8:'stopped',9:'stopped'};
+
+function renderOHTList() {
+  const el = document.getElementById('ohtList');
+  const search = (document.getElementById('ohtSearch').value||'').toUpperCase();
+  let vehicles = Object.values(vehicleDisplay);
+  if (ohtFilter === 'running') vehicles = vehicles.filter(v => v.state === 1 && !v.isFull);
+  else if (ohtFilter === 'loaded') vehicles = vehicles.filter(v => v.isFull);
+  else if (ohtFilter === 'stopped') vehicles = vehicles.filter(v => v.state === 2 || v.state === 8);
+  else if (ohtFilter === 'jam') vehicles = vehicles.filter(v => v.state === 7 || v.state === 6);
+  if (search) vehicles = vehicles.filter(v => (v._vid||'').includes(search));
+  const pri = {7:0, 6:1, 8:2, 9:2, 2:3};
+  vehicles.sort((a,b) => (pri[a.state]??5) - (pri[b.state]??5));
+  const max = 200;
+  let html = '';
+  for (let i = 0; i < Math.min(vehicles.length, max); i++) {
+    const v = vehicles[i];
+    const vid = v._vid || '?';
+    const cls = stateClasses[v.state] || 'stopped';
+    const sn = stateNames[v.state] || '?';
+    const loadTxt = v.isFull ? ' [적재]' : '';
+    const vel = (typeof v.velocity === 'number') ? v.velocity : null;
+    let velTxt, velCls;
+    if (vel === null) { velTxt = '- (측정 불가)'; velCls = '#6b7280'; }
+    else if (vel === 0) { velTxt = '0 m/min'; velCls = '#ef4444'; }
+    else if (vel < 30) { velTxt = vel.toFixed(1) + ' m/min'; velCls = '#f59e0b'; }
+    else { velTxt = vel.toFixed(1) + ' m/min'; velCls = '#22c55e'; }
+    const isSel = selectedOHT === vid;
+    const sel = isSel ? ' style="background:#1a3a5e;border-left-color:#ffff00;"' : '';
+    html += `<div class="ritem ${cls}" ondblclick="selectOHT('${vid}')"${sel}>`;
+    html += `<div class="rh"><span class="rid">${vid}</span><span class="rst">${sn}${loadTxt}</span></div>`;
+    html += `<div class="rv" style="color:${velCls};">속도: ${velTxt}</div>`;
+    if (isSel) {
+      // 선택 시 상세 정보 표시
+      const x = (typeof v.tx === 'number') ? v.tx.toFixed(1) : '-';
+      const y = (typeof v.ty === 'number') ? v.ty.toFixed(1) : '-';
+      const cn = v.currentNode ?? '-';
+      const nn = v.nextNode ?? '-';
+      const dest = v.destination || '-';
+      const rt = (typeof v.ratio === 'number') ? (v.ratio*100).toFixed(0)+'%' : '-';
+      html += `<div class="rdetail">`;
+      html += `<div>📍 좌표: (${x}, ${y})</div>`;
+      html += `<div>🔗 Edge: ${cn} → ${nn} (${rt})</div>`;
+      html += `<div>🎯 목적지: ${dest}</div>`;
+      html += `</div>`;
+    }
+    html += `</div>`;
+  }
+  if (vehicles.length > max) html += `<div style="color:#6b7280;font-size:10px;padding:4px;">...외 ${vehicles.length-max}대</div>`;
+  if (!vehicles.length) html = '<div style="color:#6b7280;padding:8px;">차량 없음</div>';
+  el.innerHTML = html;
+}
+
+function renderZoneList() {
+  const el = document.getElementById('zoneList');
+  const search = (document.getElementById('zoneSearch').value||'').toUpperCase();
+  if (!railGraph || !railGraph.zones) {
+    el.innerHTML = '<div style="color:#6b7280;padding:8px;">데이터 로드 필요</div>';
+    return;
+  }
+  const zc = mapData.zoneCounts || {};
+  let zones = railGraph.zones.map(z => {
+    const count = zc[z.id] || 0;
+    const max = z.max || 37;
+    const pct = Math.round(count / max * 100);
+    const status = count >= max ? 'full' : pct >= 70 ? 'precaution' : 'normal';
+    return { ...z, count, pct, status };
+  });
+  if (zoneFilter !== 'all') zones = zones.filter(z => z.status === zoneFilter);
+  if (search) zones = zones.filter(z => (z.name||'').toUpperCase().includes(search) || String(z.id).includes(search));
+  // 속도 정보 결합
+  zones.forEach(z => {
+    const sp = hidSpeeds[z.id] || hidSpeeds[String(z.id)];
+    z.speed = sp ? sp.avg_speed : null;
+  });
+  // 정렬: 차량 수(count) 많은 순 = OHT 많이 지나는 Zone이 위로
+  // 같은 count면 status 우선(포화→주의→정상)
+  const pri = {full:0, precaution:1, normal:2};
+  zones.sort((a,b) => {
+    if (b.count !== a.count) return b.count - a.count;
+    return (pri[a.status]??2) - (pri[b.status]??2);
+  });
+  const max = 200;
+  let html = '';
+  for (let i = 0; i < Math.min(zones.length, max); i++) {
+    const z = zones[i];
+    const stTxt = z.status==='full' ? '포화' : z.status==='precaution' ? '주의' : '정상';
+    const stColor = z.status==='full' ? '#ef4444' : z.status==='precaution' ? '#f59e0b' : '#22c55e';
+    const sel = selectedZone && selectedZone.id === z.id ? ' style="background:#1a3a5e;border-left-color:#ffff00;"' : '';
+    // 속도 표시 (색상 구분)
+    let spTxt, spColor;
+    if (z.speed === null) { spTxt = '-'; spColor = '#6b7280'; }
+    else if (z.speed === 0) { spTxt = '0 m/min'; spColor = '#ef4444'; }
+    else if (z.speed < 30) { spTxt = z.speed.toFixed(1) + ' m/min'; spColor = '#f59e0b'; }
+    else { spTxt = z.speed.toFixed(1) + ' m/min'; spColor = '#22c55e'; }
+    html += `<div class="ritem zone-${z.status}" ondblclick="selectZone(${z.id})"${sel}>`;
+    html += `<div class="rh"><span class="rid">HID ${z.id}</span><span class="rst" style="background:${stColor};color:#000;">${z.count}/${z.max} ${stTxt}</span></div>`;
+    html += `<div style="color:#9ca3af;font-size:10px;margin-top:2px;">${z.name} | ${z.bay}</div>`;
+    html += `<div class="rv" style="color:${spColor};">속도: ${spTxt}</div>`;
+    html += `<div class="zone-bar"><div class="zone-bar-fill" style="width:${z.pct}%;"></div></div>`;
+    html += `</div>`;
+  }
+  if (zones.length > max) html += `<div style="color:#6b7280;font-size:10px;padding:4px;">...외 ${zones.length-max}개</div>`;
+  if (!zones.length) html = '<div style="color:#6b7280;padding:8px;">Zone 없음</div>';
+  el.innerHTML = html;
+}
+
+function selectOHT(vid) {
+  if (selectedOHT === vid) {
+    // 토글: 다시 더블클릭하면 해제
+    selectedOHT = null;
+    drawMap();
+    renderOHTList();
+    return;
+  }
+  const v = vehicleDisplay[vid];
+  if (!v || typeof v.tx !== 'number') {
+    selectedOHT = vid;
+    renderOHTList();
+    return;
+  }
+  selectedOHT = vid;
+  // 맵을 차량 위치로 줌인
+  const b = mapData.bounds || (railGraph && railGraph.bounds);
+  if (b) {
+    const rect = mapCanvas.parentElement.getBoundingClientRect();
+    const cw = Math.max(100, Math.floor(rect.width));
+    const ch = Math.max(100, Math.floor(rect.height));
+    const dataW = b.max_x - b.min_x, dataH = b.max_y - b.min_y;
+    const baseScale = Math.min((cw-20)/dataW, (ch-20)/dataH);
+    mapZoom = 8;  // 차량 클로즈업
+    const sc = baseScale * mapZoom;
+    mapPanX = (cw/2) - 10 - (cw-20-dataW*sc)/2 - (v.tx - b.min_x)*sc;
+    mapPanY = (ch/2) - 10 - (ch-20-dataH*sc)/2 - (v.ty - b.min_y)*sc;
+  }
+  railCacheCanvas = null;
+  drawMap();
+  renderOHTList();
+}
+
+function selectZone(zoneId) {
+  if (!railGraph || !railGraph.zones) return;
+  if (selectedZone && selectedZone.id === zoneId) {
+    selectedZone = null;
+    railCacheCanvas = null;
+    drawMap();
+    renderZoneList();
+    return;
+  }
+  const z = railGraph.zones.find(zz => zz.id === zoneId);
+  if (!z) return;
+  selectedZone = z;
+  const nodes = railGraph.nodes;
+  let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
+  for (const lane of [...z.inLanes, ...z.outLanes]) {
+    const from=nodes[lane.from], to=nodes[lane.to];
+    if (from) { minX=Math.min(minX,from[0]); maxX=Math.max(maxX,from[0]); minY=Math.min(minY,from[1]); maxY=Math.max(maxY,from[1]); }
+    if (to) { minX=Math.min(minX,to[0]); maxX=Math.max(maxX,to[0]); minY=Math.min(minY,to[1]); maxY=Math.max(maxY,to[1]); }
+  }
+  if (minX < Infinity) {
+    const b = mapData.bounds || railGraph.bounds;
+    const rect = mapCanvas.parentElement.getBoundingClientRect();
+    const cw = Math.max(100, Math.floor(rect.width));
+    const ch = Math.max(100, Math.floor(rect.height));
+    const zoneCx = (minX + maxX) / 2, zoneCy = (minY + maxY) / 2;
+    const zoneW = Math.max(maxX - minX, 50) + 100;
+    const zoneH = Math.max(maxY - minY, 50) + 100;
+    const dataW = b.max_x - b.min_x, dataH = b.max_y - b.min_y;
+    const baseScale = Math.min((cw-20)/dataW, (ch-20)/dataH);
+    mapZoom = Math.max(2, Math.min(12, Math.min(cw*0.6/zoneW, ch*0.6/zoneH) / baseScale));
+    const sc = baseScale * mapZoom;
+    mapPanX = (cw/2) - 10 - (cw-20-dataW*sc)/2 - (zoneCx - b.min_x)*sc;
+    mapPanY = (ch/2) - 10 - (ch-20-dataH*sc)/2 - (zoneCy - b.min_y)*sc;
+  }
+  railCacheCanvas = null;
+  drawMap();
+  renderZoneList();
+}
+
+const _origUpdateVehicles = true;
+let _uiFrameCount = 0;
+const _origUpdateUI = updateUI;
+updateUI = function(d) {
+  _origUpdateUI(d);
+  _uiFrameCount++;
+  if (_uiFrameCount % 5 === 0) {
+    for (const vid in vehicleDisplay) vehicleDisplay[vid]._vid = vid;
+    renderOHTList();
+    renderZoneList();
+  }
+  // 큐 차트 세로선 갱신 (3프레임마다)
+  if (_uiFrameCount % 3 === 0 && starHistory.length > 0) {
+    drawQueueChart();
+  }
+};
+
+function resetMapView() {
+  mapZoom = 1; mapPanX = 0; mapPanY = 0;
+  selectedZone = null;
+  railCacheCanvas = null;
+  drawMap();
+}
+
+function toggleRSidebar() {
+  const sb = document.getElementById('rsidebar');
+  const btn = document.getElementById('rsidebar-toggle');
+  sb.classList.toggle('collapsed');
+  const open = !sb.classList.contains('collapsed');
+  btn.classList.toggle('open', open);
+  btn.innerHTML = open ? '&#9654;' : '&#9664;';
+  setTimeout(() => { railCacheCanvas=null; drawMap(); }, 300);
+}
+
+function toggleSidebar() {
+  const sb = document.getElementById('sidebar');
+  const btn = document.getElementById('sidebar-toggle');
+  sb.classList.toggle('collapsed');
+  const open = !sb.classList.contains('collapsed');
+  btn.classList.toggle('open', open);
+  btn.innerHTML = open ? '&#9664;' : '&#9654;';
+  setTimeout(() => { railCacheCanvas=null; drawMap(); }, 300);
+}
+
+// Init
+window.addEventListener('resize', () => { railCacheCanvas=null; drawMap(); drawQueueChart(); });
+connectWS();
+drawMap();
+
+// 날짜 목록 자동 로드
+(async () => {
+  try {
+    const resp = await fetch('/api/dates');
+    const dates = await resp.json();
+    const sel = document.getElementById('date-select');
+    for (const d of dates) {
+      if (!d.exists) continue;
+      const opt = document.createElement('option');
+      opt.value = d.date;
+      opt.textContent = d.description;
+      sel.appendChild(opt);
+    }
+  } catch(e) { console.error('날짜 목록 로드 실패:', e); }
+})();
+</script>
+<!-- 위험 레벨 이력 모달 (NORMAL 제외 모든 이벤트) -->
+<div id="risk-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.75);z-index:9999;justify-content:center;align-items:center;" onclick="if(event.target.id==='risk-modal')closeRiskModal()">
+  <div style="background:#0a0e17;border:1px solid #06b6d4;border-radius:8px;padding:16px;width:90%;max-width:700px;max-height:85vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <h3 style="margin:0;color:#06b6d4;">데드락 위험 이력 — 정상 외 전부</h3>
+      <button onclick="closeRiskModal()" style="background:none;border:1px solid #444;color:#888;padding:4px 10px;border-radius:4px;cursor:pointer;">✕ 닫기</button>
+    </div>
+    <div id="risk-summary" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;">
+      <div style="padding:8px;background:#1a1a2e;border-radius:4px;text-align:center;"><div style="font-size:10px;color:#888;">관찰 (WATCH)</div><div id="r-cnt-watch" style="font-size:18px;font-weight:bold;color:#60a5fa;">0</div></div>
+      <div style="padding:8px;background:#1a1a2e;border-radius:4px;text-align:center;"><div style="font-size:10px;color:#888;">주의 (WARNING)</div><div id="r-cnt-warning" style="font-size:18px;font-weight:bold;color:#f59e0b;">0</div></div>
+      <div style="padding:8px;background:#1a1a2e;border-radius:4px;text-align:center;"><div style="font-size:10px;color:#888;">위험 (DANGER)</div><div id="r-cnt-danger" style="font-size:18px;font-weight:bold;color:#ef4444;">0</div></div>
+      <div style="padding:8px;background:#1a1a2e;border-radius:4px;text-align:center;"><div style="font-size:10px;color:#888;">심각 (CRITICAL)</div><div id="r-cnt-critical" style="font-size:18px;font-weight:bold;color:#dc2626;">0</div></div>
+    </div>
+    <div>
+      <div style="font-size:12px;color:#06b6d4;font-weight:bold;margin:8px 0 4px;">위험 구간 기록 (최신순, 정상 제외)</div>
+      <div id="risk-log" style="background:#1a1a2e;padding:8px;border-radius:4px;font-size:11px;max-height:400px;overflow-y:auto;color:#cbd5e1;line-height:1.6;">데이터 로드 대기 중...</div>
+    </div>
+    <div style="font-size:10px;color:#6b7280;margin-top:8px;">
+      💡 임계: WATCH(상승추세), WARNING(OBS≥180), DANGER(OBS≥200), CRITICAL(OBS≥300). 회복돼도 기록됨.
+    </div>
+  </div>
+</div>
+
+<!-- OBS spike 추이 모달 -->
+<div id="spike-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.75);z-index:9999;justify-content:center;align-items:center;" onclick="if(event.target.id==='spike-modal')closeSpikeModal()">
+  <div style="background:#0a0e17;border:1px solid #06b6d4;border-radius:8px;padding:16px;width:90%;max-width:800px;max-height:85vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <h3 style="margin:0;color:#06b6d4;">데드락 전조 — OBS 추이 상세</h3>
+      <button onclick="closeSpikeModal()" style="background:none;border:1px solid #444;color:#888;padding:4px 10px;border-radius:4px;cursor:pointer;">✕ 닫기</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;">
+      <div style="padding:8px;background:#1a1a2e;border-radius:4px;"><div style="font-size:10px;color:#888;">현재 OBS</div><div id="m-obs-now" style="font-size:18px;font-weight:bold;color:#fff;">-</div></div>
+      <div style="padding:8px;background:#1a1a2e;border-radius:4px;"><div style="font-size:10px;color:#888;">평균 (최근 30분)</div><div id="m-obs-avg" style="font-size:18px;font-weight:bold;color:#60a5fa;">-</div></div>
+      <div style="padding:8px;background:#1a1a2e;border-radius:4px;"><div style="font-size:10px;color:#888;">최대값</div><div id="m-obs-max" style="font-size:18px;font-weight:bold;color:#f59e0b;">-</div></div>
+      <div style="padding:8px;background:#1a1a2e;border-radius:4px;"><div style="font-size:10px;color:#888;">JAM 발생</div><div id="m-spike-cnt" style="font-size:18px;font-weight:bold;color:#ef4444;">0</div></div>
+    </div>
+    <div style="background:#1a1a2e;padding:8px;border-radius:4px;margin-bottom:8px;">
+      <div style="font-size:11px;color:#9ca3af;margin-bottom:4px;">OBS 시계열 (초록=OBS, 파란점선=평균, 빨간점선=spike 임계, <b style="color:#fbbf24;">노란 세로선=현재 PLAY 시각</b>, <b style="color:#ef4444;">빨간 세로선=JAM 발생</b>)</div>
+      <canvas id="spike-chart" style="width:100%;height:240px;"></canvas>
+    </div>
+    <div>
+      <div style="font-size:12px;color:#06b6d4;font-weight:bold;margin:8px 0 4px;">JAM 발생 기록 (진짜 데드락 사건)</div>
+      <div id="spike-log" style="background:#1a1a2e;padding:8px;border-radius:4px;font-size:11px;max-height:150px;overflow-y:auto;color:#cbd5e1;line-height:1.6;">JAM 발생 없음</div>
+    </div>
+    <div style="font-size:10px;color:#6b7280;margin-top:8px;">
+      💡 회복된 spike는 의미 없음 → 표시 X. JAM(state=7) 발생만 진짜 데드락 사건으로 기록.
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
