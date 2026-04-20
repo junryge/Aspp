@@ -1,0 +1,2150 @@
+"""
+demos_v1/routes_chat.py - /api/chat route (the massive chat endpoint) + /api/chat/stop
+"""
+import os
+import re
+import json
+import time
+import warnings
+import requests as req
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from flask import request, jsonify
+
+import demos_v1.utils as _utils_mod
+from demos_v1.utils import (
+    BASE_DIR, SKILLS_DIR, UPLOAD_DIR,
+    uploaded_csv_data, uploaded_files,
+    chat_stop_flag,
+    HARNESS_AVAILABLE,
+)
+from demos_v1.config import (
+    TOKEN_SETTINGS, API_TOKEN,
+    MAX_POOL_SIZE, VRAM_BUDGET_GB, _EXT_CONFIG,
+)
+from demos_v1.models import (
+    MODEL_REGISTRY, ENV_CONFIG, ENV_TO_REGISTRY,
+    FALLBACK_CHAINS, API_MODEL_TIERS,
+)
+from demos_v1.skills import (
+    SKILL_DESC_KO, DOMAIN_SKILLS, SKILL_GROUPS, _SKILL_TO_GROUP,
+    MANUAL_ONLY_SKILLS, SKILL_KEYWORDS,
+    scan_skills, auto_select_skills, context_aware_skill_select,
+    load_skill_content, get_skill_catalog,
+    group_skills_for_parallel, apply_hierarchical_delegation,
+    get_registry_key_for_env, get_model_capabilities,
+)
+from demos_v1.router import (
+    classify_and_route, classify_format_and_style,
+    build_orchestration_prompt,
+    VISION_SIGNALS, COMPLEX_SIGNALS, PPT_SIGNALS, DATA_SIGNALS,
+)
+from logpresso_client import query_logpresso
+from demos_v1.quality import (
+    DOMAIN_PERSONAS, ANTI_RATIONALIZATION, VERIFICATION_GATE, ANALYSIS_LIFECYCLE,
+    _extract_skill_context, _detect_repetition,
+    _validate_response, _calculate_quality_score, _fix_response_issues,
+    _sanitize_knowledge_content,
+)
+from demos_v1.engine import (
+    _build_agent_system_prompt, _trim_history_for_context,
+    _agent_call_gguf, _synthesize_responses_gguf,
+    _api_agent_call,
+    _assign_models_to_groups, _assign_api_models_to_groups,
+)
+from demos_v1.gguf import (
+    find_gguf_files, load_gguf_model, gguf_chat,
+    _pool_get_or_load, _pool_release, _pool_status,
+)
+from demos_v1.knowledge import search_knowledge, KNOWLEDGE_DIR, KNOWLEDGE_TRIGGERS
+from demos_v1.logpresso import (
+    LOGPRESSO_TABLES, LOGPRESSO_TABLE_GROUPS, LOGPRESSO_FAB_FILTERS,
+    _get_table_group, _filter_tables_by_groups, _fetch_table_fields,
+    _llm_generate_lpql, extract_lpql_from_response, validate_lpql_readonly,
+)
+
+
+def _auto_save_feedback(loaded, quality, last_user_query):
+    """응답 품질 점수를 피드백으로 자동 저장 (하네스 피드백 루프)"""
+    try:
+        from harness_bridge import _feedback_store
+        if not _feedback_store or not loaded:
+            return
+        import time as _time
+        from harness import FeedbackEntry
+        score = quality.get('score', 0) if isinstance(quality, dict) else 0
+        approved = score >= 60
+        for sid in loaded[:5]:  # 상위 5개 스킬만
+            _feedback_store.add(FeedbackEntry(
+                timestamp=_time.time(),
+                skill_id=sid,
+                agent='app',
+                quality_score=score,
+                approved=approved,
+                rejection_reason=None if approved else f"품질 점수 {score}/100 미달",
+                query_context=(last_user_query or '')[:100],
+            ))
+    except Exception:
+        pass
+
+
+def _maybe_generate_md_html(answer, loaded, resp_data):
+    """md-to-html 스킬이 로드되었으면 MD/HTML 파일을 생성하고 다운로드 URL을 resp_data에 추가"""
+    if "md-to-html" not in loaded:
+        return resp_data
+
+    import datetime
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    uploads_dir = os.path.join(BASE_DIR, 'uploads')
+    os.makedirs(uploads_dir, exist_ok=True)
+
+    # 제목 자동 추출: 첫 번째 # 헤딩에서 가져옴
+    title = "문서"
+    for line in answer.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("# ") and not stripped.startswith("## "):
+            title = stripped.lstrip("# ").strip()
+            break
+
+    # 1) MD 파일 저장
+    md_filename = f"document_{timestamp}.md"
+    md_path = os.path.join(uploads_dir, md_filename)
+    with open(md_path, "w", encoding="utf-8") as f:
+        f.write(answer)
+
+    # 2) HTML 파일 생성
+    try:
+        import markdown as md_lib
+        extensions = ["tables", "fenced_code", "codehilite", "toc", "nl2br", "sane_lists"]
+        body_html = md_lib.markdown(answer, extensions=extensions)
+        full_html = (
+            '<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            f'<title>{title}</title><style>'
+            'body{font-family:"Pretendard","Noto Sans KR",sans-serif;max-width:900px;margin:2rem auto;padding:0 1.5rem;color:#1a1a2e;line-height:1.7}'
+            'h1,h2,h3{color:#16213e;border-bottom:2px solid #e2e8f0;padding-bottom:.3em}'
+            'table{border-collapse:collapse;width:100%;margin:1em 0}'
+            'th,td{border:1px solid #cbd5e1;padding:.6em 1em;text-align:left}'
+            'th{background:#f1f5f9;font-weight:700}'
+            'code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-size:.9em}'
+            'pre{background:#1e293b;color:#e2e8f0;padding:1em;border-radius:8px;overflow-x:auto}'
+            'pre code{background:none;color:inherit;padding:0}'
+            'blockquote{border-left:4px solid #6366f1;margin:1em 0;padding:.5em 1em;background:#f8fafc}'
+            'a{color:#6366f1}img{max-width:100%;border-radius:8px}'
+            '</style></head><body>'
+            f'{body_html}</body></html>'
+        )
+        html_filename = f"document_{timestamp}.html"
+        html_path = os.path.join(uploads_dir, html_filename)
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write(full_html)
+        html_url = f"/api/download_static/document.html?id={timestamp}"
+    except Exception:
+        html_url = None
+
+    md_url = f"/api/download_static/document.md?id={timestamp}"
+
+    resp_data["md_download_url"] = md_url
+    if html_url:
+        resp_data["html_download_url"] = html_url
+    resp_data["doc_download_id"] = timestamp
+
+    return resp_data
+
+
+def register_chat_routes(app):
+    """Register chat routes on the Flask app."""
+
+    @app.route("/api/chat/stop", methods=["POST"])
+    def api_chat_stop():
+        """진행 중인 LLM 응답을 중지"""
+        chat_stop_flag["stop"] = True
+        return jsonify({"stopped": True})
+
+
+    @app.route("/api/chat", methods=["POST"])
+    def api_chat():
+        """LLM API 프록시 - 스킬을 시스템 프롬프트에 넣어서 회사 API로 전달"""
+        chat_stop_flag["stop"] = False  # 새 요청 시작 시 플래그 초기화
+        data = request.json
+        # 환경 선택: 배열 또는 문자열 → 배열로 통일
+        raw_env = data.get("env", "auto")
+        if isinstance(raw_env, list):
+            user_envs = [e for e in raw_env if e]
+        elif isinstance(raw_env, str):
+            user_envs = [raw_env] if raw_env else ["auto"]
+        else:
+            user_envs = ["auto"]
+        if not user_envs:
+            user_envs = ["auto"]
+
+        auto_routed = False
+        route_reason = ""
+        multi_model_parallel = False  # 사용자가 모델 2개+ 선택한 수동 병렬
+        selected_model_paths = []     # 수동 병렬 시 선택된 모델 경로들
+
+        # 혼용 금지 체크: GGUF + API 동시 선택
+        has_gguf = any(e.startswith("gguf-") for e in user_envs if e != "auto")
+        has_api = any(not e.startswith("gguf-") for e in user_envs if e != "auto")
+        if has_gguf and has_api:
+            return jsonify({"error": "GGUF와 API를 동시에 선택할 수 없습니다. 같은 타입만 선택해주세요."}), 400
+
+        # AUTO 모드
+        if user_envs == ["auto"]:
+            last_query = ""
+            msgs = data.get("messages", [])
+            if msgs:
+                last_msg = msgs[-1]
+                last_query = last_msg.get("content", "") if isinstance(last_msg.get("content"), str) else ""
+            env_id, route_reason = classify_and_route(last_query, msgs, uploaded_files)
+            auto_routed = True
+        elif len(user_envs) >= 2:
+            # 수동 다중 선택 → 첫 번째를 기본 env로, 병렬은 스킬이 결정
+            env_id = user_envs[0]
+            multi_model_parallel = True
+            # GGUF 다중: 모델 경로 수집
+            if has_gguf:
+                for ue in user_envs:
+                    p = ENV_CONFIG.get(ue, {}).get("_gguf_path")
+                    if p:
+                        selected_model_paths.append((p, ENV_CONFIG[ue].get("_size_gb", 0)))
+            # API 다중: env_id 목록 유지 (user_envs 그대로 사용)
+        elif user_envs[0] in ENV_CONFIG:
+            env_id = user_envs[0]
+        else:
+            env_id = user_envs[0]
+
+        if env_id and env_id in ENV_CONFIG:
+            api_url = ENV_CONFIG[env_id]["url"]
+            model = ENV_CONFIG[env_id]["model"]
+        else:
+            # env_id 가 ENV_CONFIG 에 없는 경우(낡은 router.py 등) 첫 번째 API env 로 폴백
+            api_env_ids = [k for k in ENV_CONFIG.keys() if not str(k).startswith("gguf-")]
+            if api_env_ids:
+                fb = api_env_ids[0]
+                print(f"[AUTO fallback] env_id={env_id!r} 매칭 실패 → {fb} 사용")
+                env_id = fb
+                api_url = ENV_CONFIG[fb]["url"]
+                model = ENV_CONFIG[fb]["model"]
+                auto_routed = True
+                route_reason = (route_reason + " | " if route_reason else "") + f"env_id 폴백 → {fb}"
+            else:
+                api_url = data.get("api_url", "")
+                model = data.get("model", "")
+        api_key = API_TOKEN or data.get("api_key", "")
+        messages = data.get("messages", [])
+        skill_ids = data.get("skills", [])
+        effort = data.get("effort", 2)
+        output_format = data.get("format", "code")
+        writing_style = data.get("writing_style", "")
+        custom_system_prompt = data.get("system_prompt", "")
+        max_tokens = data.get("max_tokens", TOKEN_SETTINGS["agent_max_tokens"])
+        user_n_ctx = data.get("n_ctx", 0)  # 프론트엔드에서 요청한 n_ctx (0이면 기본값 사용)
+        think_mode = data.get("think_mode", False)
+        requested_output_format = output_format
+        is_gguf = env_id.startswith("gguf-") if env_id else False
+
+        # ── 토큰 자동 결정 (API/GGUF 모두) ──
+        if is_gguf:
+            # GGUF: 고정값 (로컬 GPU 최적화)
+            max_tokens = 4096
+            user_n_ctx = user_n_ctx if user_n_ctx > 0 else 16384
+        else:
+            # API: 모델 크기별 자동 설정
+            _reg_key = ENV_TO_REGISTRY.get(env_id)
+            _cost_tier = MODEL_REGISTRY.get(_reg_key, {}).get("cost_tier", "medium") if _reg_key else "medium"
+            if _cost_tier == "high":      # 대형 모델 (480B)
+                max_tokens = 16384
+            elif _cost_tier == "medium":  # 중형 모델 (GLM-5, Coder-Next)
+                max_tokens = 8192
+            else:                         # 경량 모델 (gpt-oss-20b)
+                max_tokens = 4096
+
+        # 출력형식/스타일 자동 분류 (format=auto 또는 writing_style=auto일 때)
+        auto_format = False
+        auto_style = False
+        auto_fmt_reason = ""
+        if output_format == "auto" or writing_style == "auto":
+            last_q = ""
+            if messages:
+                last_m = messages[-1]
+                last_q = last_m.get("content", "") if isinstance(last_m.get("content"), str) else ""
+            auto_fmt, auto_sty, auto_fmt_reason = classify_format_and_style(
+                last_q, messages, uploaded_files, skill_ids
+            )
+            if output_format == "auto":
+                output_format = auto_fmt
+                auto_format = True
+            if writing_style == "auto":
+                writing_style = auto_sty
+                auto_style = True
+
+        # GGUF 전용: PPT/Draw.io 생성 요청은 code 형식으로 강제 (API 경로 영향 없음)
+        last_user_query = ""
+        if messages:
+            last_m = messages[-1]
+            if isinstance(last_m.get("content"), str):
+                last_user_query = last_m.get("content", "")
+        ql = last_user_query.lower()
+        gguf_artifact_request = is_gguf and any(kw in ql for kw in [
+            "ppt", "피피티", "파워포인트", "프레젠테이션", "슬라이드", "deck",
+            "draw.io", "drawio", "드로우", "다이어그램", "mxfile", "mxgraphmodel",
+        ])
+        if gguf_artifact_request and requested_output_format == "auto" and output_format in ("report", "analysis", "step-by-step"):
+            output_format = "code"
+            auto_format = True
+            auto_fmt_reason = (auto_fmt_reason + " | " if auto_fmt_reason else "") + "GGUF artifact request -> force code"
+
+        if (not api_url or not model) and not env_id.startswith("gguf-"):
+            return jsonify({"error": "API URL과 모델 이름을 설정해주세요."}), 400
+
+        # ── 주간보고 PPT 직접 생성 (LLM 코드 생성 우회) ──
+        _ql_lower = last_user_query.lower()
+        _is_weekly_ppt = ("주간보고" in _ql_lower or "주간 보고" in _ql_lower) and ("ppt" in _ql_lower or "PPT" in last_user_query or "피피티" in _ql_lower)
+        if _is_weekly_ppt and ("weekly-report" in skill_ids or "knowledge-search" in skill_ids):
+            _projects = []
+            _weekly_docs = []
+            try:
+                _chat_user_id = data.get("user_id", None)
+                _kb_results = search_knowledge(last_user_query, max_results=5, max_content_chars=8000, user_id=_chat_user_id)
+                _weekly_docs = [r for r in _kb_results if "주간" in r.get("filename", "").lower() or "보고" in r.get("filename", "").lower()]
+                if _weekly_docs:
+                    # CSV 데이터 파싱 → projects 리스트 생성
+                    _projects = []
+                    for doc in _weekly_docs[:3]:
+                        _content = doc.get("content", "")
+                        _fname = doc.get("filename", "")
+                        # 프로젝트명 추출
+                        _proj_name = "프로젝트"
+                        for line in _content.split("\n"):
+                            line = line.strip()
+                            if line and not line.startswith("---") and not line.startswith("tags") and not line.startswith("date") and not line.startswith("category") and not line.startswith("description") and not line.startswith("owner") and not line.startswith("title") and not line.startswith("updated") and not line.startswith("fab"):
+                                if "주간" in line and "보고" in line:
+                                    _proj_name = line.replace("주간 보고", "").replace("주간보고", "").strip().rstrip("_").strip()
+                                    if "_" in _proj_name:
+                                        _proj_name = _proj_name.split("_")[0].strip()
+                                    if not _proj_name:
+                                        _proj_name = "프로젝트"
+                                    break
+                        # CSV 행 파싱
+                        _current = []
+                        _next = []
+                        _issues = ""
+                        _lines = _content.split("\n")
+                        _data_started = False
+                        for line in _lines:
+                            if "추진 내용" in line and "납기" in line:
+                                _data_started = True
+                                continue
+                            if not _data_started:
+                                continue
+                            if "Issue" in line and "협의" in line:
+                                _issues = ""
+                                continue
+                            parts = line.split(",")
+                            if len(parts) >= 4:
+                                _left_content = parts[0].strip()
+                                _left_date = ""
+                                _left_progress = ""
+                                _right_content = ""
+                                _right_date = ""
+                                _right_progress = ""
+                                # 왼쪽(금주 실적) 파싱
+                                for p in parts[1:4]:
+                                    p = p.strip()
+                                    if "월" in p and "일" in p:
+                                        _left_date = p
+                                    elif "%" in p:
+                                        _left_progress = p
+                                # 오른쪽(차주 계획) 파싱
+                                if len(parts) >= 5:
+                                    _right_content = parts[4].strip() if len(parts) > 4 else ""
+                                    for p in parts[5:]:
+                                        p = p.strip()
+                                        if "월" in p and "일" in p:
+                                            _right_date = p
+                                        elif "%" in p:
+                                            _right_progress = p
+                                if _left_content and _left_content.startswith("▶"):
+                                    _current.append({"content": _left_content, "date": _left_date, "progress": _left_progress})
+                                elif _left_content and _current:
+                                    _current[-1]["content"] += "\n   " + _left_content
+                                if _right_content and _right_content.startswith("▶"):
+                                    _next.append({"content": _right_content, "date": _right_date, "progress": _right_progress})
+                                elif _right_content and _next:
+                                    _next[-1]["content"] += "\n   " + _right_content
+                        if _current or _next:
+                            _projects.append({"name": _proj_name, "current": _current, "next": _next, "issues": _issues})
+
+                    if _projects:
+                        try:
+                            from pptx import Presentation as _Prs
+                            from pptx.util import Inches as _In, Pt as _Pt, Cm as _Cm
+                            from pptx.dml.color import RGBColor as _RGB
+                            from pptx.enum.text import PP_ALIGN as _AL, MSO_ANCHOR as _AN
+                            import datetime as _dt
+
+                            def __sc(tb, r, c, tx, b=False, bg=None, al=_AL.LEFT, sz=10):
+                                cl = tb.cell(r, c); cl.text = ""
+                                p = cl.text_frame.paragraphs[0]; p.text = str(tx)
+                                p.font.size = _Pt(sz); p.font.bold = b; p.font.name = "맑은 고딕"; p.alignment = al
+                                cl.vertical_anchor = _AN.MIDDLE
+                                if bg:
+                                    cl.fill.solid(); cl.fill.fore_color.rgb = bg
+
+                            def __tx(sl, l, t, w, h, tx, sz=10, b=False, al=_AL.LEFT):
+                                bx = sl.shapes.add_textbox(l, t, w, h)
+                                tf = bx.text_frame; tf.word_wrap = True
+                                p = tf.paragraphs[0]; p.text = str(tx)
+                                p.font.size = _Pt(sz); p.font.bold = b; p.font.name = "맑은 고딕"; p.alignment = al
+
+                            _GY = _RGB(0xD9, 0xD9, 0xD9); _LG = _RGB(0xF2, 0xF2, 0xF2)
+                            prs = _Prs(); prs.slide_width = _In(13.33); prs.slide_height = _In(7.5)
+                            for idx, pj in enumerate(_projects):
+                                sl = prs.slides.add_slide(prs.slide_layouts[6])
+                                __tx(sl, _Cm(1), _Cm(0.5), _Cm(20), _Cm(1.2), f"{idx+1}. {pj['name']}", sz=24, b=True)
+                                for i, c in enumerate([_RGB(0xFF,0,0), _RGB(0xFF,0xD7,0), _RGB(0x44,0x72,0xC4)]):
+                                    br = sl.shapes.add_shape(1, _Cm(1+10.5*i), _Cm(2.0), _Cm(10.5), _Cm(0.25))
+                                    br.fill.solid(); br.fill.fore_color.rgb = c; br.line.fill.background()
+                                nc = len(pj.get("current",[])); nn = len(pj.get("next",[])); dr = max(nc,nn,1); tr = 2+dr+1
+                                ts = sl.shapes.add_table(tr, 6, _Cm(1), _Cm(2.5), _Cm(31.5), _Cm(1.2*tr))
+                                tb = ts.table
+                                tb.columns[0].width=_Cm(12); tb.columns[1].width=_Cm(2.5); tb.columns[2].width=_Cm(2.5)
+                                tb.columns[3].width=_Cm(12); tb.columns[4].width=_Cm(2.5); tb.columns[5].width=_Cm(2.5)
+                                tb.cell(0,0).merge(tb.cell(0,2)); tb.cell(0,3).merge(tb.cell(0,5))
+                                __sc(tb, 0, 0, "금주 실적", b=True, bg=_GY, al=_AL.CENTER, sz=12)
+                                __sc(tb, 0, 3, "차주 계획", b=True, bg=_GY, al=_AL.CENTER, sz=12)
+                                for ci, h in enumerate(["추진 내용","납기","진척율","추진 내용","납기","진척율"]):
+                                    __sc(tb, 1, ci, h, b=True, bg=_LG, al=_AL.CENTER)
+                                for ri in range(dr):
+                                    r = ri+2
+                                    if ri<nc:
+                                        it=pj["current"][ri]; __sc(tb,r,0,it.get("content",""),sz=9); __sc(tb,r,1,it.get("date",""),al=_AL.CENTER,sz=9); __sc(tb,r,2,it.get("progress",""),al=_AL.CENTER,sz=9)
+                                    if ri<nn:
+                                        it=pj["next"][ri]; __sc(tb,r,3,it.get("content",""),sz=9); __sc(tb,r,4,it.get("date",""),al=_AL.CENTER,sz=9); __sc(tb,r,5,it.get("progress",""),al=_AL.CENTER,sz=9)
+                                ir=2+dr; tb.cell(ir,0).merge(tb.cell(ir,5))
+                                __sc(tb,ir,0,"Issue 및 협의사항"+(": "+pj["issues"] if pj.get("issues") else ""),b=True,bg=_GY)
+                                __tx(sl,_Cm(1),_Cm(17),_Cm(20),_Cm(0.8),"● : 완료  ○ : 계획  ▶ : 진행중  ※ : Issue/특이사항",sz=9)
+                                __tx(sl,_Cm(15),_Cm(17.5),_Cm(3),_Cm(0.6),str(idx+1),sz=10,al=_AL.CENTER)
+
+                            _ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+                            _udir = os.path.join(BASE_DIR, 'uploads'); os.makedirs(_udir, exist_ok=True)
+                            _spath = os.path.join(_udir, f"weekly_report_{_ts}.pptx")
+                            prs.save(_spath)
+                            _dl_url = f"/api/weekly-report/download?id={_ts}"
+                            _file_list = ", ".join(d.get("filename","") for d in _weekly_docs[:3])
+                            return jsonify({
+                                "content": f"주간보고 PPT를 생성했습니다.\n\n📄 참조 문서: {_file_list}\n📊 프로젝트: {len(_projects)}개\n\n📥 [PPT 다운로드]({_dl_url})",
+                                "loaded_skills": loaded,
+                                "system_prompt_length": 0,
+                                "model_used": "weekly-report-direct",
+                                "weekly_report_download": _dl_url,
+                            })
+                        except ImportError:
+                            pass  # python-pptx 없으면 LLM 경로로 진행
+                        except Exception as _ppt_err:
+                            print(f"  [WEEKLY-REPORT] PPT 생성 실패: {_ppt_err}")
+            except Exception as _wr_err:
+                print(f"  [WEEKLY-REPORT] error: {_wr_err}")
+
+        # ── knowledge-search 스킬: 도메인 지식 검색 후 LLM에게 전달 ──
+        # 컬럼명 패턴(M14.QUE.OHT.OHTUTIL 등) 또는 도메인 키워드 감지 시 자동 활성화
+        _ql = last_user_query.lower()
+        _has_column_pattern = bool(re.search(r'[A-Za-z0-9]+\.[A-Za-z0-9_]+\.[A-Za-z0-9_]+', last_user_query))
+        _has_knowledge_keyword = any(kw in _ql for kw in KNOWLEDGE_TRIGGERS)
+        if (_has_column_pattern or _has_knowledge_keyword) and "knowledge-search" not in skill_ids:
+            skill_ids = list(skill_ids) + ["knowledge-search"]
+            print(f"  [KNOWLEDGE] 자동 트리거: column_pattern={_has_column_pattern}, keyword={_has_knowledge_keyword}")
+        if "knowledge-search" in skill_ids and last_user_query.strip():
+            try:
+                _chat_user_id = data.get("user_id", None)
+                print(f"  [KNOWLEDGE] user_id={_chat_user_id}, query={last_user_query[:50]}")
+                kb_results = search_knowledge(last_user_query, max_results=3, max_content_chars=4000, user_id=_chat_user_id)
+                if kb_results:
+                    # 검색된 문서 내용을 시스템 프롬프트에 주입하여 LLM이 답변하도록
+                    kb_context = "\n\n=== 도메인 지식 검색 결과 ===\n"
+                    kb_context += f"검색어: {last_user_query}\n\n"
+                    total_chars = 0
+                    for r in kb_results:
+                        chunk = _sanitize_knowledge_content(r['content'][:4000])
+                        if total_chars + len(chunk) > 12000:
+                            chunk = chunk[:max(0, 12000 - total_chars)]
+                            if not chunk:
+                                break
+                        kb_context += f"--- 📄 {r['filename']} (관련도: {r['score']}) ---\n"
+                        kb_context += chunk + "\n\n"
+                        total_chars += len(chunk)
+                    # 검색 vs 내용 요청 구분
+                    _is_search_only = any(kw in _ql for kw in ["검색해", "검색 해", "찾아봐", "찾아 봐", "뭐있", "뭐 있", "목록", "리스트", "파일명", "문서 목록"])
+                    _is_content_request = any(kw in _ql for kw in ["내용", "관련", "알려", "설명", "분석", "요약", "만들어"])
+                    if _is_search_only and not _is_content_request:
+                        kb_context += (
+                            "사용자가 '검색'을 요청했습니다. 파일명 목록과 관련도 점수만 간단히 보여주세요.\n"
+                            "문서 내용을 분석하거나 요약하지 마세요. 파일명 리스트만 출력하세요.\n"
+                            "형식 예시:\n"
+                            "1. 📄 파일명.md (관련도: 75)\n"
+                            "2. 📄 파일명.md (관련도: 73)\n"
+                        )
+                    else:
+                        kb_context += (
+                            "위 문서를 기반으로 사용자 질문에 답변하세요. 문서에 없는 내용을 지어내지 마세요. 어떤 문서에서 정보를 찾았는지 출처를 명시하세요.\n"
+                            "중요: 프로토콜 메시지, raw 데이터, hex/binary는 절대 그대로 복사하지 마세요. 반드시 표(table) 또는 필드별 설명으로 변환하세요.\n"
+                        )
+
+                    # messages에 검색 결과를 system 메시지로 추가
+                    kb_system_msg = {"role": "system", "content": kb_context}
+                    messages = [kb_system_msg] + messages
+
+                    # 검색된 파일 목록을 응답에 포함하기 위해 저장
+                    _kb_files = [r['filename'] for r in kb_results]
+            except Exception as e:
+                print(f"[Knowledge Search] 검색 오류: {e}")
+
+        # ── logpresso-search 스킬: 테이블 목록 요청 감지 ──
+        _lpq_table_list_kw = ["테이블 목록", "어떤 테이블", "테이블 뭐", "테이블 리스트", "테이블 종류",
+                              "테이블 있", "테이블 알려", "테이블 보여", "테이블 전부", "테이블 전체"]
+        if "logpresso-search" in skill_ids and any(kw in last_user_query for kw in _lpq_table_list_kw):
+            # 사용자 질문에서 카테고리 키워드 감지하여 필터링
+            _q_lower = last_user_query.lower()
+            _matched_groups = []
+            for grp in LOGPRESSO_TABLE_GROUPS:
+                # 그룹 라벨 키워드 매칭 (예: "ATLAS", "OHT", "TS", "시스템" 등)
+                _grp_keywords = [grp["id"], grp["label"].split(" ")[-1].lower()]
+                _grp_keywords += [p.rstrip("_").lower() for p in grp["prefix"]]
+                if any(kw in _q_lower for kw in _grp_keywords):
+                    _matched_groups.append(grp["id"])
+
+            # FAB 필터 감지 (M14, M16, M14A, M16B 등)
+            _matched_fabs = []
+            for fab in LOGPRESSO_FAB_FILTERS:
+                if fab["id"] in _q_lower or fab["label"].lower() in _q_lower:
+                    _matched_fabs.append(fab["id"])
+
+            _filtered = _filter_tables_by_groups(_matched_groups, _matched_fabs)
+            _filter_label = ""
+            _labels = []
+            if _matched_groups:
+                _labels += [g["label"] for g in LOGPRESSO_TABLE_GROUPS if g["id"] in _matched_groups]
+            if _matched_fabs:
+                _labels += [f["label"] for f in LOGPRESSO_FAB_FILTERS if f["id"] in _matched_fabs]
+            if _labels:
+                _filter_label = f" [{', '.join(_labels)}]"
+
+            _content = f"**로그프레소 테이블 목록{_filter_label}**\n\n"
+            if _matched_groups or _matched_fabs:
+                _content += f"🔍 필터 적용: 카테고리={_matched_groups or '없음'}, FAB={_matched_fabs or '없음'} → **{len(_filtered)}개** 매칭\n\n"
+            _content += f"총 **{len(LOGPRESSO_TABLES)}개** 중 **{len(_filtered)}개** 표시\n\n"
+
+            # 카테고리별로 그룹화하여 표시
+            _grouped = {}
+            for tname in sorted(_filtered.keys()):
+                gid = _get_table_group(tname)
+                if gid not in _grouped:
+                    _grouped[gid] = []
+                _grouped[gid].append(tname)
+
+            # 그룹 순서 유지
+            _grp_order = [g["id"] for g in LOGPRESSO_TABLE_GROUPS] + ["etc"]
+            _grp_labels_map = {g["id"]: g["label"] for g in LOGPRESSO_TABLE_GROUPS}
+            _grp_labels_map["etc"] = "📁 기타"
+
+            _idx = 0
+            for gid in _grp_order:
+                if gid not in _grouped:
+                    continue
+                _content += f"\n### {_grp_labels_map[gid]} ({len(_grouped[gid])}개)\n\n"
+                _content += "| # | 테이블명 | 설명 | 필드(컬럼) |\n"
+                _content += "|---|----------|------|----------|\n"
+                for tname in _grouped[gid]:
+                    _idx += 1
+                    tinfo = LOGPRESSO_TABLES[tname]
+                    cols = tinfo["columns"]
+                    if not cols:
+                        cols = _fetch_table_fields(tname, timeout=3)
+                        if cols:
+                            tinfo["columns"] = cols
+                    cols_str = ", ".join(cols[:8]) if cols else "(서버 미접속)"
+                    if len(cols) > 8:
+                        cols_str += f" 외 {len(cols)-8}개"
+                    _content += f"| {_idx} | `{tname}` | {tinfo['desc']} | {cols_str} |\n"
+
+            _content += f"\n> **카테고리 필터**: `ATLAS 테이블 목록`, `OHT 테이블 목록`, `TS 테이블 보여줘`, `시스템 테이블 목록`\n"
+            _content += f"> **FAB 필터**: `M14 테이블 목록`, `M14A 테이블 보여줘`, `M16B 테이블 목록`\n"
+            _content += f"> **조합 가능**: `M14A TS 테이블 목록` (Transfer + M14A만)\n"
+            _content += f"> 카테고리: {' / '.join(g['label'] for g in LOGPRESSO_TABLE_GROUPS)}"
+            return jsonify({
+                "content": _content,
+                "model_used": "Logpresso Tables",
+                "loaded_skills": ["logpresso-search"],
+                "system_prompt_length": 0,
+            })
+
+        # ── logpresso-search 스킬: 실제 서버 조회 실행 ──
+        # "쿼리 만들어줘" 등 쿼리 생성 요청이면 서버 실행 안 하고 LLM에게 넘김
+        _lpq_query_gen_kw = ["쿼리 만들", "쿼리 짜", "쿼리 작성", "쿼리 생성", "LPQL 만들", "LPQL 짜", "LPQL 작성"]
+        _lpq_is_query_gen = any(kw in last_user_query for kw in _lpq_query_gen_kw)
+        if "logpresso-search" in skill_ids and last_user_query.strip() and not _lpq_is_query_gen:
+            try:
+                import pandas as pd
+                from datetime import datetime as _dt
+
+                _lpq_user_q = last_user_query.strip()
+
+                # LLM으로 LPQL 생성
+                llm_response = _llm_generate_lpql(_lpq_user_q, [
+                    {"role": m.get("role", "user"), "content": m.get("content", "")}
+                    for m in messages[-6:] if isinstance(m.get("content"), str)
+                ])
+                lpql = extract_lpql_from_response(llm_response) if llm_response else None
+
+                if not lpql:
+                    # LLM 실패 → 사용자 질문에서 테이블명 추출하여 기본 쿼리 생성
+                    _found_table = None
+                    _q_lower = _lpq_user_q.lower()
+                    # LOGPRESSO_TABLES에서 매칭 시도
+                    for tname in LOGPRESSO_TABLES:
+                        if tname.lower() in _q_lower:
+                            _found_table = tname
+                            break
+                    # 못 찾으면 질문에서 테이블명 후보 추출 (영문+숫자+언더스코어 패턴)
+                    if not _found_table:
+                        _table_candidates = re.findall(r'[a-zA-Z][a-zA-Z0-9_]{3,}', _lpq_user_q)
+                        if _table_candidates:
+                            _found_table = _table_candidates[0]
+
+                    if _found_table:
+                        _today_str = _dt.now().strftime("%Y%m%d")
+                        lpql = f"table from={_today_str}000000 to={_today_str}235959 {_found_table} | limit 5"
+                        # lpql이 생겼으니 아래 실행 로직으로 계속 진행
+                    else:
+                        _content = "**LPQL 쿼리 생성 실패**\n\n"
+                        _content += "테이블명을 인식할 수 없습니다. 테이블명을 정확히 입력해주세요.\n"
+                        if llm_response:
+                            _content += f"\nLLM 응답:\n```\n{llm_response[:500]}\n```"
+                        return jsonify({
+                            "content": _content,
+                            "model_used": "Logpresso Search",
+                            "loaded_skills": ["logpresso-search"],
+                            "auto_routed": auto_routed,
+                            "route_reason": "logpresso-search",
+                            "system_prompt_length": 0,
+                        })
+
+                # 시간 범위 없으면 오늘 하루 기본 적용
+                if not re.search(r'(duration|from|to)\s*=', lpql, re.IGNORECASE):
+                    _today = _dt.now().strftime("%Y%m%d")
+                    lpql = re.sub(r'^(table|fulltext)\s+', rf'\1 from={_today}000000 to={_today}235959 ', lpql, flags=re.IGNORECASE)
+
+                # limit 강제 5건
+                lpql_lower = lpql.lower()
+                if "| limit" in lpql_lower or "| head" in lpql_lower:
+                    lpql = re.sub(r'\|\s*(limit|head)\s+\d+(\s+\d+)?', '| limit 5', lpql, flags=re.IGNORECASE)
+                else:
+                    lpql = lpql.rstrip() + " | limit 5"
+
+                # 보안 검증
+                sec_error = validate_lpql_readonly(lpql)
+                if sec_error:
+                    return jsonify({
+                        "content": f"**보안 차단**: {sec_error}\n\n**생성된 쿼리:**\n```lpql\n{lpql}\n```",
+                        "model_used": "Logpresso Search",
+                        "loaded_skills": ["logpresso-search"],
+                        "auto_routed": auto_routed,
+                        "route_reason": "logpresso-search-blocked",
+                        "system_prompt_length": 0,
+                    })
+
+                # 실제 로그프레소 서버에 쿼리 실행
+                print(f"[Logpresso Search] 최종 실행 쿼리: {lpql}")
+                df, err_detail = query_logpresso(lpql, timeout=180)
+
+                if df is None:
+                    # 실패 → 에러 상세 + 쿼리 표시
+                    err_reason = err_detail.get("reason", "알 수 없는 오류") if err_detail else "알 수 없는 오류"
+                    resp_preview = err_detail.get("response_preview", "") if err_detail else ""
+                    _content = f"**로그프레소 조회 실패**\n\n"
+                    _content += f"**에러:** {err_reason}\n\n"
+                    _content += f"**실행한 쿼리:**\n```lpql\n{lpql}\n```\n"
+                    if resp_preview:
+                        _content += f"\n**서버 응답:**\n```\n{resp_preview[:300]}\n```\n"
+                    _content += f"\n**원인 추정:** "
+                    if "타임아웃" in err_reason or "연결" in err_reason:
+                        _content += "로그프레소 서버(`10.40.42.27:8888`)에 연결할 수 없습니다. 서버 상태 또는 네트워크를 확인하세요."
+                    elif "HTML" in err_reason:
+                        _content += "서버가 에러 페이지를 반환했습니다. 테이블명이나 쿼리 문법을 확인하세요."
+                    elif "빈 응답" in err_reason:
+                        _content += "서버가 빈 응답을 반환했습니다. 테이블명이 올바른지 확인하세요."
+                    else:
+                        _content += "서버 연결 또는 쿼리 오류입니다."
+
+                    return jsonify({
+                        "content": _content,
+                        "model_used": "Logpresso Search",
+                        "loaded_skills": ["logpresso-search"],
+                        "auto_routed": auto_routed,
+                        "route_reason": "logpresso-search-failed",
+                        "system_prompt_length": 0,
+                    })
+
+                # 성공 → 결과 + 쿼리 + 테이블 필드 정보 표시
+                total = len(df)
+                cols = list(df.columns)
+
+                # 쿼리에서 테이블명 추출 → 해당 테이블의 전체 필드 정보 표시
+                _queried_table = None
+                _table_match = re.search(r'(?:table|fulltext)\s+(?:\S+=\S+\s+)*(\S+)', lpql, re.IGNORECASE)
+                if _table_match:
+                    _queried_table = _table_match.group(1).strip()
+
+                _content = f"**로그프레소 조회 완료** (총 {total}건, 미리보기 {min(5, total)}건)\n\n"
+                _content += f"**실행한 쿼리:**\n```lpql\n{lpql}\n```\n\n"
+
+                # 테이블 필드 정보
+                if _queried_table:
+                    _all_fields = cols  # 실제 조회 결과의 컬럼이 가장 정확
+                    # LOGPRESSO_TABLES 캐시 업데이트
+                    if _queried_table in LOGPRESSO_TABLES:
+                        if not LOGPRESSO_TABLES[_queried_table]["columns"] and _all_fields:
+                            LOGPRESSO_TABLES[_queried_table]["columns"] = _all_fields
+                        elif LOGPRESSO_TABLES[_queried_table]["columns"]:
+                            _all_fields = LOGPRESSO_TABLES[_queried_table]["columns"]
+                    _content += f"**테이블 `{_queried_table}` 필드** ({len(_all_fields)}개): `{'`, `'.join(_all_fields)}`\n\n"
+                else:
+                    _content += f"**결과 컬럼:** {', '.join(cols)}\n\n"
+
+                # 테이블 형태로 결과 표시
+                if total > 0:
+                    display_cols = cols[:10]  # 컬럼 10개까지만 표시
+                    _content += "| " + " | ".join(display_cols) + " |\n"
+                    _content += "|" + "|".join(["---"] * len(display_cols)) + "|\n"
+                    for _, row in df.head(5).iterrows():
+                        _content += "| " + " | ".join(str(row.get(c, ""))[:50] for c in display_cols) + " |\n"
+                    if len(cols) > 10:
+                        _content += f"\n_(컬럼 {len(cols)}개 중 10개만 표시)_\n"
+                else:
+                    _content += "결과 0건 (데이터가 없습니다. 기간을 늘려보세요.)\n"
+
+                return jsonify({
+                    "content": _content,
+                    "model_used": "Logpresso Search",
+                    "loaded_skills": ["logpresso-search"],
+                    "auto_routed": auto_routed,
+                    "route_reason": "logpresso-search-ok",
+                    "system_prompt_length": 0,
+                })
+
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                # 예외 발생 → 에러 표시 후 일반 LLM으로 폴백하지 않음
+                return jsonify({
+                    "content": f"**로그프레소 조회 중 오류 발생**\n\n`{type(e).__name__}: {e}`",
+                    "model_used": "Logpresso Search",
+                    "loaded_skills": ["logpresso-search"],
+                    "auto_routed": auto_routed,
+                    "route_reason": "logpresso-search-exception",
+                    "system_prompt_length": 0,
+                })
+
+        # 시스템 프롬프트 구성
+        # 출력 형식에 따라 기본 규칙 분기
+        non_code_formats = ("report", "analysis", "step-by-step")
+        if output_format in non_code_formats:
+            code_rules = """- 사용자가 코드를 명시적으로 요청한 경우에만 코드를 포함하세요
+    - 기본적으로 자연어(글)로 설명, 분석, 보고하세요"""
+        else:
+            code_rules = """- 코드는 즉시 실행 가능하게 (import 포함, 필요 패키지 명시)
+    - 에러 처리(try/except)를 포함하세요
+    - 코드 주석은 반드시 ## 형식으로 작성하세요. 단일 #이 아니라 ##을 사용하고, 구간 설명용으로만 간결하게 작성하세요. 줄마다 주석을 달지 마세요. 예: ## 데이터 전처리, ## API 호출"""
+
+        # 사고 모드 on/off
+        if think_mode:
+            think_rule = "- 답변 전에 반드시 <think>...</think> 태그 안에서 충분히 사고한 후 답변하세요. 사고 내용도 반드시 한국어로 작성하세요."
+        else:
+            think_rule = "- <think> 태그를 사용하지 마세요. 사고 과정 없이 바로 답변하세요."
+
+        default_prompt = f"""당신은 Demos V1.0 - 과학 연구와 소프트웨어 개발을 돕는 전문 AI 어시스턴트입니다.
+    370개+ 전문 스킬(과학/개발/AI/인프라/비즈니스)을 활용할 수 있습니다.
+
+    [기본 규칙]
+    - 반드시 한국어(한글)로 답변하세요. 코드 주석도 한글로 작성하세요.
+    {think_rule}
+    {code_rules}
+
+    [응답 완결성]
+    - 코드 블록(```)은 반드시 열고 닫아야 합니다. 코드 중간에서 끊지 마세요.
+    - 문장은 반드시 완성된 형태로 끝내세요. 중간에 끊기지 않도록 하세요.
+    - 응답이 길어질 것 같으면, 핵심부터 먼저 완성하고 부가 설명을 뒤에 붙이세요.
+    - 토큰 한도에 가까워지면 현재 문단/코드 블록을 마무리한 후 "계속 이어서 작성해줘라고 입력하세요"로 안내하세요.
+
+    [스킬 활용]
+    - 아래에 로드된 SKILL 내용은 당신의 전문 지식입니다
+    - 해당 스킬의 방법론, 코드 패턴, API, 도구를 적극 활용하세요
+    - 여러 스킬이 로드된 경우 관련된 것끼리 조합하여 최적의 답변을 생성하세요
+
+    """
+
+        if custom_system_prompt:
+            system_prompt = custom_system_prompt + "\n\n" + default_prompt
+        else:
+            system_prompt = default_prompt
+
+        # ── "이어서 작성" 감지: 이전 응답 마지막 부분을 겹쳐서 이어쓰기 ──
+        _continue_kw = ["이어서", "계속 작성", "계속 이어서", "이어 작성", "이어서 써", "이어서 보기", "계속해", "계속 써"]
+        if last_user_query and any(kw in last_user_query for kw in _continue_kw):
+            # 히스토리에서 마지막 assistant 응답 찾기
+            _last_assistant = ""
+            for m in reversed(messages[:-1]):  # 현재 "이어서" 메시지 제외
+                if m.get("role") == "assistant":
+                    _last_assistant = m.get("content", "") or ""
+                    break
+            if _last_assistant and len(_last_assistant) > 100:
+                # 마지막 300자를 겹쳐서 이어쓰기 지시
+                _overlap = _last_assistant[-300:]
+                system_prompt += (
+                    f"\n\n[이어서 작성 모드]\n"
+                    f"이전 응답이 중간에 잘렸습니다. 아래는 이전 응답의 마지막 부분입니다:\n"
+                    f"---\n{_overlap}\n---\n"
+                    f"위 내용의 마지막 2~3문장을 포함하여 자연스럽게 이어서 작성하세요.\n"
+                    f"절대 처음부터 다시 쓰지 마세요. 겹치는 부분부터 이어서 쓰세요."
+                )
+
+        # ===== 토큰 예산 관리 =====
+        # API 대형 모델 → 제한 거의 없음 (128K+ 컨텍스트)
+        # GGUF 로컬 → 32K 컨텍스트이므로 스마트하게 제한
+        is_gguf = env_id.startswith("gguf-") if env_id else False
+        history_chars = sum(len(m.get("content", "")) for m in messages)
+
+        if is_gguf:
+            gguf_ctx = 32768
+            # GGUF: 토큰 ≈ 글자수 * 0.7 (한글 기준), 시스템+히스토리+응답 여유
+            available_chars = int(gguf_ctx / 0.7) - len(system_prompt) - history_chars - 3000
+            available_chars = max(available_chars, 3000)
+        else:
+            available_chars = 999999  # API는 사실상 무제한
+
+        # 스킬 로드
+        loaded = []
+        available = scan_skills()
+        total_skill_chars = 0
+        num_skills = max(len(skill_ids), 1)
+        per_skill_limit = available_chars // num_skills if is_gguf else 999999
+
+        for sid in skill_ids:
+            content = load_skill_content(sid)
+            if content:
+                # GGUF만 자르기, API는 전체 로드
+                if is_gguf and total_skill_chars + len(content) > available_chars:
+                    remaining = available_chars - total_skill_chars
+                    if remaining > 500:
+                        content = content[:remaining] + f"\n... ({len(content)}자 중 {remaining}자 로드)\n"
+                    else:
+                        system_prompt += f"[⚠️ GGUF 컨텍스트 한도 → 스킬 생략: {', '.join(skill_ids[len(loaded):])}]\n"
+                        break
+
+                if is_gguf and len(content) > per_skill_limit:
+                    content = content[:per_skill_limit] + f"\n... ({len(content)}자 중 {per_skill_limit}자 로드)\n"
+
+                system_prompt += f"=== SKILL: {sid} ===\n{content}\n\n"
+                total_skill_chars += len(content)
+                loaded.append(sid)
+
+                # scripts/references 목록 (짧으니 항상 포함)
+                info = available.get(sid, {})
+                scripts = info.get("scripts", [])
+                if scripts:
+                    system_prompt += f"[{sid} 스크립트: {', '.join(s['name'] for s in scripts)}]\n"
+                refs = info.get("references", [])
+                if refs:
+                    system_prompt += f"[{sid} 참고: {', '.join(r['name'] for r in refs)}]\n"
+                system_prompt += "\n"
+
+        if loaded:
+            system_prompt += f"[로드된 스킬: {', '.join(loaded)}]\n\n"
+            # 하네스 피드백 힌트: 이전 피드백 기반 주의사항 자동 삽입
+            if HARNESS_AVAILABLE:
+                try:
+                    from harness_bridge import _feedback_store
+                    if _feedback_store:
+                        _fb_hint = _feedback_store.build_prompt_hint(loaded)
+                        if _fb_hint:
+                            system_prompt += _fb_hint
+                except Exception:
+                    pass
+            if "agent-llm-architect" in loaded:
+                system_prompt += (
+                    "=== LLM 시스템 설계 규칙 ===\n"
+                    "사용자가 LLM/에이전트/RAG 설계를 요청하면 다음 순서로 답변하세요:\n"
+                    "1. 먼저 요구사항과 제약을 분석하세요(트래픽, 지연시간, 예산, 보안, 데이터 민감도).\n"
+                    "2. 아키텍처 옵션 2~3개를 비교하고 트레이드오프를 명확히 제시하세요.\n"
+                    "3. 최종 추천안을 제시하고, 선택 근거를 성능/비용/운영성 관점으로 설명하세요.\n"
+                    "4. 구현 단계를 POC→파일럿→프로덕션으로 나눠 체크리스트 형태로 제시하세요.\n"
+                    "5. 필수 운영 지표(SLO, 토큰비용, 오류율, 환각률, 안전성)를 포함하세요.\n\n"
+                )
+            # pptx 스킬이 로드됐으면 python-pptx 코드 생성 지시 추가
+            ppt_requested = 'ql' in locals() and any(kw in ql for kw in ["ppt", "피피티", "파워포인트", "프레젠테이션", "슬라이드", "deck"])
+            if "pptx" in loaded or ppt_requested:
+                system_prompt += (
+                    "=== PPT 생성 규칙 ===\n"
+                    "사용자가 PPT/프레젠테이션/슬라이드 생성을 요청하면:\n"
+                    "1. 반드시 ```python 코드블록 안에 python-pptx 코드를 작성하세요.\n"
+                    "2. 코드는 `from pptx import Presentation`으로 시작하세요.\n"
+                    "3. 대화 내용, 분석 결과, 업로드 파일 내용을 PPT에 반영하세요.\n"
+                    "4. 각 슬라이드에 제목, 내용, 표, 차트 등을 포함하세요.\n"
+                    "5. 마지막에 `prs.save('presentation.pptx')` 호출을 포함하세요.\n"
+                    "6. 디자인 가이드: 볼드 색상 팔레트, 다양한 레이아웃, 데이터 시각화 활용.\n"
+                    "7. 중요: 좌표/크기 값은 반드시 정수(int)로 전달하세요. "
+                    "Inches(), Cm(), Pt(), Emu() 결과를 직접 사용하면 됩니다. "
+                    "나눗셈(/) 등으로 float이 생기면 반드시 int()로 감싸세요.\n"
+                    "8. 중요: tf.vertical_anchor에는 PP_ALIGN이 아니라 MSO_ANCHOR를 사용하세요. "
+                    "예: `from pptx.enum.text import MSO_ANCHOR` 후 `tf.vertical_anchor = MSO_ANCHOR.MIDDLE`. "
+                    "PP_ALIGN.CENTER를 vertical_anchor에 쓰면 에러가 납니다.\n"
+                    "9. 중요: 문자열 안에 한국어 특수 따옴표(\u201c \u201d \u2018 \u2019 \u300c \u300d)를 절대 사용하지 마세요. "
+                    "반드시 일반 ASCII 따옴표(\" ' )만 사용하세요. "
+                    "인용문이 필요하면 작은따옴표(')로 감싸세요. 예: p.text = '기술은 훌륭하지만, 보안에 구멍이 많다.'\n"
+                    "10. 코드 주석은 반드시 `## 설명내용` 형식으로 작성하세요. "
+                    "단일 #이 아니라 ##을 사용하고, 구간 설명용으로만 간결하게 작성하세요. "
+                    "예: `## 슬라이드 1: 표지`, `## 차트 데이터 설정`. 줄마다 주석을 달지 마세요.\n"
+                    "11. 중요: 괄호 매칭에 극도로 주의하세요! "
+                    "[인덱스]는 반드시 ]로 닫고, (함수호출)은 반드시 )로 닫으세요. "
+                    "예: prs.slide_layouts[6] (O) / prs.slide_layouts[6) (X — SyntaxError). "
+                    "코드 작성 후 모든 괄호 쌍([]/()/{})이 올바르게 매칭되는지 반드시 검증하세요.\n"
+                    "12. 중요: 색상은 반드시 `from pptx.dml.color import RGBColor`를 사용하세요! "
+                    "RgbColor(X), rgbColor(X) 등은 존재하지 않습니다. 반드시 RGBColor (대문자 RGB)만 사용하세요. "
+                    "예: `from pptx.dml.color import RGBColor` → `fill.fore_color.rgb = RGBColor(0x1A, 0x73, 0xE8)` "
+                    "또는 `run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)`. "
+                    "절대 `from pptx.dml.color import RgbColor`를 쓰지 마세요 — ImportError가 발생합니다.\n"
+                    "13. 중요: 대화에서 데이터/수치/통계가 있으면 반드시 python-pptx 차트로 시각화하세요! "
+                    "텍스트만 나열하지 말고, 차트 슬라이드를 추가하세요.\n"
+                    "14. 중요: 차트/도형/표를 추가할 때 반드시 `slide.shapes.add_chart(...)`, `slide.shapes.add_table(...)` 등 "
+                    "slide 객체의 shapes를 사용하세요! placeholder나 content 변수에는 .shapes 속성이 없습니다. "
+                    "예: `content = slide.placeholders[1]`한 뒤 `content.shapes.add_chart(...)` (X — AttributeError). "
+                    "반드시 `slide.shapes.add_chart(...)` (O)로 작성하세요.\n"
+                    "15. 중요: 표(table) 생성 시 add_table(rows, cols, ...)의 rows 수를 데이터 행 수 + 헤더 행에 정확히 맞추세요! "
+                    "데이터가 N개이면 add_table(N+1, cols, ...)로 헤더 포함 N+1행을 만드세요. "
+                    "행 수가 부족하면 table.cell(i, j)에서 IndexError가 발생합니다. "
+                    "예: 데이터 5개 → add_table(6, 3, ...) (헤더 1행 + 데이터 5행 = 6행).\n"
+                    "16. 중요: 문자열 리터럴은 반드시 같은 줄에서 열고 닫으세요! "
+                    "줄바꿈이 필요하면 삼중따옴표(triple quotes)를 사용하세요. "
+                    "예: p.text = '긴 텍스트' (O) / p.text = '긴 텍스트 (X — SyntaxError: unterminated string literal).\n"
+                    "17. 중요 (필수): 파이썬 문법에 맞게 들여쓰기(Indentation)와 줄바꿈을 철저히 지키고 한 줄에 여러 명령어(`slide = ... title = ...`)를 이어서 쓰지 마세요. SyntaxError가 발생합니다.\n"
+                    "18. 중요 (필수): 반드시 단 1개의 완성된 파이썬 스크립트만 ```python 과 ``` 사이에 출력하세요. 코드 앞뒤로 인사말, <think> 태그, 요약 설명 등 부가적인 텍스트를 절대 쓰지 마세요. 오직 파이썬 코드만 출력해야 작동합니다.\n"
+                    "python-pptx 차트 코드 예시:\n"
+                    "```python\n"
+                    "from pptx.chart.data import CategoryChartData\n"
+                    "from pptx.enum.chart import XL_CHART_TYPE\n"
+                    "from pptx.util import Inches\n"
+                    "\n"
+                    "## 차트 데이터 설정\n"
+                    "chart_data = CategoryChartData()\n"
+                    "chart_data.categories = ['1분기', '2분기', '3분기', '4분기']\n"
+                    "chart_data.add_series('매출', (120, 190, 300, 250))\n"
+                    "chart_data.add_series('비용', (80, 100, 150, 130))\n"
+                    "\n"
+                    "## 차트 슬라이드 추가\n"
+                    "slide = prs.slides.add_slide(prs.slide_layouts[6])\n"
+                    "chart_frame = slide.shapes.add_chart(\n"
+                    "    XL_CHART_TYPE.COLUMN_CLUSTERED,\n"
+                    "    Inches(1), Inches(1.5), Inches(8), Inches(5),\n"
+                    "    chart_data\n"
+                    ")\n"
+                    "chart = chart_frame.chart\n"
+                    "chart.has_legend = True\n"
+                    "chart.legend.include_in_layout = False\n"
+                    "```\n"
+                    "지원 차트: XL_CHART_TYPE.COLUMN_CLUSTERED(세로막대), LINE(꺾은선), PIE(원형), "
+                    "BAR_CLUSTERED(가로막대), DOUGHNUT(도넛), AREA(영역), RADAR(방사형), "
+                    "XY_SCATTER(산점도), LINE_MARKERS(꺾은선+마커)\n"
+                    "여러 시리즈 비교: chart_data.add_series()를 여러 번 호출\n"
+                    "원형 차트: CategoryChartData에 시리즈 1개만 추가, XL_CHART_TYPE.PIE 사용\n"
+                    "프론트엔드가 코드를 감지하여 '📽️ PPT 생성 & 다운로드' 버튼을 자동 표시합니다.\n\n"
+                )
+                # PPT 디자인 스타일 주입 (참고PPT 우선, 없으면 프리셋)
+                ppt_ref_design = data.get("ppt_ref_design", "")
+                ppt_style = data.get("ppt_style", "")
+                if ppt_ref_design:
+                    system_prompt += (
+                        "=== 참고 PPT 디자인 (반드시 이 스타일을 따르세요) ===\n"
+                        f"{ppt_ref_design}\n\n"
+                    )
+                elif ppt_style:
+                    system_prompt += (
+                        "=== PPT 디자인 스타일 ===\n"
+                        f"{ppt_style}\n"
+                        "이 디자인 가이드를 반드시 따라 모든 슬라이드를 제작하세요.\n\n"
+                    )
+
+            # MD/HTML 문서 변환 감지
+            md_html_requested = 'ql' in locals() and any(kw in ql for kw in [
+                "html로", "html 로", "html변환", "html 변환", "html로 만들", "html 다운",
+                "md로", "md 로", "md변환", "md 변환", "md 다운", "마크다운으로", "마크다운 다운",
+                "문서로 저장", "문서로 만들", "보고서 다운", "보고서로 저장",
+            ])
+            if "md-to-html" in loaded or md_html_requested:
+                system_prompt += (
+                    "=== MD/HTML 문서 생성 규칙 ===\n"
+                    "사용자가 MD, HTML, 문서 저장/다운로드를 요청하면:\n"
+                    "1. 보고서 내용을 잘 구조화된 Markdown 형식으로 작성하세요.\n"
+                    "2. 제목(#), 소제목(##), 표(|---|), 목록(- ), 코드블록(```) 등 Markdown 문법을 적극 활용하세요.\n"
+                    "3. 시스템이 자동으로 MD 파일과 HTML 파일을 생성하여 다운로드 링크를 제공합니다.\n"
+                    "4. 별도의 코드 작성은 불필요합니다. 보고서 내용에만 집중하세요.\n"
+                    "5. 중요: 보고서 제목에 '(HTML 형식)', '(MD 형식)' 등 파일 형식을 언급하지 마세요. 순수한 보고서 제목만 작성하세요.\n\n"
+                )
+
+            drawio_requested = 'ql' in locals() and any(kw in ql for kw in ["drawio", "draw.io", "드로우", "드로잉", "drawingio", "다이어그램", "구조도", "흐름도", "아키텍처", "배치도", "dfd"])
+            if "drawio-diagram" in loaded or drawio_requested:
+                system_prompt += (
+                    "=== Draw.io 다이어그램 생성 규칙 ===\n"
+                    "사용자가 Draw.io, 다이어그램, 아키텍처, 구조도 생성을 요청하면:\n"
+                    "1. 반드시 ```drawio 코드블록 안에 완전한 XML 코드를 작성하세요.\n"
+                    "2. XML 구조 예시: ```drawio\n<mxfile><diagram><mxGraphModel><root><mxCell id=\"0\"/><mxCell id=\"1\" parent=\"0\"/>...</root></mxGraphModel></diagram></mxfile>\n```\n"
+                    "3. 중요 (GGUF 필수): 다이어그램에 대한 부가적인 설명, 설치 가이드, 인사말, <think> 태그 등은 **절대 출력하지 마세요**.\n"
+                    "4. 오직 단 1개의 완성된 XML 코드 블록만 출력해야 프론트엔드가 다이어그램 렌더러를 띄웁니다.\n"
+                    "5. 노드의 위치(x, y), 크기(width, height) 속성을 적절히 지정해 겹치지 않게 하세요.\n\n"
+                )
+            # === 차트/그래프 생성 가이드 (항상 포함 - 스킬 불필요) ===
+            system_prompt += (
+                "=== 차트/그래프 생성 규칙 ===\n"
+                "사용자가 그래프, 차트, 시각화를 요청하거나 데이터 분석 결과를 보여줄 때:\n"
+                "1. ```chart 코드블록 안에 Chart.js JSON config를 작성하세요.\n"
+                "2. 프론트엔드가 자동으로 인터랙티브 차트를 렌더링합니다.\n"
+                "3. 지원 차트 유형: bar, line, pie, doughnut, radar, scatter, bubble, polarArea\n"
+                "4. JSON 형식 예시:\n"
+                "```chart\n"
+                '{\n'
+                '  "type": "bar",\n'
+                '  "data": {\n'
+                '    "labels": ["1월", "2월", "3월"],\n'
+                '    "datasets": [{\n'
+                '      "label": "매출",\n'
+                '      "data": [120, 190, 300],\n'
+                '      "backgroundColor": ["#6366f1", "#8b5cf6", "#a78bfa"]\n'
+                '    }]\n'
+                '  },\n'
+                '  "options": {\n'
+                '    "plugins": {"title": {"display": true, "text": "월별 매출"}}\n'
+                '  }\n'
+                '}\n'
+                "```\n"
+                "5. 여러 데이터셋 비교: datasets 배열에 여러 객체 추가\n"
+                "6. 색상: backgroundColor, borderColor 사용. 배열로 항목별 색상 지정 가능\n"
+                "7. 추천 색상 팔레트: #6366f1(인디고), #8b5cf6(보라), #ec4899(핑크), #f59e0b(앰버), #10b981(에메랄드), #3b82f6(블루), #ef4444(레드), #84cc16(라임)\n"
+                "8. 데이터 분석/CSV 분석 결과를 보여줄 때 적극 활용하세요.\n"
+                "9. 한 응답에 여러 ```chart 블록을 사용해 다양한 관점의 차트를 보여줄 수 있습니다.\n\n"
+            )
+
+            # 멀티에이전트 오케스트레이션 (스킬 2개 이상)
+            if len(loaded) >= 2:
+                loaded_set = {sid: load_skill_content(sid) or "" for sid in loaded}
+                orch_prompt = build_orchestration_prompt(
+                    messages[-1].get("content", "") if messages else "",
+                    loaded, loaded_set
+                )
+                system_prompt += orch_prompt
+
+        # CSV 데이터가 업로드되어 있으면 시스템 프롬프트에 포함
+        include_csv = data.get("include_csv", True)
+        if include_csv and uploaded_csv_data["filename"]:
+            csv_info = uploaded_csv_data["summary"]
+            # 데이터 미리보기 (최대 50행)
+            preview_limit = min(50, len(uploaded_csv_data["rows"]))
+            csv_rows_text = ",".join(uploaded_csv_data["headers"]) + "\n"
+            for row in uploaded_csv_data["rows"][:preview_limit]:
+                csv_rows_text += ",".join(str(c) for c in row) + "\n"
+            if len(uploaded_csv_data["rows"]) > preview_limit:
+                csv_rows_text += f"... (총 {len(uploaded_csv_data['rows'])}행 중 {preview_limit}행만 표시)\n"
+
+            system_prompt += f"=== 업로드된 CSV 데이터 ===\n{csv_info}\n\n데이터 미리보기:\n{csv_rows_text}\n\n"
+            system_prompt += "사용자가 이 데이터에 대해 질문하면 위 CSV 데이터를 기반으로 분석해주세요.\n\n"
+
+        # 업로드된 파일 내용 주입
+        if uploaded_files:
+            system_prompt += f"=== 업로드된 파일 ({len(uploaded_files)}개) ===\n"
+            for uf in uploaded_files:
+                system_prompt += f"\n--- 파일: {uf['filename']} ({uf['type']}, {uf['size']}바이트) ---\n"
+                content = uf.get("content_full", "")
+                if is_gguf:
+                    # GGUF: 파일당 최대 8000자로 제한
+                    content = content[:8000]
+                    if len(uf.get("content_full", "")) > 8000:
+                        content += f"\n... (총 {len(uf['content_full'])}자 중 8000자 표시)"
+                else:
+                    content = content[:50000]  # API: 파일당 최대 50000자
+                    if len(uf.get("content_full", "")) > 50000:
+                        content += f"\n... (총 {len(uf['content_full'])}자 중 50000자 표시)"
+                system_prompt += content + "\n"
+            system_prompt += "\n사용자가 업로드된 파일에 대해 질문하면 위 내용을 기반으로 답변하세요.\n\n"
+
+        # 가짜 데이터 생성 금지 + 요청 내용만 응답 규칙 (GGUF + API 공통)
+        system_prompt += (
+            "\n[필수 규칙]\n"
+            "- 가짜 데이터를 절대 만들지 마세요! 업로드된 CSV/파일의 실제 컬럼명과 값만 사용하세요.\n"
+            "- 존재하지 않는 컬럼명(Score1, Score2 등)을 지어내지 마세요.\n"
+            "- 사용자가 요청한 내용에만 답변하세요. 요청하지 않은 추가 분석이나 설명을 하지 마세요.\n"
+            "- 차트 데이터는 실제 데이터 기반으로 24개 이하로 요약하세요.\n"
+            "- 응답이 길어질 것 같으면 핵심만 먼저 보여주고 '추가 분석이 필요하면 말씀해주세요'로 마무리하세요.\n\n"
+        )
+
+        # 응답 수준
+        effort_map = [
+            "매우 간결하게 핵심만 답변하세요.",
+            "간결하게 답변하세요.",
+            "표준적인 깊이로 설명하세요.",
+            "매우 상세하고 전문적으로 분석하세요. 코드에 주석을 자세히 달고, 원리를 설명하세요.",
+        ]
+        format_map = {
+            "code": "답변을 Python 코드 중심으로 작성하세요. import 포함, 즉시 실행 가능하게.",
+            "code-fix": "문제 진단 → 수정 전/후 비교 → 수정 이유 설명 순서로 답변하세요. 최소 변경 원칙.",
+            "analysis": "분석 중심으로 답변하세요. 문제 정의 → 핵심 가정 → 옵션 비교(장단점/트레이드오프) → 결론/권장안 순서. 코드보다 근거와 의사결정을 우선하고, 코드는 꼭 필요한 경우에만 최소한으로 포함하세요.",
+            "report": "반드시 보고서 형식의 글(텍스트)로 작성하세요. 코드를 생성하지 마세요. 구조: 제목 → 요약(Executive Summary) → 배경/목적 → 본문(핵심 내용, 분석, 근거) → 결론 및 제언. 전문적이고 읽기 쉬운 문서 형태로 답변하세요.",
+            "step-by-step": "답변을 단계별(1,2,3...)로 작성하세요. 각 단계마다 무엇을 하는지, 왜 필요한지를 글로 설명하세요. 코드보다 설명과 이해를 우선하세요.",
+        }
+
+        system_prompt += effort_map[min(effort, 3)] + "\n"
+        fmt_instruction = format_map.get(output_format, "")
+        if fmt_instruction:
+            system_prompt += fmt_instruction + "\n"
+        # 코드가 아닌 출력 형식일 때는 코드 중심 답변을 억제
+        if output_format in ("report", "analysis", "step-by-step"):
+            system_prompt += "중요: 사용자가 코드를 명시적으로 요청하지 않는 한, 코드 블록 없이 자연어(글)로 답변하세요.\n"
+        if writing_style:
+            system_prompt += f"작성 스타일: {writing_style}\n"
+
+        # API 요청 구성
+        api_messages = [{"role": "system", "content": system_prompt}] + messages
+        temperature_map = [0.1, 0.3, 0.5, 0.7]
+
+        # ===== VL 모델: 이미지 첨부 시 OpenAI Vision API 포맷 변환 (GGUF / API 공통) =====
+        # env_id가 vl-로 시작하거나, gguf- 계열 중 모델명에 vl이 포함된 경우
+        is_gguf_vl = env_id.startswith("gguf-") and "vl" in ENV_CONFIG.get(env_id, {}).get("name", "").lower()
+        has_vision = "vision" in get_model_capabilities(env_id) or is_gguf_vl
+
+        image_files = [f for f in uploaded_files if f.get("type") == "image" and f.get("img_base64")]
+
+        if has_vision and image_files and api_messages:
+            # 마지막 user 메시지를 멀티모달 포맷으로 변환
+            for i in range(len(api_messages) - 1, -1, -1):
+                if api_messages[i].get("role") == "user":
+                    text_content = api_messages[i].get("content", "")
+                    if isinstance(text_content, str):
+                        content_parts = [{"type": "text", "text": text_content}]
+                        for img_f in image_files:
+                            ext = img_f.get("ext", "png").lower()
+                            mime = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png", "gif": "gif",
+                                    "bmp": "bmp", "webp": "webp", "svg": "svg+xml"}.get(ext, "png")
+                            content_parts.append({
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/{mime};base64,{img_f['img_base64']}"
+                                }
+                            })
+                        api_messages[i]["content"] = content_parts
+                    break
+
+        def _normalize_gguf_artifact_answer(answer_text, artifact_request=False):
+            """GGUF 출력의 코드블록 라벨을 보정해 프론트 버튼 감지를 안정화."""
+            if not artifact_request or not isinstance(answer_text, str) or not answer_text.strip():
+                return answer_text
+
+            import re as _re_norm
+            normalized = answer_text
+            # ```py, ```python3 -> ```python
+            normalized = _re_norm.sub(r"```(?:py|python3)\s*\n", "```python\n", normalized, flags=_re_norm.IGNORECASE)
+
+            # 무라벨 코드블록에서 PPT/Draw.io 패턴을 감지해 라벨 부여
+            def _upgrade_unlabeled(m):
+                body = m.group(1)
+                low = body.lower()
+                if any(tok in low for tok in ("from pptx", "import pptx", "presentation(", "add_slide")):
+                    return f"```python\n{body}```"
+                if any(tok in low for tok in ("<mxfile", "<mxgraphmodel", "<mxcell")):
+                    return f"```drawio\n{body}```"
+                return m.group(0)
+
+            normalized = _re_norm.sub(r"```[ \t]*\n([\s\S]*?)```", _upgrade_unlabeled, normalized)
+
+            # 코드블록이 전혀 없지만 python-pptx 코드가 섞여 있으면 후행 코드블록으로 보강
+            low_all = normalized.lower()
+            if ("from pptx" in low_all or "import pptx" in low_all) and "```python" not in low_all:
+                lines = normalized.splitlines()
+                start = -1
+                for i, line in enumerate(lines):
+                    ll = line.lower()
+                    if "from pptx" in ll or "import pptx" in ll or "presentation(" in ll:
+                        start = i
+                        break
+                if start >= 0:
+                    candidate = "\n".join(lines[start:]).strip()
+                    if candidate:
+                        normalized += "\n\n```python\n" + candidate + "\n```"
+
+            return normalized
+
+        # ===== GGUF 로컬 모델: Python에서 직접 추론 =====
+        if env_id.startswith("gguf-"):
+
+            # ── 병렬 멀티에이전트 판단 ──
+            # 스킬 2개+ & 다른 그룹이면 병렬 (다중 모델 선택 시에만)
+            # 단일 GGUF 선택 시 병렬 안 함 (VRAM 부족 방지)
+            _parallel_fallback_reason = None
+            if False:  # 병렬 제거: 단일 에이전트만 사용
+                _pre_skills, _par_groups, _use_parallel = group_skills_for_parallel(loaded)
+
+                if _use_parallel:
+                    try:
+                        # 수동 다중 선택 시 → 선택한 모델 사용, 아니면 풀에서 자동
+                        if multi_model_parallel and selected_model_paths:
+                            _gguf_paths_by_size = sorted(selected_model_paths, key=lambda x: x[1], reverse=True)
+                        else:
+                            _PARALLEL_MIN_SIZE_GB = float(os.getenv("GGUF_PARALLEL_MIN_GB", "0.5"))
+                            _gguf_envs = {k: v for k, v in ENV_CONFIG.items()
+                                          if k.startswith("gguf-") and "_gguf_path" in v}
+                            _gguf_paths_by_size = sorted(
+                                [(v["_gguf_path"], v.get("_size_gb", 0)) for v in _gguf_envs.values()
+                                 if "vl" not in os.path.basename(v["_gguf_path"]).lower()
+                                 and v.get("_size_gb", 0) >= _PARALLEL_MIN_SIZE_GB],
+                                key=lambda x: x[1], reverse=True,
+                            )
+
+                        if False:  # 병렬 제거: 단일 에이전트만 사용
+                            # 그룹별 모델 할당
+                            _assignments = _assign_models_to_groups(_par_groups, _gguf_paths_by_size)
+
+                            # 그룹별 스킬 콘텐츠 준비
+                            _group_skill_contents = {}
+                            for pg in _par_groups:
+                                contents = {}
+                                for sid in pg["skills"]:
+                                    c = load_skill_content(sid)
+                                    if c:
+                                        contents[sid] = c
+                                _group_skill_contents[pg["group"]] = contents
+
+                            # 마지막 사용자 메시지 추출
+                            _last_query = ""
+                            for m in reversed(messages):
+                                if m.get("role") == "user":
+                                    _last_query = m.get("content", "")
+                                    if isinstance(_last_query, list):
+                                        _last_query = " ".join(
+                                            p.get("text", "") for p in _last_query
+                                            if isinstance(p, dict) and p.get("type") == "text"
+                                        )
+                                    break
+
+                            try:
+                                print(f"\n  [PARALLEL] {len(_par_groups)} groups")
+                            except Exception:
+                                pass
+                            for pg in _par_groups:
+                                m_path = _assignments.get(pg["group"], "")
+                                try:
+                                    print(f"     [{pg['group']}] skills={pg['skills']} -> {os.path.basename(m_path)}")
+                                except Exception:
+                                    pass
+
+                            # ThreadPoolExecutor로 병렬 실행
+                            _agent_results = []
+                            with ThreadPoolExecutor(max_workers=min(len(_par_groups), MAX_POOL_SIZE)) as executor:
+                                futures = {}
+                                for pg in _par_groups:
+                                    model_path = _assignments[pg["group"]]
+                                    future = executor.submit(
+                                        _agent_call_gguf,
+                                        model_path=model_path,
+                                        skill_ids=pg["skills"],
+                                        skill_contents=_group_skill_contents[pg["group"]],
+                                        query=_last_query,
+                                        history=messages[-6:],
+                                        n_ctx=user_n_ctx if user_n_ctx > 0 else 16384,
+                                        temperature=temperature_map[min(effort, 3)],
+                                        max_tokens=TOKEN_SETTINGS["parallel_agent_max_tokens"],
+                                        csv_data=uploaded_csv_data if uploaded_csv_data.get("filename") else None,
+                                        uploaded_files_data=uploaded_files if uploaded_files else None,
+                                    )
+                                    futures[future] = pg["group"]
+
+                                for future in as_completed(futures, timeout=180):
+                                    try:
+                                        result = future.result(timeout=120)
+                                        _agent_results.append(result)
+                                    except Exception as e:
+                                        _agent_results.append({
+                                            "group": futures[future], "skills": [],
+                                            "response": "", "error": str(e), "model": "",
+                                        })
+
+                            # 에이전트 결과 로그
+                            for _ar in _agent_results:
+                                _status = "OK" if _ar.get("response") and not _ar.get("error") else "FAIL"
+                                _err_msg = f" -> {_ar['error']}" if _ar.get("error") else ""
+                                try:
+                                    print(f"     [{_status}] [{_ar.get('group','?')}] {_ar.get('model','?')}{_err_msg}")
+                                except Exception:
+                                    pass
+
+                            # 합성 (가장 큰 모델 사용)
+                            _synth_path = _gguf_paths_by_size[0][0]
+                            _answer, _synth_err, _meta = _synthesize_responses_gguf(
+                                _agent_results, _last_query, _synth_path,
+                                temperature=temperature_map[min(effort, 3)],
+                                n_ctx=user_n_ctx if user_n_ctx > 0 else 32768,
+                                synth_max_tokens=max_tokens if max_tokens > 8192 else 8192,
+                            )
+
+                            if _answer and not _synth_err:
+                                _answer = _normalize_gguf_artifact_answer(_answer, gguf_artifact_request)
+                                try:
+                                    print(f"  [PARALLEL] done: {_meta.get('agents', 0)} agents, synthesis={_meta.get('synthesis', 'N/A')}")
+                                except Exception:
+                                    pass
+                                return jsonify({
+                                    "content": _answer,
+                                    "loaded_skills": loaded,
+                                    "system_prompt_length": len(system_prompt),
+                                    "parallel_agents": _meta.get("agents", 0),
+                                    "parallel_groups": _meta.get("groups", []),
+                                    "parallel_models": _meta.get("models", []),
+                                    "parallel_failed": _meta.get("failed", 0),
+                                    "parallel_synthesis": _meta.get("synthesis", ""),
+                                    "tokens_budget": f"parallel {_meta.get('agents', 0)} agents",
+                                })
+                            else:
+                                _parallel_fallback_reason = f"synthesis_failed: {_synth_err}"
+                                try:
+                                    print(f"  [PARALLEL] synthesis failed, fallback: {_synth_err}")
+                                except Exception:
+                                    pass
+
+                    except Exception as _par_ex:
+                        _parallel_fallback_reason = f"parallel_error: {_par_ex}"
+                        try:
+                            print(f"  [PARALLEL] error, fallback: {_par_ex}")
+                        except Exception:
+                            pass
+
+            # ── 기존 단일모델 경로 (폴백 포함) ──
+            # 선택된 환경의 모델 경로로 동적 로드/스왑
+            gguf_path = ENV_CONFIG.get(env_id, {}).get("_gguf_path")
+            _load_n_ctx = user_n_ctx if user_n_ctx > 0 else 32768
+            if gguf_path:
+                if not load_gguf_model(gguf_path, n_ctx=_load_n_ctx):
+                    return jsonify({"error": f"GGUF 모델 로드 실패: {os.path.basename(gguf_path)}"}), 500
+            if _utils_mod.gguf_model is None:
+                return jsonify({"error": "GGUF 모델이 로드되지 않았습니다. .gguf 파일과 llama-cpp-python이 필요합니다."}), 400
+
+            # GGUF 컨텍스트 한도 내에서 max_tokens 자동 조정 (보수적 계산)
+            gguf_ctx_attr = getattr(_utils_mod.gguf_model, 'n_ctx', None)
+            gguf_ctx = gguf_ctx_attr() if callable(gguf_ctx_attr) else (gguf_ctx_attr if gguf_ctx_attr is not None else 32768)
+            gguf_reply_cap = max(256, TOKEN_SETTINGS["gguf_reply_cap"])
+            gguf_ctx_reserve = max(512, TOKEN_SETTINGS["gguf_ctx_reserve"])
+
+            def _estimate_gguf_prompt_tokens(msgs):
+                # 1) 모델 토크나이저 기반 추정 (가능하면 사용)
+                try:
+                    flat_parts = []
+                    for m in msgs:
+                        role = m.get("role", "user")
+                        content = m.get("content", "")
+                        if isinstance(content, list):
+                            text_parts = []
+                            for p in content:
+                                if isinstance(p, dict) and p.get("type") == "text":
+                                    text_parts.append(str(p.get("text", "")))
+                            content = "\n".join(text_parts)
+                        flat_parts.append(f"{role}: {str(content)}")
+                    flat_text = "\n".join(flat_parts).encode("utf-8", errors="ignore")
+                    toks = _utils_mod.gguf_model.tokenize(flat_text, add_bos=True)
+                    return len(toks) + 256  # chat template/여유 버퍼
+                except Exception:
+                    # 2) 폴백: 한국어 기준 보수 추정
+                    total_chars = 0
+                    for m in msgs:
+                        content = m.get("content", "")
+                        if isinstance(content, list):
+                            text_parts = []
+                            for p in content:
+                                if isinstance(p, dict) and p.get("type") == "text":
+                                    text_parts.append(str(p.get("text", "")))
+                            content = "\n".join(text_parts)
+                        total_chars += len(str(content))
+                    return int(total_chars * 1.1) + 512
+
+            prompt_tokens_est = _estimate_gguf_prompt_tokens(api_messages)
+            safe_max = max(256, gguf_ctx - prompt_tokens_est - gguf_ctx_reserve)
+            actual_max_tokens = min(max_tokens, safe_max, gguf_reply_cap)
+
+            if prompt_tokens_est > gguf_ctx - gguf_ctx_reserve:
+                return jsonify({"error": f"프롬프트가 너무 깁니다 (~{prompt_tokens_est}토큰). 스킬 수를 줄이거나 히스토리를 초기화해주세요. (GGUF ctx: {gguf_ctx})"}), 400
+
+            answer, err = gguf_chat(
+                api_messages,
+                temperature=temperature_map[min(effort, 3)],
+                max_tokens=actual_max_tokens,
+                stop_flag=chat_stop_flag,
+            )
+            # GGUF 디코드 실패 시: 경량 컨텍스트 + 작은 토큰으로 1회 자동 재시도
+            if err and isinstance(err, str) and ("Failed completely even with batch size 1" in err or "llama.eval(decode)" in err):
+                compact_system = (
+                    "당신은 도움이 되는 AI입니다. "
+                    "핵심만 간결하게 답하고, 코드 요청이면 실행 가능한 코드만 출력하세요."
+                )
+                compact_messages = [{"role": "system", "content": compact_system}]
+                compact_messages.extend(messages[-6:] if len(messages) > 6 else messages)
+
+                compact_prompt_est = _estimate_gguf_prompt_tokens(compact_messages)
+                compact_safe_max = max(256, gguf_ctx - compact_prompt_est - gguf_ctx_reserve)
+                retry_max = min(2048, max(256, actual_max_tokens // 2), compact_safe_max)
+
+                retry_answer, retry_err = gguf_chat(
+                    compact_messages,
+                    temperature=temperature_map[min(effort, 3)],
+                    max_tokens=retry_max,
+                    stop_flag=chat_stop_flag,
+                )
+                if not retry_err and retry_answer:
+                    answer = retry_answer
+                    err = None
+                    prompt_tokens_est = compact_prompt_est
+                    actual_max_tokens = retry_max
+
+            if err:
+                return jsonify({"error": err}), 500
+
+            # GGUF: <think> 사고만 있고 본문 없이 잘린 경우 재시도
+            import re as _re
+            if answer and answer.strip():
+                stripped = answer.strip()
+                has_open = "<think>" in stripped
+                has_close = "</think>" in stripped
+                think_only_gguf = False
+                if has_open and not has_close:
+                    think_only_gguf = True
+                elif has_open and has_close:
+                    after = _re.sub(r'<think>[\s\S]*?</think>\s*', '', stripped).strip()
+                    if len(after) < 20:
+                        think_only_gguf = True
+                if think_only_gguf:
+                    retry_max = min(actual_max_tokens * 2, safe_max)
+                    if retry_max > actual_max_tokens:
+                        retry_answer, retry_err = gguf_chat(
+                            api_messages,
+                            temperature=temperature_map[min(effort, 3)],
+                            max_tokens=retry_max,
+                            stop_flag=chat_stop_flag,
+                        )
+                        if not retry_err and retry_answer:
+                            answer = retry_answer
+
+            # 반복 루프 감지 및 절단 (소형 GGUF 모델 보호)
+            answer, _was_rep = _detect_repetition(answer)
+
+            answer = _normalize_gguf_artifact_answer(answer, gguf_artifact_request)
+
+            _q_valid, _q_issues = _validate_response(answer, last_user_query)
+            _quality = _calculate_quality_score(answer, last_user_query, _q_issues)
+            try:
+                print(f"  [QUALITY] score={_quality['score']}, grade={_quality['grade']}, issues={_q_issues}")
+            except Exception:
+                pass
+            _resp = {
+                "content": answer,
+                "loaded_skills": loaded,
+                "system_prompt_length": len(system_prompt),
+                "tokens_budget": f"prompt~{prompt_tokens_est}, max_tokens={actual_max_tokens}, ctx={gguf_ctx}",
+                "quality": _quality,
+            }
+            if _parallel_fallback_reason:
+                _resp["parallel_fallback"] = _parallel_fallback_reason
+            _resp = _maybe_generate_md_html(answer, loaded, _resp)
+            _auto_save_feedback(loaded, _quality, last_user_query)
+            return jsonify(_resp)
+
+
+        # ===== 회사 API: HTTP 요청 (폴백 체인 지원) =====
+
+        # ── API 다중 선택 병렬 ──
+        if False:  # 병렬 제거: 단일 에이전트만 사용
+            _pre_skills, _par_groups, _use_parallel = group_skills_for_parallel(loaded)
+            if _use_parallel:
+                try:
+                    # API 모델 목록 (선택한 순서대로)
+                    _api_models = []
+                    for ue in user_envs:
+                        if ue in ENV_CONFIG:
+                            _api_models.append({"env_id": ue, **ENV_CONFIG[ue]})
+                    if len(_api_models) >= 2:
+                        # 그룹 → API 모델 배정 (라운드로빈)
+                        _api_assignments = {}
+                        for i, pg in enumerate(_par_groups):
+                            _api_assignments[pg["group"]] = _api_models[i % len(_api_models)]
+
+                        # 그룹별 스킬 콘텐츠
+                        _api_group_contents = {}
+                        for pg in _par_groups:
+                            contents = {}
+                            for sid in pg["skills"]:
+                                c = load_skill_content(sid)
+                                if c:
+                                    contents[sid] = c
+                            _api_group_contents[pg["group"]] = contents
+
+                        _last_query = ""
+                        for m in reversed(messages):
+                            if m.get("role") == "user":
+                                _last_query = m.get("content", "")
+                                if isinstance(_last_query, list):
+                                    _last_query = " ".join(
+                                        p.get("text", "") for p in _last_query
+                                        if isinstance(p, dict) and p.get("type") == "text"
+                                    )
+                                break
+
+                        # ThreadPoolExecutor로 API 병렬 (모듈 레벨 _api_agent_call 사용)
+                        _api_results = []
+                        _temp = temperature_map[min(effort, 3)]
+                        with ThreadPoolExecutor(max_workers=min(len(_par_groups), 4)) as executor:
+                            futures = {}
+                            for pg in _par_groups:
+                                api_info = _api_assignments[pg["group"]]
+                                future = executor.submit(
+                                    _api_agent_call,
+                                    api_info=api_info,
+                                    skill_ids=pg["skills"],
+                                    skill_contents=_api_group_contents[pg["group"]],
+                                    query=_last_query,
+                                    hist=messages,
+                                    api_key=api_key,
+                                    temperature=_temp,
+                                    csv_data=uploaded_csv_data if uploaded_csv_data.get("filename") else None,
+                                    uploaded_files_data=uploaded_files if uploaded_files else None,
+                                )
+                                futures[future] = pg["group"]
+                            for future in as_completed(futures, timeout=180):
+                                try:
+                                    _api_results.append(future.result(timeout=120))
+                                except Exception as e:
+                                    _api_results.append({"group": futures[future], "skills": [],
+                                                         "response": "", "error": str(e), "model": ""})
+
+                        # 합성 (첫 번째 API로)
+                        successes = [r for r in _api_results if r.get("response") and not r.get("error")]
+                        failures = [r for r in _api_results if r.get("error")]
+
+                        if len(successes) == 0:
+                            pass  # 전부 실패 → 폴백
+                        elif len(successes) == 1:
+                            _sq = _calculate_quality_score(successes[0]["response"], _last_query)
+                            return jsonify({
+                                "content": successes[0]["response"],
+                                "loaded_skills": loaded,
+                                "system_prompt_length": len(system_prompt),
+                                "parallel_agents": 1, "parallel_failed": len(failures),
+                                "parallel_groups": [successes[0]["group"]],
+                                "parallel_models": [successes[0]["model"]],
+                                "parallel_synthesis": "",
+                                "quality": _sq,
+                            })
+                        else:
+                            # 합성 프롬프트
+                            expert_sections = []
+                            for r in successes:
+                                snames = ", ".join(SKILL_DESC_KO.get(s, s) for s in r["skills"])
+                                expert_sections.append(f"=== [{r['group']}] ({snames}) ===\n{r['response']}")
+                            synth_system = (
+                                f"여러 전문가의 분석을 통합하는 수석 연구원입니다.\n"
+                                f"반드시 한국어로만 작성하세요.\n\n"
+                                + "\n\n".join(expert_sections) +
+                                "\n\n[통합 원칙] 핵심 포함, 중복 제거, 한국어, 코드 통합\n"
+                                "[보고 구조] 핵심 결론 → 분석 근거 → 코드/시각화 → 추가 제안\n"
+                                + ANTI_RATIONALIZATION
+                            )
+                            synth_api = _api_models[0]
+                            try:
+                                h = {"Content-Type": "application/json"}
+                                if api_key:
+                                    h["Authorization"] = f"Bearer {api_key}"
+                                sr = req.post(synth_api["url"], headers=h, json={
+                                    "model": synth_api["model"],
+                                    "messages": [{"role": "system", "content": synth_system},
+                                                 {"role": "user", "content": _last_query}],
+                                    "temperature": 0.3, "max_tokens": 8192, "stream": False, "tool_choice": "none",
+                                }, timeout=120, verify=False)
+                                sr.raise_for_status()
+                                sr_data = sr.json()
+                                if "choices" in sr_data and len(sr_data["choices"]) > 0:
+                                    synth_answer = sr_data["choices"][0].get("message", {}).get("content") or ""
+                                    _sq = _calculate_quality_score(synth_answer, _last_query)
+                                    return jsonify({
+                                        "content": synth_answer,
+                                        "loaded_skills": loaded,
+                                        "system_prompt_length": len(system_prompt),
+                                        "parallel_agents": len(successes), "parallel_failed": len(failures),
+                                        "parallel_groups": [r["group"] for r in successes],
+                                        "parallel_models": list(set(r["model"] for r in successes)),
+                                        "parallel_synthesis": "model",
+                                        "quality": _sq,
+                                    })
+                            except Exception:
+                                pass
+                            # 합성 실패 → 단순 연결
+                            fallback = "\n\n---\n\n".join(
+                                f"### {', '.join(SKILL_DESC_KO.get(s,s) for s in r['skills'])}\n{r['response']}"
+                                for r in successes
+                            )
+                            _sq = _calculate_quality_score(fallback, _last_query)
+                            return jsonify({
+                                "content": fallback,
+                                "loaded_skills": loaded,
+                                "system_prompt_length": len(system_prompt),
+                                "parallel_agents": len(successes), "parallel_failed": len(failures),
+                                "parallel_groups": [r["group"] for r in successes],
+                                "parallel_models": list(set(r["model"] for r in successes)),
+                                "parallel_synthesis": "fallback_concat",
+                                "quality": _sq,
+                            })
+                except Exception as e:
+                    try:
+                        print(f"  [API PARALLEL] error, fallback: {e}")
+                    except Exception:
+                        pass
+
+        # ── API 자동 멀티에이전트 (AUTO 모드에서 스킬 2+개, 2+그룹) ──
+        if False:  # 병렬 제거: 단일 에이전트만 사용
+            _pre_skills, _par_groups, _use_parallel = group_skills_for_parallel(loaded)
+            if _use_parallel:
+                try:
+                    # Hierarchical Delegation: 큰 그룹을 서브그룹으로 분할
+                    _par_groups = apply_hierarchical_delegation(_par_groups)
+
+                    _primary_reg_key = get_registry_key_for_env(env_id)
+                    _auto_api_assignments = _assign_api_models_to_groups(_par_groups, _primary_reg_key)
+
+                    # 그룹별 스킬 콘텐츠 준비
+                    _auto_group_contents = {}
+                    for pg in _par_groups:
+                        contents = {}
+                        for sid in pg["skills"]:
+                            c = load_skill_content(sid)
+                            if c:
+                                contents[sid] = c
+                        _auto_group_contents[pg["group"]] = contents
+
+                    # 마지막 사용자 메시지 추출
+                    _last_query = ""
+                    for m in reversed(messages):
+                        if m.get("role") == "user":
+                            _last_query = m.get("content", "")
+                            if isinstance(_last_query, list):
+                                _last_query = " ".join(
+                                    p.get("text", "") for p in _last_query
+                                    if isinstance(p, dict) and p.get("type") == "text"
+                                )
+                            break
+
+                    try:
+                        print(f"\n  [API AUTO-PARALLEL] {len(_par_groups)} groups")
+                    except Exception:
+                        pass
+                    for pg in _par_groups:
+                        _asgn = _auto_api_assignments.get(pg["group"], {})
+                        try:
+                            print(f"     [{pg['group']}] skills={pg['skills']} -> {_asgn.get('model', '?')}")
+                        except Exception:
+                            pass
+
+                    # ThreadPoolExecutor로 병렬 실행
+                    _temp = temperature_map[min(effort, 3)]
+                    _auto_api_results = []
+                    with ThreadPoolExecutor(max_workers=min(len(_par_groups), 4)) as executor:
+                        futures = {}
+                        for pg in _par_groups:
+                            assignment = _auto_api_assignments[pg["group"]]
+                            future = executor.submit(
+                                _api_agent_call,
+                                api_info=assignment,
+                                skill_ids=pg["skills"],
+                                skill_contents=_auto_group_contents[pg["group"]],
+                                query=_last_query,
+                                hist=messages,
+                                api_key=api_key,
+                                temperature=_temp,
+                                max_tokens=TOKEN_SETTINGS["parallel_agent_max_tokens"],
+                                csv_data=uploaded_csv_data if uploaded_csv_data.get("filename") else None,
+                                uploaded_files_data=uploaded_files if uploaded_files else None,
+                            )
+                            futures[future] = pg["group"]
+                        for future in as_completed(futures, timeout=180):
+                            try:
+                                _auto_api_results.append(future.result(timeout=120))
+                            except Exception as e:
+                                _auto_api_results.append({
+                                    "group": futures[future], "skills": [],
+                                    "response": "", "error": str(e), "model": "",
+                                })
+
+                    # 에이전트 결과 로그
+                    for _ar in _auto_api_results:
+                        _status = "OK" if _ar.get("response") and not _ar.get("error") else "FAIL"
+                        _err_msg = f" -> {_ar['error']}" if _ar.get("error") else ""
+                        try:
+                            print(f"     [{_status}] [{_ar.get('group','?')}] {_ar.get('model','?')}{_err_msg}")
+                        except Exception:
+                            pass
+
+                    # 결과 합성
+                    successes = [r for r in _auto_api_results if r.get("response") and not r.get("error")]
+                    failures = [r for r in _auto_api_results if r.get("error")]
+
+                    if len(successes) == 1:
+                        _sq = _calculate_quality_score(successes[0]["response"], _last_query)
+                        try:
+                            print(f"  [QUALITY] score={_sq['score']}, grade={_sq['grade']}")
+                        except Exception:
+                            pass
+                        return jsonify({
+                            "content": successes[0]["response"],
+                            "loaded_skills": loaded,
+                            "system_prompt_length": len(system_prompt),
+                            "parallel_agents": 1, "parallel_failed": len(failures),
+                            "parallel_groups": [successes[0]["group"]],
+                            "parallel_models": [successes[0]["model"]],
+                            "parallel_synthesis": "",
+                            "auto_routed": auto_routed, "route_reason": route_reason,
+                            "auto_multi_agent": True,
+                            "quality": _sq,
+                        })
+                    elif len(successes) >= 2:
+                        # 합성 모델 결정: low cost tier → 대형 모델로 업그레이드
+                        _synth_reg_key = _primary_reg_key or "qwen3-coder-480b"
+                        _primary_cost = MODEL_REGISTRY.get(_synth_reg_key, {}).get("cost_tier", "medium")
+                        if _primary_cost == "low":
+                            _synth_reg_key = "qwen3-coder-480b"
+                        _synth_reg = MODEL_REGISTRY.get(_synth_reg_key, MODEL_REGISTRY["qwen3-coder-480b"])
+
+                        # 합성 프롬프트
+                        expert_sections = []
+                        for r in successes:
+                            snames = ", ".join(SKILL_DESC_KO.get(s, s) for s in r["skills"])
+                            expert_sections.append(f"=== [{r['group']}] ({snames}) ===\n{r['response']}")
+
+                        synth_system = (
+                            f"당신은 여러 전문가의 분석을 통합하는 수석 연구원입니다.\n"
+                            f"중요: 반드시 모든 내용을 한국어로만 작성하세요. 영어를 사용하지 마세요.\n"
+                            f"<think> 태그를 사용하지 마세요.\n\n"
+                            f"아래 {len(successes)}명의 전문가가 각자의 전문 영역에서 답변했습니다.\n\n"
+                            + "\n\n".join(expert_sections) +
+                            "\n\n[통합 원칙]\n"
+                            "1. 반드시 한국어로만 답변하세요 (코드 주석도 한국어)\n"
+                            "2. 각 전문가의 핵심 내용을 빠짐없이 포함\n"
+                            "3. 중복 내용은 한 번만 언급\n"
+                            "4. 하나의 자연스러운 답변으로 통합 (전문가별로 분리하지 말 것)\n"
+                            "5. 코드가 있으면 통합된 하나의 코드로 합쳐서 제공\n"
+                            "6. 가짜 데이터를 만들지 마세요\n\n"
+                            "[통합 보고 구조]\n"
+                            "핵심 결론 → 분석 근거 → 코드/시각화 → 추가 제안 순서로 작성하세요.\n"
+                            "각 전문가 영역의 기여를 자연스럽게 녹여내되, 출처는 명시하세요.\n\n"
+                            + ANTI_RATIONALIZATION +
+                            VERIFICATION_GATE
+                        )
+
+                        try:
+                            _sh = {"Content-Type": "application/json"}
+                            if api_key:
+                                _sh["Authorization"] = f"Bearer {api_key}"
+                            sr = req.post(_synth_reg["url"], headers=_sh, json={
+                                "model": _synth_reg["model"],
+                                "messages": [{"role": "system", "content": synth_system},
+                                             {"role": "user", "content": _last_query}],
+                                "temperature": 0.3,
+                                "max_tokens": max_tokens if max_tokens >= 8192 else 8192,
+                                "stream": False, "tool_choice": "none",
+                            }, timeout=180, verify=False)
+                            sr.raise_for_status()
+                            sr_data = sr.json()
+                            if "choices" in sr_data and len(sr_data["choices"]) > 0:
+                                synth_answer = sr_data["choices"][0].get("message", {}).get("content") or ""
+                                # Self-evaluation: 합성 응답 품질 검증
+                                _valid, _issues = _validate_response(synth_answer, _last_query)
+                                if _issues:
+                                    synth_answer = _fix_response_issues(synth_answer, _issues)
+                                    try:
+                                        print(f"  [EVAL] issues={_issues}, auto-fixed")
+                                    except Exception:
+                                        pass
+                                _sq = _calculate_quality_score(synth_answer, _last_query, _issues if _issues else [])
+                                try:
+                                    print(f"  [API AUTO-PARALLEL] done: {len(successes)} agents, "
+                                          f"synthesis={_synth_reg['model']}")
+                                    print(f"  [QUALITY] score={_sq['score']}, grade={_sq['grade']}")
+                                except Exception:
+                                    pass
+                                return jsonify({
+                                    "content": synth_answer,
+                                    "loaded_skills": loaded,
+                                    "system_prompt_length": len(system_prompt),
+                                    "parallel_agents": len(successes),
+                                    "parallel_failed": len(failures),
+                                    "parallel_groups": [r["group"] for r in successes],
+                                    "parallel_models": list(set(r["model"] for r in successes)),
+                                    "parallel_synthesis": _synth_reg["model"],
+                                    "auto_routed": auto_routed, "route_reason": route_reason,
+                                    "auto_multi_agent": True,
+                                    "quality": _sq,
+                                })
+                        except Exception as _synth_ex:
+                            try:
+                                print(f"  [API AUTO-PARALLEL] synthesis failed: {_synth_ex}")
+                            except Exception:
+                                pass
+
+                        # 합성 실패 → fallback concat
+                        fallback = "\n\n---\n\n".join(
+                            f"### {', '.join(SKILL_DESC_KO.get(s, s) for s in r['skills'])}\n{r['response']}"
+                            for r in successes
+                        )
+                        _sq = _calculate_quality_score(fallback, _last_query)
+                        return jsonify({
+                            "content": fallback,
+                            "loaded_skills": loaded,
+                            "system_prompt_length": len(system_prompt),
+                            "parallel_agents": len(successes),
+                            "parallel_failed": len(failures),
+                            "parallel_groups": [r["group"] for r in successes],
+                            "parallel_models": list(set(r["model"] for r in successes)),
+                            "parallel_synthesis": "fallback_concat",
+                            "auto_routed": auto_routed, "route_reason": route_reason,
+                            "auto_multi_agent": True,
+                            "quality": _sq,
+                        })
+                    # else: 전부 실패 → 아래 단일모델 경로로 폴백
+
+                except Exception as _auto_par_ex:
+                    try:
+                        print(f"  [API AUTO-PARALLEL] error, fallback to single: {_auto_par_ex}")
+                    except Exception:
+                        pass
+
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        # 폴백 체인 구성: 현재 모델 → 대체 모델들
+        primary_reg_key = get_registry_key_for_env(env_id)
+        if primary_reg_key:
+            fallback_keys = [primary_reg_key] + FALLBACK_CHAINS.get(primary_reg_key, [])
+        else:
+            fallback_keys = []  # GGUF 등은 폴백 없음
+
+        # 이미지가 있으면 non-vision 폴백에서 이미지 제거 (텍스트만 전송)
+        def _prepare_messages_for_model(reg_key, msgs):
+            """VL 모델이 아닌 경우 멀티모달 content를 텍스트로 되돌리기"""
+            cap = MODEL_REGISTRY.get(reg_key, {}).get("capabilities", set())
+            if "vision" not in cap:
+                clean = []
+                for m in msgs:
+                    if isinstance(m.get("content"), list):
+                        text_parts = [p["text"] for p in m["content"] if p.get("type") == "text"]
+                        clean.append({**m, "content": "\n".join(text_parts)})
+                    else:
+                        clean.append(m)
+                return clean
+            return msgs
+
+        fallback_used = False
+        fallback_from = ""
+        actual_model_used = model
+        last_error = None
+
+        models_tried = []
+        if fallback_keys:
+            for attempt, reg_key in enumerate(fallback_keys[:6]):  # 최대 6회
+                reg = MODEL_REGISTRY[reg_key]
+                try_url = reg["url"]
+                try_model = reg["model"]
+                try_msgs = _prepare_messages_for_model(reg_key, api_messages)
+                models_tried.append(try_model)
+
+                try:
+                    resp = req.post(
+                        try_url,
+                        headers=headers,
+                        json={
+                            "model": try_model,
+                            "messages": try_msgs,
+                            "temperature": temperature_map[min(effort, 3)],
+                            "max_tokens": max_tokens,
+                            "stream": False,
+                            "tool_choice": "none",
+                        },
+                        timeout=120,
+                        verify=False,
+                    )
+                    resp.raise_for_status()
+                    result = resp.json()
+
+                    # 응답 추출
+                    truncated = False
+                    if "choices" in result and len(result["choices"]) > 0:
+                        answer = result["choices"][0].get("message", {}).get("content") or ""
+                        finish_reason = result["choices"][0].get("finish_reason", "")
+                        if finish_reason == "length":
+                            truncated = True
+
+                        # <think> 사고 과정만 있고 본문이 없이 잘린 경우 자동 재시도
+                        import re as _re
+                        think_only = False
+                        if truncated and answer.strip():
+                            # </think> 닫히지 않았거나, </think> 후 본문이 비어있는 경우
+                            stripped = answer.strip()
+                            has_open_think = "<think>" in stripped
+                            has_close_think = "</think>" in stripped
+                            if has_open_think and not has_close_think:
+                                think_only = True
+                            elif has_open_think and has_close_think:
+                                after_think = _re.sub(r'<think>[\s\S]*?</think>\s*', '', stripped).strip()
+                                if len(after_think) < 20:
+                                    think_only = True
+
+                        if think_only and max_tokens < 32768:
+                            # 토큰 2배로 늘려서 재시도 (최대 32768)
+                            retry_max = min(max_tokens * 2, 32768)
+                            try:
+                                retry_resp = req.post(
+                                    try_url,
+                                    headers=headers,
+                                    json={
+                                        "model": try_model,
+                                        "messages": try_msgs,
+                                        "temperature": temperature_map[min(effort, 3)],
+                                        "max_tokens": retry_max,
+                                        "stream": False, "tool_choice": "none",
+                                    },
+                                    timeout=180,
+                                    verify=False,
+                                )
+                                retry_resp.raise_for_status()
+                                retry_result = retry_resp.json()
+                                if "choices" in retry_result and len(retry_result["choices"]) > 0:
+                                    answer = retry_result["choices"][0].get("message", {}).get("content") or ""
+                                    finish_reason = retry_result["choices"][0].get("finish_reason", "")
+                                    truncated = finish_reason == "length"
+                            except Exception:
+                                pass  # 재시도 실패 시 원래 응답 사용
+
+                        if attempt > 0:
+                            fallback_used = True
+                            fallback_from = models_tried[0]
+                            actual_model_used = try_model
+
+                        # 반복 루프 감지 및 절단 (API 응답 보호)
+                        answer, _was_rep = _detect_repetition(answer)
+
+                        # 품질 검증 및 점수 계산
+                        _q_valid, _q_issues = _validate_response(answer, last_user_query)
+                        if _q_issues:
+                            answer = _fix_response_issues(answer, _q_issues)
+                        _quality = _calculate_quality_score(answer, last_user_query, _q_issues)
+                        try:
+                            print(f"  [QUALITY] score={_quality['score']}, grade={_quality['grade']}, issues={_q_issues}")
+                        except Exception:
+                            pass
+
+                        resp_data = {
+                            "content": answer,
+                            "loaded_skills": loaded,
+                            "system_prompt_length": len(system_prompt),
+                            "model_used": try_model,
+                            "quality": _quality,
+                        }
+                        if auto_routed:
+                            resp_data["auto_routed"] = True
+                            resp_data["route_reason"] = route_reason
+                        if auto_format or auto_style:
+                            resp_data["auto_format"] = output_format if auto_format else None
+                            resp_data["auto_style"] = writing_style if auto_style else None
+                            resp_data["auto_fmt_reason"] = auto_fmt_reason
+                        if fallback_used:
+                            resp_data["fallback_used"] = True
+                            resp_data["fallback_from"] = fallback_from
+                        if truncated:
+                            resp_data["truncated"] = True
+                        resp_data = _maybe_generate_md_html(answer, loaded, resp_data)
+                        _auto_save_feedback(loaded, _quality, last_user_query)
+                        return jsonify(resp_data)
+
+                    elif "error" in result:
+                        last_error = f"API 에러: {result['error']}"
+                        print(f"[Fallback] model={try_model} → error: {last_error} → trying next...")
+                        continue  # 다음 폴백 시도
+                    else:
+                        last_error = f"예상치 못한 응답: {json.dumps(result, ensure_ascii=False, indent=2)}"
+                        print(f"[Fallback] model={try_model} → error: unexpected response → trying next...")
+                        continue
+
+                except req.exceptions.Timeout:
+                    last_error = "API 응답 시간 초과 (120초)"
+                    print(f"[Fallback] model={try_model} → error: {last_error} → trying next...")
+                    continue
+                except req.exceptions.ConnectionError as e:
+                    last_error = f"API 연결 실패: {str(e)[:200]}"
+                    print(f"[Fallback] model={try_model} → error: {last_error} → trying next...")
+                    continue
+                except req.exceptions.HTTPError as e:
+                    code = e.response.status_code if e.response is not None else 0
+                    last_error = f"HTTP {code}: {str(e)}"
+                    if e.response is not None:
+                        try:
+                            detail = json.dumps(e.response.json(), ensure_ascii=False)
+                            last_error += f" - {detail[:300]}"
+                        except Exception:
+                            pass
+                    print(f"[Fallback] model={try_model} → error: HTTP {code} → trying next...")
+                    continue
+                except Exception as e:
+                    last_error = f"오류: {str(e)}"
+                    print(f"[Fallback] model={try_model} → error: {last_error} → trying next...")
+                    continue
+
+            # 모든 폴백 실패
+            return jsonify({
+                "error": f"모든 모델 시도 실패 ({', '.join(models_tried)}): {last_error}"
+            }), 500
+
+        else:
+            # 폴백 체인 없는 경우 (GGUF 등) → 기존 단일 요청
+            try:
+                resp = req.post(
+                    api_url,
+                    headers=headers,
+                    json={
+                        "model": model,
+                        "messages": api_messages,
+                        "temperature": temperature_map[min(effort, 3)],
+                        "max_tokens": max_tokens,
+                        "stream": False, "tool_choice": "none",
+                    },
+                    timeout=120,
+                    verify=False,
+                )
+                resp.raise_for_status()
+                result = resp.json()
+
+                truncated = False
+                if "choices" in result and len(result["choices"]) > 0:
+                    answer = result["choices"][0].get("message", {}).get("content") or ""
+                    finish_reason = result["choices"][0].get("finish_reason", "")
+                    if finish_reason == "length":
+                        truncated = True
+
+                    # <think> 사고 과정만 있고 본문이 없이 잘린 경우 자동 재시도
+                    import re as _re
+                    think_only = False
+                    if truncated and answer.strip():
+                        stripped = answer.strip()
+                        has_open_think = "<think>" in stripped
+                        has_close_think = "</think>" in stripped
+                        if has_open_think and not has_close_think:
+                            think_only = True
+                        elif has_open_think and has_close_think:
+                            after_think = _re.sub(r'<think>[\s\S]*?</think>\s*', '', stripped).strip()
+                            if len(after_think) < 20:
+                                think_only = True
+
+                    if think_only and max_tokens < 32768:
+                        retry_max = min(max_tokens * 2, 32768)
+                        try:
+                            retry_resp = req.post(
+                                api_url,
+                                headers=headers,
+                                json={
+                                    "model": model,
+                                    "messages": api_messages,
+                                    "temperature": temperature_map[min(effort, 3)],
+                                    "max_tokens": retry_max,
+                                    "stream": False, "tool_choice": "none",
+                                },
+                                timeout=180,
+                                verify=False,
+                            )
+                            retry_resp.raise_for_status()
+                            retry_result = retry_resp.json()
+                            if "choices" in retry_result and len(retry_result["choices"]) > 0:
+                                answer = retry_result["choices"][0].get("message", {}).get("content") or ""
+                                finish_reason = retry_result["choices"][0].get("finish_reason", "")
+                                truncated = finish_reason == "length"
+                        except Exception:
+                            pass
+
+                elif "error" in result:
+                    answer = f"API 에러: {result['error']}"
+                else:
+                    answer = f"예상치 못한 응답: {json.dumps(result, ensure_ascii=False, indent=2)}"
+
+                # 품질 점수 계산
+                _q_valid, _q_issues = _validate_response(answer, last_user_query)
+                if _q_issues:
+                    answer = _fix_response_issues(answer, _q_issues)
+                _quality = _calculate_quality_score(answer, last_user_query, _q_issues)
+                try:
+                    print(f"  [QUALITY] score={_quality['score']}, grade={_quality['grade']}, issues={_q_issues}")
+                except Exception:
+                    pass
+
+                resp_data = {
+                    "content": answer,
+                    "loaded_skills": loaded,
+                    "system_prompt_length": len(system_prompt),
+                    "model_used": model,
+                    "quality": _quality,
+                }
+                if auto_routed:
+                    resp_data["auto_routed"] = True
+                    resp_data["route_reason"] = route_reason
+                if auto_format or auto_style:
+                    resp_data["auto_format"] = output_format if auto_format else None
+                    resp_data["auto_style"] = writing_style if auto_style else None
+                    resp_data["auto_fmt_reason"] = auto_fmt_reason
+                if truncated:
+                    resp_data["truncated"] = True
+
+                # 하네스: 세션 자동 저장 + 이벤트 로깅
+                if HARNESS_AVAILABLE:
+                    try:
+                        save_chat_session(
+                            messages=messages,
+                            skills_used=loaded,
+                            metadata={"model": model, "format": output_format},
+                        )
+                        log_event('chat', f'model={model} skills={len(loaded)} prompt_len={len(system_prompt)}')
+                    except Exception:
+                        pass
+
+                resp_data = _maybe_generate_md_html(answer, loaded, resp_data)
+                _auto_save_feedback(loaded, _quality, last_user_query)
+                return jsonify(resp_data)
+
+            except req.exceptions.Timeout:
+                return jsonify({"error": "API 응답 시간 초과 (120초). max_tokens를 줄이거나 API 서버 상태를 확인하세요."}), 504
+            except req.exceptions.ConnectionError as e:
+                return jsonify({"error": f"API 연결 실패: {str(e)}. URL을 확인하세요."}), 502
+            except req.exceptions.HTTPError as e:
+                code = e.response.status_code if e.response is not None else 0
+                if code == 401 or code == 403:
+                    return jsonify({"error": f"인증 실패 ({code}): TOKEN.TXT의 API 키를 확인하세요."}), code
+                detail = ""
+                if e.response is not None:
+                    try:
+                        body = e.response.json()
+                        detail = json.dumps(body, ensure_ascii=False, indent=2)
+                    except Exception:
+                        detail = e.response.text[:500] if e.response.text else ""
+                prompt_chars = sum(len(m.get("content","")) for m in api_messages)
+                err_msg = f"API HTTP 에러 ({code}): {str(e)}"
+                if detail:
+                    err_msg += f"\n서버 응답: {detail}"
+                err_msg += f"\n[요청 크기: 전체 메시지={prompt_chars}자, model={model}]"
+                return jsonify({"error": err_msg}), code or 500
+            except Exception as e:
+                return jsonify({"error": f"오류 발생: {str(e)}"}), 500
+
+
