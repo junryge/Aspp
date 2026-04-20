@@ -1,2132 +1,1714 @@
-"""
-demos_v1/routes_chat.py - /api/chat route (the massive chat endpoint) + /api/chat/stop
-"""
-import os
-import re
-import json
-import time
-import warnings
-import requests as req
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from flask import request, jsonify
-
-import demos_v1.utils as _utils_mod
-from demos_v1.utils import (
-    BASE_DIR, SKILLS_DIR, UPLOAD_DIR,
-    uploaded_csv_data, uploaded_files,
-    chat_stop_flag,
-    HARNESS_AVAILABLE,
-)
-from demos_v1.config import (
-    TOKEN_SETTINGS, API_TOKEN,
-    MAX_POOL_SIZE, VRAM_BUDGET_GB, _EXT_CONFIG,
-)
-from demos_v1.models import (
-    MODEL_REGISTRY, ENV_CONFIG, ENV_TO_REGISTRY,
-    FALLBACK_CHAINS, API_MODEL_TIERS,
-)
-from demos_v1.skills import (
-    SKILL_DESC_KO, DOMAIN_SKILLS, SKILL_GROUPS, _SKILL_TO_GROUP,
-    MANUAL_ONLY_SKILLS, SKILL_KEYWORDS,
-    scan_skills, auto_select_skills, context_aware_skill_select,
-    load_skill_content, get_skill_catalog,
-    group_skills_for_parallel, apply_hierarchical_delegation,
-    get_registry_key_for_env, get_model_capabilities,
-)
-from demos_v1.router import (
-    classify_and_route, classify_format_and_style,
-    build_orchestration_prompt,
-    VISION_SIGNALS, COMPLEX_SIGNALS, PPT_SIGNALS, DATA_SIGNALS,
-)
-from logpresso_client import query_logpresso
-from demos_v1.quality import (
-    DOMAIN_PERSONAS, ANTI_RATIONALIZATION, VERIFICATION_GATE, ANALYSIS_LIFECYCLE,
-    _extract_skill_context, _detect_repetition,
-    _validate_response, _calculate_quality_score, _fix_response_issues,
-    _sanitize_knowledge_content,
-)
-from demos_v1.engine import (
-    _build_agent_system_prompt, _trim_history_for_context,
-    _agent_call_gguf, _synthesize_responses_gguf,
-    _api_agent_call,
-    _assign_models_to_groups, _assign_api_models_to_groups,
-)
-from demos_v1.gguf import (
-    find_gguf_files, load_gguf_model, gguf_chat,
-    _pool_get_or_load, _pool_release, _pool_status,
-)
-from demos_v1.knowledge import search_knowledge, KNOWLEDGE_DIR, KNOWLEDGE_TRIGGERS
-from demos_v1.logpresso import (
-    LOGPRESSO_TABLES, LOGPRESSO_TABLE_GROUPS, LOGPRESSO_FAB_FILTERS,
-    _get_table_group, _filter_tables_by_groups, _fetch_table_fields,
-    _llm_generate_lpql, extract_lpql_from_response, validate_lpql_readonly,
-)
-
-
-def _auto_save_feedback(loaded, quality, last_user_query):
-    """응답 품질 점수를 피드백으로 자동 저장 (하네스 피드백 루프)"""
-    try:
-        from harness_bridge import _feedback_store
-        if not _feedback_store or not loaded:
-            return
-        import time as _time
-        from harness import FeedbackEntry
-        score = quality.get('score', 0) if isinstance(quality, dict) else 0
-        approved = score >= 60
-        for sid in loaded[:5]:  # 상위 5개 스킬만
-            _feedback_store.add(FeedbackEntry(
-                timestamp=_time.time(),
-                skill_id=sid,
-                agent='app',
-                quality_score=score,
-                approved=approved,
-                rejection_reason=None if approved else f"품질 점수 {score}/100 미달",
-                query_context=(last_user_query or '')[:100],
-            ))
-    except Exception:
-        pass
-
-
-def _maybe_generate_md_html(answer, loaded, resp_data):
-    """md-to-html 스킬이 로드되었으면 MD/HTML 파일을 생성하고 다운로드 URL을 resp_data에 추가"""
-    if "md-to-html" not in loaded:
-        return resp_data
-
-    import datetime
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    uploads_dir = os.path.join(BASE_DIR, 'uploads')
-    os.makedirs(uploads_dir, exist_ok=True)
-
-    # 제목 자동 추출: 첫 번째 # 헤딩에서 가져옴
-    title = "문서"
-    for line in answer.split("\n"):
-        stripped = line.strip()
-        if stripped.startswith("# ") and not stripped.startswith("## "):
-            title = stripped.lstrip("# ").strip()
-            break
-
-    # 1) MD 파일 저장
-    md_filename = f"document_{timestamp}.md"
-    md_path = os.path.join(uploads_dir, md_filename)
-    with open(md_path, "w", encoding="utf-8") as f:
-        f.write(answer)
-
-    # 2) HTML 파일 생성
-    try:
-        import markdown as md_lib
-        extensions = ["tables", "fenced_code", "codehilite", "toc", "nl2br", "sane_lists"]
-        body_html = md_lib.markdown(answer, extensions=extensions)
-        full_html = (
-            '<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8">'
-            '<meta name="viewport" content="width=device-width,initial-scale=1">'
-            f'<title>{title}</title><style>'
-            'body{font-family:"Pretendard","Noto Sans KR",sans-serif;max-width:900px;margin:2rem auto;padding:0 1.5rem;color:#1a1a2e;line-height:1.7}'
-            'h1,h2,h3{color:#16213e;border-bottom:2px solid #e2e8f0;padding-bottom:.3em}'
-            'table{border-collapse:collapse;width:100%;margin:1em 0}'
-            'th,td{border:1px solid #cbd5e1;padding:.6em 1em;text-align:left}'
-            'th{background:#f1f5f9;font-weight:700}'
-            'code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-size:.9em}'
-            'pre{background:#1e293b;color:#e2e8f0;padding:1em;border-radius:8px;overflow-x:auto}'
-            'pre code{background:none;color:inherit;padding:0}'
-            'blockquote{border-left:4px solid #6366f1;margin:1em 0;padding:.5em 1em;background:#f8fafc}'
-            'a{color:#6366f1}img{max-width:100%;border-radius:8px}'
-            '</style></head><body>'
-            f'{body_html}</body></html>'
-        )
-        html_filename = f"document_{timestamp}.html"
-        html_path = os.path.join(uploads_dir, html_filename)
-        with open(html_path, "w", encoding="utf-8") as f:
-            f.write(full_html)
-        html_url = f"/api/download_static/document.html?id={timestamp}"
-    except Exception:
-        html_url = None
-
-    md_url = f"/api/download_static/document.md?id={timestamp}"
-
-    resp_data["md_download_url"] = md_url
-    if html_url:
-        resp_data["html_download_url"] = html_url
-    resp_data["doc_download_id"] = timestamp
-
-    return resp_data
-
-
-def register_chat_routes(app):
-    """Register chat routes on the Flask app."""
-
-    @app.route("/api/chat/stop", methods=["POST"])
-    def api_chat_stop():
-        """진행 중인 LLM 응답을 중지"""
-        chat_stop_flag["stop"] = True
-        return jsonify({"stopped": True})
-
-
-    @app.route("/api/chat", methods=["POST"])
-    def api_chat():
-        """LLM API 프록시 - 스킬을 시스템 프롬프트에 넣어서 회사 API로 전달"""
-        chat_stop_flag["stop"] = False  # 새 요청 시작 시 플래그 초기화
-        data = request.json
-        # 환경 선택: 배열 또는 문자열 → 배열로 통일
-        raw_env = data.get("env", "auto")
-        if isinstance(raw_env, list):
-            user_envs = [e for e in raw_env if e]
-        elif isinstance(raw_env, str):
-            user_envs = [raw_env] if raw_env else ["auto"]
-        else:
-            user_envs = ["auto"]
-        if not user_envs:
-            user_envs = ["auto"]
-
-        auto_routed = False
-        route_reason = ""
-        multi_model_parallel = False  # 사용자가 모델 2개+ 선택한 수동 병렬
-        selected_model_paths = []     # 수동 병렬 시 선택된 모델 경로들
-
-        # 혼용 금지 체크: GGUF + API 동시 선택
-        has_gguf = any(e.startswith("gguf-") for e in user_envs if e != "auto")
-        has_api = any(not e.startswith("gguf-") for e in user_envs if e != "auto")
-        if has_gguf and has_api:
-            return jsonify({"error": "GGUF와 API를 동시에 선택할 수 없습니다. 같은 타입만 선택해주세요."}), 400
-
-        # AUTO 모드
-        if user_envs == ["auto"]:
-            last_query = ""
-            msgs = data.get("messages", [])
-            if msgs:
-                last_msg = msgs[-1]
-                last_query = last_msg.get("content", "") if isinstance(last_msg.get("content"), str) else ""
-            env_id, route_reason = classify_and_route(last_query, msgs, uploaded_files)
-            auto_routed = True
-        elif len(user_envs) >= 2:
-            # 수동 다중 선택 → 첫 번째를 기본 env로, 병렬은 스킬이 결정
-            env_id = user_envs[0]
-            multi_model_parallel = True
-            # GGUF 다중: 모델 경로 수집
-            if has_gguf:
-                for ue in user_envs:
-                    p = ENV_CONFIG.get(ue, {}).get("_gguf_path")
-                    if p:
-                        selected_model_paths.append((p, ENV_CONFIG[ue].get("_size_gb", 0)))
-            # API 다중: env_id 목록 유지 (user_envs 그대로 사용)
-        elif user_envs[0] in ENV_CONFIG:
-            env_id = user_envs[0]
-        else:
-            env_id = user_envs[0]
-
-        if env_id and env_id in ENV_CONFIG:
-            api_url = ENV_CONFIG[env_id]["url"]
-            model = ENV_CONFIG[env_id]["model"]
-        else:
-            api_url = data.get("api_url", "")
-            model = data.get("model", "")
-        api_key = API_TOKEN or data.get("api_key", "")
-        messages = data.get("messages", [])
-        skill_ids = data.get("skills", [])
-        effort = data.get("effort", 2)
-        output_format = data.get("format", "code")
-        writing_style = data.get("writing_style", "")
-        custom_system_prompt = data.get("system_prompt", "")
-        max_tokens = data.get("max_tokens", TOKEN_SETTINGS["agent_max_tokens"])
-        user_n_ctx = data.get("n_ctx", 0)  # 프론트엔드에서 요청한 n_ctx (0이면 기본값 사용)
-        think_mode = data.get("think_mode", False)
-        requested_output_format = output_format
-        is_gguf = env_id.startswith("gguf-") if env_id else False
-
-        # ── 토큰 자동 결정 (API/GGUF 모두) ──
-        if is_gguf:
-            # GGUF: 고정값 (로컬 GPU 최적화)
-            max_tokens = 4096
-            user_n_ctx = user_n_ctx if user_n_ctx > 0 else 4096
-        else:
-            # API: 모델 크기별 자동 설정
-            _reg_key = ENV_TO_REGISTRY.get(env_id)
-            _cost_tier = MODEL_REGISTRY.get(_reg_key, {}).get("cost_tier", "medium") if _reg_key else "medium"
-            if _cost_tier == "high":      # 대형 모델 (480B)
-                max_tokens = 16384
-            elif _cost_tier == "medium":  # 중형 모델 (GLM-5, Coder-Next)
-                max_tokens = 8192
-            else:                         # 경량 모델 (gpt-oss-20b)
-                max_tokens = 4096
-
-        # 출력형식/스타일 자동 분류 (format=auto 또는 writing_style=auto일 때)
-        auto_format = False
-        auto_style = False
-        auto_fmt_reason = ""
-        if output_format == "auto" or writing_style == "auto":
-            last_q = ""
-            if messages:
-                last_m = messages[-1]
-                last_q = last_m.get("content", "") if isinstance(last_m.get("content"), str) else ""
-            auto_fmt, auto_sty, auto_fmt_reason = classify_format_and_style(
-                last_q, messages, uploaded_files, skill_ids
-            )
-            if output_format == "auto":
-                output_format = auto_fmt
-                auto_format = True
-            if writing_style == "auto":
-                writing_style = auto_sty
-                auto_style = True
-
-        # GGUF 전용: PPT/Draw.io 생성 요청은 code 형식으로 강제 (API 경로 영향 없음)
-        last_user_query = ""
-        if messages:
-            last_m = messages[-1]
-            if isinstance(last_m.get("content"), str):
-                last_user_query = last_m.get("content", "")
-        ql = last_user_query.lower()
-        gguf_artifact_request = is_gguf and any(kw in ql for kw in [
-            "ppt", "피피티", "파워포인트", "프레젠테이션", "슬라이드", "deck",
-            "draw.io", "drawio", "드로우", "다이어그램", "mxfile", "mxgraphmodel",
-        ])
-        if gguf_artifact_request and requested_output_format == "auto" and output_format in ("report", "analysis", "step-by-step"):
-            output_format = "code"
-            auto_format = True
-            auto_fmt_reason = (auto_fmt_reason + " | " if auto_fmt_reason else "") + "GGUF artifact request -> force code"
-
-        if (not api_url or not model) and not env_id.startswith("gguf-"):
-            return jsonify({"error": "API URL과 모델 이름을 설정해주세요."}), 400
-
-        # ── 주간보고 PPT 직접 생성 (LLM 코드 생성 우회) ──
-        _ql_lower = last_user_query.lower()
-        _is_weekly_ppt = ("주간보고" in _ql_lower or "주간 보고" in _ql_lower) and ("ppt" in _ql_lower or "PPT" in last_user_query or "피피티" in _ql_lower)
-        if _is_weekly_ppt and ("weekly-report" in skill_ids or "knowledge-search" in skill_ids):
-            _projects = []
-            _weekly_docs = []
-            try:
-                _chat_user_id = data.get("user_id", None)
-                _kb_results = search_knowledge(last_user_query, max_results=5, max_content_chars=8000, user_id=_chat_user_id)
-                _weekly_docs = [r for r in _kb_results if "주간" in r.get("filename", "").lower() or "보고" in r.get("filename", "").lower()]
-                if _weekly_docs:
-                    # CSV 데이터 파싱 → projects 리스트 생성
-                    _projects = []
-                    for doc in _weekly_docs[:3]:
-                        _content = doc.get("content", "")
-                        _fname = doc.get("filename", "")
-                        # 프로젝트명 추출
-                        _proj_name = "프로젝트"
-                        for line in _content.split("\n"):
-                            line = line.strip()
-                            if line and not line.startswith("---") and not line.startswith("tags") and not line.startswith("date") and not line.startswith("category") and not line.startswith("description") and not line.startswith("owner") and not line.startswith("title") and not line.startswith("updated") and not line.startswith("fab"):
-                                if "주간" in line and "보고" in line:
-                                    _proj_name = line.replace("주간 보고", "").replace("주간보고", "").strip().rstrip("_").strip()
-                                    if "_" in _proj_name:
-                                        _proj_name = _proj_name.split("_")[0].strip()
-                                    if not _proj_name:
-                                        _proj_name = "프로젝트"
-                                    break
-                        # CSV 행 파싱
-                        _current = []
-                        _next = []
-                        _issues = ""
-                        _lines = _content.split("\n")
-                        _data_started = False
-                        for line in _lines:
-                            if "추진 내용" in line and "납기" in line:
-                                _data_started = True
-                                continue
-                            if not _data_started:
-                                continue
-                            if "Issue" in line and "협의" in line:
-                                _issues = ""
-                                continue
-                            parts = line.split(",")
-                            if len(parts) >= 4:
-                                _left_content = parts[0].strip()
-                                _left_date = ""
-                                _left_progress = ""
-                                _right_content = ""
-                                _right_date = ""
-                                _right_progress = ""
-                                # 왼쪽(금주 실적) 파싱
-                                for p in parts[1:4]:
-                                    p = p.strip()
-                                    if "월" in p and "일" in p:
-                                        _left_date = p
-                                    elif "%" in p:
-                                        _left_progress = p
-                                # 오른쪽(차주 계획) 파싱
-                                if len(parts) >= 5:
-                                    _right_content = parts[4].strip() if len(parts) > 4 else ""
-                                    for p in parts[5:]:
-                                        p = p.strip()
-                                        if "월" in p and "일" in p:
-                                            _right_date = p
-                                        elif "%" in p:
-                                            _right_progress = p
-                                if _left_content and _left_content.startswith("▶"):
-                                    _current.append({"content": _left_content, "date": _left_date, "progress": _left_progress})
-                                elif _left_content and _current:
-                                    _current[-1]["content"] += "\n   " + _left_content
-                                if _right_content and _right_content.startswith("▶"):
-                                    _next.append({"content": _right_content, "date": _right_date, "progress": _right_progress})
-                                elif _right_content and _next:
-                                    _next[-1]["content"] += "\n   " + _right_content
-                        if _current or _next:
-                            _projects.append({"name": _proj_name, "current": _current, "next": _next, "issues": _issues})
-
-                    if _projects:
-                        try:
-                            from pptx import Presentation as _Prs
-                            from pptx.util import Inches as _In, Pt as _Pt, Cm as _Cm
-                            from pptx.dml.color import RGBColor as _RGB
-                            from pptx.enum.text import PP_ALIGN as _AL, MSO_ANCHOR as _AN
-                            import datetime as _dt
-
-                            def __sc(tb, r, c, tx, b=False, bg=None, al=_AL.LEFT, sz=10):
-                                cl = tb.cell(r, c); cl.text = ""
-                                p = cl.text_frame.paragraphs[0]; p.text = str(tx)
-                                p.font.size = _Pt(sz); p.font.bold = b; p.font.name = "맑은 고딕"; p.alignment = al
-                                cl.vertical_anchor = _AN.MIDDLE
-                                if bg:
-                                    cl.fill.solid(); cl.fill.fore_color.rgb = bg
-
-                            def __tx(sl, l, t, w, h, tx, sz=10, b=False, al=_AL.LEFT):
-                                bx = sl.shapes.add_textbox(l, t, w, h)
-                                tf = bx.text_frame; tf.word_wrap = True
-                                p = tf.paragraphs[0]; p.text = str(tx)
-                                p.font.size = _Pt(sz); p.font.bold = b; p.font.name = "맑은 고딕"; p.alignment = al
-
-                            _GY = _RGB(0xD9, 0xD9, 0xD9); _LG = _RGB(0xF2, 0xF2, 0xF2)
-                            prs = _Prs(); prs.slide_width = _In(13.33); prs.slide_height = _In(7.5)
-                            for idx, pj in enumerate(_projects):
-                                sl = prs.slides.add_slide(prs.slide_layouts[6])
-                                __tx(sl, _Cm(1), _Cm(0.5), _Cm(20), _Cm(1.2), f"{idx+1}. {pj['name']}", sz=24, b=True)
-                                for i, c in enumerate([_RGB(0xFF,0,0), _RGB(0xFF,0xD7,0), _RGB(0x44,0x72,0xC4)]):
-                                    br = sl.shapes.add_shape(1, _Cm(1+10.5*i), _Cm(2.0), _Cm(10.5), _Cm(0.25))
-                                    br.fill.solid(); br.fill.fore_color.rgb = c; br.line.fill.background()
-                                nc = len(pj.get("current",[])); nn = len(pj.get("next",[])); dr = max(nc,nn,1); tr = 2+dr+1
-                                ts = sl.shapes.add_table(tr, 6, _Cm(1), _Cm(2.5), _Cm(31.5), _Cm(1.2*tr))
-                                tb = ts.table
-                                tb.columns[0].width=_Cm(12); tb.columns[1].width=_Cm(2.5); tb.columns[2].width=_Cm(2.5)
-                                tb.columns[3].width=_Cm(12); tb.columns[4].width=_Cm(2.5); tb.columns[5].width=_Cm(2.5)
-                                tb.cell(0,0).merge(tb.cell(0,2)); tb.cell(0,3).merge(tb.cell(0,5))
-                                __sc(tb, 0, 0, "금주 실적", b=True, bg=_GY, al=_AL.CENTER, sz=12)
-                                __sc(tb, 0, 3, "차주 계획", b=True, bg=_GY, al=_AL.CENTER, sz=12)
-                                for ci, h in enumerate(["추진 내용","납기","진척율","추진 내용","납기","진척율"]):
-                                    __sc(tb, 1, ci, h, b=True, bg=_LG, al=_AL.CENTER)
-                                for ri in range(dr):
-                                    r = ri+2
-                                    if ri<nc:
-                                        it=pj["current"][ri]; __sc(tb,r,0,it.get("content",""),sz=9); __sc(tb,r,1,it.get("date",""),al=_AL.CENTER,sz=9); __sc(tb,r,2,it.get("progress",""),al=_AL.CENTER,sz=9)
-                                    if ri<nn:
-                                        it=pj["next"][ri]; __sc(tb,r,3,it.get("content",""),sz=9); __sc(tb,r,4,it.get("date",""),al=_AL.CENTER,sz=9); __sc(tb,r,5,it.get("progress",""),al=_AL.CENTER,sz=9)
-                                ir=2+dr; tb.cell(ir,0).merge(tb.cell(ir,5))
-                                __sc(tb,ir,0,"Issue 및 협의사항"+(": "+pj["issues"] if pj.get("issues") else ""),b=True,bg=_GY)
-                                __tx(sl,_Cm(1),_Cm(17),_Cm(20),_Cm(0.8),"● : 완료  ○ : 계획  ▶ : 진행중  ※ : Issue/특이사항",sz=9)
-                                __tx(sl,_Cm(15),_Cm(17.5),_Cm(3),_Cm(0.6),str(idx+1),sz=10,al=_AL.CENTER)
-
-                            _ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-                            _udir = os.path.join(BASE_DIR, 'uploads'); os.makedirs(_udir, exist_ok=True)
-                            _spath = os.path.join(_udir, f"weekly_report_{_ts}.pptx")
-                            prs.save(_spath)
-                            _dl_url = f"/api/weekly-report/download?id={_ts}"
-                            _file_list = ", ".join(d.get("filename","") for d in _weekly_docs[:3])
-                            return jsonify({
-                                "content": f"주간보고 PPT를 생성했습니다.\n\n📄 참조 문서: {_file_list}\n📊 프로젝트: {len(_projects)}개\n\n📥 [PPT 다운로드]({_dl_url})",
-                                "loaded_skills": loaded,
-                                "system_prompt_length": 0,
-                                "model_used": "weekly-report-direct",
-                                "weekly_report_download": _dl_url,
-                            })
-                        except ImportError:
-                            pass  # python-pptx 없으면 LLM 경로로 진행
-                        except Exception as _ppt_err:
-                            print(f"  [WEEKLY-REPORT] PPT 생성 실패: {_ppt_err}")
-            except Exception as _wr_err:
-                print(f"  [WEEKLY-REPORT] error: {_wr_err}")
-
-        # ── knowledge-search 스킬: 도메인 지식 검색 후 LLM에게 전달 ──
-        # 수동 선택 시에만 활성화 (자동 트리거 제거)
-        _ql = last_user_query.lower()
-        if "knowledge-search" in skill_ids and last_user_query.strip():
-            try:
-                _chat_user_id = data.get("user_id", None)
-                print(f"  [KNOWLEDGE] user_id={_chat_user_id}, query={last_user_query[:50]}")
-                kb_results = search_knowledge(last_user_query, max_results=3, max_content_chars=4000, user_id=_chat_user_id)
-                if kb_results:
-                    # 검색된 문서 내용을 시스템 프롬프트에 주입하여 LLM이 답변하도록
-                    kb_context = "\n\n=== 도메인 지식 검색 결과 ===\n"
-                    kb_context += f"검색어: {last_user_query}\n\n"
-                    total_chars = 0
-                    for r in kb_results:
-                        chunk = _sanitize_knowledge_content(r['content'][:4000])
-                        if total_chars + len(chunk) > 12000:
-                            chunk = chunk[:max(0, 12000 - total_chars)]
-                            if not chunk:
-                                break
-                        kb_context += f"--- 📄 {r['filename']} (관련도: {r['score']}) ---\n"
-                        kb_context += chunk + "\n\n"
-                        total_chars += len(chunk)
-                    # 검색 vs 내용 요청 구분
-                    _is_search_only = any(kw in _ql for kw in ["검색해", "검색 해", "찾아봐", "찾아 봐", "뭐있", "뭐 있", "목록", "리스트", "파일명", "문서 목록"])
-                    _is_content_request = any(kw in _ql for kw in ["내용", "관련", "알려", "설명", "분석", "요약", "만들어"])
-                    if _is_search_only and not _is_content_request:
-                        kb_context += (
-                            "사용자가 '검색'을 요청했습니다. 파일명 목록과 관련도 점수만 간단히 보여주세요.\n"
-                            "문서 내용을 분석하거나 요약하지 마세요. 파일명 리스트만 출력하세요.\n"
-                            "형식 예시:\n"
-                            "1. 📄 파일명.md (관련도: 75)\n"
-                            "2. 📄 파일명.md (관련도: 73)\n"
-                        )
-                    else:
-                        kb_context += (
-                            "위 문서를 기반으로 사용자 질문에 답변하세요. 문서에 없는 내용을 지어내지 마세요. 어떤 문서에서 정보를 찾았는지 출처를 명시하세요.\n"
-                            "중요: 프로토콜 메시지, raw 데이터, hex/binary는 절대 그대로 복사하지 마세요. 반드시 표(table) 또는 필드별 설명으로 변환하세요.\n"
-                        )
-
-                    # messages에 검색 결과를 system 메시지로 추가
-                    kb_system_msg = {"role": "system", "content": kb_context}
-                    messages = [kb_system_msg] + messages
-
-                    # 검색된 파일 목록을 응답에 포함하기 위해 저장
-                    _kb_files = [r['filename'] for r in kb_results]
-            except Exception as e:
-                print(f"[Knowledge Search] 검색 오류: {e}")
-
-        # ── logpresso-search 스킬: 테이블 목록 요청 감지 ──
-        _lpq_table_list_kw = ["테이블 목록", "어떤 테이블", "테이블 뭐", "테이블 리스트", "테이블 종류",
-                              "테이블 있", "테이블 알려", "테이블 보여", "테이블 전부", "테이블 전체"]
-        if "logpresso-search" in skill_ids and any(kw in last_user_query for kw in _lpq_table_list_kw):
-            # 사용자 질문에서 카테고리 키워드 감지하여 필터링
-            _q_lower = last_user_query.lower()
-            _matched_groups = []
-            for grp in LOGPRESSO_TABLE_GROUPS:
-                # 그룹 라벨 키워드 매칭 (예: "ATLAS", "OHT", "TS", "시스템" 등)
-                _grp_keywords = [grp["id"], grp["label"].split(" ")[-1].lower()]
-                _grp_keywords += [p.rstrip("_").lower() for p in grp["prefix"]]
-                if any(kw in _q_lower for kw in _grp_keywords):
-                    _matched_groups.append(grp["id"])
-
-            # FAB 필터 감지 (M14, M16, M14A, M16B 등)
-            _matched_fabs = []
-            for fab in LOGPRESSO_FAB_FILTERS:
-                if fab["id"] in _q_lower or fab["label"].lower() in _q_lower:
-                    _matched_fabs.append(fab["id"])
-
-            _filtered = _filter_tables_by_groups(_matched_groups, _matched_fabs)
-            _filter_label = ""
-            _labels = []
-            if _matched_groups:
-                _labels += [g["label"] for g in LOGPRESSO_TABLE_GROUPS if g["id"] in _matched_groups]
-            if _matched_fabs:
-                _labels += [f["label"] for f in LOGPRESSO_FAB_FILTERS if f["id"] in _matched_fabs]
-            if _labels:
-                _filter_label = f" [{', '.join(_labels)}]"
-
-            _content = f"**로그프레소 테이블 목록{_filter_label}**\n\n"
-            if _matched_groups or _matched_fabs:
-                _content += f"🔍 필터 적용: 카테고리={_matched_groups or '없음'}, FAB={_matched_fabs or '없음'} → **{len(_filtered)}개** 매칭\n\n"
-            _content += f"총 **{len(LOGPRESSO_TABLES)}개** 중 **{len(_filtered)}개** 표시\n\n"
-
-            # 카테고리별로 그룹화하여 표시
-            _grouped = {}
-            for tname in sorted(_filtered.keys()):
-                gid = _get_table_group(tname)
-                if gid not in _grouped:
-                    _grouped[gid] = []
-                _grouped[gid].append(tname)
-
-            # 그룹 순서 유지
-            _grp_order = [g["id"] for g in LOGPRESSO_TABLE_GROUPS] + ["etc"]
-            _grp_labels_map = {g["id"]: g["label"] for g in LOGPRESSO_TABLE_GROUPS}
-            _grp_labels_map["etc"] = "📁 기타"
-
-            _idx = 0
-            for gid in _grp_order:
-                if gid not in _grouped:
-                    continue
-                _content += f"\n### {_grp_labels_map[gid]} ({len(_grouped[gid])}개)\n\n"
-                _content += "| # | 테이블명 | 설명 | 필드(컬럼) |\n"
-                _content += "|---|----------|------|----------|\n"
-                for tname in _grouped[gid]:
-                    _idx += 1
-                    tinfo = LOGPRESSO_TABLES[tname]
-                    cols = tinfo["columns"]
-                    if not cols:
-                        cols = _fetch_table_fields(tname, timeout=3)
-                        if cols:
-                            tinfo["columns"] = cols
-                    cols_str = ", ".join(cols[:8]) if cols else "(서버 미접속)"
-                    if len(cols) > 8:
-                        cols_str += f" 외 {len(cols)-8}개"
-                    _content += f"| {_idx} | `{tname}` | {tinfo['desc']} | {cols_str} |\n"
-
-            _content += f"\n> **카테고리 필터**: `ATLAS 테이블 목록`, `OHT 테이블 목록`, `TS 테이블 보여줘`, `시스템 테이블 목록`\n"
-            _content += f"> **FAB 필터**: `M14 테이블 목록`, `M14A 테이블 보여줘`, `M16B 테이블 목록`\n"
-            _content += f"> **조합 가능**: `M14A TS 테이블 목록` (Transfer + M14A만)\n"
-            _content += f"> 카테고리: {' / '.join(g['label'] for g in LOGPRESSO_TABLE_GROUPS)}"
-            return jsonify({
-                "content": _content,
-                "model_used": "Logpresso Tables",
-                "loaded_skills": ["logpresso-search"],
-                "system_prompt_length": 0,
-            })
-
-        # ── logpresso-search 스킬: 실제 서버 조회 실행 ──
-        # "쿼리 만들어줘" 등 쿼리 생성 요청이면 서버 실행 안 하고 LLM에게 넘김
-        _lpq_query_gen_kw = ["쿼리 만들", "쿼리 짜", "쿼리 작성", "쿼리 생성", "LPQL 만들", "LPQL 짜", "LPQL 작성"]
-        _lpq_is_query_gen = any(kw in last_user_query for kw in _lpq_query_gen_kw)
-        if "logpresso-search" in skill_ids and last_user_query.strip() and not _lpq_is_query_gen:
-            try:
-                import pandas as pd
-                from datetime import datetime as _dt
-
-                _lpq_user_q = last_user_query.strip()
-
-                # LLM으로 LPQL 생성
-                llm_response = _llm_generate_lpql(_lpq_user_q, [
-                    {"role": m.get("role", "user"), "content": m.get("content", "")}
-                    for m in messages[-6:] if isinstance(m.get("content"), str)
-                ])
-                lpql = extract_lpql_from_response(llm_response) if llm_response else None
-
-                if not lpql:
-                    # LLM 실패 → 사용자 질문에서 테이블명 추출하여 기본 쿼리 생성
-                    _found_table = None
-                    _q_lower = _lpq_user_q.lower()
-                    # LOGPRESSO_TABLES에서 매칭 시도
-                    for tname in LOGPRESSO_TABLES:
-                        if tname.lower() in _q_lower:
-                            _found_table = tname
-                            break
-                    # 못 찾으면 질문에서 테이블명 후보 추출 (영문+숫자+언더스코어 패턴)
-                    if not _found_table:
-                        _table_candidates = re.findall(r'[a-zA-Z][a-zA-Z0-9_]{3,}', _lpq_user_q)
-                        if _table_candidates:
-                            _found_table = _table_candidates[0]
-
-                    if _found_table:
-                        _today_str = _dt.now().strftime("%Y%m%d")
-                        lpql = f"table from={_today_str}000000 to={_today_str}235959 {_found_table} | limit 5"
-                        # lpql이 생겼으니 아래 실행 로직으로 계속 진행
-                    else:
-                        _content = "**LPQL 쿼리 생성 실패**\n\n"
-                        _content += "테이블명을 인식할 수 없습니다. 테이블명을 정확히 입력해주세요.\n"
-                        if llm_response:
-                            _content += f"\nLLM 응답:\n```\n{llm_response[:500]}\n```"
-                        return jsonify({
-                            "content": _content,
-                            "model_used": "Logpresso Search",
-                            "loaded_skills": ["logpresso-search"],
-                            "auto_routed": auto_routed,
-                            "route_reason": "logpresso-search",
-                            "system_prompt_length": 0,
-                        })
-
-                # 시간 범위 없으면 오늘 하루 기본 적용
-                if not re.search(r'(duration|from|to)\s*=', lpql, re.IGNORECASE):
-                    _today = _dt.now().strftime("%Y%m%d")
-                    lpql = re.sub(r'^(table|fulltext)\s+', rf'\1 from={_today}000000 to={_today}235959 ', lpql, flags=re.IGNORECASE)
-
-                # limit 강제 5건
-                lpql_lower = lpql.lower()
-                if "| limit" in lpql_lower or "| head" in lpql_lower:
-                    lpql = re.sub(r'\|\s*(limit|head)\s+\d+(\s+\d+)?', '| limit 5', lpql, flags=re.IGNORECASE)
-                else:
-                    lpql = lpql.rstrip() + " | limit 5"
-
-                # 보안 검증
-                sec_error = validate_lpql_readonly(lpql)
-                if sec_error:
-                    return jsonify({
-                        "content": f"**보안 차단**: {sec_error}\n\n**생성된 쿼리:**\n```lpql\n{lpql}\n```",
-                        "model_used": "Logpresso Search",
-                        "loaded_skills": ["logpresso-search"],
-                        "auto_routed": auto_routed,
-                        "route_reason": "logpresso-search-blocked",
-                        "system_prompt_length": 0,
-                    })
-
-                # 실제 로그프레소 서버에 쿼리 실행
-                print(f"[Logpresso Search] 최종 실행 쿼리: {lpql}")
-                df, err_detail = query_logpresso(lpql, timeout=180)
-
-                if df is None:
-                    # 실패 → 에러 상세 + 쿼리 표시
-                    err_reason = err_detail.get("reason", "알 수 없는 오류") if err_detail else "알 수 없는 오류"
-                    resp_preview = err_detail.get("response_preview", "") if err_detail else ""
-                    _content = f"**로그프레소 조회 실패**\n\n"
-                    _content += f"**에러:** {err_reason}\n\n"
-                    _content += f"**실행한 쿼리:**\n```lpql\n{lpql}\n```\n"
-                    if resp_preview:
-                        _content += f"\n**서버 응답:**\n```\n{resp_preview[:300]}\n```\n"
-                    _content += f"\n**원인 추정:** "
-                    if "타임아웃" in err_reason or "연결" in err_reason:
-                        _content += "로그프레소 서버(`10.40.42.27:8888`)에 연결할 수 없습니다. 서버 상태 또는 네트워크를 확인하세요."
-                    elif "HTML" in err_reason:
-                        _content += "서버가 에러 페이지를 반환했습니다. 테이블명이나 쿼리 문법을 확인하세요."
-                    elif "빈 응답" in err_reason:
-                        _content += "서버가 빈 응답을 반환했습니다. 테이블명이 올바른지 확인하세요."
-                    else:
-                        _content += "서버 연결 또는 쿼리 오류입니다."
-
-                    return jsonify({
-                        "content": _content,
-                        "model_used": "Logpresso Search",
-                        "loaded_skills": ["logpresso-search"],
-                        "auto_routed": auto_routed,
-                        "route_reason": "logpresso-search-failed",
-                        "system_prompt_length": 0,
-                    })
-
-                # 성공 → 결과 + 쿼리 + 테이블 필드 정보 표시
-                total = len(df)
-                cols = list(df.columns)
-
-                # 쿼리에서 테이블명 추출 → 해당 테이블의 전체 필드 정보 표시
-                _queried_table = None
-                _table_match = re.search(r'(?:table|fulltext)\s+(?:\S+=\S+\s+)*(\S+)', lpql, re.IGNORECASE)
-                if _table_match:
-                    _queried_table = _table_match.group(1).strip()
-
-                _content = f"**로그프레소 조회 완료** (총 {total}건, 미리보기 {min(5, total)}건)\n\n"
-                _content += f"**실행한 쿼리:**\n```lpql\n{lpql}\n```\n\n"
-
-                # 테이블 필드 정보
-                if _queried_table:
-                    _all_fields = cols  # 실제 조회 결과의 컬럼이 가장 정확
-                    # LOGPRESSO_TABLES 캐시 업데이트
-                    if _queried_table in LOGPRESSO_TABLES:
-                        if not LOGPRESSO_TABLES[_queried_table]["columns"] and _all_fields:
-                            LOGPRESSO_TABLES[_queried_table]["columns"] = _all_fields
-                        elif LOGPRESSO_TABLES[_queried_table]["columns"]:
-                            _all_fields = LOGPRESSO_TABLES[_queried_table]["columns"]
-                    _content += f"**테이블 `{_queried_table}` 필드** ({len(_all_fields)}개): `{'`, `'.join(_all_fields)}`\n\n"
-                else:
-                    _content += f"**결과 컬럼:** {', '.join(cols)}\n\n"
-
-                # 테이블 형태로 결과 표시
-                if total > 0:
-                    display_cols = cols[:10]  # 컬럼 10개까지만 표시
-                    _content += "| " + " | ".join(display_cols) + " |\n"
-                    _content += "|" + "|".join(["---"] * len(display_cols)) + "|\n"
-                    for _, row in df.head(5).iterrows():
-                        _content += "| " + " | ".join(str(row.get(c, ""))[:50] for c in display_cols) + " |\n"
-                    if len(cols) > 10:
-                        _content += f"\n_(컬럼 {len(cols)}개 중 10개만 표시)_\n"
-                else:
-                    _content += "결과 0건 (데이터가 없습니다. 기간을 늘려보세요.)\n"
-
-                return jsonify({
-                    "content": _content,
-                    "model_used": "Logpresso Search",
-                    "loaded_skills": ["logpresso-search"],
-                    "auto_routed": auto_routed,
-                    "route_reason": "logpresso-search-ok",
-                    "system_prompt_length": 0,
-                })
-
-            except Exception as e:
-                import traceback
-                traceback.print_exc()
-                # 예외 발생 → 에러 표시 후 일반 LLM으로 폴백하지 않음
-                return jsonify({
-                    "content": f"**로그프레소 조회 중 오류 발생**\n\n`{type(e).__name__}: {e}`",
-                    "model_used": "Logpresso Search",
-                    "loaded_skills": ["logpresso-search"],
-                    "auto_routed": auto_routed,
-                    "route_reason": "logpresso-search-exception",
-                    "system_prompt_length": 0,
-                })
-
-        # 시스템 프롬프트 구성
-        # 출력 형식에 따라 기본 규칙 분기
-        non_code_formats = ("report", "analysis", "step-by-step")
-        if output_format in non_code_formats:
-            code_rules = """- 사용자가 코드를 명시적으로 요청한 경우에만 코드를 포함하세요
-    - 기본적으로 자연어(글)로 설명, 분석, 보고하세요"""
-        else:
-            code_rules = """- 코드는 즉시 실행 가능하게 (import 포함, 필요 패키지 명시)
-    - 에러 처리(try/except)를 포함하세요
-    - 코드 주석은 반드시 ## 형식으로 작성하세요. 단일 #이 아니라 ##을 사용하고, 구간 설명용으로만 간결하게 작성하세요. 줄마다 주석을 달지 마세요. 예: ## 데이터 전처리, ## API 호출"""
-
-        # 사고 모드 on/off
-        if think_mode:
-            think_rule = "- 답변 전에 반드시 <think>...</think> 태그 안에서 충분히 사고한 후 답변하세요. 사고 내용도 반드시 한국어로 작성하세요."
-        else:
-            think_rule = "- <think> 태그를 사용하지 마세요. 사고 과정 없이 바로 답변하세요."
-
-        default_prompt = f"""당신은 Demos V1.0 - 과학 연구와 소프트웨어 개발을 돕는 전문 AI 어시스턴트입니다.
-    370개+ 전문 스킬(과학/개발/AI/인프라/비즈니스)을 활용할 수 있습니다.
-
-    [기본 규칙]
-    - 반드시 한국어(한글)로 답변하세요. 코드 주석도 한글로 작성하세요.
-    {think_rule}
-    {code_rules}
-
-    [응답 완결성]
-    - 코드 블록(```)은 반드시 열고 닫아야 합니다. 코드 중간에서 끊지 마세요.
-    - 문장은 반드시 완성된 형태로 끝내세요. 중간에 끊기지 않도록 하세요.
-    - 응답이 길어질 것 같으면, 핵심부터 먼저 완성하고 부가 설명을 뒤에 붙이세요.
-    - 토큰 한도에 가까워지면 현재 문단/코드 블록을 마무리한 후 "계속 이어서 작성해줘라고 입력하세요"로 안내하세요.
-
-    [스킬 활용]
-    - 아래에 로드된 SKILL 내용은 당신의 전문 지식입니다
-    - 해당 스킬의 방법론, 코드 패턴, API, 도구를 적극 활용하세요
-    - 여러 스킬이 로드된 경우 관련된 것끼리 조합하여 최적의 답변을 생성하세요
-
-    """
-
-        if custom_system_prompt:
-            system_prompt = custom_system_prompt + "\n\n" + default_prompt
-        else:
-            system_prompt = default_prompt
-
-        # ── "이어서 작성" 감지: 이전 응답 마지막 부분을 겹쳐서 이어쓰기 ──
-        _continue_kw = ["이어서", "계속 작성", "계속 이어서", "이어 작성", "이어서 써", "이어서 보기", "계속해", "계속 써"]
-        if last_user_query and any(kw in last_user_query for kw in _continue_kw):
-            # 히스토리에서 마지막 assistant 응답 찾기
-            _last_assistant = ""
-            for m in reversed(messages[:-1]):  # 현재 "이어서" 메시지 제외
-                if m.get("role") == "assistant":
-                    _last_assistant = m.get("content", "") or ""
-                    break
-            if _last_assistant and len(_last_assistant) > 100:
-                # 마지막 300자를 겹쳐서 이어쓰기 지시
-                _overlap = _last_assistant[-300:]
-                system_prompt += (
-                    f"\n\n[이어서 작성 모드]\n"
-                    f"이전 응답이 중간에 잘렸습니다. 아래는 이전 응답의 마지막 부분입니다:\n"
-                    f"---\n{_overlap}\n---\n"
-                    f"위 내용의 마지막 2~3문장을 포함하여 자연스럽게 이어서 작성하세요.\n"
-                    f"절대 처음부터 다시 쓰지 마세요. 겹치는 부분부터 이어서 쓰세요."
-                )
-
-        # ===== 토큰 예산 관리 =====
-        # API 대형 모델 → 제한 거의 없음 (128K+ 컨텍스트)
-        # GGUF 로컬 → 32K 컨텍스트이므로 스마트하게 제한
-        is_gguf = env_id.startswith("gguf-") if env_id else False
-        history_chars = sum(len(m.get("content", "")) for m in messages)
-
-        if is_gguf:
-            gguf_ctx = 32768
-            # GGUF: 토큰 ≈ 글자수 * 0.7 (한글 기준), 시스템+히스토리+응답 여유
-            available_chars = int(gguf_ctx / 0.7) - len(system_prompt) - history_chars - 3000
-            available_chars = max(available_chars, 3000)
-        else:
-            available_chars = 999999  # API는 사실상 무제한
-
-        # 스킬 로드
-        loaded = []
-        available = scan_skills()
-        total_skill_chars = 0
-        num_skills = max(len(skill_ids), 1)
-        per_skill_limit = available_chars // num_skills if is_gguf else 999999
-
-        for sid in skill_ids:
-            content = load_skill_content(sid)
-            if content:
-                # GGUF만 자르기, API는 전체 로드
-                if is_gguf and total_skill_chars + len(content) > available_chars:
-                    remaining = available_chars - total_skill_chars
-                    if remaining > 500:
-                        content = content[:remaining] + f"\n... ({len(content)}자 중 {remaining}자 로드)\n"
-                    else:
-                        system_prompt += f"[⚠️ GGUF 컨텍스트 한도 → 스킬 생략: {', '.join(skill_ids[len(loaded):])}]\n"
-                        break
-
-                if is_gguf and len(content) > per_skill_limit:
-                    content = content[:per_skill_limit] + f"\n... ({len(content)}자 중 {per_skill_limit}자 로드)\n"
-
-                system_prompt += f"=== SKILL: {sid} ===\n{content}\n\n"
-                total_skill_chars += len(content)
-                loaded.append(sid)
-
-                # scripts/references 목록 (짧으니 항상 포함)
-                info = available.get(sid, {})
-                scripts = info.get("scripts", [])
-                if scripts:
-                    system_prompt += f"[{sid} 스크립트: {', '.join(s['name'] for s in scripts)}]\n"
-                refs = info.get("references", [])
-                if refs:
-                    system_prompt += f"[{sid} 참고: {', '.join(r['name'] for r in refs)}]\n"
-                system_prompt += "\n"
-
-        if loaded:
-            system_prompt += f"[로드된 스킬: {', '.join(loaded)}]\n\n"
-            # 하네스 피드백 힌트: 이전 피드백 기반 주의사항 자동 삽입
-            if HARNESS_AVAILABLE:
-                try:
-                    from harness_bridge import _feedback_store
-                    if _feedback_store:
-                        _fb_hint = _feedback_store.build_prompt_hint(loaded)
-                        if _fb_hint:
-                            system_prompt += _fb_hint
-                except Exception:
-                    pass
-            if "agent-llm-architect" in loaded:
-                system_prompt += (
-                    "=== LLM 시스템 설계 규칙 ===\n"
-                    "사용자가 LLM/에이전트/RAG 설계를 요청하면 다음 순서로 답변하세요:\n"
-                    "1. 먼저 요구사항과 제약을 분석하세요(트래픽, 지연시간, 예산, 보안, 데이터 민감도).\n"
-                    "2. 아키텍처 옵션 2~3개를 비교하고 트레이드오프를 명확히 제시하세요.\n"
-                    "3. 최종 추천안을 제시하고, 선택 근거를 성능/비용/운영성 관점으로 설명하세요.\n"
-                    "4. 구현 단계를 POC→파일럿→프로덕션으로 나눠 체크리스트 형태로 제시하세요.\n"
-                    "5. 필수 운영 지표(SLO, 토큰비용, 오류율, 환각률, 안전성)를 포함하세요.\n\n"
-                )
-            # pptx 스킬이 로드됐으면 python-pptx 코드 생성 지시 추가
-            ppt_requested = 'ql' in locals() and any(kw in ql for kw in ["ppt", "피피티", "파워포인트", "프레젠테이션", "슬라이드", "deck"])
-            if "pptx" in loaded or ppt_requested:
-                system_prompt += (
-                    "=== PPT 생성 규칙 ===\n"
-                    "사용자가 PPT/프레젠테이션/슬라이드 생성을 요청하면:\n"
-                    "1. 반드시 ```python 코드블록 안에 python-pptx 코드를 작성하세요.\n"
-                    "2. 코드는 `from pptx import Presentation`으로 시작하세요.\n"
-                    "3. 대화 내용, 분석 결과, 업로드 파일 내용을 PPT에 반영하세요.\n"
-                    "4. 각 슬라이드에 제목, 내용, 표, 차트 등을 포함하세요.\n"
-                    "5. 마지막에 `prs.save('presentation.pptx')` 호출을 포함하세요.\n"
-                    "6. 디자인 가이드: 볼드 색상 팔레트, 다양한 레이아웃, 데이터 시각화 활용.\n"
-                    "7. 중요: 좌표/크기 값은 반드시 정수(int)로 전달하세요. "
-                    "Inches(), Cm(), Pt(), Emu() 결과를 직접 사용하면 됩니다. "
-                    "나눗셈(/) 등으로 float이 생기면 반드시 int()로 감싸세요.\n"
-                    "8. 중요: tf.vertical_anchor에는 PP_ALIGN이 아니라 MSO_ANCHOR를 사용하세요. "
-                    "예: `from pptx.enum.text import MSO_ANCHOR` 후 `tf.vertical_anchor = MSO_ANCHOR.MIDDLE`. "
-                    "PP_ALIGN.CENTER를 vertical_anchor에 쓰면 에러가 납니다.\n"
-                    "9. 중요: 문자열 안에 한국어 특수 따옴표(\u201c \u201d \u2018 \u2019 \u300c \u300d)를 절대 사용하지 마세요. "
-                    "반드시 일반 ASCII 따옴표(\" ' )만 사용하세요. "
-                    "인용문이 필요하면 작은따옴표(')로 감싸세요. 예: p.text = '기술은 훌륭하지만, 보안에 구멍이 많다.'\n"
-                    "10. 코드 주석은 반드시 `## 설명내용` 형식으로 작성하세요. "
-                    "단일 #이 아니라 ##을 사용하고, 구간 설명용으로만 간결하게 작성하세요. "
-                    "예: `## 슬라이드 1: 표지`, `## 차트 데이터 설정`. 줄마다 주석을 달지 마세요.\n"
-                    "11. 중요: 괄호 매칭에 극도로 주의하세요! "
-                    "[인덱스]는 반드시 ]로 닫고, (함수호출)은 반드시 )로 닫으세요. "
-                    "예: prs.slide_layouts[6] (O) / prs.slide_layouts[6) (X — SyntaxError). "
-                    "코드 작성 후 모든 괄호 쌍([]/()/{})이 올바르게 매칭되는지 반드시 검증하세요.\n"
-                    "12. 중요: 색상은 반드시 `from pptx.dml.color import RGBColor`를 사용하세요! "
-                    "RgbColor(X), rgbColor(X) 등은 존재하지 않습니다. 반드시 RGBColor (대문자 RGB)만 사용하세요. "
-                    "예: `from pptx.dml.color import RGBColor` → `fill.fore_color.rgb = RGBColor(0x1A, 0x73, 0xE8)` "
-                    "또는 `run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)`. "
-                    "절대 `from pptx.dml.color import RgbColor`를 쓰지 마세요 — ImportError가 발생합니다.\n"
-                    "13. 중요: 대화에서 데이터/수치/통계가 있으면 반드시 python-pptx 차트로 시각화하세요! "
-                    "텍스트만 나열하지 말고, 차트 슬라이드를 추가하세요.\n"
-                    "14. 중요: 차트/도형/표를 추가할 때 반드시 `slide.shapes.add_chart(...)`, `slide.shapes.add_table(...)` 등 "
-                    "slide 객체의 shapes를 사용하세요! placeholder나 content 변수에는 .shapes 속성이 없습니다. "
-                    "예: `content = slide.placeholders[1]`한 뒤 `content.shapes.add_chart(...)` (X — AttributeError). "
-                    "반드시 `slide.shapes.add_chart(...)` (O)로 작성하세요.\n"
-                    "15. 중요: 표(table) 생성 시 add_table(rows, cols, ...)의 rows 수를 데이터 행 수 + 헤더 행에 정확히 맞추세요! "
-                    "데이터가 N개이면 add_table(N+1, cols, ...)로 헤더 포함 N+1행을 만드세요. "
-                    "행 수가 부족하면 table.cell(i, j)에서 IndexError가 발생합니다. "
-                    "예: 데이터 5개 → add_table(6, 3, ...) (헤더 1행 + 데이터 5행 = 6행).\n"
-                    "16. 중요: 문자열 리터럴은 반드시 같은 줄에서 열고 닫으세요! "
-                    "줄바꿈이 필요하면 삼중따옴표(triple quotes)를 사용하세요. "
-                    "예: p.text = '긴 텍스트' (O) / p.text = '긴 텍스트 (X — SyntaxError: unterminated string literal).\n"
-                    "17. 중요 (필수): 파이썬 문법에 맞게 들여쓰기(Indentation)와 줄바꿈을 철저히 지키고 한 줄에 여러 명령어(`slide = ... title = ...`)를 이어서 쓰지 마세요. SyntaxError가 발생합니다.\n"
-                    "18. 중요 (필수): 반드시 단 1개의 완성된 파이썬 스크립트만 ```python 과 ``` 사이에 출력하세요. 코드 앞뒤로 인사말, <think> 태그, 요약 설명 등 부가적인 텍스트를 절대 쓰지 마세요. 오직 파이썬 코드만 출력해야 작동합니다.\n"
-                    "python-pptx 차트 코드 예시:\n"
-                    "```python\n"
-                    "from pptx.chart.data import CategoryChartData\n"
-                    "from pptx.enum.chart import XL_CHART_TYPE\n"
-                    "from pptx.util import Inches\n"
-                    "\n"
-                    "## 차트 데이터 설정\n"
-                    "chart_data = CategoryChartData()\n"
-                    "chart_data.categories = ['1분기', '2분기', '3분기', '4분기']\n"
-                    "chart_data.add_series('매출', (120, 190, 300, 250))\n"
-                    "chart_data.add_series('비용', (80, 100, 150, 130))\n"
-                    "\n"
-                    "## 차트 슬라이드 추가\n"
-                    "slide = prs.slides.add_slide(prs.slide_layouts[6])\n"
-                    "chart_frame = slide.shapes.add_chart(\n"
-                    "    XL_CHART_TYPE.COLUMN_CLUSTERED,\n"
-                    "    Inches(1), Inches(1.5), Inches(8), Inches(5),\n"
-                    "    chart_data\n"
-                    ")\n"
-                    "chart = chart_frame.chart\n"
-                    "chart.has_legend = True\n"
-                    "chart.legend.include_in_layout = False\n"
-                    "```\n"
-                    "지원 차트: XL_CHART_TYPE.COLUMN_CLUSTERED(세로막대), LINE(꺾은선), PIE(원형), "
-                    "BAR_CLUSTERED(가로막대), DOUGHNUT(도넛), AREA(영역), RADAR(방사형), "
-                    "XY_SCATTER(산점도), LINE_MARKERS(꺾은선+마커)\n"
-                    "여러 시리즈 비교: chart_data.add_series()를 여러 번 호출\n"
-                    "원형 차트: CategoryChartData에 시리즈 1개만 추가, XL_CHART_TYPE.PIE 사용\n"
-                    "프론트엔드가 코드를 감지하여 '📽️ PPT 생성 & 다운로드' 버튼을 자동 표시합니다.\n\n"
-                )
-                # PPT 디자인 스타일 주입 (참고PPT 우선, 없으면 프리셋)
-                ppt_ref_design = data.get("ppt_ref_design", "")
-                ppt_style = data.get("ppt_style", "")
-                if ppt_ref_design:
-                    system_prompt += (
-                        "=== 참고 PPT 디자인 (반드시 이 스타일을 따르세요) ===\n"
-                        f"{ppt_ref_design}\n\n"
-                    )
-                elif ppt_style:
-                    system_prompt += (
-                        "=== PPT 디자인 스타일 ===\n"
-                        f"{ppt_style}\n"
-                        "이 디자인 가이드를 반드시 따라 모든 슬라이드를 제작하세요.\n\n"
-                    )
-
-            # MD/HTML 문서 변환 감지
-            md_html_requested = 'ql' in locals() and any(kw in ql for kw in [
-                "html로", "html 로", "html변환", "html 변환", "html로 만들", "html 다운",
-                "md로", "md 로", "md변환", "md 변환", "md 다운", "마크다운으로", "마크다운 다운",
-                "문서로 저장", "문서로 만들", "보고서 다운", "보고서로 저장",
-            ])
-            if "md-to-html" in loaded or md_html_requested:
-                system_prompt += (
-                    "=== MD/HTML 문서 생성 규칙 ===\n"
-                    "사용자가 MD, HTML, 문서 저장/다운로드를 요청하면:\n"
-                    "1. 보고서 내용을 잘 구조화된 Markdown 형식으로 작성하세요.\n"
-                    "2. 제목(#), 소제목(##), 표(|---|), 목록(- ), 코드블록(```) 등 Markdown 문법을 적극 활용하세요.\n"
-                    "3. 시스템이 자동으로 MD 파일과 HTML 파일을 생성하여 다운로드 링크를 제공합니다.\n"
-                    "4. 별도의 코드 작성은 불필요합니다. 보고서 내용에만 집중하세요.\n"
-                    "5. 중요: 보고서 제목에 '(HTML 형식)', '(MD 형식)' 등 파일 형식을 언급하지 마세요. 순수한 보고서 제목만 작성하세요.\n\n"
-                )
-
-            drawio_requested = 'ql' in locals() and any(kw in ql for kw in ["drawio", "draw.io", "드로우", "드로잉", "drawingio", "다이어그램", "구조도", "흐름도", "아키텍처", "배치도", "dfd"])
-            if "drawio-diagram" in loaded or drawio_requested:
-                system_prompt += (
-                    "=== Draw.io 다이어그램 생성 규칙 ===\n"
-                    "사용자가 Draw.io, 다이어그램, 아키텍처, 구조도 생성을 요청하면:\n"
-                    "1. 반드시 ```drawio 코드블록 안에 완전한 XML 코드를 작성하세요.\n"
-                    "2. XML 구조 예시: ```drawio\n<mxfile><diagram><mxGraphModel><root><mxCell id=\"0\"/><mxCell id=\"1\" parent=\"0\"/>...</root></mxGraphModel></diagram></mxfile>\n```\n"
-                    "3. 중요 (GGUF 필수): 다이어그램에 대한 부가적인 설명, 설치 가이드, 인사말, <think> 태그 등은 **절대 출력하지 마세요**.\n"
-                    "4. 오직 단 1개의 완성된 XML 코드 블록만 출력해야 프론트엔드가 다이어그램 렌더러를 띄웁니다.\n"
-                    "5. 노드의 위치(x, y), 크기(width, height) 속성을 적절히 지정해 겹치지 않게 하세요.\n\n"
-                )
-            # === 차트/그래프 생성 가이드 (항상 포함 - 스킬 불필요) ===
-            system_prompt += (
-                "=== 차트/그래프 생성 규칙 ===\n"
-                "사용자가 그래프, 차트, 시각화를 요청하거나 데이터 분석 결과를 보여줄 때:\n"
-                "1. ```chart 코드블록 안에 Chart.js JSON config를 작성하세요.\n"
-                "2. 프론트엔드가 자동으로 인터랙티브 차트를 렌더링합니다.\n"
-                "3. 지원 차트 유형: bar, line, pie, doughnut, radar, scatter, bubble, polarArea\n"
-                "4. JSON 형식 예시:\n"
-                "```chart\n"
-                '{\n'
-                '  "type": "bar",\n'
-                '  "data": {\n'
-                '    "labels": ["1월", "2월", "3월"],\n'
-                '    "datasets": [{\n'
-                '      "label": "매출",\n'
-                '      "data": [120, 190, 300],\n'
-                '      "backgroundColor": ["#6366f1", "#8b5cf6", "#a78bfa"]\n'
-                '    }]\n'
-                '  },\n'
-                '  "options": {\n'
-                '    "plugins": {"title": {"display": true, "text": "월별 매출"}}\n'
-                '  }\n'
-                '}\n'
-                "```\n"
-                "5. 여러 데이터셋 비교: datasets 배열에 여러 객체 추가\n"
-                "6. 색상: backgroundColor, borderColor 사용. 배열로 항목별 색상 지정 가능\n"
-                "7. 추천 색상 팔레트: #6366f1(인디고), #8b5cf6(보라), #ec4899(핑크), #f59e0b(앰버), #10b981(에메랄드), #3b82f6(블루), #ef4444(레드), #84cc16(라임)\n"
-                "8. 데이터 분석/CSV 분석 결과를 보여줄 때 적극 활용하세요.\n"
-                "9. 한 응답에 여러 ```chart 블록을 사용해 다양한 관점의 차트를 보여줄 수 있습니다.\n\n"
-            )
-
-            # 멀티에이전트 오케스트레이션 (스킬 2개 이상)
-            if len(loaded) >= 2:
-                loaded_set = {sid: load_skill_content(sid) or "" for sid in loaded}
-                orch_prompt = build_orchestration_prompt(
-                    messages[-1].get("content", "") if messages else "",
-                    loaded, loaded_set
-                )
-                system_prompt += orch_prompt
-
-        # CSV 데이터가 업로드되어 있으면 시스템 프롬프트에 포함
-        include_csv = data.get("include_csv", True)
-        if include_csv and uploaded_csv_data["filename"]:
-            csv_info = uploaded_csv_data["summary"]
-            # 데이터 미리보기 (최대 50행)
-            preview_limit = min(50, len(uploaded_csv_data["rows"]))
-            csv_rows_text = ",".join(uploaded_csv_data["headers"]) + "\n"
-            for row in uploaded_csv_data["rows"][:preview_limit]:
-                csv_rows_text += ",".join(str(c) for c in row) + "\n"
-            if len(uploaded_csv_data["rows"]) > preview_limit:
-                csv_rows_text += f"... (총 {len(uploaded_csv_data['rows'])}행 중 {preview_limit}행만 표시)\n"
-
-            system_prompt += f"=== 업로드된 CSV 데이터 ===\n{csv_info}\n\n데이터 미리보기:\n{csv_rows_text}\n\n"
-            system_prompt += "사용자가 이 데이터에 대해 질문하면 위 CSV 데이터를 기반으로 분석해주세요.\n\n"
-
-        # 업로드된 파일 내용 주입
-        if uploaded_files:
-            system_prompt += f"=== 업로드된 파일 ({len(uploaded_files)}개) ===\n"
-            for uf in uploaded_files:
-                system_prompt += f"\n--- 파일: {uf['filename']} ({uf['type']}, {uf['size']}바이트) ---\n"
-                content = uf.get("content_full", "")
-                if is_gguf:
-                    # GGUF: 파일당 최대 8000자로 제한
-                    content = content[:8000]
-                    if len(uf.get("content_full", "")) > 8000:
-                        content += f"\n... (총 {len(uf['content_full'])}자 중 8000자 표시)"
-                else:
-                    content = content[:50000]  # API: 파일당 최대 50000자
-                    if len(uf.get("content_full", "")) > 50000:
-                        content += f"\n... (총 {len(uf['content_full'])}자 중 50000자 표시)"
-                system_prompt += content + "\n"
-            system_prompt += "\n사용자가 업로드된 파일에 대해 질문하면 위 내용을 기반으로 답변하세요.\n\n"
-
-        # 가짜 데이터 생성 금지 + 요청 내용만 응답 규칙 (GGUF + API 공통)
-        system_prompt += (
-            "\n[필수 규칙]\n"
-            "- 가짜 데이터를 절대 만들지 마세요! 업로드된 CSV/파일의 실제 컬럼명과 값만 사용하세요.\n"
-            "- 존재하지 않는 컬럼명(Score1, Score2 등)을 지어내지 마세요.\n"
-            "- 사용자가 요청한 내용에만 답변하세요. 요청하지 않은 추가 분석이나 설명을 하지 마세요.\n"
-            "- 차트 데이터는 실제 데이터 기반으로 24개 이하로 요약하세요.\n"
-            "- 응답이 길어질 것 같으면 핵심만 먼저 보여주고 '추가 분석이 필요하면 말씀해주세요'로 마무리하세요.\n\n"
-        )
-
-        # 응답 수준
-        effort_map = [
-            "매우 간결하게 핵심만 답변하세요.",
-            "간결하게 답변하세요.",
-            "표준적인 깊이로 설명하세요.",
-            "매우 상세하고 전문적으로 분석하세요. 코드에 주석을 자세히 달고, 원리를 설명하세요.",
-        ]
-        format_map = {
-            "code": "답변을 Python 코드 중심으로 작성하세요. import 포함, 즉시 실행 가능하게.",
-            "code-fix": "문제 진단 → 수정 전/후 비교 → 수정 이유 설명 순서로 답변하세요. 최소 변경 원칙.",
-            "analysis": "분석 중심으로 답변하세요. 문제 정의 → 핵심 가정 → 옵션 비교(장단점/트레이드오프) → 결론/권장안 순서. 코드보다 근거와 의사결정을 우선하고, 코드는 꼭 필요한 경우에만 최소한으로 포함하세요.",
-            "report": "반드시 보고서 형식의 글(텍스트)로 작성하세요. 코드를 생성하지 마세요. 구조: 제목 → 요약(Executive Summary) → 배경/목적 → 본문(핵심 내용, 분석, 근거) → 결론 및 제언. 전문적이고 읽기 쉬운 문서 형태로 답변하세요.",
-            "step-by-step": "답변을 단계별(1,2,3...)로 작성하세요. 각 단계마다 무엇을 하는지, 왜 필요한지를 글로 설명하세요. 코드보다 설명과 이해를 우선하세요.",
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>OHT 월드모델 시뮬레이션</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Malgun Gothic','Segoe UI',sans-serif; background:#0a0e17; color:#e0e0e0; overflow:hidden; height:100vh; }
+
+#topbar { display:flex; align-items:center; gap:10px; padding:6px 12px; background:#111827; border-bottom:1px solid #1f2937; height:44px; }
+#topbar select, #topbar button, #topbar input { font-size:13px; padding:4px 10px; border:1px solid #374151; border-radius:4px; background:#1f2937; color:#e0e0e0; cursor:pointer; }
+#topbar button:hover { background:#374151; }
+.speed-btn.selected { background:#f59e0b !important; color:#000 !important; }
+#time-display { font-size:18px; font-weight:bold; color:#60a5fa; min-width:80px; text-align:center; }
+#frame-display { font-size:11px; color:#6b7280; }
+#slider-container { flex:1; display:flex; align-items:center; }
+#time-slider { flex:1; accent-color:#3b82f6; }
+.badge { padding:2px 8px; border-radius:10px; font-size:11px; font-weight:bold; }
+.badge-stopped { background:#dc2626; }
+.badge-playing { background:#16a34a; }
+.badge-paused { background:#f59e0b; color:#000; }
+#loading-msg { color:#f59e0b; display:none; font-size:12px; }
+.toggle-btn { font-size:11px !important; padding:3px 8px !important; }
+.toggle-btn.on { background:#0891b2 !important; color:#fff !important; border-color:#06b6d4 !important; }
+
+#main { display:flex; height:calc(100vh - 44px); }
+/* ===== 스크롤바 숨김 처리 (기능은 유지, 외관만 숨김) ===== */
+#sidebar::-webkit-scrollbar,
+#rsidebar::-webkit-scrollbar,
+.rlist::-webkit-scrollbar,
+.event-log::-webkit-scrollbar,
+#p-zone-alerts::-webkit-scrollbar,
+#corr-panel::-webkit-scrollbar,
+#data-sources::-webkit-scrollbar { width:0; height:0; display:none; }
+#sidebar, #rsidebar, .rlist, .event-log, #p-zone-alerts, #corr-panel, #data-sources {
+  scrollbar-width:none; -ms-overflow-style:none;
+}
+
+/* ===== 왼쪽 사이드바 (오른쪽 사이드바와 동일 스타일) ===== */
+#sidebar { width:260px; background:#111827; border-right:1px solid #1f2937; overflow-y:auto; padding:6px; flex-shrink:0; transition:margin-left 0.3s; }
+#sidebar.collapsed { margin-left:-260px; }
+#sidebar-toggle { position:absolute; top:50px; left:0; z-index:100; width:22px; height:44px; background:#111827; border:1px solid #1f2937; border-left:none; border-radius:0 6px 6px 0; cursor:pointer; display:flex; align-items:center; justify-content:center; color:#06b6d4; font-size:12px; transition:left 0.3s; }
+#sidebar-toggle.open { left:260px; }
+
+.panel { background:#1a2234; border:1px solid #1f2937; border-radius:6px; padding:8px; margin-bottom:6px; }
+.panel h3 { font-size:11px; color:#9ca3af; letter-spacing:1px; margin-bottom:6px; border-bottom:1px solid #1f2937; padding-bottom:3px; }
+.sr { display:flex; justify-content:space-between; padding:1px 0; font-size:12px; }
+.sl { color:#9ca3af; }
+.sv { font-weight:bold; }
+.sv.b { color:#60a5fa; } .sv.g { color:#10b981; } .sv.y { color:#f59e0b; } .sv.r { color:#ef4444; }
+
+.risk { display:inline-block; padding:1px 6px; border-radius:3px; font-size:11px; font-weight:bold; }
+.risk-NORMAL { background:#065f46; color:#6ee7b7; }
+.risk-WARNING { background:#78350f; color:#fbbf24; }
+.risk-DANGER { background:#7f1d1d; color:#fca5a5; }
+.risk-CRITICAL { background:#ef4444; color:#fff; animation:blink .5s infinite; }
+@keyframes blink { 50%{opacity:.5} }
+@keyframes alarmBlink { 0%,100%{background:#ef4444;} 50%{background:#991b1b;} }
+@keyframes alarmWarn { 0%,100%{background:#f59e0b;} 50%{background:#92400e;} }
+
+#content { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+#map-container { flex:1; position:relative; background:#0a0e17; overflow:hidden; min-height:200px; }
+#map-canvas { width:100%; height:100%; }
+
+/* 상단 통계 배지 */
+#stat-badges {
+  position:absolute; top:8px; left:50%; transform:translateX(-50%);
+  display:flex; gap:6px; z-index:50; pointer-events:none;
+  font-family:'Malgun Gothic','Segoe UI',sans-serif;
+}
+.stat-badge {
+  background:rgba(10,14,23,0.88); border:1px solid #1f2937; border-radius:6px;
+  padding:4px 10px; display:flex; align-items:center; gap:6px;
+  font-size:12px; backdrop-filter:blur(4px);
+}
+.stat-badge .dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.stat-badge .lbl { color:#9ca3af; font-size:11px; }
+.stat-badge .val { color:#fff; font-weight:bold; font-size:13px; min-width:20px; text-align:right; }
+.stat-badge.idle { border-color:#22c55e40; }
+.stat-badge.loaded { border-color:#3b82f640; }
+.stat-badge.obs { border-color:#f59e0b40; }
+.stat-badge.stopped { border-color:#6b728040; }
+.stat-badge.railcut { border-color:#ef444440; animation:badgePulse 1.2s infinite; }
+@keyframes badgePulse {
+  0%,100% { box-shadow:0 0 0 0 rgba(239,68,68,0); }
+  50% { box-shadow:0 0 0 4px rgba(239,68,68,0.25); }
+}
+
+#bottom-panels { display:flex; height:170px; border-top:1px solid #1f2937; flex-shrink:0; background:#0a0e17; }
+.cpanel { flex:1; padding:8px 10px; background:#111827; border-right:1px solid #1f2937; overflow:hidden; display:flex; flex-direction:column; }
+.cpanel:last-child { border-right:none; }
+.cpanel h4 { font-size:10px; color:#60a5fa; margin-bottom:4px; letter-spacing:1px; text-transform:uppercase; font-weight:bold; text-align:left; padding-left:2px; }
+canvas.chart { width:100%; flex:1; }
+
+/* 오른쪽 사이드바 */
+#rsidebar { width:260px; background:#111827; border-left:1px solid #1f2937; overflow-y:auto; flex-shrink:0; padding:6px; transition:margin-right 0.3s; }
+#rsidebar.collapsed { margin-right:-260px; }
+#rsidebar-toggle { position:absolute; top:50px; right:0; z-index:100; width:22px; height:44px; background:#111827; border:1px solid #1f2937; border-right:none; border-radius:6px 0 0 6px; cursor:pointer; display:flex; align-items:center; justify-content:center; color:#06b6d4; font-size:12px; transition:right 0.3s; }
+#rsidebar-toggle.open { right:260px; }
+.rtabs { display:flex; gap:4px; margin-bottom:8px; }
+.rtab { flex:1; padding:7px 4px; font-size:12px; font-weight:bold; background:#1a1a2e; color:#888; border:1px solid #333; border-radius:6px; cursor:pointer; }
+.rtab:hover { background:#252550; }
+.rtab.active { background:#0891b2; color:#fff; border-color:#06b6d4; }
+.rfilter { display:flex; gap:3px; flex-wrap:wrap; margin-bottom:6px; }
+.rfilter button { padding:3px 7px; font-size:10px; background:#333; color:#fff; border:none; border-radius:3px; cursor:pointer; }
+.rfilter button.active { background:#0891b2; color:#fff; }
+.rfilter button:hover { background:#444; }
+.rsearch { width:100%; padding:5px 8px; background:#1a1a3e; color:#fff; border:1px solid #444; border-radius:4px; font-size:11px; margin-bottom:6px; }
+.rlist { max-height:calc(100vh - 200px); overflow-y:auto; }
+.ritem { background:#1a1a2e; padding:6px 8px; border-radius:5px; margin-bottom:4px; border-left:3px solid #444; font-size:11px; cursor:pointer; }
+.ritem:hover { background:#252550; }
+.ritem.running { border-left-color:#22c55e; }
+.ritem.loaded { border-left-color:#f59e0b; }
+.ritem.stopped { border-left-color:#6b7280; }
+.ritem.jam { border-left-color:#ef4444; }
+.ritem.obs { border-left-color:#f59e0b; }
+.ritem .rh { display:flex; justify-content:space-between; align-items:center; }
+.ritem .rid { font-weight:bold; color:#06b6d4; }
+.ritem .rst { font-size:9px; padding:1px 5px; border-radius:3px; background:#333; color:#fff; }
+.ritem .rv { font-size:10px; margin-top:3px; font-weight:bold; }
+.ritem .rdetail { font-size:10px; margin-top:5px; padding:5px 6px; background:#0d1a2e; border-radius:3px; color:#cbd5e1; line-height:1.6; }
+.ritem .rdetail div { margin-bottom:1px; }
+.jam-entry { padding:3px 4px; border-radius:3px; cursor:help; transition:background 0.15s; }
+.jam-entry:hover { background:#252550; }
+.zone-bar { height:3px; background:#333; border-radius:2px; margin-top:4px; }
+.zone-bar-fill { height:100%; border-radius:2px; }
+.zone-normal .zone-bar-fill { background:#22c55e; }
+.zone-precaution .zone-bar-fill { background:#f59e0b; }
+.zone-full .zone-bar-fill { background:#ef4444; }
+
+.event-log { max-height:120px; overflow-y:auto; font-size:11px; }
+.ev-item { padding:2px 0; border-bottom:1px solid #1f2937; }
+.corr-item { font-size:11px; padding:2px 0; border-bottom:1px solid #1f2937; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <select id="date-select" onchange="loadDate(this.value)">
+    <option value="">-- 날짜 선택 --</option>
+  </select>
+  <button onclick="sendCmd('play')">&#9654; 재생</button>
+  <button onclick="sendCmd('pause')">&#9208; 일시정지</button>
+  <button onclick="sendCmd('stop')">&#9632; 정지</button>
+  <span>|</span>
+  <button class="speed-btn" onclick="setSpeed(1)">x1</button>
+  <button class="speed-btn" onclick="setSpeed(2)">x2</button>
+  <button class="speed-btn" onclick="setSpeed(5)">x5</button>
+  <button class="speed-btn" onclick="setSpeed(10)">x10</button>
+  <button class="speed-btn" onclick="setSpeed(0)">MAX</button>
+  <span>|</span>
+  <span id="time-display">--:--:--</span>
+  <span id="frame-display"></span>
+  <div id="slider-container">
+    <input type="range" id="time-slider" min="0" max="100" value="0" oninput="jumpFrame(this.value)">
+  </div>
+  <span id="status-badge" class="badge badge-stopped">정지</span>
+  <span id="loading-msg">로딩중...</span>
+  <span>|</span>
+  <button onclick="resetMapView()" style="background:#065f46 !important;">전체보기</button>
+  <button id="btn-zone" class="toggle-btn on" onclick="toggleLayer('zone')">Zone 표시</button>
+  <button id="btn-railcut" class="toggle-btn on" onclick="toggleLayer('railcut')">차단 표시</button>
+  <button id="btn-id" class="toggle-btn" onclick="toggleLayer('id')">ID 표시</button>
+  <button id="btn-name" class="toggle-btn" onclick="toggleLayer('name')">이름 표시</button>
+</div>
+
+<!-- 데드락 알람 배너 -->
+<div id="alarm-banner" style="display:none;background:#ef4444;color:#fff;text-align:center;padding:8px 16px;font-weight:bold;font-size:14px;animation:alarmBlink 0.8s infinite;cursor:pointer;" onclick="this.style.display='none'">
+  <span id="alarm-text"></span>
+  <span style="font-size:11px;margin-left:12px;opacity:0.8;">(클릭하면 닫힘)</span>
+</div>
+
+<div id="main">
+  <div id="sidebar-toggle" onclick="toggleSidebar()" title="사이드바 열기/닫기">&#9654;</div>
+  <div id="sidebar" class="collapsed">
+    <!-- 상태 패널 (차량 현황 + 스타 지표 + 10분 후 예측 + 위험 Zone + 레일 차단 + 데이터 소스) -->
+    <div class="panel">
+      <h3>차량 현황</h3>
+      <div class="sr"><span class="sl">전체 차량</span><span class="sv" id="s-total">-</span></div>
+      <div class="sr"><span class="sl">운행중</span><span class="sv g" id="s-running">-</span></div>
+      <div class="sr"><span class="sl">OBS 정지</span><span class="sv y" id="s-obs">-</span></div>
+      <div class="sr"><span class="sl">JAM</span><span class="sv r" id="s-jam">-</span></div>
+      <div class="sr"><span class="sl">가동률</span><span class="sv b" id="s-util">-</span></div>
+      <div class="sr"><span class="sl">적재율</span><span class="sv" id="s-loaded">-</span></div>
+    </div>
+    <div class="panel">
+      <h3>스타 지표</h3>
+      <div class="sr"><span class="sl">반송 큐</span><span class="sv b" id="s-queue">-</span></div>
+      <div class="sr"><span class="sl">OHT 큐</span><span class="sv" id="s-queue-oht">-</span></div>
+      <div class="sr"><span class="sl">완료/10분</span><span class="sv" id="s-completed">-</span></div>
+      <div class="sr"><span class="sl">평균 반송시간</span><span class="sv" id="s-loadtime">-</span></div>
+      <div class="sr"><span class="sl">4분+ 지연</span><span class="sv y" id="s-delay">-</span></div>
+    </div>
+    <div class="panel">
+      <h3>10분 후 예측</h3>
+      <div class="sr"><span class="sl">큐 예측</span><span class="sv b" id="p-queue">-</span></div>
+      <div class="sr"><span class="sl">큐 추세</span><span class="sv" id="p-trend">-</span></div>
+      <div class="sr"><span class="sl">TAT</span><span class="sv">2.88분</span></div>
+      <div class="sr"><span class="sl">물동량</span><span class="sv">~20,000건/시</span></div>
+      <div style="margin-top:6px;">
+        <span class="sl">데드락 위험:</span>
+        <span id="p-dl-badge" class="risk risk-NORMAL" ondblclick="openRiskModal()" style="cursor:pointer;" title="더블클릭 → 과거 위험 이력 보기">정상</span>
+      </div>
+      <div id="p-dl-msg" style="font-size:11px;color:#9ca3af;margin-top:3px;"></div>
+      <div class="sr" style="margin-top:6px;"><span class="sl">현재 OBS</span><span class="sv" id="p-obs-now">-</span></div>
+      <div class="sr"><span class="sl">평균 OBS</span><span class="sv" id="p-obs-avg">-</span></div>
+      <div class="sr"><span class="sl">JAM 발생</span><span class="sv r" id="p-jam-cnt">0</span></div>
+      <button onclick="openSpikeModal()" style="margin-top:8px;width:100%;padding:6px;background:#0891b2;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:bold;">📊 OBS 추이 상세보기</button>
+    </div>
+    <div class="panel">
+      <h3>위험 Zone</h3>
+      <div id="p-zone-alerts" style="font-size:11px;max-height:400px;overflow-y:auto;"><div style="color:#6b7280;">없음</div></div>
+    </div>
+    <div class="panel">
+      <h3>레일 차단 이벤트</h3>
+      <div id="railcut-log" class="event-log"><div style="color:#6b7280;font-size:11px;">없음</div></div>
+    </div>
+    <div class="panel">
+      <h3>데이터 소스</h3>
+      <div id="data-sources" style="font-size:11px;color:#6b7280;">미로드</div>
+    </div>
+  </div>
+
+  <div id="content">
+    <div style="display:flex;flex:1;overflow:hidden;">
+      <div id="map-container" style="flex:1;">
+        <canvas id="map-canvas"></canvas>
+        <!-- 상단 통계 배지 -->
+        <div id="stat-badges">
+          <div class="stat-badge idle"><span class="dot" style="background:#22c55e;"></span><span class="lbl">공차운행</span><span class="val" id="cnt-idle">0</span></div>
+          <div class="stat-badge loaded"><span class="dot" style="background:#3b82f6;"></span><span class="lbl">적재</span><span class="val" id="cnt-loaded">0</span></div>
+          <div class="stat-badge obs"><span class="dot" style="background:#f59e0b;"></span><span class="lbl">OBS</span><span class="val" id="cnt-obs">0</span></div>
+          <div class="stat-badge stopped"><span class="dot" style="background:#6b7280;"></span><span class="lbl">정지</span><span class="val" id="cnt-stopped">0</span></div>
+          <div class="stat-badge railcut"><span class="dot" style="background:#ef4444;"></span><span class="lbl">레일차단</span><span class="val" id="cnt-railcut">0</span></div>
+        </div>
+      </div>
+      <!-- 오른쪽 사이드바: OHT/Zone -->
+      <div id="rsidebar-toggle" class="open" onclick="toggleRSidebar()" title="OHT/Zone 목록 열기/닫기">&#9664;</div>
+      <div id="rsidebar">
+        <div class="rtabs">
+          <button class="rtab active" onclick="switchRTab('oht')">OHT 상태</button>
+          <button class="rtab" onclick="switchRTab('zone')">HID Zone</button>
+        </div>
+        <div id="rtab-oht">
+          <div class="rfilter">
+            <button class="active" onclick="filterOHT('all',this)">전체</button>
+            <button onclick="filterOHT('running',this)">운행</button>
+            <button onclick="filterOHT('loaded',this)">적재</button>
+            <button onclick="filterOHT('stopped',this)">정지</button>
+            <button onclick="filterOHT('jam',this)">JAM</button>
+          </div>
+          <input type="text" id="ohtSearch" placeholder="OHT ID 검색..." oninput="renderOHTList()" class="rsearch">
+          <div id="ohtList" class="rlist"></div>
+        </div>
+        <div id="rtab-zone" style="display:none;">
+          <div class="rfilter">
+            <button class="active" onclick="filterZone('all',this)">전체</button>
+            <button onclick="filterZone('full',this)">포화</button>
+            <button onclick="filterZone('precaution',this)">주의</button>
+            <button onclick="filterZone('normal',this)">정상</button>
+          </div>
+          <input type="text" id="zoneSearch" placeholder="Zone ID 검색..." oninput="renderZoneList()" class="rsearch">
+          <div id="zoneList" class="rlist"></div>
+        </div>
+      </div>
+    </div>
+    <div id="bottom-panels">
+      <div class="cpanel">
+        <h4>큐 & OBS 추이 (스타)</h4>
+        <canvas id="chart-queue" class="chart"></canvas>
+      </div>
+      <div class="cpanel">
+        <h4>데이터 상관관계</h4>
+        <div id="corr-panel" style="font-size:11px;overflow-y:auto;flex:1;line-height:1.5;">
+          <div class="corr-item"><span class="sl">큐-TAT: </span><span class="sv" style="color:#60a5fa;">r=0.12 (약한 양의 상관)</span></div>
+          <div class="corr-item"><span class="sl">큐-OBS: </span><span class="sv" style="color:#6b7280;">r=0.03 (무관)</span></div>
+          <div class="corr-item"><span class="sl">큐-HID속도: </span><span class="sv" style="color:#6b7280;">r=-0.01 (무관)</span></div>
+          <div class="corr-item" style="margin-top:4px;color:#9ca3af;">TAT 24시간 균일 (~2.88분)</div>
+          <div class="corr-item" style="color:#9ca3af;">물동량 ~20,000건/시 (균일)</div>
+          <div class="corr-item" style="color:#9ca3af;">OBS 물리 구조, 큐와 무관</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// WebSocket
+// ============================================================
+let ws = null;
+let mapData = { vehicles: [], bounds: null, railCuts: [], blockedEdges: {} };
+let starHistory = [];
+let currentSpeed = 1;
+
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onopen = () => console.log('WS connected');
+  ws.onmessage = (e) => { try { updateUI(JSON.parse(e.data)); } catch(err) {} };
+  ws.onclose = () => setTimeout(connectWS, 2000);
+  ws.onerror = () => ws.close();
+}
+function sendCmd(action, extra) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ action, ...extra }));
+}
+function setSpeed(s) {
+  currentSpeed = s;
+  sendCmd('speed', { speed: s });
+  document.querySelectorAll('.speed-btn').forEach(b => b.classList.toggle('selected', b.textContent === (s===0?'MAX':`x${s}`)));
+}
+function jumpFrame(val) { sendCmd('jump_frame', { frame: parseInt(val) }); }
+
+async function loadDate(dateKey) {
+  if (!dateKey) return;
+  document.getElementById('loading-msg').style.display = 'inline';
+  try {
+    const resp = await fetch('/api/replay/load', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({date:dateKey}) });
+    const data = await resp.json();
+    document.getElementById('time-slider').max = data.total_frames || 100;
+    updateDataSources(data.stats);
+
+    if (!railGraph) await loadRailGraph();
+    const starResp = await fetch('/api/star-history');
+    starHistory = await starResp.json();
+    drawQueueChart();
+    const hidResp = await fetch('/api/hid-speeds');
+    hidSpeeds = await hidResp.json();
+    renderZoneList();
+    // OBS/JAM 전체 시계열 (재생과 무관, 데이터 로드 직후 한 번만)
+    const obsResp = await fetch('/api/obs-jam-history');
+    fullObsHistory = await obsResp.json();
+    // 누적 history/jamEvents 초기화 (날짜 변경 시)
+    obsHistory = []; jamEvents = []; _lastObsSampleTime = ''; _lastJamCount = 0;
+    sendCmd('load', { date: dateKey });
+  } catch(e) { console.error('Load failed:', e); }
+  document.getElementById('loading-msg').style.display = 'none';
+}
+
+// ============================================================
+// UI 업데이트
+// ============================================================
+const statusMap = { stopped:'정지', playing:'재생중', paused:'일시정지' };
+function updateUI(d) {
+  document.getElementById('time-display').textContent = d.time_short || '--:--:--';
+  mapData.currentTimeStr = d.time_short || '';
+  document.getElementById('frame-display').textContent = `${d.frame||0}/${d.totalFrames||0}`;
+  const slider = document.getElementById('time-slider');
+  if (d.totalFrames) slider.max = d.totalFrames;
+  slider.value = d.frame || 0;
+
+  const badge = document.getElementById('status-badge');
+  badge.textContent = statusMap[d.state] || d.state;
+  badge.className = 'badge badge-' + (d.state || 'stopped');
+
+  const vs = d.vehicleStats || {};
+  setText('s-total', vs.total||0); setText('s-running', vs.running||0);
+  setText('s-obs', vs.obs_bz_stop||0); setText('s-jam', vs.jam||0);
+  setText('s-util', (vs.utilization||0)+'%'); setText('s-loaded', (vs.loaded_pct||0)+'%');
+
+  const star = d.star || {};
+  setText('s-queue', star.queue_total||'-'); setText('s-queue-oht', star.queue_oht||'-');
+  setText('s-completed', star.queue_completed||'-');
+  setText('s-loadtime', star.avg_load_time ? star.avg_load_time.toFixed(2)+'분' : '-');
+  setText('s-delay', star.transport_4min_over||0);
+
+  const pred = d.prediction || {};
+  const qp = pred.queue_10min || {};
+  setText('p-queue', qp.value||'-');
+  const td = qp.trend_direction||'stable';
+  document.getElementById('p-trend').innerHTML = (td==='up'?'&#9650;':td==='down'?'&#9660;':'&#9644;') + ' ' + (qp.trend||0) + '/분';
+
+  const dr = pred.deadlock_risk || {};
+  const dlLabels = {NORMAL:'정상',WATCH:'관찰',WARNING:'주의',DANGER:'위험',CRITICAL:'심각',unknown:'확인중'};
+  const dlBadge = document.getElementById('p-dl-badge');
+  dlBadge.textContent = dlLabels[dr.level] || dr.level || '정상';
+  dlBadge.className = 'risk risk-' + (dr.level||'NORMAL');
+  setText('p-dl-msg', dr.message||'');
+
+  // OBS + JAM 추적 (client-side history) — JAM 발생만 진짜 이벤트로 본다
+  const obsCurrent = dr.obs_current || 0;
+  const jamCount = (d.vehicleStats && d.vehicleStats.jam) || 0;
+  currentPlayTime = d.time_short || '';
+  trackOBSHistory(obsCurrent, currentPlayTime, jamCount);
+  updateSpikePanel();
+
+  // 데드락 알람 배너
+  const banner = document.getElementById('alarm-banner');
+  const bannerTxt = document.getElementById('alarm-text');
+  const dlLevel = dr.level || 'NORMAL';
+  if (dlLevel === 'CRITICAL') {
+    banner.style.display = 'block';
+    banner.style.animation = 'alarmBlink 0.5s infinite';
+    bannerTxt.textContent = '⚠ 데드락 발생 예측! OBS ' + (dr.obs_current||0) + '대 — 즉시 확인 필요!';
+  } else if (dlLevel === 'DANGER') {
+    banner.style.display = 'block';
+    banner.style.animation = 'alarmBlink 0.8s infinite';
+    bannerTxt.textContent = '⚠ 데드락 위험! OBS ' + (dr.obs_current||0) + '대 — 빌드업 감지';
+  } else {
+    banner.style.display = 'none';
+  }
+
+  // Zone별 위험 표시
+  const zc = mapData.zoneCounts || {};
+  const zoneAlerts = [];
+  if (railGraph && railGraph.zones) {
+    for (const z of railGraph.zones) {
+      const count = zc[z.id] || 0;
+      const max = z.max || 37;
+      const pct = Math.round(count / max * 100);
+      if (count >= max) {
+        zoneAlerts.push(`<div style="color:#ef4444;">&#9679; HID ${z.id} <b>포화</b> (${count}/${max})</div>`);
+      } else if (pct >= 70) {
+        zoneAlerts.push(`<div style="color:#f59e0b;">&#9679; HID ${z.id} <b>주의</b> (${count}/${max})</div>`);
+      }
+    }
+  }
+  const alertEl = document.getElementById('p-zone-alerts');
+  if (alertEl) {
+    if (zoneAlerts.length > 0) {
+      alertEl.innerHTML = `<div style="color:#9ca3af;margin-bottom:2px;">위험 Zone (${zoneAlerts.length}개):</div>` + zoneAlerts.join('');
+    } else {
+      alertEl.innerHTML = '';
+    }
+  }
+
+
+  // ===== 레일 차단 이벤트 처리 (맵 표시 + 사이드바 로그 + 배너) =====
+  const rcs = d.railCuts || [];
+  mapData.railCuts = rcs;
+
+  // 활성 차단 edge 집합 계산 (drawMap에서 재사용)
+  const blockedEdges = {};  // "from_to" -> { rc, from, to }
+  for (const rc of rcs) {
+    const st = (rc.state || '').toUpperCase().trim();
+    // 복구 이벤트 스킵 — 정확히 일치 (ABNORMAL이 NORMAL을 포함하는 버그 방지!)
+    const isRestore = (st === 'NORMAL' || st === 'RESTORE' || st === 'CLEAR' || st === 'RECOVER' || st === 'OFF' || st === 'FREE');
+    if (isRestore) continue;
+
+    // affect_addrs 배열 전체 표시, 없으면 from/to만
+    if (rc.affect_addrs && rc.affect_addrs.length > 0) {
+      for (const aa of rc.affect_addrs) {
+        blockedEdges[`${aa[0]}_${aa[1]}`] = { rc, from: aa[0], to: aa[1] };
+      }
+    } else if (rc.from_addr && rc.to_addr) {
+      blockedEdges[`${rc.from_addr}_${rc.to_addr}`] = { rc, from: rc.from_addr, to: rc.to_addr };
+    }
+  }
+  mapData.blockedEdges = blockedEdges;
+  const activeCount = Object.keys(blockedEdges).length;
+
+  // 사이드바 로그 (활성 ABNORMAL만 표시 — NORMAL은 맵에서 사라지는 것으로 충분)
+  const activeOnly = rcs.filter(rc => {
+    const st = (rc.state || '').toUpperCase().trim();
+    // 정확히 일치로 필터 (ABNORMAL이 NORMAL을 포함하는 버그 방지!)
+    return !(st === 'NORMAL' || st === 'RESTORE' || st === 'CLEAR' || st === 'RECOVER');
+  });
+  const rcLog = document.getElementById('railcut-log');
+  if (activeOnly.length > 0) {
+    let html = `<div style="color:#ef4444;font-weight:bold;margin-bottom:4px;">⛔ 활성 차단: ${activeCount}개 edge</div>`;
+    html += activeOnly.slice(-5).reverse().map(rc => {
+      return `<div class="ev-item" style="color:#ef4444;">⛔ ${rc.from_addr}→${rc.to_addr} [${rc.state}] (${rc.affect_count||0})</div>`;
+    }).join('');
+    rcLog.innerHTML = html;
+  } else {
+    rcLog.innerHTML = '<div style="color:#6b7280;font-size:11px;">없음</div>';
+  }
+
+  // 차량 위치 보간 업데이트
+  const newVehicles = d.vehicles || [];
+  for (const v of newVehicles) {
+    if (vehicleDisplay[v.vid]) {
+      vehicleDisplay[v.vid].tx = v.x;
+      vehicleDisplay[v.vid].ty = v.y;
+      vehicleDisplay[v.vid].state = v.state;
+      vehicleDisplay[v.vid].isFull = v.isFull;
+      vehicleDisplay[v.vid].velocity = v.velocity;
+      vehicleDisplay[v.vid].currentNode = v.currentNode;
+      vehicleDisplay[v.vid].nextNode = v.nextNode;
+      vehicleDisplay[v.vid].destination = v.destination;
+      vehicleDisplay[v.vid].ratio = v.ratio;
+    } else {
+      vehicleDisplay[v.vid] = {
+        dx:v.x, dy:v.y, tx:v.x, ty:v.y,
+        state:v.state, isFull:v.isFull, velocity:v.velocity,
+        currentNode:v.currentNode, nextNode:v.nextNode,
+        destination:v.destination, ratio:v.ratio
+      };
+    }
+  }
+  const activeIds = new Set(newVehicles.map(v=>v.vid));
+  for (const vid in vehicleDisplay) {
+    if (!activeIds.has(vid)) {
+      vehicleDisplay[vid]._gone = (vehicleDisplay[vid]._gone||0) + 1;
+      if (vehicleDisplay[vid]._gone > 5) delete vehicleDisplay[vid];
+    } else {
+      vehicleDisplay[vid]._gone = 0;
+    }
+  }
+  mapData.vehicles = newVehicles;
+  mapData.zoneCounts = d.zoneCounts || {};
+
+  // ===== 상단 통계 배지 업데이트 (공차운행/적재/OBS/정지/레일차단) =====
+  let cntIdle = 0, cntLoaded = 0, cntObs = 0, cntStopped = 0, cntJam = 0;
+  for (const v of newVehicles) {
+    if (v.state === 6) cntObs++;
+    else if (v.state === 7) cntJam++;
+    else if (v.state === 2 || v.state === 8 || v.state === 9) cntStopped++;
+    else if (v.isFull) cntLoaded++;
+    else cntIdle++;
+  }
+  setText('cnt-idle', cntIdle);
+  setText('cnt-loaded', cntLoaded);
+  setText('cnt-obs', cntObs);
+  setText('cnt-stopped', cntStopped + cntJam);  // 정지 + JAM 합산
+  setText('cnt-railcut', activeCount);
+}
+function setText(id, val) { const el=document.getElementById(id); if(el) el.textContent=val; }
+function updateDataSources(stats) {
+  const el = document.getElementById('data-sources');
+  if (!stats) { el.textContent='미로드'; return; }
+  const nameMap = {oht:'OHT 차량',star:'스타 지표',hid:'HID 통과',rail_cut:'레일 차단',ts_resource:'작업 명령',oht_time_avg:'TAT 평균'};
+  let html='';
+  for (const [k,v] of Object.entries(stats)) {
+    const ok = v.status==='loaded';
+    html += `<div style="color:${ok?'#10b981':'#6b7280'};">${ok?'&#10003;':'-'} ${nameMap[k]||k}: ${(v.count||0).toLocaleString()}건</div>`;
+  }
+  el.innerHTML = html;
+}
+
+// ============================================================
+// 맵 - 레일 네트워크 + 차량 + 레일 차단
+// ============================================================
+const mapCanvas = document.getElementById('map-canvas');
+const mapCtx = mapCanvas.getContext('2d');
+let mapZoom = 1, mapPanX = 0, mapPanY = 0;
+let isDragging = false, dragStartX = 0, dragStartY = 0;
+let railGraph = null;
+let railCacheCanvas = null;
+let railCacheKey = '';
+
+// 표시 레이어 토글
+let showZone = true, showRailCut = true, showId = false, showName = false;
+function toggleLayer(layer) {
+  if (layer==='zone') showZone = !showZone;
+  if (layer==='railcut') showRailCut = !showRailCut;
+  if (layer==='id') showId = !showId;
+  if (layer==='name') showName = !showName;
+  document.getElementById('btn-zone').classList.toggle('on', showZone);
+  document.getElementById('btn-railcut').classList.toggle('on', showRailCut);
+  document.getElementById('btn-id').classList.toggle('on', showId);
+  document.getElementById('btn-name').classList.toggle('on', showName);
+  railCacheCanvas = null;
+  drawMap();
+}
+
+let vehicleDisplay = {};
+let selectedZone = null;
+
+// 보간 애니메이션 루프 (60fps)
+let lastAnimTime = 0;
+function interpolateLoop(now) {
+  const dt = now - lastAnimTime;
+  lastAnimTime = now;
+  const lerp = Math.min(1, dt * 0.008);
+  let moved = false;
+  for (const vid in vehicleDisplay) {
+    const v = vehicleDisplay[vid];
+    const ddx = v.tx - v.dx, ddy = v.ty - v.dy;
+    const dist = Math.sqrt(ddx*ddx + ddy*ddy);
+    if (dist > 200) { v.dx = v.tx; v.dy = v.ty; }
+    else if (dist > 0.05) { v.dx += ddx * lerp; v.dy += ddy * lerp; moved = true; }
+    else { v.dx = v.tx; v.dy = v.ty; }
+  }
+  // 차단 edge가 있으면 깜빡임 위해 계속 그리기
+  const hasBlocked = showRailCut && mapData.blockedEdges && Object.keys(mapData.blockedEdges).length > 0;
+  if (moved || hasBlocked) drawMap();
+  requestAnimationFrame(interpolateLoop);
+}
+requestAnimationFrame(interpolateLoop);
+
+async function loadRailGraph() {
+  try {
+    const resp = await fetch('/api/layout-graph');
+    railGraph = await resp.json();
+    mapData.bounds = railGraph.bounds;
+    railCacheCanvas = null;
+    console.log('레일 그래프 로드:', Object.keys(railGraph.nodes).length, '노드,', railGraph.edges.length, '엣지');
+    drawMap();
+  } catch(e) { console.error('레일 그래프 로드 실패:', e); }
+}
+
+function drawMap() {
+  const rect = mapCanvas.parentElement.getBoundingClientRect();
+  const w = Math.max(100, Math.floor(rect.width));
+  const h = Math.max(100, Math.floor(rect.height));
+  if (mapCanvas.width !== w || mapCanvas.height !== h) {
+    mapCanvas.width = w; mapCanvas.height = h;
+    railCacheCanvas = null;
+  }
+
+  const b = mapData.bounds || (railGraph && railGraph.bounds);
+  if (!b) {
+    mapCtx.fillStyle = '#0a0e17'; mapCtx.fillRect(0,0,w,h);
+    mapCtx.fillStyle = '#374151'; mapCtx.font = '14px sans-serif'; mapCtx.textAlign = 'center';
+    mapCtx.fillText('날짜를 선택하고 재생을 누르세요', w/2, h/2);
+    return;
+  }
+
+  const dataW = b.max_x-b.min_x||1, dataH = b.max_y-b.min_y||1;
+  const sc = Math.min((w-20)/dataW, (h-20)/dataH) * mapZoom;
+  const ox = 10 + mapPanX + (w-20-dataW*sc)/2;
+  const oy = 10 + mapPanY + (h-20-dataH*sc)/2;
+  const toS = (x,y) => [ox+(x-b.min_x)*sc, oy+(y-b.min_y)*sc];
+
+  // 1. 레일 배경 (캐시)
+  const cacheKey = `${w}_${h}_${mapZoom.toFixed(3)}_${mapPanX}_${mapPanY}`;
+  if (!railCacheCanvas || railCacheKey !== cacheKey) {
+    railCacheCanvas = document.createElement('canvas');
+    railCacheCanvas.width = w; railCacheCanvas.height = h;
+    const rc = railCacheCanvas.getContext('2d');
+    rc.fillStyle = '#0a0e17'; rc.fillRect(0,0,w,h);
+
+    if (railGraph) {
+      const nodes = railGraph.nodes, edges = railGraph.edges;
+      rc.strokeStyle = '#2a4a6a';
+      rc.lineWidth = Math.max(0.6, 0.8*mapZoom);
+      rc.lineCap = 'round';
+      rc.beginPath();
+      for (let i=0; i<edges.length; i++) {
+        const from=nodes[edges[i][0]], to=nodes[edges[i][1]];
+        if (!from||!to) continue;
+        const [fx,fy]=toS(from[0],from[1]), [tx,ty]=toS(to[0],to[1]);
+        if ((fx<-50&&tx<-50)||(fx>w+50&&tx>w+50)||(fy<-50&&ty<-50)||(fy>h+50&&ty>h+50)) continue;
+        rc.moveTo(fx,fy); rc.lineTo(tx,ty);
+      }
+      rc.stroke();
+
+      if (mapZoom >= 3) {
+        rc.fillStyle = '#2a4a6a';
+        for (const [nid, c] of Object.entries(nodes)) {
+          const [sx,sy]=toS(c[0],c[1]);
+          if (sx<-5||sx>w+5||sy<-5||sy>h+5) continue;
+          rc.fillRect(sx-0.5, sy-0.5, 1, 1);
+        }
+      }
+
+      if (showZone && railGraph.zones) {
+        const nodes = railGraph.nodes;
+        const zoneLineW = Math.max(1.5, 2*mapZoom);
+
+        const visibleZones = [];
+        for (const z of railGraph.zones) {
+          const [cx,cy] = toS(z.cx, z.cy);
+          if (cx >= -100 && cx <= w+100 && cy >= -100 && cy <= h+100) {
+            visibleZones.push({...z, _sx: cx, _sy: cy});
+          }
         }
 
-        system_prompt += effort_map[min(effort, 3)] + "\n"
-        fmt_instruction = format_map.get(output_format, "")
-        if fmt_instruction:
-            system_prompt += fmt_instruction + "\n"
-        # 코드가 아닌 출력 형식일 때는 코드 중심 답변을 억제
-        if output_format in ("report", "analysis", "step-by-step"):
-            system_prompt += "중요: 사용자가 코드를 명시적으로 요청하지 않는 한, 코드 블록 없이 자연어(글)로 답변하세요.\n"
-        if writing_style:
-            system_prompt += f"작성 스타일: {writing_style}\n"
-
-        # API 요청 구성
-        api_messages = [{"role": "system", "content": system_prompt}] + messages
-        temperature_map = [0.1, 0.3, 0.5, 0.7]
-
-        # ===== VL 모델: 이미지 첨부 시 OpenAI Vision API 포맷 변환 (GGUF / API 공통) =====
-        # env_id가 vl-로 시작하거나, gguf- 계열 중 모델명에 vl이 포함된 경우
-        is_gguf_vl = env_id.startswith("gguf-") and "vl" in ENV_CONFIG.get(env_id, {}).get("name", "").lower()
-        has_vision = "vision" in get_model_capabilities(env_id) or is_gguf_vl
-
-        image_files = [f for f in uploaded_files if f.get("type") == "image" and f.get("img_base64")]
-
-        if has_vision and image_files and api_messages:
-            # 마지막 user 메시지를 멀티모달 포맷으로 변환
-            for i in range(len(api_messages) - 1, -1, -1):
-                if api_messages[i].get("role") == "user":
-                    text_content = api_messages[i].get("content", "")
-                    if isinstance(text_content, str):
-                        content_parts = [{"type": "text", "text": text_content}]
-                        for img_f in image_files:
-                            ext = img_f.get("ext", "png").lower()
-                            mime = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png", "gif": "gif",
-                                    "bmp": "bmp", "webp": "webp", "svg": "svg+xml"}.get(ext, "png")
-                            content_parts.append({
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/{mime};base64,{img_f['img_base64']}"
-                                }
-                            })
-                        api_messages[i]["content"] = content_parts
-                    break
-
-        def _normalize_gguf_artifact_answer(answer_text, artifact_request=False):
-            """GGUF 출력의 코드블록 라벨을 보정해 프론트 버튼 감지를 안정화."""
-            if not artifact_request or not isinstance(answer_text, str) or not answer_text.strip():
-                return answer_text
-
-            import re as _re_norm
-            normalized = answer_text
-            # ```py, ```python3 -> ```python
-            normalized = _re_norm.sub(r"```(?:py|python3)\s*\n", "```python\n", normalized, flags=_re_norm.IGNORECASE)
-
-            # 무라벨 코드블록에서 PPT/Draw.io 패턴을 감지해 라벨 부여
-            def _upgrade_unlabeled(m):
-                body = m.group(1)
-                low = body.lower()
-                if any(tok in low for tok in ("from pptx", "import pptx", "presentation(", "add_slide")):
-                    return f"```python\n{body}```"
-                if any(tok in low for tok in ("<mxfile", "<mxgraphmodel", "<mxcell")):
-                    return f"```drawio\n{body}```"
-                return m.group(0)
-
-            normalized = _re_norm.sub(r"```[ \t]*\n([\s\S]*?)```", _upgrade_unlabeled, normalized)
-
-            # 코드블록이 전혀 없지만 python-pptx 코드가 섞여 있으면 후행 코드블록으로 보강
-            low_all = normalized.lower()
-            if ("from pptx" in low_all or "import pptx" in low_all) and "```python" not in low_all:
-                lines = normalized.splitlines()
-                start = -1
-                for i, line in enumerate(lines):
-                    ll = line.lower()
-                    if "from pptx" in ll or "import pptx" in ll or "presentation(" in ll:
-                        start = i
-                        break
-                if start >= 0:
-                    candidate = "\n".join(lines[start:]).strip()
-                    if candidate:
-                        normalized += "\n\n```python\n" + candidate + "\n```"
-
-            return normalized
-
-        # ===== GGUF 로컬 모델: Python에서 직접 추론 =====
-        if env_id.startswith("gguf-"):
-
-            # ── 병렬 멀티에이전트 판단 ──
-            # 스킬 2개+ & 다른 그룹이면 병렬 (다중 모델 선택 시에만)
-            # 단일 GGUF 선택 시 병렬 안 함 (VRAM 부족 방지)
-            _parallel_fallback_reason = None
-            if False:  # 병렬 제거: 단일 에이전트만 사용
-                _pre_skills, _par_groups, _use_parallel = group_skills_for_parallel(loaded)
-
-                if _use_parallel:
-                    try:
-                        # 수동 다중 선택 시 → 선택한 모델 사용, 아니면 풀에서 자동
-                        if multi_model_parallel and selected_model_paths:
-                            _gguf_paths_by_size = sorted(selected_model_paths, key=lambda x: x[1], reverse=True)
-                        else:
-                            _PARALLEL_MIN_SIZE_GB = float(os.getenv("GGUF_PARALLEL_MIN_GB", "0.5"))
-                            _gguf_envs = {k: v for k, v in ENV_CONFIG.items()
-                                          if k.startswith("gguf-") and "_gguf_path" in v}
-                            _gguf_paths_by_size = sorted(
-                                [(v["_gguf_path"], v.get("_size_gb", 0)) for v in _gguf_envs.values()
-                                 if "vl" not in os.path.basename(v["_gguf_path"]).lower()
-                                 and v.get("_size_gb", 0) >= _PARALLEL_MIN_SIZE_GB],
-                                key=lambda x: x[1], reverse=True,
-                            )
-
-                        if False:  # 병렬 제거: 단일 에이전트만 사용
-                            # 그룹별 모델 할당
-                            _assignments = _assign_models_to_groups(_par_groups, _gguf_paths_by_size)
-
-                            # 그룹별 스킬 콘텐츠 준비
-                            _group_skill_contents = {}
-                            for pg in _par_groups:
-                                contents = {}
-                                for sid in pg["skills"]:
-                                    c = load_skill_content(sid)
-                                    if c:
-                                        contents[sid] = c
-                                _group_skill_contents[pg["group"]] = contents
-
-                            # 마지막 사용자 메시지 추출
-                            _last_query = ""
-                            for m in reversed(messages):
-                                if m.get("role") == "user":
-                                    _last_query = m.get("content", "")
-                                    if isinstance(_last_query, list):
-                                        _last_query = " ".join(
-                                            p.get("text", "") for p in _last_query
-                                            if isinstance(p, dict) and p.get("type") == "text"
-                                        )
-                                    break
-
-                            try:
-                                print(f"\n  [PARALLEL] {len(_par_groups)} groups")
-                            except Exception:
-                                pass
-                            for pg in _par_groups:
-                                m_path = _assignments.get(pg["group"], "")
-                                try:
-                                    print(f"     [{pg['group']}] skills={pg['skills']} -> {os.path.basename(m_path)}")
-                                except Exception:
-                                    pass
-
-                            # ThreadPoolExecutor로 병렬 실행
-                            _agent_results = []
-                            with ThreadPoolExecutor(max_workers=min(len(_par_groups), MAX_POOL_SIZE)) as executor:
-                                futures = {}
-                                for pg in _par_groups:
-                                    model_path = _assignments[pg["group"]]
-                                    future = executor.submit(
-                                        _agent_call_gguf,
-                                        model_path=model_path,
-                                        skill_ids=pg["skills"],
-                                        skill_contents=_group_skill_contents[pg["group"]],
-                                        query=_last_query,
-                                        history=messages[-6:],
-                                        n_ctx=user_n_ctx if user_n_ctx > 0 else 16384,
-                                        temperature=temperature_map[min(effort, 3)],
-                                        max_tokens=TOKEN_SETTINGS["parallel_agent_max_tokens"],
-                                        csv_data=uploaded_csv_data if uploaded_csv_data.get("filename") else None,
-                                        uploaded_files_data=uploaded_files if uploaded_files else None,
-                                    )
-                                    futures[future] = pg["group"]
-
-                                for future in as_completed(futures, timeout=180):
-                                    try:
-                                        result = future.result(timeout=120)
-                                        _agent_results.append(result)
-                                    except Exception as e:
-                                        _agent_results.append({
-                                            "group": futures[future], "skills": [],
-                                            "response": "", "error": str(e), "model": "",
-                                        })
-
-                            # 에이전트 결과 로그
-                            for _ar in _agent_results:
-                                _status = "OK" if _ar.get("response") and not _ar.get("error") else "FAIL"
-                                _err_msg = f" -> {_ar['error']}" if _ar.get("error") else ""
-                                try:
-                                    print(f"     [{_status}] [{_ar.get('group','?')}] {_ar.get('model','?')}{_err_msg}")
-                                except Exception:
-                                    pass
-
-                            # 합성 (가장 큰 모델 사용)
-                            _synth_path = _gguf_paths_by_size[0][0]
-                            _answer, _synth_err, _meta = _synthesize_responses_gguf(
-                                _agent_results, _last_query, _synth_path,
-                                temperature=temperature_map[min(effort, 3)],
-                                n_ctx=user_n_ctx if user_n_ctx > 0 else 32768,
-                                synth_max_tokens=max_tokens if max_tokens > 8192 else 8192,
-                            )
-
-                            if _answer and not _synth_err:
-                                _answer = _normalize_gguf_artifact_answer(_answer, gguf_artifact_request)
-                                try:
-                                    print(f"  [PARALLEL] done: {_meta.get('agents', 0)} agents, synthesis={_meta.get('synthesis', 'N/A')}")
-                                except Exception:
-                                    pass
-                                return jsonify({
-                                    "content": _answer,
-                                    "loaded_skills": loaded,
-                                    "system_prompt_length": len(system_prompt),
-                                    "parallel_agents": _meta.get("agents", 0),
-                                    "parallel_groups": _meta.get("groups", []),
-                                    "parallel_models": _meta.get("models", []),
-                                    "parallel_failed": _meta.get("failed", 0),
-                                    "parallel_synthesis": _meta.get("synthesis", ""),
-                                    "tokens_budget": f"parallel {_meta.get('agents', 0)} agents",
-                                })
-                            else:
-                                _parallel_fallback_reason = f"synthesis_failed: {_synth_err}"
-                                try:
-                                    print(f"  [PARALLEL] synthesis failed, fallback: {_synth_err}")
-                                except Exception:
-                                    pass
-
-                    except Exception as _par_ex:
-                        _parallel_fallback_reason = f"parallel_error: {_par_ex}"
-                        try:
-                            print(f"  [PARALLEL] error, fallback: {_par_ex}")
-                        except Exception:
-                            pass
-
-            # ── 기존 단일모델 경로 (폴백 포함) ──
-            # 선택된 환경의 모델 경로로 동적 로드/스왑
-            gguf_path = ENV_CONFIG.get(env_id, {}).get("_gguf_path")
-            _load_n_ctx = user_n_ctx if user_n_ctx > 0 else 32768
-            if gguf_path:
-                if not load_gguf_model(gguf_path, n_ctx=_load_n_ctx):
-                    return jsonify({"error": f"GGUF 모델 로드 실패: {os.path.basename(gguf_path)}"}), 500
-            if _utils_mod.gguf_model is None:
-                return jsonify({"error": "GGUF 모델이 로드되지 않았습니다. .gguf 파일과 llama-cpp-python이 필요합니다."}), 400
-
-            # GGUF 컨텍스트 한도 내에서 max_tokens 자동 조정 (보수적 계산)
-            gguf_ctx_attr = getattr(_utils_mod.gguf_model, 'n_ctx', None)
-            gguf_ctx = gguf_ctx_attr() if callable(gguf_ctx_attr) else (gguf_ctx_attr if gguf_ctx_attr is not None else 32768)
-            gguf_reply_cap = max(256, TOKEN_SETTINGS["gguf_reply_cap"])
-            gguf_ctx_reserve = max(512, TOKEN_SETTINGS["gguf_ctx_reserve"])
-
-            def _estimate_gguf_prompt_tokens(msgs):
-                # 1) 모델 토크나이저 기반 추정 (가능하면 사용)
-                try:
-                    flat_parts = []
-                    for m in msgs:
-                        role = m.get("role", "user")
-                        content = m.get("content", "")
-                        if isinstance(content, list):
-                            text_parts = []
-                            for p in content:
-                                if isinstance(p, dict) and p.get("type") == "text":
-                                    text_parts.append(str(p.get("text", "")))
-                            content = "\n".join(text_parts)
-                        flat_parts.append(f"{role}: {str(content)}")
-                    flat_text = "\n".join(flat_parts).encode("utf-8", errors="ignore")
-                    toks = _utils_mod.gguf_model.tokenize(flat_text, add_bos=True)
-                    return len(toks) + 256  # chat template/여유 버퍼
-                except Exception:
-                    # 2) 폴백: 한국어 기준 보수 추정
-                    total_chars = 0
-                    for m in msgs:
-                        content = m.get("content", "")
-                        if isinstance(content, list):
-                            text_parts = []
-                            for p in content:
-                                if isinstance(p, dict) and p.get("type") == "text":
-                                    text_parts.append(str(p.get("text", "")))
-                            content = "\n".join(text_parts)
-                        total_chars += len(str(content))
-                    return int(total_chars * 1.1) + 512
-
-            prompt_tokens_est = _estimate_gguf_prompt_tokens(api_messages)
-            safe_max = max(256, gguf_ctx - prompt_tokens_est - gguf_ctx_reserve)
-            actual_max_tokens = min(max_tokens, safe_max, gguf_reply_cap)
-
-            if prompt_tokens_est > gguf_ctx - gguf_ctx_reserve:
-                return jsonify({"error": f"프롬프트가 너무 깁니다 (~{prompt_tokens_est}토큰). 스킬 수를 줄이거나 히스토리를 초기화해주세요. (GGUF ctx: {gguf_ctx})"}), 400
-
-            answer, err = gguf_chat(
-                api_messages,
-                temperature=temperature_map[min(effort, 3)],
-                max_tokens=actual_max_tokens,
-                stop_flag=chat_stop_flag,
-            )
-            # GGUF 디코드 실패 시: 경량 컨텍스트 + 작은 토큰으로 1회 자동 재시도
-            if err and isinstance(err, str) and ("Failed completely even with batch size 1" in err or "llama.eval(decode)" in err):
-                compact_system = (
-                    "당신은 도움이 되는 AI입니다. "
-                    "핵심만 간결하게 답하고, 코드 요청이면 실행 가능한 코드만 출력하세요."
-                )
-                compact_messages = [{"role": "system", "content": compact_system}]
-                compact_messages.extend(messages[-6:] if len(messages) > 6 else messages)
-
-                compact_prompt_est = _estimate_gguf_prompt_tokens(compact_messages)
-                compact_safe_max = max(256, gguf_ctx - compact_prompt_est - gguf_ctx_reserve)
-                retry_max = min(2048, max(256, actual_max_tokens // 2), compact_safe_max)
-
-                retry_answer, retry_err = gguf_chat(
-                    compact_messages,
-                    temperature=temperature_map[min(effort, 3)],
-                    max_tokens=retry_max,
-                    stop_flag=chat_stop_flag,
-                )
-                if not retry_err and retry_answer:
-                    answer = retry_answer
-                    err = None
-                    prompt_tokens_est = compact_prompt_est
-                    actual_max_tokens = retry_max
-
-            if err:
-                return jsonify({"error": err}), 500
-
-            # GGUF: <think> 사고만 있고 본문 없이 잘린 경우 재시도
-            import re as _re
-            if answer and answer.strip():
-                stripped = answer.strip()
-                has_open = "<think>" in stripped
-                has_close = "</think>" in stripped
-                think_only_gguf = False
-                if has_open and not has_close:
-                    think_only_gguf = True
-                elif has_open and has_close:
-                    after = _re.sub(r'<think>[\s\S]*?</think>\s*', '', stripped).strip()
-                    if len(after) < 20:
-                        think_only_gguf = True
-                if think_only_gguf:
-                    retry_max = min(actual_max_tokens * 2, safe_max)
-                    if retry_max > actual_max_tokens:
-                        retry_answer, retry_err = gguf_chat(
-                            api_messages,
-                            temperature=temperature_map[min(effort, 3)],
-                            max_tokens=retry_max,
-                            stop_flag=chat_stop_flag,
-                        )
-                        if not retry_err and retry_answer:
-                            answer = retry_answer
-
-            # 반복 루프 감지 및 절단 (소형 GGUF 모델 보호)
-            answer, _was_rep = _detect_repetition(answer)
-
-            answer = _normalize_gguf_artifact_answer(answer, gguf_artifact_request)
-
-            _q_valid, _q_issues = _validate_response(answer, last_user_query)
-            _quality = _calculate_quality_score(answer, last_user_query, _q_issues)
-            try:
-                print(f"  [QUALITY] score={_quality['score']}, grade={_quality['grade']}, issues={_q_issues}")
-            except Exception:
-                pass
-            _resp = {
-                "content": answer,
-                "loaded_skills": loaded,
-                "system_prompt_length": len(system_prompt),
-                "tokens_budget": f"prompt~{prompt_tokens_est}, max_tokens={actual_max_tokens}, ctx={gguf_ctx}",
-                "quality": _quality,
+        if (mapZoom >= 2) {
+          for (const z of visibleZones) {
+            rc.strokeStyle = '#00ff88';
+            rc.lineWidth = zoneLineW;
+            rc.globalAlpha = 0.4;
+            rc.setLineDash([]);
+            for (const lane of z.inLanes) {
+              const from=nodes[lane.from], to=nodes[lane.to];
+              if (!from||!to) continue;
+              const [fx,fy]=toS(from[0],from[1]), [tx,ty]=toS(to[0],to[1]);
+              rc.beginPath(); rc.moveTo(fx,fy); rc.lineTo(tx,ty); rc.stroke();
             }
-            if _parallel_fallback_reason:
-                _resp["parallel_fallback"] = _parallel_fallback_reason
-            _resp = _maybe_generate_md_html(answer, loaded, _resp)
-            _auto_save_feedback(loaded, _quality, last_user_query)
-            return jsonify(_resp)
+            rc.setLineDash([3*mapZoom, 2*mapZoom]);
+            for (const lane of z.outLanes) {
+              const from=nodes[lane.from], to=nodes[lane.to];
+              if (!from||!to) continue;
+              const [fx,fy]=toS(from[0],from[1]), [tx,ty]=toS(to[0],to[1]);
+              rc.beginPath(); rc.moveTo(fx,fy); rc.lineTo(tx,ty); rc.stroke();
+            }
+          }
+          rc.setLineDash([]);
+          rc.globalAlpha = 1.0;
+        }
 
+        const fontSize = Math.max(7, Math.min(11, 5*mapZoom));
+        rc.font = `bold ${fontSize}px sans-serif`;
+        rc.textAlign = 'center';
+        for (const z of visibleZones) {
+          const cx = z._sx, cy = z._sy;
+          const label = `HID ${z.id}`;
+          const tw = rc.measureText(label).width;
+          rc.fillStyle = 'rgba(0,0,0,0.7)';
+          rc.fillRect(cx-tw/2-2, cy-fontSize/2-1, tw+4, fontSize+2);
+          rc.fillStyle = '#00ffcc';
+          rc.fillText(label, cx, cy + fontSize*0.3);
+        }
+      }
+    }
+    railCacheKey = cacheKey;
+  }
+  mapCtx.drawImage(railCacheCanvas, 0, 0);
 
-        # ===== 회사 API: HTTP 요청 (폴백 체인 지원) =====
+  // ===== 1.5. 레일 차단 edge 렌더링 (기존 모양 유지, 작고 투명하게) =====
+  const blockedEdges = mapData.blockedEdges || {};
+  const blockedKeys = Object.keys(blockedEdges);
+  if (showRailCut && blockedKeys.length > 0 && railGraph) {
+    const nodes = railGraph.nodes;
+    const blink = (Date.now() / 600) % 2 < 1;
 
-        # ── API 다중 선택 병렬 ──
-        if False:  # 병렬 제거: 단일 에이전트만 사용
-            _pre_skills, _par_groups, _use_parallel = group_skills_for_parallel(loaded)
-            if _use_parallel:
-                try:
-                    # API 모델 목록 (선택한 순서대로)
-                    _api_models = []
-                    for ue in user_envs:
-                        if ue in ENV_CONFIG:
-                            _api_models.append({"env_id": ue, **ENV_CONFIG[ue]})
-                    if len(_api_models) >= 2:
-                        # 그룹 → API 모델 배정 (라운드로빈)
-                        _api_assignments = {}
-                        for i, pg in enumerate(_par_groups):
-                            _api_assignments[pg["group"]] = _api_models[i % len(_api_models)]
+    // (A) 차단 edge — 빨간 점선 (얇게 + 투명)
+    mapCtx.strokeStyle = '#ef4444';
+    mapCtx.lineWidth = Math.max(1, 1.2 * mapZoom);
+    mapCtx.setLineDash([5 * mapZoom, 3 * mapZoom]);
+    mapCtx.globalAlpha = blink ? 0.45 : 0.18;
+    mapCtx.lineCap = 'round';
+    mapCtx.beginPath();
+    const visibleBlocked = [];
+    for (const key of blockedKeys) {
+      const be = blockedEdges[key];
+      const from = nodes[be.from], to = nodes[be.to];
+      if (!from || !to) continue;
+      const [fx, fy] = toS(from[0], from[1]);
+      const [tx, ty] = toS(to[0], to[1]);
+      if ((fx<-50 && tx<-50) || (fx>w+50 && tx>w+50) || (fy<-50 && ty<-50) || (fy>h+50 && ty>h+50)) continue;
+      mapCtx.moveTo(fx, fy); mapCtx.lineTo(tx, ty);
+      visibleBlocked.push({ be, fx, fy, tx, ty });
+    }
+    mapCtx.stroke();
+    mapCtx.setLineDash([]);
 
-                        # 그룹별 스킬 콘텐츠
-                        _api_group_contents = {}
-                        for pg in _par_groups:
-                            contents = {}
-                            for sid in pg["skills"]:
-                                c = load_skill_content(sid)
-                                if c:
-                                    contents[sid] = c
-                            _api_group_contents[pg["group"]] = contents
+    // (B) edge 중앙에 ⛔ 마커 — 빨간 원 + 흰 테두리 + 흰 X (작고 투명하게)
+    const markerR = Math.max(2.5, 3 * mapZoom);
+    const xSize = Math.max(1.8, 2 * mapZoom);
+    for (const vb of visibleBlocked) {
+      const mx = (vb.fx + vb.tx) / 2, my = (vb.fy + vb.ty) / 2;
 
-                        _last_query = ""
-                        for m in reversed(messages):
-                            if m.get("role") == "user":
-                                _last_query = m.get("content", "")
-                                if isinstance(_last_query, list):
-                                    _last_query = " ".join(
-                                        p.get("text", "") for p in _last_query
-                                        if isinstance(p, dict) and p.get("type") == "text"
-                                    )
-                                break
+      // 빨간 원 배경 (깜빡임, 투명)
+      mapCtx.globalAlpha = blink ? 0.6 : 0.25;
+      mapCtx.fillStyle = '#ef4444';
+      mapCtx.beginPath();
+      mapCtx.arc(mx, my, markerR, 0, 6.283);
+      mapCtx.fill();
 
-                        # ThreadPoolExecutor로 API 병렬 (모듈 레벨 _api_agent_call 사용)
-                        _api_results = []
-                        _temp = temperature_map[min(effort, 3)]
-                        with ThreadPoolExecutor(max_workers=min(len(_par_groups), 4)) as executor:
-                            futures = {}
-                            for pg in _par_groups:
-                                api_info = _api_assignments[pg["group"]]
-                                future = executor.submit(
-                                    _api_agent_call,
-                                    api_info=api_info,
-                                    skill_ids=pg["skills"],
-                                    skill_contents=_api_group_contents[pg["group"]],
-                                    query=_last_query,
-                                    hist=messages,
-                                    api_key=api_key,
-                                    temperature=_temp,
-                                    csv_data=uploaded_csv_data if uploaded_csv_data.get("filename") else None,
-                                    uploaded_files_data=uploaded_files if uploaded_files else None,
-                                )
-                                futures[future] = pg["group"]
-                            for future in as_completed(futures, timeout=180):
-                                try:
-                                    _api_results.append(future.result(timeout=120))
-                                except Exception as e:
-                                    _api_results.append({"group": futures[future], "skills": [],
-                                                         "response": "", "error": str(e), "model": ""})
+      // 흰 테두리 (얇게)
+      mapCtx.strokeStyle = '#fff';
+      mapCtx.lineWidth = 0.8;
+      mapCtx.stroke();
 
-                        # 합성 (첫 번째 API로)
-                        successes = [r for r in _api_results if r.get("response") and not r.get("error")]
-                        failures = [r for r in _api_results if r.get("error")]
+      // 흰 X 마커 (얇게)
+      mapCtx.globalAlpha = blink ? 0.75 : 0.3;
+      mapCtx.strokeStyle = '#fff';
+      mapCtx.lineWidth = Math.max(0.8, 1 * mapZoom);
+      mapCtx.beginPath();
+      mapCtx.moveTo(mx - xSize, my - xSize); mapCtx.lineTo(mx + xSize, my + xSize);
+      mapCtx.moveTo(mx + xSize, my - xSize); mapCtx.lineTo(mx - xSize, my + xSize);
+      mapCtx.stroke();
+    }
+    mapCtx.globalAlpha = 1.0;
+  }
 
-                        if len(successes) == 0:
-                            pass  # 전부 실패 → 폴백
-                        elif len(successes) == 1:
-                            _sq = _calculate_quality_score(successes[0]["response"], _last_query)
-                            return jsonify({
-                                "content": successes[0]["response"],
-                                "loaded_skills": loaded,
-                                "system_prompt_length": len(system_prompt),
-                                "parallel_agents": 1, "parallel_failed": len(failures),
-                                "parallel_groups": [successes[0]["group"]],
-                                "parallel_models": [successes[0]["model"]],
-                                "parallel_synthesis": "",
-                                "quality": _sq,
-                            })
-                        else:
-                            # 합성 프롬프트
-                            expert_sections = []
-                            for r in successes:
-                                snames = ", ".join(SKILL_DESC_KO.get(s, s) for s in r["skills"])
-                                expert_sections.append(f"=== [{r['group']}] ({snames}) ===\n{r['response']}")
-                            synth_system = (
-                                f"여러 전문가의 분석을 통합하는 수석 연구원입니다.\n"
-                                f"반드시 한국어로만 작성하세요.\n\n"
-                                + "\n\n".join(expert_sections) +
-                                "\n\n[통합 원칙] 핵심 포함, 중복 제거, 한국어, 코드 통합\n"
-                                "[보고 구조] 핵심 결론 → 분석 근거 → 코드/시각화 → 추가 제안\n"
-                                + ANTI_RATIONALIZATION
-                            )
-                            synth_api = _api_models[0]
-                            try:
-                                h = {"Content-Type": "application/json"}
-                                if api_key:
-                                    h["Authorization"] = f"Bearer {api_key}"
-                                sr = req.post(synth_api["url"], headers=h, json={
-                                    "model": synth_api["model"],
-                                    "messages": [{"role": "system", "content": synth_system},
-                                                 {"role": "user", "content": _last_query}],
-                                    "temperature": 0.3, "max_tokens": 8192, "stream": False, "tool_choice": "none",
-                                }, timeout=120, verify=False)
-                                sr.raise_for_status()
-                                sr_data = sr.json()
-                                if "choices" in sr_data and len(sr_data["choices"]) > 0:
-                                    synth_answer = sr_data["choices"][0].get("message", {}).get("content") or ""
-                                    _sq = _calculate_quality_score(synth_answer, _last_query)
-                                    return jsonify({
-                                        "content": synth_answer,
-                                        "loaded_skills": loaded,
-                                        "system_prompt_length": len(system_prompt),
-                                        "parallel_agents": len(successes), "parallel_failed": len(failures),
-                                        "parallel_groups": [r["group"] for r in successes],
-                                        "parallel_models": list(set(r["model"] for r in successes)),
-                                        "parallel_synthesis": "model",
-                                        "quality": _sq,
-                                    })
-                            except Exception:
-                                pass
-                            # 합성 실패 → 단순 연결
-                            fallback = "\n\n---\n\n".join(
-                                f"### {', '.join(SKILL_DESC_KO.get(s,s) for s in r['skills'])}\n{r['response']}"
-                                for r in successes
-                            )
-                            _sq = _calculate_quality_score(fallback, _last_query)
-                            return jsonify({
-                                "content": fallback,
-                                "loaded_skills": loaded,
-                                "system_prompt_length": len(system_prompt),
-                                "parallel_agents": len(successes), "parallel_failed": len(failures),
-                                "parallel_groups": [r["group"] for r in successes],
-                                "parallel_models": list(set(r["model"] for r in successes)),
-                                "parallel_synthesis": "fallback_concat",
-                                "quality": _sq,
-                            })
-                except Exception as e:
-                    try:
-                        print(f"  [API PARALLEL] error, fallback: {e}")
-                    except Exception:
-                        pass
+  // 2. 차량 (보간된 위치) — 카테고리별 색상 분리
+  // 공차운행: 초록 #22c55e | 적재: 주황 #f59e0b | OBS: 노랑 #eab308 | 정지: 회색 #6b7280 | JAM: 빨강 #ef4444
+  const r = Math.max(1.5, Math.min(4, 1.5*mapZoom));
+  for (const vid in vehicleDisplay) {
+    const v = vehicleDisplay[vid];
+    const [sx,sy] = toS(v.dx, v.dy);
+    if (sx<-5||sx>w+5||sy<-5||sy>h+5) continue;
+    mapCtx.beginPath();
+    mapCtx.arc(sx, sy, r, 0, 6.283);
+    let color;
+    if (v.state === 6) color = '#f59e0b';                      // OBS (주황)
+    else if (v.state === 7) color = '#ef4444';                 // JAM (빨강)
+    else if (v.state === 2 || v.state === 8 || v.state === 9) color = '#6b7280';  // 정지 (회색)
+    else if (v.isFull) color = '#3b82f6';                      // 적재 (파랑)
+    else color = '#22c55e';                                    // 공차운행 (초록)
+    mapCtx.fillStyle = color;
+    mapCtx.fill();
+  }
 
-        # ── API 자동 멀티에이전트 (AUTO 모드에서 스킬 2+개, 2+그룹) ──
-        if False:  # 병렬 제거: 단일 에이전트만 사용
-            _pre_skills, _par_groups, _use_parallel = group_skills_for_parallel(loaded)
-            if _use_parallel:
-                try:
-                    # Hierarchical Delegation: 큰 그룹을 서브그룹으로 분할
-                    _par_groups = apply_hierarchical_delegation(_par_groups)
+  // 2.4. 선택된 OHT 강조 (노란 링 + 라벨)
+  if (selectedOHT && vehicleDisplay[selectedOHT]) {
+    const v = vehicleDisplay[selectedOHT];
+    const [sx,sy] = toS(v.dx, v.dy);
+    const ringR = Math.max(8, r * 4);
+    mapCtx.beginPath();
+    mapCtx.arc(sx, sy, ringR, 0, 6.283);
+    mapCtx.strokeStyle = '#ffff00';
+    mapCtx.lineWidth = 2.5;
+    mapCtx.setLineDash([6, 3]);
+    mapCtx.stroke();
+    mapCtx.setLineDash([]);
+    // 라벨
+    const labelFS = Math.max(11, 12*Math.min(mapZoom, 2));
+    mapCtx.font = `bold ${labelFS}px sans-serif`;
+    const label = selectedOHT;
+    const tw = mapCtx.measureText(label).width;
+    const lx = sx, ly = sy - ringR - 8;
+    mapCtx.fillStyle = 'rgba(0,0,0,0.85)';
+    mapCtx.fillRect(lx-tw/2-5, ly-labelFS-2, tw+10, labelFS+6);
+    mapCtx.fillStyle = '#ffff00';
+    mapCtx.textAlign = 'center';
+    mapCtx.fillText(label, lx, ly);
+  }
 
-                    _primary_reg_key = get_registry_key_for_env(env_id)
-                    _auto_api_assignments = _assign_api_models_to_groups(_par_groups, _primary_reg_key)
+  // 2.5. 선택된 Zone 하이라이트
+  if (selectedZone && railGraph) {
+    const z = selectedZone;
+    const zData = railGraph.zones.find(zz => zz.id === z.id);
+    if (zData) {
+      const nodes = railGraph.nodes;
+      let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
+      for (const lane of [...zData.inLanes, ...zData.outLanes]) {
+        const from=nodes[lane.from], to=nodes[lane.to];
+        if (from) { minX=Math.min(minX,from[0]); maxX=Math.max(maxX,from[0]); minY=Math.min(minY,from[1]); maxY=Math.max(maxY,from[1]); }
+        if (to) { minX=Math.min(minX,to[0]); maxX=Math.max(maxX,to[0]); minY=Math.min(minY,to[1]); maxY=Math.max(maxY,to[1]); }
+      }
+      if (minX < Infinity) {
+        const pad = 15;
+        const [sx1,sy1] = toS(minX-pad, minY-pad);
+        const [sx2,sy2] = toS(maxX+pad, maxY+pad);
+        mapCtx.strokeStyle = '#ffff00';
+        mapCtx.lineWidth = 2.5;
+        mapCtx.setLineDash([8, 4]);
+        mapCtx.strokeRect(sx1, sy1, sx2-sx1, sy2-sy1);
+        mapCtx.setLineDash([]);
+        mapCtx.fillStyle = 'rgba(255,255,0,0.06)';
+        mapCtx.fillRect(sx1, sy1, sx2-sx1, sy2-sy1);
+        const cx = (sx1+sx2)/2, cy2 = sy1 - 5;
+        const labelFS = Math.max(12, 14*mapZoom);
+        mapCtx.font = `bold ${labelFS}px sans-serif`;
+        mapCtx.textAlign = 'center';
+        const label = `HID ${z.id}`;
+        const tw = mapCtx.measureText(label).width;
+        mapCtx.fillStyle = 'rgba(0,0,0,0.8)';
+        mapCtx.fillRect(cx-tw/2-6, cy2-labelFS-4, tw+12, labelFS+8);
+        mapCtx.fillStyle = '#ffff00';
+        mapCtx.fillText(label, cx, cy2-4);
+        const countLabel = `0/${z.max}`;
+        const countFS = Math.max(10, 11*mapZoom);
+        mapCtx.font = `${countFS}px sans-serif`;
+        const ctw = mapCtx.measureText(countLabel).width;
+        const cy3 = sy2 + countFS + 4;
+        mapCtx.fillStyle = 'rgba(0,0,0,0.8)';
+        mapCtx.fillRect(cx-ctw/2-4, cy3-countFS-2, ctw+8, countFS+4);
+        mapCtx.fillStyle = '#ffffff';
+        mapCtx.fillText(countLabel, cx, cy3-2);
+      }
+    }
+  }
 
-                    # 그룹별 스킬 콘텐츠 준비
-                    _auto_group_contents = {}
-                    for pg in _par_groups:
-                        contents = {}
-                        for sid in pg["skills"]:
-                            c = load_skill_content(sid)
-                            if c:
-                                contents[sid] = c
-                        _auto_group_contents[pg["group"]] = contents
+  // 2.6. 차량 ID 표시
+  if (showId && mapZoom > 1) {
+    mapCtx.font = `${Math.max(7, 7*mapZoom)}px sans-serif`;
+    mapCtx.fillStyle = '#e0e0e0';
+    mapCtx.textAlign = 'left';
+    for (const vid in vehicleDisplay) {
+      const v = vehicleDisplay[vid];
+      const [sx,sy] = toS(v.dx, v.dy);
+      if (sx<-5||sx>w+5||sy<-5||sy>h+5) continue;
+      mapCtx.fillText(vid, sx+r+2, sy+3);
+    }
+  }
 
-                    # 마지막 사용자 메시지 추출
-                    _last_query = ""
-                    for m in reversed(messages):
-                        if m.get("role") == "user":
-                            _last_query = m.get("content", "")
-                            if isinstance(_last_query, list):
-                                _last_query = " ".join(
-                                    p.get("text", "") for p in _last_query
-                                    if isinstance(p, dict) and p.get("type") == "text"
-                                )
-                            break
+  // 3. 정보 표시 (범례는 상단 배지로 이동됨)
+  mapCtx.font = '11px sans-serif';
+  mapCtx.fillStyle='rgba(10,14,23,0.85)'; mapCtx.fillRect(w-130,4,126,18);
+  mapCtx.fillStyle='#60a5fa'; mapCtx.textAlign='right'; mapCtx.fillText(`차량 ${Object.keys(vehicleDisplay).length}대`, w-8, 16);
+  mapCtx.fillStyle='rgba(10,14,23,0.85)'; mapCtx.fillRect(w-180,24,176,16);
+  mapCtx.fillStyle='#4b5563'; mapCtx.fillText('스크롤:줌 | 드래그:이동', w-8, 36);
+}
 
-                    try:
-                        print(f"\n  [API AUTO-PARALLEL] {len(_par_groups)} groups")
-                    except Exception:
-                        pass
-                    for pg in _par_groups:
-                        _asgn = _auto_api_assignments.get(pg["group"], {})
-                        try:
-                            print(f"     [{pg['group']}] skills={pg['skills']} -> {_asgn.get('model', '?')}")
-                        except Exception:
-                            pass
+// 줌/팬
+mapCanvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  mapZoom = Math.max(0.3, Math.min(20, mapZoom * (e.deltaY>0?0.9:1.1)));
+  railCacheCanvas = null;
+  requestAnimationFrame(drawMap);
+});
+mapCanvas.addEventListener('mousedown', e => { isDragging=true; dragStartX=e.clientX-mapPanX; dragStartY=e.clientY-mapPanY; });
+mapCanvas.addEventListener('mousemove', e => { if(!isDragging) return; mapPanX=e.clientX-dragStartX; mapPanY=e.clientY-dragStartY; railCacheCanvas=null; requestAnimationFrame(drawMap); });
+mapCanvas.addEventListener('mouseup', () => isDragging=false);
+mapCanvas.addEventListener('mouseleave', () => isDragging=false);
 
-                    # ThreadPoolExecutor로 병렬 실행
-                    _temp = temperature_map[min(effort, 3)]
-                    _auto_api_results = []
-                    with ThreadPoolExecutor(max_workers=min(len(_par_groups), 4)) as executor:
-                        futures = {}
-                        for pg in _par_groups:
-                            assignment = _auto_api_assignments[pg["group"]]
-                            future = executor.submit(
-                                _api_agent_call,
-                                api_info=assignment,
-                                skill_ids=pg["skills"],
-                                skill_contents=_auto_group_contents[pg["group"]],
-                                query=_last_query,
-                                hist=messages,
-                                api_key=api_key,
-                                temperature=_temp,
-                                max_tokens=TOKEN_SETTINGS["parallel_agent_max_tokens"],
-                                csv_data=uploaded_csv_data if uploaded_csv_data.get("filename") else None,
-                                uploaded_files_data=uploaded_files if uploaded_files else None,
-                            )
-                            futures[future] = pg["group"]
-                        for future in as_completed(futures, timeout=180):
-                            try:
-                                _auto_api_results.append(future.result(timeout=120))
-                            except Exception as e:
-                                _auto_api_results.append({
-                                    "group": futures[future], "skills": [],
-                                    "response": "", "error": str(e), "model": "",
-                                })
+// ESC 키 → OHT / Zone 선택 해제
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  // 검색 입력 중이면 인풋만 비움
+  const ae = document.activeElement;
+  if (ae && (ae.id === 'ohtSearch' || ae.id === 'zoneSearch')) {
+    ae.value = '';
+    if (ae.id === 'ohtSearch') renderOHTList(); else renderZoneList();
+    return;
+  }
+  let changed = false;
+  if (selectedOHT !== null) { selectedOHT = null; changed = true; renderOHTList(); }
+  if (selectedZone !== null) { selectedZone = null; changed = true; renderZoneList(); }
+  if (changed) { railCacheCanvas = null; drawMap(); }
+});
 
-                    # 에이전트 결과 로그
-                    for _ar in _auto_api_results:
-                        _status = "OK" if _ar.get("response") and not _ar.get("error") else "FAIL"
-                        _err_msg = f" -> {_ar['error']}" if _ar.get("error") else ""
-                        try:
-                            print(f"     [{_status}] [{_ar.get('group','?')}] {_ar.get('model','?')}{_err_msg}")
-                        except Exception:
-                            pass
+// ============================================================
+// 차트: 큐 & OBS 추이
+// ============================================================
+function drawQueueChart() {
+  const canvas = document.getElementById('chart-queue');
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width; canvas.height = rect.height - 18;
+  const ctx = canvas.getContext('2d'), w = canvas.width, h = canvas.height;
+  ctx.fillStyle = '#111827'; ctx.fillRect(0,0,w,h);
+  if (!starHistory.length) { ctx.fillStyle='#374151'; ctx.font='11px sans-serif'; ctx.textAlign='center'; ctx.fillText('데이터 로드 필요',w/2,h/2); return; }
+  const pad={left:35,right:5,top:8,bottom:18}, cw=w-pad.left-pad.right, ch=h-pad.top-pad.bottom;
+  const queues=starHistory.map(s=>s.queue_total||0).filter(v=>v>0), obs=starHistory.map(s=>s.obs_bz_stop||0);
+  const maxQ=Math.max(...queues,1), maxObs=Math.max(...obs,1);
 
-                    # 결과 합성
-                    successes = [r for r in _auto_api_results if r.get("response") and not r.get("error")]
-                    failures = [r for r in _auto_api_results if r.get("error")]
+  // 차트 영역 좌표 저장 (클릭 이벤트용)
+  canvas._chartGeom = { padLeft: pad.left, padTop: pad.top, cw, ch, count: starHistory.length };
 
-                    if len(successes) == 1:
-                        _sq = _calculate_quality_score(successes[0]["response"], _last_query)
-                        try:
-                            print(f"  [QUALITY] score={_sq['score']}, grade={_sq['grade']}")
-                        except Exception:
-                            pass
-                        return jsonify({
-                            "content": successes[0]["response"],
-                            "loaded_skills": loaded,
-                            "system_prompt_length": len(system_prompt),
-                            "parallel_agents": 1, "parallel_failed": len(failures),
-                            "parallel_groups": [successes[0]["group"]],
-                            "parallel_models": [successes[0]["model"]],
-                            "parallel_synthesis": "",
-                            "auto_routed": auto_routed, "route_reason": route_reason,
-                            "auto_multi_agent": True,
-                            "quality": _sq,
-                        })
-                    elif len(successes) >= 2:
-                        # 합성 모델 결정: low cost tier → 대형 모델로 업그레이드
-                        _synth_reg_key = _primary_reg_key or "qwen3-coder-480b"
-                        _primary_cost = MODEL_REGISTRY.get(_synth_reg_key, {}).get("cost_tier", "medium")
-                        if _primary_cost == "low":
-                            _synth_reg_key = "qwen3-coder-480b"
-                        _synth_reg = MODEL_REGISTRY.get(_synth_reg_key, MODEL_REGISTRY["qwen3-coder-480b"])
+  // 큐 라인
+  ctx.strokeStyle='#3b82f6'; ctx.lineWidth=1.5; ctx.beginPath();
+  for(let i=0;i<queues.length;i++){const x=pad.left+(i/queues.length)*cw,y=pad.top+ch-(queues[i]/maxQ)*ch;i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);}ctx.stroke();
+  // OBS 라인
+  ctx.strokeStyle='#f59e0b'; ctx.lineWidth=1.5; ctx.beginPath();
+  for(let i=0;i<obs.length;i++){const x=pad.left+(i/obs.length)*cw,y=pad.top+ch-(obs[i]/maxObs)*ch;i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);}ctx.stroke();
 
-                        # 합성 프롬프트
-                        expert_sections = []
-                        for r in successes:
-                            snames = ", ".join(SKILL_DESC_KO.get(s, s) for s in r["skills"])
-                            expert_sections.append(f"=== [{r['group']}] ({snames}) ===\n{r['response']}")
+  // 현재 재생 시간 세로선 (노란색)
+  if (mapData.currentTimeStr && starHistory.length > 0) {
+    const curHHMM = mapData.currentTimeStr.substring(0, 5);  // "HH:MM"
+    let curIdx = -1;
+    for (let i = 0; i < starHistory.length; i++) {
+      if (starHistory[i].time === curHHMM) { curIdx = i; break; }
+      if (starHistory[i].time > curHHMM && i > 0) { curIdx = i - 1; break; }
+    }
+    if (curIdx < 0 && curHHMM > starHistory[starHistory.length-1].time) curIdx = starHistory.length - 1;
+    if (curIdx >= 0) {
+      const cx = pad.left + (curIdx / starHistory.length) * cw;
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.moveTo(cx, pad.top);
+      ctx.lineTo(cx, pad.top + ch);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // 현재 시간 라벨
+      ctx.fillStyle = '#fbbf24';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      const labelX = Math.max(pad.left + 20, Math.min(w - 20, cx));
+      ctx.fillText('▼ ' + curHHMM, labelX, pad.top + 8);
+    }
+  }
 
-                        synth_system = (
-                            f"당신은 여러 전문가의 분석을 통합하는 수석 연구원입니다.\n"
-                            f"중요: 반드시 모든 내용을 한국어로만 작성하세요. 영어를 사용하지 마세요.\n"
-                            f"<think> 태그를 사용하지 마세요.\n\n"
-                            f"아래 {len(successes)}명의 전문가가 각자의 전문 영역에서 답변했습니다.\n\n"
-                            + "\n\n".join(expert_sections) +
-                            "\n\n[통합 원칙]\n"
-                            "1. 반드시 한국어로만 답변하세요 (코드 주석도 한국어)\n"
-                            "2. 각 전문가의 핵심 내용을 빠짐없이 포함\n"
-                            "3. 중복 내용은 한 번만 언급\n"
-                            "4. 하나의 자연스러운 답변으로 통합 (전문가별로 분리하지 말 것)\n"
-                            "5. 코드가 있으면 통합된 하나의 코드로 합쳐서 제공\n"
-                            "6. 가짜 데이터를 만들지 마세요\n\n"
-                            "[통합 보고 구조]\n"
-                            "핵심 결론 → 분석 근거 → 코드/시각화 → 추가 제안 순서로 작성하세요.\n"
-                            "각 전문가 영역의 기여를 자연스럽게 녹여내되, 출처는 명시하세요.\n\n"
-                            + ANTI_RATIONALIZATION +
-                            VERIFICATION_GATE
-                        )
+  // 라벨
+  ctx.fillStyle='#6b7280';ctx.font='9px sans-serif';ctx.textAlign='right';ctx.fillText(maxQ.toString(),pad.left-4,pad.top+10);ctx.fillText('0',pad.left-4,pad.top+ch);
+  ctx.textAlign='left';ctx.fillStyle='#3b82f6';ctx.fillText('큐',pad.left+5,pad.top+10);ctx.fillStyle='#f59e0b';ctx.fillText('OBS',pad.left+30,pad.top+10);
+  ctx.fillStyle='#6b7280';ctx.textAlign='center';const step=Math.max(1,Math.floor(starHistory.length/8));
+  for(let i=0;i<starHistory.length;i+=step){ctx.fillText(starHistory[i].time||'',pad.left+(i/starHistory.length)*cw,h-4);}
 
-                        try:
-                            _sh = {"Content-Type": "application/json"}
-                            if api_key:
-                                _sh["Authorization"] = f"Bearer {api_key}"
-                            sr = req.post(_synth_reg["url"], headers=_sh, json={
-                                "model": _synth_reg["model"],
-                                "messages": [{"role": "system", "content": synth_system},
-                                             {"role": "user", "content": _last_query}],
-                                "temperature": 0.3,
-                                "max_tokens": max_tokens if max_tokens >= 8192 else 8192,
-                                "stream": False, "tool_choice": "none",
-                            }, timeout=180, verify=False)
-                            sr.raise_for_status()
-                            sr_data = sr.json()
-                            if "choices" in sr_data and len(sr_data["choices"]) > 0:
-                                synth_answer = sr_data["choices"][0].get("message", {}).get("content") or ""
-                                # Self-evaluation: 합성 응답 품질 검증
-                                _valid, _issues = _validate_response(synth_answer, _last_query)
-                                if _issues:
-                                    synth_answer = _fix_response_issues(synth_answer, _issues)
-                                    try:
-                                        print(f"  [EVAL] issues={_issues}, auto-fixed")
-                                    except Exception:
-                                        pass
-                                _sq = _calculate_quality_score(synth_answer, _last_query, _issues if _issues else [])
-                                try:
-                                    print(f"  [API AUTO-PARALLEL] done: {len(successes)} agents, "
-                                          f"synthesis={_synth_reg['model']}")
-                                    print(f"  [QUALITY] score={_sq['score']}, grade={_sq['grade']}")
-                                except Exception:
-                                    pass
-                                return jsonify({
-                                    "content": synth_answer,
-                                    "loaded_skills": loaded,
-                                    "system_prompt_length": len(system_prompt),
-                                    "parallel_agents": len(successes),
-                                    "parallel_failed": len(failures),
-                                    "parallel_groups": [r["group"] for r in successes],
-                                    "parallel_models": list(set(r["model"] for r in successes)),
-                                    "parallel_synthesis": _synth_reg["model"],
-                                    "auto_routed": auto_routed, "route_reason": route_reason,
-                                    "auto_multi_agent": True,
-                                    "quality": _sq,
-                                })
-                        except Exception as _synth_ex:
-                            try:
-                                print(f"  [API AUTO-PARALLEL] synthesis failed: {_synth_ex}")
-                            except Exception:
-                                pass
+  // 힌트 텍스트
+  ctx.fillStyle = '#4b5563';
+  ctx.font = '9px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('💡 클릭 → 해당 시간 이동', w - 4, h - 4);
+}
 
-                        # 합성 실패 → fallback concat
-                        fallback = "\n\n---\n\n".join(
-                            f"### {', '.join(SKILL_DESC_KO.get(s, s) for s in r['skills'])}\n{r['response']}"
-                            for r in successes
-                        )
-                        _sq = _calculate_quality_score(fallback, _last_query)
-                        return jsonify({
-                            "content": fallback,
-                            "loaded_skills": loaded,
-                            "system_prompt_length": len(system_prompt),
-                            "parallel_agents": len(successes),
-                            "parallel_failed": len(failures),
-                            "parallel_groups": [r["group"] for r in successes],
-                            "parallel_models": list(set(r["model"] for r in successes)),
-                            "parallel_synthesis": "fallback_concat",
-                            "auto_routed": auto_routed, "route_reason": route_reason,
-                            "auto_multi_agent": True,
-                            "quality": _sq,
-                        })
-                    # else: 전부 실패 → 아래 단일모델 경로로 폴백
+// ============================================================
+// OBS Spike 추적 (데드락 전조)
+// ============================================================
+const OBS_HISTORY_MAX = 60;       // 최근 60샘플 보관
+const OBS_SPIKE_SIGMA = 1.5;      // 평균 + 1.5σ를 spike로 판정
+let obsHistory = [];              // [{time, obs}, ...]
+let jamEvents = [];               // [{time, obs, jam}] — 재생 누적 (호환성용)
+let fullObsHistory = [];          // 전체 데이터 시계열 [{time, obs, jam}, ...] — 데이터 로드 시 1회 채움
+let currentPlayTime = '';         // 현재 재생 시각 (HH:MM:SS) — 차트의 노란 세로선 위치
+let _lastObsSampleTime = '';
+let _lastJamCount = 0;
 
-                except Exception as _auto_par_ex:
-                    try:
-                        print(f"  [API AUTO-PARALLEL] error, fallback to single: {_auto_par_ex}")
-                    except Exception:
-                        pass
+function trackOBSHistory(obs, timeStr, jamCount) {
+  if (!timeStr || timeStr === _lastObsSampleTime) return;
+  _lastObsSampleTime = timeStr;
+  obsHistory.push({ time: timeStr, obs: obs, jam: jamCount });
+  if (obsHistory.length > OBS_HISTORY_MAX) obsHistory.shift();
 
-        headers = {"Content-Type": "application/json"}
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+  // JAM 발생 (state=7 차량이 0→1 이상으로 새로 등장한 시점만)
+  if (jamCount > 0 && _lastJamCount === 0) {
+    jamEvents.push({ time: timeStr, obs: obs, jam: jamCount });
+    if (jamEvents.length > 50) jamEvents.shift();
+  }
+  _lastJamCount = jamCount;
+}
 
-        # 폴백 체인 구성: 현재 모델 → 대체 모델들
-        primary_reg_key = get_registry_key_for_env(env_id)
-        if primary_reg_key:
-            fallback_keys = [primary_reg_key] + FALLBACK_CHAINS.get(primary_reg_key, [])
-        else:
-            fallback_keys = []  # GGUF 등은 폴백 없음
+function updateSpikePanel() {
+  // 현재 OBS = 재생 시점 (최신)
+  const cur = obsHistory.length ? obsHistory[obsHistory.length - 1].obs : '-';
+  setText('p-obs-now', cur);
 
-        # 이미지가 있으면 non-vision 폴백에서 이미지 제거 (텍스트만 전송)
-        def _prepare_messages_for_model(reg_key, msgs):
-            """VL 모델이 아닌 경우 멀티모달 content를 텍스트로 되돌리기"""
-            cap = MODEL_REGISTRY.get(reg_key, {}).get("capabilities", set())
-            if "vision" not in cap:
-                clean = []
-                for m in msgs:
-                    if isinstance(m.get("content"), list):
-                        text_parts = [p["text"] for p in m["content"] if p.get("type") == "text"]
-                        clean.append({**m, "content": "\n".join(text_parts)})
-                    else:
-                        clean.append(m)
-                return clean
-            return msgs
+  // 평균 OBS / JAM 발생 = 전체 데이터 (재생과 무관)
+  if (fullObsHistory.length) {
+    const vals = fullObsHistory.map(h => h.obs);
+    const avg = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+    const allJam = fullObsHistory.filter(h => h.jam && h.jam > 0).length;
+    setText('p-obs-avg', avg);
+    setText('p-jam-cnt', allJam);
+  } else {
+    setText('p-obs-avg', '-');
+    setText('p-jam-cnt', 0);
+  }
 
-        fallback_used = False
-        fallback_from = ""
-        actual_model_used = model
-        last_error = None
+  // 모달이 열려있으면 모달 내용도 갱신 (현재 시간 마커 이동)
+  if (document.getElementById('spike-modal').style.display === 'flex') {
+    renderSpikeModal();
+  }
+}
 
-        models_tried = []
-        if fallback_keys:
-            for attempt, reg_key in enumerate(fallback_keys[:6]):  # 최대 6회
-                reg = MODEL_REGISTRY[reg_key]
-                try_url = reg["url"]
-                try_model = reg["model"]
-                try_msgs = _prepare_messages_for_model(reg_key, api_messages)
-                models_tried.append(try_model)
+// ============================================================
+// 위험 레벨 이력 모달 (정상 제외)
+// ============================================================
+// macro_predictor 임계값과 동일
+const RISK_THRESHOLDS = { WARNING: 180, DANGER: 200, CRITICAL: 300 };
 
-                try:
-                    resp = req.post(
-                        try_url,
-                        headers=headers,
-                        json={
-                            "model": try_model,
-                            "messages": try_msgs,
-                            "temperature": temperature_map[min(effort, 3)],
-                            "max_tokens": max_tokens,
-                            "stream": False,
-                            "tool_choice": "none",
-                        },
-                        timeout=120,
-                        verify=False,
-                    )
-                    resp.raise_for_status()
-                    result = resp.json()
+function computeRiskLevel(avg_obs, trend) {
+  if (avg_obs >= RISK_THRESHOLDS.CRITICAL) return 'CRITICAL';
+  if (avg_obs >= RISK_THRESHOLDS.DANGER) return 'DANGER';
+  if (avg_obs >= RISK_THRESHOLDS.WARNING) return 'WARNING';
+  if (trend > 10) return 'WATCH';
+  return 'NORMAL';
+}
 
-                    # 응답 추출
-                    truncated = False
-                    if "choices" in result and len(result["choices"]) > 0:
-                        answer = result["choices"][0].get("message", {}).get("content") or ""
-                        finish_reason = result["choices"][0].get("finish_reason", "")
-                        if finish_reason == "length":
-                            truncated = True
+function buildRiskHistory() {
+  // fullObsHistory 분당 데이터에서 위험 레벨 시계열 생성
+  // 같은 레벨이 연속되면 한 구간으로 묶음
+  if (!fullObsHistory.length) return [];
+  const segments = [];
+  let curSeg = null;
+  for (let i = 0; i < fullObsHistory.length; i++) {
+    const recent = fullObsHistory.slice(Math.max(0, i - 9), i + 1);
+    const avg = recent.reduce((s, h) => s + h.obs, 0) / recent.length;
+    let trend = 0;
+    if (recent.length >= 5) {
+      const half = Math.floor(recent.length / 2);
+      const f = recent.slice(0, half).reduce((s, h) => s + h.obs, 0) / half;
+      const sec = recent.slice(half).reduce((s, h) => s + h.obs, 0) / (recent.length - half);
+      trend = sec - f;
+    }
+    const level = computeRiskLevel(avg, trend);
+    if (level === 'NORMAL') {
+      if (curSeg) { segments.push(curSeg); curSeg = null; }
+    } else {
+      if (!curSeg || curSeg.level !== level) {
+        if (curSeg) segments.push(curSeg);
+        curSeg = { level: level, start: fullObsHistory[i].time, end: fullObsHistory[i].time, peak: fullObsHistory[i].obs };
+      } else {
+        curSeg.end = fullObsHistory[i].time;
+        if (fullObsHistory[i].obs > curSeg.peak) curSeg.peak = fullObsHistory[i].obs;
+      }
+    }
+  }
+  if (curSeg) segments.push(curSeg);
+  return segments;
+}
 
-                        # <think> 사고 과정만 있고 본문이 없이 잘린 경우 자동 재시도
-                        import re as _re
-                        think_only = False
-                        if truncated and answer.strip():
-                            # </think> 닫히지 않았거나, </think> 후 본문이 비어있는 경우
-                            stripped = answer.strip()
-                            has_open_think = "<think>" in stripped
-                            has_close_think = "</think>" in stripped
-                            if has_open_think and not has_close_think:
-                                think_only = True
-                            elif has_open_think and has_close_think:
-                                after_think = _re.sub(r'<think>[\s\S]*?</think>\s*', '', stripped).strip()
-                                if len(after_think) < 20:
-                                    think_only = True
+function openRiskModal() {
+  document.getElementById('risk-modal').style.display = 'flex';
+  renderRiskModal();
+}
 
-                        if think_only and max_tokens < 32768:
-                            # 토큰 2배로 늘려서 재시도 (최대 32768)
-                            retry_max = min(max_tokens * 2, 32768)
-                            try:
-                                retry_resp = req.post(
-                                    try_url,
-                                    headers=headers,
-                                    json={
-                                        "model": try_model,
-                                        "messages": try_msgs,
-                                        "temperature": temperature_map[min(effort, 3)],
-                                        "max_tokens": retry_max,
-                                        "stream": False, "tool_choice": "none",
-                                    },
-                                    timeout=180,
-                                    verify=False,
-                                )
-                                retry_resp.raise_for_status()
-                                retry_result = retry_resp.json()
-                                if "choices" in retry_result and len(retry_result["choices"]) > 0:
-                                    answer = retry_result["choices"][0].get("message", {}).get("content") or ""
-                                    finish_reason = retry_result["choices"][0].get("finish_reason", "")
-                                    truncated = finish_reason == "length"
-                            except Exception:
-                                pass  # 재시도 실패 시 원래 응답 사용
+function closeRiskModal() {
+  document.getElementById('risk-modal').style.display = 'none';
+}
 
-                        if attempt > 0:
-                            fallback_used = True
-                            fallback_from = models_tried[0]
-                            actual_model_used = try_model
+function renderRiskModal() {
+  const segments = buildRiskHistory();
+  const counts = { WATCH: 0, WARNING: 0, DANGER: 0, CRITICAL: 0 };
+  segments.forEach(s => { if (counts[s.level] !== undefined) counts[s.level]++; });
+  setText('r-cnt-watch', counts.WATCH);
+  setText('r-cnt-warning', counts.WARNING);
+  setText('r-cnt-danger', counts.DANGER);
+  setText('r-cnt-critical', counts.CRITICAL);
 
-                        # 반복 루프 감지 및 절단 (API 응답 보호)
-                        answer, _was_rep = _detect_repetition(answer)
+  const lvlMeta = {
+    WATCH:    { label: '관찰',  color: '#60a5fa', icon: '👁️' },
+    WARNING:  { label: '주의',  color: '#f59e0b', icon: '⚠️' },
+    DANGER:   { label: '위험',  color: '#ef4444', icon: '🔴' },
+    CRITICAL: { label: '심각',  color: '#dc2626', icon: '🚨' },
+  };
 
-                        # 품질 검증 및 점수 계산
-                        _q_valid, _q_issues = _validate_response(answer, last_user_query)
-                        if _q_issues:
-                            answer = _fix_response_issues(answer, _q_issues)
-                        _quality = _calculate_quality_score(answer, last_user_query, _q_issues)
-                        try:
-                            print(f"  [QUALITY] score={_quality['score']}, grade={_quality['grade']}, issues={_q_issues}")
-                        except Exception:
-                            pass
+  const logEl = document.getElementById('risk-log');
+  if (segments.length === 0) {
+    logEl.innerHTML = '<span style="color:#22c55e;">정상 외 이벤트 없음 (전 시간 안정)</span>';
+    return;
+  }
+  // 최신순 정렬
+  const timeToSec = (s) => {
+    const p = (s || '').split(':');
+    return (parseInt(p[0])||0)*3600 + (parseInt(p[1])||0)*60;
+  };
+  const sorted = segments.slice().sort((a, b) => timeToSec(b.start) - timeToSec(a.start));
+  logEl.innerHTML = sorted.map(s => {
+    const m = lvlMeta[s.level] || { label: s.level, color: '#888', icon: '•' };
+    const dur = (s.start === s.end) ? '1분' : `${s.start}~${s.end}`;
+    return `<div class="jam-entry" title="${m.label}(${s.level}) — 최대 OBS ${s.peak}, 지속 ${dur}">${m.icon} <b style="color:${m.color};">${m.label}</b> ${s.start}${s.start !== s.end ? '~'+s.end : ''} (피크 OBS ${s.peak})</div>`;
+  }).join('');
+}
 
-                        resp_data = {
-                            "content": answer,
-                            "loaded_skills": loaded,
-                            "system_prompt_length": len(system_prompt),
-                            "model_used": try_model,
-                            "quality": _quality,
-                        }
-                        if auto_routed:
-                            resp_data["auto_routed"] = True
-                            resp_data["route_reason"] = route_reason
-                        if auto_format or auto_style:
-                            resp_data["auto_format"] = output_format if auto_format else None
-                            resp_data["auto_style"] = writing_style if auto_style else None
-                            resp_data["auto_fmt_reason"] = auto_fmt_reason
-                        if fallback_used:
-                            resp_data["fallback_used"] = True
-                            resp_data["fallback_from"] = fallback_from
-                        if truncated:
-                            resp_data["truncated"] = True
-                        resp_data = _maybe_generate_md_html(answer, loaded, resp_data)
-                        _auto_save_feedback(loaded, _quality, last_user_query)
-                        return jsonify(resp_data)
+function openSpikeModal() {
+  document.getElementById('spike-modal').style.display = 'flex';
+  renderSpikeModal();
+}
 
-                    elif "error" in result:
-                        last_error = f"API 에러: {result['error']}"
-                        print(f"[Fallback] model={try_model} → error: {last_error} → trying next...")
-                        continue  # 다음 폴백 시도
-                    else:
-                        last_error = f"예상치 못한 응답: {json.dumps(result, ensure_ascii=False, indent=2)}"
-                        print(f"[Fallback] model={try_model} → error: unexpected response → trying next...")
-                        continue
+function closeSpikeModal() {
+  document.getElementById('spike-modal').style.display = 'none';
+}
 
-                except req.exceptions.Timeout:
-                    last_error = "API 응답 시간 초과 (120초)"
-                    print(f"[Fallback] model={try_model} → error: {last_error} → trying next...")
-                    continue
-                except req.exceptions.ConnectionError as e:
-                    last_error = f"API 연결 실패: {str(e)[:200]}"
-                    print(f"[Fallback] model={try_model} → error: {last_error} → trying next...")
-                    continue
-                except req.exceptions.HTTPError as e:
-                    code = e.response.status_code if e.response is not None else 0
-                    last_error = f"HTTP {code}: {str(e)}"
-                    if e.response is not None:
-                        try:
-                            detail = json.dumps(e.response.json(), ensure_ascii=False)
-                            last_error += f" - {detail[:300]}"
-                        except Exception:
-                            pass
-                    print(f"[Fallback] model={try_model} → error: HTTP {code} → trying next...")
-                    continue
-                except Exception as e:
-                    last_error = f"오류: {str(e)}"
-                    print(f"[Fallback] model={try_model} → error: {last_error} → trying next...")
-                    continue
+function renderSpikeModal() {
+  // 전체 데이터 우선 사용. 없으면 재생 누적 fallback.
+  const src = fullObsHistory.length ? fullObsHistory : obsHistory;
+  if (!src.length) return;
+  const vals = src.map(h => h.obs);
+  const cur = vals[vals.length - 1];
+  const avg = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+  const max = Math.max(...vals);
+  // JAM 발생 시점 (전체 데이터 기준)
+  const allJam = src.filter(h => h.jam && h.jam > 0);
+  setText('m-obs-now', cur);
+  setText('m-obs-avg', avg);
+  setText('m-obs-max', max);
+  setText('m-spike-cnt', allJam.length);
 
-            # 모든 폴백 실패
-            return jsonify({
-                "error": f"모든 모델 시도 실패 ({', '.join(models_tried)}): {last_error}"
-            }), 500
+  // JAM 이벤트 표시 (시간 내림차순)
+  const logEl = document.getElementById('spike-log');
+  const timeToSec = (s) => {
+    const p = (s || '').split(':');
+    return (parseInt(p[0])||0)*3600 + (parseInt(p[1])||0)*60 + (parseInt(p[2])||0);
+  };
 
-        else:
-            # 폴백 체인 없는 경우 (GGUF 등) → 기존 단일 요청
-            try:
-                resp = req.post(
-                    api_url,
-                    headers=headers,
-                    json={
-                        "model": model,
-                        "messages": api_messages,
-                        "temperature": temperature_map[min(effort, 3)],
-                        "max_tokens": max_tokens,
-                        "stream": False, "tool_choice": "none",
-                    },
-                    timeout=120,
-                    verify=False,
-                )
-                resp.raise_for_status()
-                result = resp.json()
+  // 연속 구간(인접 분) 그룹핑: jam>=1 인 분들을 이어붙여 세그먼트 구성.
+  // 각 세그먼트에서 durationMin(지속 분 수), maxJam(최대 JAM 수),
+  // sustained10min(연속해서 jam>=10 이 유지된 최대 분 수) 을 계산.
+  const chrono = src.slice().sort((a, b) => timeToSec(a.time) - timeToSec(b.time));
+  const segments = [];
+  let curSeg = null;
+  for (const h of chrono) {
+    const hSec = timeToSec(h.time);
+    if (h.jam && h.jam > 0) {
+      if (curSeg && (hSec - curSeg.lastSec) <= 75) {
+        curSeg.entries.push(h);
+        curSeg.maxJam = Math.max(curSeg.maxJam, h.jam);
+        curSeg.lastSec = hSec;
+      } else {
+        curSeg = { entries: [h], maxJam: h.jam, lastSec: hSec };
+        segments.push(curSeg);
+      }
+    } else {
+      curSeg = null;
+    }
+  }
+  const segByTime = {};
+  for (const seg of segments) {
+    seg.durationMin = seg.entries.length;
+    let maxRun10 = 0, runLen = 0;
+    for (const h of seg.entries) {
+      if (h.jam >= 10) { runLen++; if (runLen > maxRun10) maxRun10 = runLen; }
+      else runLen = 0;
+    }
+    seg.sustained10min = maxRun10;
+    seg.startTime = seg.entries[0].time;
+    seg.endTime = seg.entries[seg.entries.length - 1].time;
+    for (const h of seg.entries) segByTime[h.time] = seg;
+  }
 
-                truncated = False
-                if "choices" in result and len(result["choices"]) > 0:
-                    answer = result["choices"][0].get("message", {}).get("content") or ""
-                    finish_reason = result["choices"][0].get("finish_reason", "")
-                    if finish_reason == "length":
-                        truncated = True
+  const sorted = allJam.slice().sort((a, b) => timeToSec(b.time) - timeToSec(a.time));
+  if (sorted.length === 0) {
+    logEl.innerHTML = '<span style="color:#22c55e;">JAM 발생 없음 (시스템 안정)</span>';
+  } else {
+    logEl.innerHTML = sorted.map(e => {
+      const seg = segByTime[e.time] || { durationMin: 1, maxJam: e.jam, sustained10min: e.jam>=10?1:0, startTime: e.time, endTime: e.time };
+      // 판정: 지속 시간 + 최대 JAM 수 + 10대 이상 유지 기반
+      let status, statusColor, icon, tooltip;
+      if (seg.sustained10min >= 4) {
+        status = '데드락 발생';
+        statusColor = '#ef4444';
+        icon = '🚨';
+        tooltip = `데드락 발생: ${seg.startTime}~${seg.endTime} 구간 ${seg.durationMin}분 지속, 최대 ${seg.maxJam}대. 10대 이상이 ${seg.sustained10min}분 연속 유지 = 풀리지 않는 잠금. 즉시 운영 개입 필요.`;
+      } else if (seg.durationMin >= 2 || e.jam >= 5) {
+        status = '주의 (다수 정지)';
+        statusColor = '#f59e0b';
+        icon = '⚠️';
+        tooltip = `주의: ${seg.startTime}~${seg.endTime} 구간 ${seg.durationMin}분 지속, 최대 ${seg.maxJam}대. 다수 차량 동시 정지이나 자동 회복 범위. 회복 양상 확인 필요.`;
+      } else {
+        status = '데드락 미발생 (경고)';
+        statusColor = '#fbbf24';
+        icon = '🟡';
+        tooltip = `데드락 미발생: 1분 단발 ${e.jam}대 JAM 후 즉시 회복. 단발성 경고. 시스템 정상.`;
+      }
+      return `<div class="jam-entry" title="${tooltip}">${icon} <b>${e.time}</b> — JAM (OBS ${e.obs}, ${e.jam}대) <span style="color:${statusColor};font-weight:bold;">— ${status}</span></div>`;
+    }).join('');
+  }
+  drawSpikeChart();
+}
 
-                    # <think> 사고 과정만 있고 본문이 없이 잘린 경우 자동 재시도
-                    import re as _re
-                    think_only = False
-                    if truncated and answer.strip():
-                        stripped = answer.strip()
-                        has_open_think = "<think>" in stripped
-                        has_close_think = "</think>" in stripped
-                        if has_open_think and not has_close_think:
-                            think_only = True
-                        elif has_open_think and has_close_think:
-                            after_think = _re.sub(r'<think>[\s\S]*?</think>\s*', '', stripped).strip()
-                            if len(after_think) < 20:
-                                think_only = True
+function drawSpikeChart() {
+  const canvas = document.getElementById('spike-chart');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const w = Math.max(400, Math.floor(rect.width));
+  const h = Math.max(200, Math.floor(rect.height));
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = '#0a0e17';
+  ctx.fillRect(0, 0, w, h);
 
-                    if think_only and max_tokens < 32768:
-                        retry_max = min(max_tokens * 2, 32768)
-                        try:
-                            retry_resp = req.post(
-                                api_url,
-                                headers=headers,
-                                json={
-                                    "model": model,
-                                    "messages": api_messages,
-                                    "temperature": temperature_map[min(effort, 3)],
-                                    "max_tokens": retry_max,
-                                    "stream": False, "tool_choice": "none",
-                                },
-                                timeout=180,
-                                verify=False,
-                            )
-                            retry_resp.raise_for_status()
-                            retry_result = retry_resp.json()
-                            if "choices" in retry_result and len(retry_result["choices"]) > 0:
-                                answer = retry_result["choices"][0].get("message", {}).get("content") or ""
-                                finish_reason = retry_result["choices"][0].get("finish_reason", "")
-                                truncated = finish_reason == "length"
-                        except Exception:
-                            pass
+  // 전체 데이터 우선. 없으면 재생 누적 fallback.
+  const data = fullObsHistory.length ? fullObsHistory : obsHistory;
+  if (data.length < 2) {
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('데이터 로드 대기 중...', w / 2, h / 2);
+    return;
+  }
 
-                elif "error" in result:
-                    answer = f"API 에러: {result['error']}"
-                else:
-                    answer = f"예상치 못한 응답: {json.dumps(result, ensure_ascii=False, indent=2)}"
+  const vals = data.map(h => h.obs);
+  const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+  const variance = vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length;
+  const threshold = mean + OBS_SPIKE_SIGMA * Math.sqrt(variance);
+  const yMax = Math.max(...vals, threshold) * 1.1;
+  const yMin = Math.min(...vals) * 0.9;
 
-                # 품질 점수 계산
-                _q_valid, _q_issues = _validate_response(answer, last_user_query)
-                if _q_issues:
-                    answer = _fix_response_issues(answer, _q_issues)
-                _quality = _calculate_quality_score(answer, last_user_query, _q_issues)
-                try:
-                    print(f"  [QUALITY] score={_quality['score']}, grade={_quality['grade']}, issues={_q_issues}")
-                except Exception:
-                    pass
+  const px = 40, py = 20;
+  const pw = w - px - 10, ph = h - py - 30;
 
-                resp_data = {
-                    "content": answer,
-                    "loaded_skills": loaded,
-                    "system_prompt_length": len(system_prompt),
-                    "model_used": model,
-                    "quality": _quality,
-                }
-                if auto_routed:
-                    resp_data["auto_routed"] = True
-                    resp_data["route_reason"] = route_reason
-                if auto_format or auto_style:
-                    resp_data["auto_format"] = output_format if auto_format else None
-                    resp_data["auto_style"] = writing_style if auto_style else None
-                    resp_data["auto_fmt_reason"] = auto_fmt_reason
-                if truncated:
-                    resp_data["truncated"] = True
+  // JAM 발생 시점 빨간 세로선 (진짜 데드락만 강조)
+  data.forEach((h, i) => {
+    if (h.jam && h.jam > 0) {
+      const x = px + (i / Math.max(1, data.length - 1)) * pw;
+      ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x, py);
+      ctx.lineTo(x, py + ph);
+      ctx.stroke();
+      // JAM 라벨
+      ctx.fillStyle = '#ef4444';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('JAM', x, py - 4);
+    }
+  });
 
-                # 하네스: 세션 자동 저장 + 이벤트 로깅
-                if HARNESS_AVAILABLE:
-                    try:
-                        save_chat_session(
-                            messages=messages,
-                            skills_used=loaded,
-                            metadata={"model": model, "format": output_format},
-                        )
-                        log_event('chat', f'model={model} skills={len(loaded)} prompt_len={len(system_prompt)}')
-                    except Exception:
-                        pass
+  // 임계선
+  const thY = py + ph - ((threshold - yMin) / (yMax - yMin)) * ph;
+  ctx.strokeStyle = '#ef4444';
+  ctx.setLineDash([5, 3]);
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(px, thY);
+  ctx.lineTo(px + pw, thY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#ef4444';
+  ctx.font = '10px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(`임계 ${Math.round(threshold)}`, px + 4, thY - 3);
 
-                resp_data = _maybe_generate_md_html(answer, loaded, resp_data)
-                _auto_save_feedback(loaded, _quality, last_user_query)
-                return jsonify(resp_data)
+  // 평균선
+  const avgY = py + ph - ((mean - yMin) / (yMax - yMin)) * ph;
+  ctx.strokeStyle = '#60a5fa';
+  ctx.setLineDash([2, 2]);
+  ctx.beginPath();
+  ctx.moveTo(px, avgY);
+  ctx.lineTo(px + pw, avgY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#60a5fa';
+  ctx.fillText(`평균 ${Math.round(mean)}`, px + 4, avgY - 3);
 
-            except req.exceptions.Timeout:
-                return jsonify({"error": "API 응답 시간 초과 (120초). max_tokens를 줄이거나 API 서버 상태를 확인하세요."}), 504
-            except req.exceptions.ConnectionError as e:
-                return jsonify({"error": f"API 연결 실패: {str(e)}. URL을 확인하세요."}), 502
-            except req.exceptions.HTTPError as e:
-                code = e.response.status_code if e.response is not None else 0
-                if code == 401 or code == 403:
-                    return jsonify({"error": f"인증 실패 ({code}): TOKEN.TXT의 API 키를 확인하세요."}), code
-                detail = ""
-                if e.response is not None:
-                    try:
-                        body = e.response.json()
-                        detail = json.dumps(body, ensure_ascii=False, indent=2)
-                    except Exception:
-                        detail = e.response.text[:500] if e.response.text else ""
-                prompt_chars = sum(len(m.get("content","")) for m in api_messages)
-                err_msg = f"API HTTP 에러 ({code}): {str(e)}"
-                if detail:
-                    err_msg += f"\n서버 응답: {detail}"
-                err_msg += f"\n[요청 크기: 전체 메시지={prompt_chars}자, model={model}]"
-                return jsonify({"error": err_msg}), code or 500
-            except Exception as e:
-                return jsonify({"error": f"오류 발생: {str(e)}"}), 500
+  // 시계열 라인 (전체 데이터)
+  ctx.strokeStyle = '#22c55e';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  data.forEach((h, i) => {
+    const x = px + (i / (data.length - 1)) * pw;
+    const y = py + ph - ((h.obs - yMin) / (yMax - yMin)) * ph;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // 현재 PLAY 위치 표시 (노란 세로선)
+  const curTime = (typeof currentPlayTime === 'string') ? currentPlayTime : '';
+  if (curTime) {
+    const curHM = curTime.substring(0, 5);  // "HH:MM"
+    const curIdx = data.findIndex(h => h.time === curHM);
+    if (curIdx >= 0) {
+      const x = px + (curIdx / Math.max(1, data.length - 1)) * pw;
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([3, 2]);
+      ctx.beginPath();
+      ctx.moveTo(x, py);
+      ctx.lineTo(x, py + ph);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#fbbf24';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('▼ 현재', x, py + ph + 12);
+    }
+  }
+
+  // Y축 라벨
+  ctx.fillStyle = '#6b7280';
+  ctx.font = '10px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText(Math.round(yMax), px - 4, py + 8);
+  ctx.fillText(Math.round(yMin), px - 4, py + ph);
+
+  // X축 (첫/끝 시간)
+  ctx.textAlign = 'left';
+  ctx.fillText(data[0].time, px, h - 8);
+  ctx.textAlign = 'right';
+  ctx.fillText(data[data.length - 1].time, px + pw, h - 8);
+}
+
+// ESC 키로 모달 닫기
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (document.getElementById('spike-modal').style.display === 'flex') {
+    closeSpikeModal();
+  }
+  if (document.getElementById('risk-modal').style.display === 'flex') {
+    closeRiskModal();
+  }
+});
+
+// 창 크기 변경 시 모달 차트 다시 그리기
+window.addEventListener('resize', () => {
+  if (document.getElementById('spike-modal').style.display === 'flex') {
+    drawSpikeChart();
+  }
+});
+
+// 차트 클릭 → 해당 시간으로 점프
+document.getElementById('chart-queue').addEventListener('click', function(e) {
+  if (!starHistory.length) return;
+  const canvas = e.currentTarget;
+  const geom = canvas._chartGeom;
+  if (!geom) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  // 차트 영역 밖이면 무시
+  if (x < geom.padLeft || x > geom.padLeft + geom.cw) return;
+  const ratio = (x - geom.padLeft) / geom.cw;
+  const idx = Math.max(0, Math.min(starHistory.length - 1, Math.floor(ratio * starHistory.length)));
+  const timeStr = starHistory[idx].time;  // "HH:MM"
+  if (!timeStr) return;
+  // 시간으로 점프
+  sendCmd('jump', { time: timeStr + ':00' });
+  // 시각적 피드백: 잠깐 세로선 강조
+  mapData.currentTimeStr = timeStr + ':00';
+  drawQueueChart();
+});
+
+// 마우스 커서 변경
+document.getElementById('chart-queue').addEventListener('mousemove', function(e) {
+  const canvas = e.currentTarget;
+  const geom = canvas._chartGeom;
+  if (!geom) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  canvas.style.cursor = (x >= geom.padLeft && x <= geom.padLeft + geom.cw) ? 'pointer' : 'default';
+});
+
+function drawHIDChart(hidData) {
+  const canvas=document.getElementById('chart-hid');
+  const rect=canvas.parentElement.getBoundingClientRect();
+  canvas.width=rect.width;canvas.height=rect.height-18;
+  const ctx=canvas.getContext('2d'),w=canvas.width,h=canvas.height;
+  ctx.fillStyle='#111827';ctx.fillRect(0,0,w,h);
+  if(!hidData||Object.keys(hidData).length===0){ctx.fillStyle='#374151';ctx.font='11px sans-serif';ctx.textAlign='center';ctx.fillText('데이터 로드 필요',w/2,h/2);return;}
+  const sorted=Object.values(hidData).sort((a,b)=>a.avg_speed-b.avg_speed).slice(0,20);
+  const pad={left:30,right:5,top:5,bottom:10},barH=Math.min(12,(h-pad.top-pad.bottom)/sorted.length-2),maxSpd=120;
+  for(let i=0;i<sorted.length;i++){const d=sorted[i],y=pad.top+i*(barH+2),barW=(d.avg_speed/maxSpd)*(w-pad.left-pad.right);
+  const ratio=d.avg_speed/maxSpd;ctx.fillStyle=`rgb(${Math.floor(255*(1-ratio))},${Math.floor(200*ratio)},50)`;ctx.fillRect(pad.left,y,barW,barH);
+  ctx.fillStyle='#9ca3af';ctx.font='9px sans-serif';ctx.textAlign='right';ctx.fillText(`H${d.hid_id}`,pad.left-3,y+barH-1);
+  ctx.textAlign='left';ctx.fillText(d.avg_speed.toFixed(0),pad.left+barW+3,y+barH-1);}
+}
+
+// ============================================================
+// 오른쪽 사이드바: OHT 목록 / Zone 목록
+// ============================================================
+let ohtFilter = 'all';
+let zoneFilter = 'all';
+let hidSpeeds = {};  // {hid_id: {avg_speed, min_speed, max_speed, count}}
+let selectedOHT = null;  // 선택된 OHT vid
+
+function switchRTab(tab) {
+  document.getElementById('rtab-oht').style.display = tab==='oht' ? 'block' : 'none';
+  document.getElementById('rtab-zone').style.display = tab==='zone' ? 'block' : 'none';
+  document.querySelectorAll('.rtab').forEach(b => b.classList.toggle('active', b.textContent.includes(tab==='oht'?'OHT':'Zone')));
+}
+
+function filterOHT(f, btn) {
+  ohtFilter = f;
+  if(btn) btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  renderOHTList();
+}
+
+function filterZone(f, btn) {
+  zoneFilter = f;
+  if(btn) btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  renderZoneList();
+}
+
+const stateNames = {1:'운행',2:'정지',3:'가속',4:'감속',5:'커브',6:'OBS',7:'JAM',8:'HT정지',9:'타임아웃'};
+const stateClasses = {1:'running',2:'stopped',3:'running',4:'running',5:'running',6:'obs',7:'jam',8:'stopped',9:'stopped'};
+
+function renderOHTList() {
+  const el = document.getElementById('ohtList');
+  const search = (document.getElementById('ohtSearch').value||'').toUpperCase();
+  let vehicles = Object.values(vehicleDisplay);
+  if (ohtFilter === 'running') vehicles = vehicles.filter(v => v.state === 1 && !v.isFull);
+  else if (ohtFilter === 'loaded') vehicles = vehicles.filter(v => v.isFull);
+  else if (ohtFilter === 'stopped') vehicles = vehicles.filter(v => v.state === 2 || v.state === 8);
+  else if (ohtFilter === 'jam') vehicles = vehicles.filter(v => v.state === 7 || v.state === 6);
+  if (search) vehicles = vehicles.filter(v => (v._vid||'').includes(search));
+  const pri = {7:0, 6:1, 8:2, 9:2, 2:3};
+  vehicles.sort((a,b) => (pri[a.state]??5) - (pri[b.state]??5));
+  const max = 200;
+  let html = '';
+  for (let i = 0; i < Math.min(vehicles.length, max); i++) {
+    const v = vehicles[i];
+    const vid = v._vid || '?';
+    const cls = stateClasses[v.state] || 'stopped';
+    const sn = stateNames[v.state] || '?';
+    const loadTxt = v.isFull ? ' [적재]' : '';
+    const vel = (typeof v.velocity === 'number') ? v.velocity : null;
+    let velTxt, velCls;
+    if (vel === null) { velTxt = '- (측정 불가)'; velCls = '#6b7280'; }
+    else if (vel === 0) { velTxt = '0 m/min'; velCls = '#ef4444'; }
+    else if (vel < 30) { velTxt = vel.toFixed(1) + ' m/min'; velCls = '#f59e0b'; }
+    else { velTxt = vel.toFixed(1) + ' m/min'; velCls = '#22c55e'; }
+    const isSel = selectedOHT === vid;
+    const sel = isSel ? ' style="background:#1a3a5e;border-left-color:#ffff00;"' : '';
+    html += `<div class="ritem ${cls}" ondblclick="selectOHT('${vid}')"${sel}>`;
+    html += `<div class="rh"><span class="rid">${vid}</span><span class="rst">${sn}${loadTxt}</span></div>`;
+    html += `<div class="rv" style="color:${velCls};">속도: ${velTxt}</div>`;
+    if (isSel) {
+      // 선택 시 상세 정보 표시
+      const x = (typeof v.tx === 'number') ? v.tx.toFixed(1) : '-';
+      const y = (typeof v.ty === 'number') ? v.ty.toFixed(1) : '-';
+      const cn = v.currentNode ?? '-';
+      const nn = v.nextNode ?? '-';
+      const dest = v.destination || '-';
+      const rt = (typeof v.ratio === 'number') ? (v.ratio*100).toFixed(0)+'%' : '-';
+      html += `<div class="rdetail">`;
+      html += `<div>📍 좌표: (${x}, ${y})</div>`;
+      html += `<div>🔗 Edge: ${cn} → ${nn} (${rt})</div>`;
+      html += `<div>🎯 목적지: ${dest}</div>`;
+      html += `</div>`;
+    }
+    html += `</div>`;
+  }
+  if (vehicles.length > max) html += `<div style="color:#6b7280;font-size:10px;padding:4px;">...외 ${vehicles.length-max}대</div>`;
+  if (!vehicles.length) html = '<div style="color:#6b7280;padding:8px;">차량 없음</div>';
+  el.innerHTML = html;
+}
+
+function renderZoneList() {
+  const el = document.getElementById('zoneList');
+  const search = (document.getElementById('zoneSearch').value||'').toUpperCase();
+  if (!railGraph || !railGraph.zones) {
+    el.innerHTML = '<div style="color:#6b7280;padding:8px;">데이터 로드 필요</div>';
+    return;
+  }
+  const zc = mapData.zoneCounts || {};
+  let zones = railGraph.zones.map(z => {
+    const count = zc[z.id] || 0;
+    const max = z.max || 37;
+    const pct = Math.round(count / max * 100);
+    const status = count >= max ? 'full' : pct >= 70 ? 'precaution' : 'normal';
+    return { ...z, count, pct, status };
+  });
+  if (zoneFilter !== 'all') zones = zones.filter(z => z.status === zoneFilter);
+  if (search) zones = zones.filter(z => (z.name||'').toUpperCase().includes(search) || String(z.id).includes(search));
+  // 속도 정보 결합
+  zones.forEach(z => {
+    const sp = hidSpeeds[z.id] || hidSpeeds[String(z.id)];
+    z.speed = sp ? sp.avg_speed : null;
+  });
+  // 정렬: 차량 수(count) 많은 순 = OHT 많이 지나는 Zone이 위로
+  // 같은 count면 status 우선(포화→주의→정상)
+  const pri = {full:0, precaution:1, normal:2};
+  zones.sort((a,b) => {
+    if (b.count !== a.count) return b.count - a.count;
+    return (pri[a.status]??2) - (pri[b.status]??2);
+  });
+  const max = 200;
+  let html = '';
+  for (let i = 0; i < Math.min(zones.length, max); i++) {
+    const z = zones[i];
+    const stTxt = z.status==='full' ? '포화' : z.status==='precaution' ? '주의' : '정상';
+    const stColor = z.status==='full' ? '#ef4444' : z.status==='precaution' ? '#f59e0b' : '#22c55e';
+    const sel = selectedZone && selectedZone.id === z.id ? ' style="background:#1a3a5e;border-left-color:#ffff00;"' : '';
+    // 속도 표시 (색상 구분)
+    let spTxt, spColor;
+    if (z.speed === null) { spTxt = '-'; spColor = '#6b7280'; }
+    else if (z.speed === 0) { spTxt = '0 m/min'; spColor = '#ef4444'; }
+    else if (z.speed < 30) { spTxt = z.speed.toFixed(1) + ' m/min'; spColor = '#f59e0b'; }
+    else { spTxt = z.speed.toFixed(1) + ' m/min'; spColor = '#22c55e'; }
+    html += `<div class="ritem zone-${z.status}" ondblclick="selectZone(${z.id})"${sel}>`;
+    html += `<div class="rh"><span class="rid">HID ${z.id}</span><span class="rst" style="background:${stColor};color:#000;">${z.count}/${z.max} ${stTxt}</span></div>`;
+    html += `<div style="color:#9ca3af;font-size:10px;margin-top:2px;">${z.name} | ${z.bay}</div>`;
+    html += `<div class="rv" style="color:${spColor};">속도: ${spTxt}</div>`;
+    html += `<div class="zone-bar"><div class="zone-bar-fill" style="width:${z.pct}%;"></div></div>`;
+    html += `</div>`;
+  }
+  if (zones.length > max) html += `<div style="color:#6b7280;font-size:10px;padding:4px;">...외 ${zones.length-max}개</div>`;
+  if (!zones.length) html = '<div style="color:#6b7280;padding:8px;">Zone 없음</div>';
+  el.innerHTML = html;
+}
+
+function selectOHT(vid) {
+  if (selectedOHT === vid) {
+    // 토글: 다시 더블클릭하면 해제
+    selectedOHT = null;
+    drawMap();
+    renderOHTList();
+    return;
+  }
+  const v = vehicleDisplay[vid];
+  if (!v || typeof v.tx !== 'number') {
+    selectedOHT = vid;
+    renderOHTList();
+    return;
+  }
+  selectedOHT = vid;
+  // 맵을 차량 위치로 줌인
+  const b = mapData.bounds || (railGraph && railGraph.bounds);
+  if (b) {
+    const rect = mapCanvas.parentElement.getBoundingClientRect();
+    const cw = Math.max(100, Math.floor(rect.width));
+    const ch = Math.max(100, Math.floor(rect.height));
+    const dataW = b.max_x - b.min_x, dataH = b.max_y - b.min_y;
+    const baseScale = Math.min((cw-20)/dataW, (ch-20)/dataH);
+    mapZoom = 8;  // 차량 클로즈업
+    const sc = baseScale * mapZoom;
+    mapPanX = (cw/2) - 10 - (cw-20-dataW*sc)/2 - (v.tx - b.min_x)*sc;
+    mapPanY = (ch/2) - 10 - (ch-20-dataH*sc)/2 - (v.ty - b.min_y)*sc;
+  }
+  railCacheCanvas = null;
+  drawMap();
+  renderOHTList();
+}
+
+function selectZone(zoneId) {
+  if (!railGraph || !railGraph.zones) return;
+  if (selectedZone && selectedZone.id === zoneId) {
+    selectedZone = null;
+    railCacheCanvas = null;
+    drawMap();
+    renderZoneList();
+    return;
+  }
+  const z = railGraph.zones.find(zz => zz.id === zoneId);
+  if (!z) return;
+  selectedZone = z;
+  const nodes = railGraph.nodes;
+  let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
+  for (const lane of [...z.inLanes, ...z.outLanes]) {
+    const from=nodes[lane.from], to=nodes[lane.to];
+    if (from) { minX=Math.min(minX,from[0]); maxX=Math.max(maxX,from[0]); minY=Math.min(minY,from[1]); maxY=Math.max(maxY,from[1]); }
+    if (to) { minX=Math.min(minX,to[0]); maxX=Math.max(maxX,to[0]); minY=Math.min(minY,to[1]); maxY=Math.max(maxY,to[1]); }
+  }
+  if (minX < Infinity) {
+    const b = mapData.bounds || railGraph.bounds;
+    const rect = mapCanvas.parentElement.getBoundingClientRect();
+    const cw = Math.max(100, Math.floor(rect.width));
+    const ch = Math.max(100, Math.floor(rect.height));
+    const zoneCx = (minX + maxX) / 2, zoneCy = (minY + maxY) / 2;
+    const zoneW = Math.max(maxX - minX, 50) + 100;
+    const zoneH = Math.max(maxY - minY, 50) + 100;
+    const dataW = b.max_x - b.min_x, dataH = b.max_y - b.min_y;
+    const baseScale = Math.min((cw-20)/dataW, (ch-20)/dataH);
+    mapZoom = Math.max(2, Math.min(12, Math.min(cw*0.6/zoneW, ch*0.6/zoneH) / baseScale));
+    const sc = baseScale * mapZoom;
+    mapPanX = (cw/2) - 10 - (cw-20-dataW*sc)/2 - (zoneCx - b.min_x)*sc;
+    mapPanY = (ch/2) - 10 - (ch-20-dataH*sc)/2 - (zoneCy - b.min_y)*sc;
+  }
+  railCacheCanvas = null;
+  drawMap();
+  renderZoneList();
+}
+
+const _origUpdateVehicles = true;
+let _uiFrameCount = 0;
+const _origUpdateUI = updateUI;
+updateUI = function(d) {
+  _origUpdateUI(d);
+  _uiFrameCount++;
+  if (_uiFrameCount % 5 === 0) {
+    for (const vid in vehicleDisplay) vehicleDisplay[vid]._vid = vid;
+    renderOHTList();
+    renderZoneList();
+  }
+  // 큐 차트 세로선 갱신 (3프레임마다)
+  if (_uiFrameCount % 3 === 0 && starHistory.length > 0) {
+    drawQueueChart();
+  }
+};
+
+function resetMapView() {
+  mapZoom = 1; mapPanX = 0; mapPanY = 0;
+  selectedZone = null;
+  railCacheCanvas = null;
+  drawMap();
+}
+
+function toggleRSidebar() {
+  const sb = document.getElementById('rsidebar');
+  const btn = document.getElementById('rsidebar-toggle');
+  sb.classList.toggle('collapsed');
+  const open = !sb.classList.contains('collapsed');
+  btn.classList.toggle('open', open);
+  btn.innerHTML = open ? '&#9654;' : '&#9664;';
+  setTimeout(() => { railCacheCanvas=null; drawMap(); }, 300);
+}
+
+function toggleSidebar() {
+  const sb = document.getElementById('sidebar');
+  const btn = document.getElementById('sidebar-toggle');
+  sb.classList.toggle('collapsed');
+  const open = !sb.classList.contains('collapsed');
+  btn.classList.toggle('open', open);
+  btn.innerHTML = open ? '&#9664;' : '&#9654;';
+  setTimeout(() => { railCacheCanvas=null; drawMap(); }, 300);
+}
+
+// Init
+window.addEventListener('resize', () => { railCacheCanvas=null; drawMap(); drawQueueChart(); });
+connectWS();
+drawMap();
+
+// 날짜 목록 자동 로드
+(async () => {
+  try {
+    const resp = await fetch('/api/dates');
+    const dates = await resp.json();
+    const sel = document.getElementById('date-select');
+    for (const d of dates) {
+      if (!d.exists) continue;
+      const opt = document.createElement('option');
+      opt.value = d.date;
+      opt.textContent = d.description;
+      sel.appendChild(opt);
+    }
+  } catch(e) { console.error('날짜 목록 로드 실패:', e); }
+})();
+</script>
+<!-- 위험 레벨 이력 모달 (NORMAL 제외 모든 이벤트) -->
+<div id="risk-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.75);z-index:9999;justify-content:center;align-items:center;" onclick="if(event.target.id==='risk-modal')closeRiskModal()">
+  <div style="background:#0a0e17;border:1px solid #06b6d4;border-radius:8px;padding:16px;width:90%;max-width:700px;max-height:85vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <h3 style="margin:0;color:#06b6d4;">데드락 위험 이력 — 정상 외 전부</h3>
+      <button onclick="closeRiskModal()" style="background:none;border:1px solid #444;color:#888;padding:4px 10px;border-radius:4px;cursor:pointer;">✕ 닫기</button>
+    </div>
+    <div id="risk-summary" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;">
+      <div style="padding:8px;background:#1a1a2e;border-radius:4px;text-align:center;"><div style="font-size:10px;color:#888;">관찰 (WATCH)</div><div id="r-cnt-watch" style="font-size:18px;font-weight:bold;color:#60a5fa;">0</div></div>
+      <div style="padding:8px;background:#1a1a2e;border-radius:4px;text-align:center;"><div style="font-size:10px;color:#888;">주의 (WARNING)</div><div id="r-cnt-warning" style="font-size:18px;font-weight:bold;color:#f59e0b;">0</div></div>
+      <div style="padding:8px;background:#1a1a2e;border-radius:4px;text-align:center;"><div style="font-size:10px;color:#888;">위험 (DANGER)</div><div id="r-cnt-danger" style="font-size:18px;font-weight:bold;color:#ef4444;">0</div></div>
+      <div style="padding:8px;background:#1a1a2e;border-radius:4px;text-align:center;"><div style="font-size:10px;color:#888;">심각 (CRITICAL)</div><div id="r-cnt-critical" style="font-size:18px;font-weight:bold;color:#dc2626;">0</div></div>
+    </div>
+    <div>
+      <div style="font-size:12px;color:#06b6d4;font-weight:bold;margin:8px 0 4px;">위험 구간 기록 (최신순, 정상 제외)</div>
+      <div id="risk-log" style="background:#1a1a2e;padding:8px;border-radius:4px;font-size:11px;max-height:400px;overflow-y:auto;color:#cbd5e1;line-height:1.6;">데이터 로드 대기 중...</div>
+    </div>
+    <div style="font-size:10px;color:#6b7280;margin-top:8px;">
+      💡 임계: WATCH(상승추세), WARNING(OBS≥180), DANGER(OBS≥200), CRITICAL(OBS≥300). 회복돼도 기록됨.
+    </div>
+  </div>
+</div>
+
+<!-- OBS spike 추이 모달 -->
+<div id="spike-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.75);z-index:9999;justify-content:center;align-items:center;" onclick="if(event.target.id==='spike-modal')closeSpikeModal()">
+  <div style="background:#0a0e17;border:1px solid #06b6d4;border-radius:8px;padding:16px;width:90%;max-width:800px;max-height:85vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <h3 style="margin:0;color:#06b6d4;">데드락 전조 — OBS 추이 상세</h3>
+      <button onclick="closeSpikeModal()" style="background:none;border:1px solid #444;color:#888;padding:4px 10px;border-radius:4px;cursor:pointer;">✕ 닫기</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;">
+      <div style="padding:8px;background:#1a1a2e;border-radius:4px;"><div style="font-size:10px;color:#888;">현재 OBS</div><div id="m-obs-now" style="font-size:18px;font-weight:bold;color:#fff;">-</div></div>
+      <div style="padding:8px;background:#1a1a2e;border-radius:4px;"><div style="font-size:10px;color:#888;">평균 (최근 30분)</div><div id="m-obs-avg" style="font-size:18px;font-weight:bold;color:#60a5fa;">-</div></div>
+      <div style="padding:8px;background:#1a1a2e;border-radius:4px;"><div style="font-size:10px;color:#888;">최대값</div><div id="m-obs-max" style="font-size:18px;font-weight:bold;color:#f59e0b;">-</div></div>
+      <div style="padding:8px;background:#1a1a2e;border-radius:4px;"><div style="font-size:10px;color:#888;">JAM 발생</div><div id="m-spike-cnt" style="font-size:18px;font-weight:bold;color:#ef4444;">0</div></div>
+    </div>
+    <div style="background:#1a1a2e;padding:8px;border-radius:4px;margin-bottom:8px;">
+      <div style="font-size:11px;color:#9ca3af;margin-bottom:4px;">OBS 시계열 (초록=OBS, 파란점선=평균, 빨간점선=spike 임계, <b style="color:#fbbf24;">노란 세로선=현재 PLAY 시각</b>, <b style="color:#ef4444;">빨간 세로선=JAM 발생</b>)</div>
+      <canvas id="spike-chart" style="width:100%;height:240px;"></canvas>
+    </div>
+    <div>
+      <div style="font-size:12px;color:#06b6d4;font-weight:bold;margin:8px 0 4px;">JAM 발생 기록 (진짜 데드락 사건)</div>
+      <div id="spike-log" style="background:#1a1a2e;padding:8px;border-radius:4px;font-size:11px;max-height:150px;overflow-y:auto;color:#cbd5e1;line-height:1.6;">JAM 발생 없음</div>
+    </div>
+    <div style="font-size:10px;color:#6b7280;margin-top:8px;">
+      💡 회복된 spike는 의미 없음 → 표시 X. JAM(state=7) 발생만 진짜 데드락 사건으로 기록.
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
