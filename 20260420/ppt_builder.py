@@ -235,7 +235,7 @@ def _apply_korean_font(run, bold: bool = False, italic: bool = False,
 
 
 def _add_title_slide(prs, slide_data: dict):
-    layout = prs.slide_layouts[0]  # Title Slide
+    layout = _safe_layout(prs, 0)  # Title Slide
     slide = prs.slides.add_slide(layout)
     title = slide.shapes.title
     if title:
@@ -255,7 +255,7 @@ def _add_title_slide(prs, slide_data: dict):
 
 
 def _add_content_slide(prs, slide_data: dict):
-    layout = prs.slide_layouts[1]  # Title and Content
+    layout = _safe_layout(prs, 1)  # Title and Content
     slide = prs.slides.add_slide(layout)
     title = slide.shapes.title
     if title:
@@ -289,7 +289,7 @@ def _add_content_slide(prs, slide_data: dict):
 
 
 def _add_table_slide(prs, slide_data: dict):
-    layout = prs.slide_layouts[5]  # Title Only
+    layout = _safe_layout(prs, 5)  # Title Only
     slide = prs.slides.add_slide(layout)
     title = slide.shapes.title
     if title:
@@ -328,7 +328,7 @@ def _add_table_slide(prs, slide_data: dict):
 
 
 def _add_code_slide(prs, slide_data: dict):
-    layout = prs.slide_layouts[5]  # Title Only
+    layout = _safe_layout(prs, 5)  # Title Only
     slide = prs.slides.add_slide(layout)
     title = slide.shapes.title
     if title:
@@ -364,6 +364,15 @@ def _add_code_slide(prs, slide_data: dict):
         _apply_korean_font(run, size_pt=11, is_code=True)
         run.font.color.rgb = RGBColor(0xDC, 0xDC, 0xDC)
     return slide
+
+
+def _safe_layout(prs, idx):
+    """slide_layouts[idx] 를 안전하게 가져옴. 없으면 가능한 레이아웃 중 첫 번째."""
+    try:
+        return prs.slide_layouts[idx]
+    except (IndexError, KeyError):
+        layouts = list(prs.slide_layouts)
+        return layouts[0] if layouts else None
 
 
 def _make_presentation():
@@ -434,7 +443,7 @@ def render_outline_to_pptx(outline: dict) -> bytes:
             fn(prs, slide_data)
         except Exception as e:
             # 에러 슬라이드로 대체 (전체 실패 방지)
-            err_slide = prs.slides.add_slide(prs.slide_layouts[5])
+            err_slide = prs.slides.add_slide(_safe_layout(prs, 5))
             if err_slide.shapes.title:
                 err_slide.shapes.title.text = f"[렌더링 실패] {slide_data.get('type', '?')}"
             print(f"[ppt_builder] slide render error: {e}")
