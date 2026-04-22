@@ -1,9 +1,6 @@
 """
-SK Hynix LLM-CHAT (10개 모델 지원)
-====================================
-- 실행 시 토큰 남은시간 자동 표시
-- 대화 중 모델 변경 가능 (/model 명령)
-- 만료 시 갱신 안내
+SK Hynix LLM-CHAT
+실행하면 먼저 모델 고르고 대화 시작
 """
 import requests
 import json
@@ -18,30 +15,27 @@ TOKEN = "여기에_토큰_붙여넣기"
 
 
 # ============================================================
-# 사용 가능한 모델 목록
+# 사용 가능한 모델 10개
 # ============================================================
-MODELS = {
-    "1": ("Qwen/Qwen3.5-397B-A17B-FP8",       "Qwen3.5-397B (일반)"),
-    "2": ("Qwen/Qwen3.5-397B-A17B-thinking",  "Qwen3.5-397B-Thinking (추론)"),
-    "3": ("zai-org/GLM-5",                    "GLM-5 (일반)"),
-    "4": ("zai-org/GLM-5-thinking",           "GLM-5-Thinking (추론)"),
-    "5": ("Kimi-K2.5",                        "Kimi-K2.5 (긴 컨텍스트)"),
-    "6": ("Kimi-K2.5-thinking",               "Kimi-K2.5-Thinking (긴컨텍스트+추론)"),
-    "7": ("gpt-oss-120b",                     "GPT-OSS-120B"),
-    "8": ("hygpt-aoai-gpt-5.3-chat",          "HyGPT 5.3 (사내)"),
-    "9": ("hygpt-aoai-gpt-5.4",               "HyGPT 5.4 (사내 최신) ⭐"),
-    "10": ("hygpt-aoai-gpt-5.2-chat",         "HyGPT 5.2 (사내 구버전)"),
-}
-
-# 기본 모델
-DEFAULT_MODEL = "hygpt-aoai-gpt-5.4"
+MODELS = [
+    ("Qwen/Qwen3.5-397B-A17B-FP8",       "Qwen3.5-397B-A17B"),
+    ("Qwen/Qwen3.5-397B-A17B-thinking",  "Qwen3.5-397B-A17B-Thinking"),
+    ("zai-org/GLM-5",                    "GLM-5"),
+    ("zai-org/GLM-5-thinking",           "GLM-5-Thinking"),
+    ("Kimi-K2.5",                        "Kimi-K2.5"),
+    ("Kimi-K2.5-thinking",               "Kimi-K2.5-Thinking"),
+    ("gpt-oss-120b",                     "GPT-OSS-120B"),
+    ("hygpt-aoai-gpt-5.3-chat",          "HyGPT(gpt-5.3)"),
+    ("hygpt-aoai-gpt-5.4",               "HyGPT(gpt-5.4)"),
+    ("hygpt-aoai-gpt-5.2-chat",          "HyGPT(gpt-5.2)"),
+]
 
 
 # ============================================================
 # 설정
 # ============================================================
 URL = "http://llm-chat-backend-basic-prd.api.hcpp01.skhynix.com/api/chat/completions"
-SYSTEM = "당신은 SK하이닉스 반도체 FAB 물류(AMHS/OHT) 전문가입니다. 한국어로 친절하고 정확하게 답변합니다."
+SYSTEM = "당신은 SK하이닉스 반도체 FAB 물류(AMHS/OHT) 전문가입니다. 한국어로 답변합니다."
 
 
 # ============================================================
@@ -61,58 +55,34 @@ def check_token(token):
 def show_status(token):
     remaining, data = check_token(token)
     if remaining is None:
-        print("⚠ 토큰 파싱 불가")
         return False
-
-    user_id = data.get("id", "?")
-    role = data.get("role", "?")
-    print(f"👤 {user_id} ({role})")
-
     if remaining <= 0:
         print(f"❌ 토큰 만료됨 ({-remaining}분 지남)")
         return False
-    elif remaining < 30:
-        print(f"⚠ 토큰 만료 임박 (남은시간: {remaining}분)")
-    else:
-        h, m = remaining // 60, remaining % 60
-        print(f"✓ 토큰 유효 (남은시간: {h}시간 {m}분)" if h else f"✓ 토큰 유효 (남은시간: {m}분)")
+    h, m = remaining // 60, remaining % 60
+    time_str = f"{h}시간 {m}분" if h else f"{m}분"
+    print(f"✓ 토큰 유효 (남은시간: {time_str})")
     return True
 
 
-def show_refresh_help():
-    print("\n" + "━" * 60)
-    print("  🔑 토큰 갱신 방법")
-    print("━" * 60)
-    print("  1. 브라우저 LLM-CHAT → F12 → Network 탭")
-    print("  2. 필터: completions")
-    print("  3. 채팅창에 'a' 전송")
-    print("  4. 새 요청 → Headers → authorization 복사")
-    print("  5. 'Bearer ' 뒤 eyJ... 부분만")
-    print("  6. chat.py 의 TOKEN = \"...\" 교체 → 저장 → 재실행")
-    print("━" * 60)
-
-
 # ============================================================
-# 모델 선택
+# 모델 선택 화면
 # ============================================================
-def show_models(current_model):
-    print("\n" + "━" * 60)
-    print("  사용 가능한 모델")
-    print("━" * 60)
-    for num, (model_id, label) in MODELS.items():
-        marker = " ← 현재" if model_id == current_model else ""
-        print(f"  [{num:>2}] {label}{marker}")
-    print("━" * 60)
+def pick_model():
+    print("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print("  사용할 모델을 선택하세요")
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    for i, (_, label) in enumerate(MODELS, 1):
+        print(f"  [{i:>2}] {label}")
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-
-def select_model(current):
-    show_models(current)
-    choice = input("\n모델 번호 선택 (엔터=취소) > ").strip()
-    if choice in MODELS:
-        new_model, label = MODELS[choice]
-        print(f"✓ 모델 변경: {label}")
-        return new_model
-    return current
+    while True:
+        choice = input("\n번호 선택 > ").strip()
+        if choice.isdigit() and 1 <= int(choice) <= len(MODELS):
+            model_id, label = MODELS[int(choice) - 1]
+            print(f"✓ 선택됨: {label}")
+            return model_id, label
+        print("❌ 1~10 숫자만 입력하세요")
 
 
 # ============================================================
@@ -124,7 +94,7 @@ def ask(history, question, model):
         URL,
         headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
         json={"model": model, "messages": history, "stream": False},
-        timeout=300,  # thinking 모델은 오래 걸려서 길게
+        timeout=300,
     )
     r.raise_for_status()
     answer = r.json()["choices"][0]["message"]["content"]
@@ -135,29 +105,23 @@ def ask(history, question, model):
 def main():
     if TOKEN == "여기에_토큰_붙여넣기":
         print("❌ TOKEN에 JWT 붙여넣으세요!")
-        show_refresh_help()
         return
 
-    print("=" * 60)
+    print("=" * 50)
     print("  SK Hynix LLM-CHAT")
-    print("=" * 60)
+    print("=" * 50)
 
     if not show_status(TOKEN):
-        show_refresh_help()
         return
 
-    model = DEFAULT_MODEL
-    # 현재 모델의 표시명 찾기
-    model_label = next((l for _, (m, l) in MODELS.items() if m == model), model)
-    print(f"🤖 모델: {model_label}")
+    # 모델 먼저 선택
+    model, model_label = pick_model()
 
     print()
-    print("  명령어:")
-    print("    /model   - 모델 변경")
-    print("    /status  - 토큰 상태")
-    print("    /reset   - 대화 초기화")
-    print("    /exit    - 종료")
-    print("=" * 60)
+    print("=" * 50)
+    print(f"  🤖 {model_label}")
+    print("  명령어: /model(변경) /reset(초기화) /exit(종료)")
+    print("=" * 50)
 
     history = [{"role": "system", "content": SYSTEM}]
 
@@ -169,43 +133,25 @@ def main():
 
         if not q:
             continue
-
-        # 명령어 처리
         if q in ("/exit", "/quit", "/종료", "exit", "quit"):
             break
         if q in ("/reset", "/초기화"):
             history = [history[0]]
             print("✓ 대화 초기화")
             continue
-        if q in ("/status", "/상태"):
-            show_status(TOKEN)
-            continue
         if q in ("/model", "/모델"):
-            model = select_model(model)
+            model, model_label = pick_model()
+            history = [history[0]]  # 모델 바꾸면 대화도 초기화
+            print("✓ 대화 초기화됨")
             continue
 
-        # 토큰 만료 체크
-        remaining, _ = check_token(TOKEN)
-        if remaining is not None and remaining <= 0:
-            print("\n❌ 토큰 만료!")
-            show_refresh_help()
-            break
-
-        # LLM 호출
         try:
-            print(f"\n🤖 ", end="", flush=True)
+            print("\n🤖 ", end="", flush=True)
             answer = ask(history, q, model)
             print(answer)
-
-            # 만료 임박 알림
-            remaining, _ = check_token(TOKEN)
-            if remaining is not None and 0 < remaining < 10:
-                print(f"\n⚠ 토큰 만료 {remaining}분 남음!")
-
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 401:
-                print("\n❌ 토큰 만료!")
-                show_refresh_help()
+                print("\n❌ 토큰 만료! 새 토큰 받아서 교체 후 재실행")
                 break
             print(f"\n❌ HTTP {e.response.status_code}: {e.response.text[:200]}")
             history.pop()
