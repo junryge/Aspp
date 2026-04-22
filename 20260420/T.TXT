@@ -1,1 +1,60 @@
-javascript:(function(){const t=localStorage.token||'';if(!t){alert('❌ 토큰 없음');return;}const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);alert('✅ 복사됨!\n길이:'+t.length);})();
+"""
+SK Hynix LLM-CHAT
+사용법: TOKEN 교체 → python chat.py
+"""
+import requests
+
+
+# ⬇️ 토큰 여기 붙여넣기 (F12 → Console → copy(localStorage.token))
+TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjkwMjkzZTI2LTA2ZDYtNGFhOS04Mzc1LTg2YmM1ZTkzZjA5MyIsImV4cCI6MTc3NjgyNjA5Miwicm9sZSI6InBhcnRuZXIifQ.E6zNWLsODq-bTyuT6q5IU8XyqtVeDs82k1YG5NglgbE"
+
+
+URL = "http://llm-chat-backend-basic-prd.api.hcpp01.skhynix.com/api/chat/completions"
+MODEL = "Qwen/Qwen3.5-397B-A17B-FP8"
+
+history = [{"role": "system", "content": "당신은 SK하이닉스 반도체 FAB 물류 전문가입니다. 한국어로 답변합니다."}]
+
+
+def ask(q):
+    history.append({"role": "user", "content": q})
+    r = requests.post(
+        URL,
+        headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
+        json={"model": MODEL, "messages": history, "stream": False},
+        timeout=180,
+    )
+    r.raise_for_status()
+    a = r.json()["choices"][0]["message"]["content"]
+    history.append({"role": "assistant", "content": a})
+    return a
+
+
+print("=" * 50)
+print("SK Hynix LLM-CHAT")
+print("종료: exit | 초기화: reset")
+print("=" * 50)
+
+while True:
+    try:
+        q = input("\n🧑 > ").strip()
+    except (KeyboardInterrupt, EOFError):
+        break
+    if not q:
+        continue
+    if q.lower() in ("exit", "quit", "종료"):
+        break
+    if q.lower() in ("reset", "초기화"):
+        history = [history[0]]
+        print("✓ 초기화")
+        continue
+    try:
+        print(f"\n🤖 {ask(q)}")
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 401:
+            print("\n❌ 토큰 만료! TOKEN 교체 필요")
+            break
+        print(f"\n❌ {e}")
+        history.pop()
+    except Exception as e:
+        print(f"\n❌ {e}")
+        history.pop()
