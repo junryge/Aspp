@@ -20,14 +20,9 @@ TOKEN = "여기에_토큰_붙여넣기"
 MODELS = [
     ("Qwen/Qwen3.5-397B-A17B-FP8",       "Qwen3.5-397B-A17B"),
     ("Qwen/Qwen3.5-397B-A17B-thinking",  "Qwen3.5-397B-A17B-Thinking"),
-    ("zai-org/GLM-5",                    "GLM-5"),
     ("zai-org/GLM-5-thinking",           "GLM-5-Thinking"),
     ("Kimi-K2.5",                        "Kimi-K2.5"),
     ("Kimi-K2.5-thinking",               "Kimi-K2.5-Thinking"),
-    ("gpt-oss-120b",                     "GPT-OSS-120B"),
-    ("hygpt-aoai-gpt-5.3-chat",          "HyGPT(gpt-5.3)"),
-    ("hygpt-aoai-gpt-5.4",               "HyGPT(gpt-5.4)"),
-    ("hygpt-aoai-gpt-5.2-chat",          "HyGPT(gpt-5.2)"),
 ]
 
 
