@@ -1,268 +1,144 @@
 """
-SK Hynix LLM-CHAT 완전 자동 토큰 발급 (진짜 버전)
-===================================================
-진짜 인증 플로우 (Network 탭 분석 결과):
-    1. GET http://llm-chat.skhynix.com/api/common/v1/auth/sso
-       쿠키: SMSESSION, AMTOKEN (HCP SSO 세션)
-       → 응답: JWT 토큰 또는 리다이렉트
+SK Hynix LLM-CHAT - 클립보드 자동 읽기 버전
+=============================================
+사용 순서:
+    1. 브라우저에서 북마크 '🔑토큰복사' 클릭 → 토큰이 클립보드에 복사됨
+    2. python chat_clipboard.py 실행
+    3. 파이썬이 클립보드에서 자동으로 토큰 읽어서 시작
 
-    2. 받은 JWT로 /api/chat/completions 호출
-
-핵심 도메인:
-    - 프론트: llm-chat.skhynix.com (메인)
-    - 백엔드: llm-chat-backend-basic-prd.api.hcpp01.skhynix.com
+클립보드에 토큰이 없거나 만료됐을 때만 수동 안내.
+토큰은 .llm_token 파일에 캐시되어 다음 실행때는 자동 재사용.
 
 필요 라이브러리:
-    pip install requests browser-cookie3
+    pip install requests pyperclip
 """
 import requests
 import json
+import os
 import sys
 import time
-import urllib.parse
+import base64
 
 
 # ============================================================
-# 도메인 설정
+# 설정
 # ============================================================
-MAIN_DOMAIN = "llm-chat.skhynix.com"              # 진짜 메인!
-BACKEND_API = "http://llm-chat-backend-basic-prd.api.hcpp01.skhynix.com"
-
-# SSO 인증 URL
-SSO_BASE = "http://llm-chat.skhynix.com/api/common/v1/auth/sso"
-APP_URL = "http://llm-chat.skhynix.com/apps/llm-chat"
-
-# LLM API
-CHAT_URL = f"{BACKEND_API}/api/chat/completions"
+URL = "http://llm-chat-backend-basic-prd.api.hcpp01.skhynix.com/api/chat/completions"
 MODEL = "Qwen/Qwen3.5-397B-A17B-FP8"
-SYSTEM_PROMPT = "당신은 SK하이닉스 반도체 FAB 물류 전문가입니다."
+SYSTEM_PROMPT = "당신은 SK하이닉스 반도체 FAB 물류(AMHS/OHT) 전문가입니다."
 
-# HCP SSO 필수 쿠키
-REQUIRED_COOKIES = ["SMSESSION", "AMTOKEN"]
+TOKEN_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".llm_token")
 
 
 # ============================================================
-# 1단계: 브라우저에서 SSO 쿠키 긁어오기
+# JWT 유효성 체크
 # ============================================================
 
-def get_sso_cookies():
-    """brower-cookie3로 SMSESSION, AMTOKEN 가져오기"""
+def is_token_valid(token: str) -> bool:
+    """JWT 만료시간 확인"""
+    if not token or not token.startswith("eyJ"):
+        return False
     try:
-        import browser_cookie3
-    except ImportError:
-        print("❌ pip install browser-cookie3")
-        sys.exit(1)
-
-    print("🔍 브라우저 쿠키 스캔 중...")
-
-    browsers = [
-        ("Chrome", browser_cookie3.chrome),
-        ("Edge", browser_cookie3.edge),
-        ("Firefox", browser_cookie3.firefox),
-    ]
-
-    for name, func in browsers:
-        try:
-            cj = func(domain_name="skhynix.com")
-            cookies = {}
-            for c in cj:
-                # skhynix.com 관련 도메인이면 다 수집
-                if "skhynix.com" in c.domain.lower():
-                    cookies[c.name] = c.value
-
-            # 필수 쿠키 체크
-            has_required = all(k in cookies for k in REQUIRED_COOKIES)
-            if has_required:
-                print(f"✓ {name}에서 SSO 쿠키 발견")
-                print(f"  SMSESSION: {cookies['SMSESSION'][:30]}...")
-                print(f"  AMTOKEN:   {cookies['AMTOKEN'][:30]}...")
-                if "LASTUSER" in cookies:
-                    print(f"  사번: {cookies['LASTUSER']}")
-                return cookies
-            else:
-                missing = [k for k in REQUIRED_COOKIES if k not in cookies]
-                if cookies:
-                    print(f"  {name}: skhynix 쿠키는 있으나 누락 {missing}")
-        except Exception as e:
-            print(f"  {name}: 접근 실패 ({type(e).__name__})")
-            continue
-
-    return None
-
-
-# ============================================================
-# 2단계: SSO 엔드포인트로 인증 → JWT 획득
-# ============================================================
-
-def authenticate_sso(cookies: dict) -> str:
-    """
-    HCP SSO 쿠키로 JWT 토큰 발급
-    
-    플로우:
-        1. GET /api/common/v1/auth/sso?URL=<앱URL>&timestamp=<ms>
-        2. 응답 확인 (JSON 또는 리다이렉트)
-        3. JWT 추출
-    """
-    # 타임스탬프 (밀리초)
-    ts = int(time.time() * 1000)
-
-    # 1차 시도: SSO 엔드포인트
-    sso_params = {
-        "URL": APP_URL,
-        "timestamp": str(ts),
-    }
-
-    headers = {
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Referer": APP_URL,
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/147.0.0.0 Safari/537.36"
-        ),
-    }
-
-    print(f"\n🔑 SSO 인증 요청 중...")
-    print(f"  URL: {SSO_BASE}")
-
-    try:
-        resp = requests.get(
-            SSO_BASE,
-            params=sso_params,
-            cookies=cookies,
-            headers=headers,
-            timeout=30,
-            allow_redirects=True,
-        )
-        print(f"  Status: {resp.status_code}")
-        print(f"  Content-Type: {resp.headers.get('Content-Type', '?')}")
-
-        # 응답 파싱
-        content = resp.text
-        print(f"  응답 길이: {len(content)} bytes")
-
-        if resp.status_code != 200:
-            print(f"  응답: {content[:500]}")
-            return None
-
-        # 응답이 JSON인지 plain text인지 확인
-        # Network 분석에 content-length=53 이었으니 짧은 응답
-        print(f"  응답 내용: {content[:200]}")
-
-        # 케이스 A: JSON 형식
-        try:
-            data = resp.json()
-            for key in ["token", "jwt", "access_token", "accessToken"]:
-                if key in data and data[key].startswith("eyJ"):
-                    print(f"✓ JWT 발견: {key}")
-                    return data[key]
-        except json.JSONDecodeError:
-            pass
-
-        # 케이스 B: 응답 본문이 바로 JWT
-        stripped = content.strip().strip('"')
-        if stripped.startswith("eyJ"):
-            print(f"✓ 응답 본문이 JWT")
-            return stripped
-
-        # 케이스 C: 응답 본문에 URL 포함 (리다이렉트 URL)
-        if "token=" in content or "jwt=" in content:
-            import re
-            m = re.search(r"(?:token|jwt)=([^&\s\"']+)", content)
-            if m:
-                token = m.group(1)
-                if token.startswith("eyJ"):
-                    print(f"✓ URL 파라미터에서 JWT 추출")
-                    return token
-
-        # 케이스 D: Set-Cookie 헤더에 JWT
-        set_cookie = resp.headers.get("Set-Cookie", "")
-        if "eyJ" in set_cookie:
-            import re
-            m = re.search(r"(eyJ[A-Za-z0-9_\-\.]+)", set_cookie)
-            if m:
-                print(f"✓ Set-Cookie에서 JWT 추출")
-                return m.group(1)
-
-        # 실패 - 응답 구조 분석 필요
-        print(f"\n⚠️ JWT를 찾을 수 없음")
-        print(f"응답 전체:\n{content[:1000]}")
-        print(f"\nResponse 헤더:")
-        for k, v in resp.headers.items():
-            print(f"  {k}: {v}")
-        return None
-
+        parts = token.split(".")
+        if len(parts) != 3:
+            return False
+        payload = parts[1] + "=" * (4 - len(parts[1]) % 4)
+        decoded = json.loads(base64.urlsafe_b64decode(payload))
+        exp = decoded.get("exp", 0)
+        now = int(time.time())
+        remaining = exp - now
+        if remaining > 60:  # 1분 이상 남아야 유효
+            mins = remaining // 60
+            print(f"  ✓ 토큰 유효 (남은 시간: {mins}분)")
+            return True
+        else:
+            print(f"  ⚠ 토큰 만료됨")
+            return False
     except Exception as e:
-        print(f"❌ SSO 요청 실패: {e}")
-        return None
+        print(f"  ⚠ 토큰 파싱 실패: {e}")
+        return False
 
 
 # ============================================================
-# 3단계: 대체 경로 - 백엔드 직접 호출
+# 토큰 소스
 # ============================================================
 
-def authenticate_backend_direct(cookies: dict) -> str:
-    """프론트 우회, 백엔드 /auths/hcp/signin 직접 호출"""
-    endpoints = [
-        f"{BACKEND_API}/api/v1/auths/hcp/signin",
-        f"{BACKEND_API}/auths/hcp/signin",
-        f"{BACKEND_API}/api/auths/hcp/signin",
-    ]
-
-    headers = {
-        "Content-Type": "application/json",
-        "Origin": "http://llm-chat-frontend-basic-prd.api.aipp01.skhynix.com",
-        "Referer": "http://llm-chat-frontend-basic-prd.api.aipp01.skhynix.com/",
-    }
-
-    print(f"\n🔄 백엔드 직접 인증 시도...")
-    for url in endpoints:
-        print(f"  시도: {url}")
-        try:
-            resp = requests.post(
-                url,
-                headers=headers,
-                cookies=cookies,
-                json={},
-                timeout=30,
-            )
-            print(f"    → {resp.status_code}")
-            if resp.status_code == 200:
-                data = resp.json()
-                for key in ["token", "jwt", "access_token"]:
-                    if key in data and str(data[key]).startswith("eyJ"):
-                        print(f"    ✓ JWT 획득")
-                        return data[key]
-                print(f"    응답: {data}")
-        except Exception as e:
-            print(f"    에러: {e}")
-
+def token_from_cache():
+    """캐시 파일에서 읽기"""
+    if os.path.exists(TOKEN_CACHE):
+        with open(TOKEN_CACHE, "r") as f:
+            t = f.read().strip()
+            if is_token_valid(t):
+                print("✓ 캐시에서 토큰 복구")
+                return t
     return None
 
 
-# ============================================================
-# 통합: 토큰 자동 획득
-# ============================================================
-
-def auto_get_token():
-    """전체 자동 인증 프로세스"""
-    # 쿠키 획득
-    cookies = get_sso_cookies()
-    if not cookies:
-        print("\n❌ HCP SSO 쿠키 없음")
-        print("   브라우저에서 http://llm-chat.skhynix.com 접속 후 로그인 필요")
+def token_from_clipboard():
+    """클립보드에서 읽기"""
+    try:
+        import pyperclip
+    except ImportError:
+        print("  (pyperclip 미설치 - 클립보드 읽기 건너뜀)")
         return None
 
-    # 방법 1: 정규 SSO 엔드포인트
-    token = authenticate_sso(cookies)
-    if token:
-        return token
+    try:
+        t = pyperclip.paste().strip()
+        if t.startswith("Bearer "):
+            t = t[7:]
+        if is_token_valid(t):
+            print("✓ 클립보드에서 토큰 획득")
+            return t
+    except Exception:
+        pass
+    return None
 
-    # 방법 2: 백엔드 직접
-    token = authenticate_backend_direct(cookies)
-    if token:
-        return token
+
+def token_from_input():
+    """수동 입력"""
+    print("\n" + "=" * 60)
+    print("  토큰을 찾을 수 없습니다.")
+    print("=" * 60)
+    print("  방법 1 (북마크릿 사용 - 추천):")
+    print("    브라우저에서 북마크 '🔑토큰복사' 클릭 후 재실행")
+    print()
+    print("  방법 2 (수동):")
+    print("    1. LLM-CHAT 페이지에서 F12 → Console")
+    print("    2. copy(localStorage.token) 입력 후 엔터")
+    print("    3. 아래에 Ctrl+V")
+    print("=" * 60)
+    t = input("\n🔑 토큰 > ").strip()
+    if t.startswith("Bearer "):
+        t = t[7:]
+    if not is_token_valid(t):
+        return None
+    return t
+
+
+def save_token(token: str):
+    """토큰 캐시"""
+    with open(TOKEN_CACHE, "w") as f:
+        f.write(token)
+
+
+def get_token(force=False):
+    """토큰 획득 - 캐시→클립보드→수동 순"""
+    print("\n🔍 토큰 찾는 중...")
+
+    if not force:
+        t = token_from_cache()
+        if t:
+            return t
+
+    t = token_from_clipboard()
+    if t:
+        save_token(t)
+        return t
+
+    t = token_from_input()
+    if t:
+        save_token(t)
+        return t
 
     return None
 
@@ -271,9 +147,9 @@ def auto_get_token():
 # LLM 호출
 # ============================================================
 
-def chat(messages: list, token: str) -> str:
+def chat(messages, token):
     resp = requests.post(
-        CHAT_URL,
+        URL,
         headers={
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
@@ -296,30 +172,25 @@ def chat(messages: list, token: str) -> str:
 
 def main():
     print("=" * 60)
-    print("  SK Hynix LLM-CHAT 완전 자동 버전")
-    print("  (llm-chat.skhynix.com HCP SSO 사용)")
+    print("  SK Hynix LLM-CHAT (클립보드 자동)")
     print("=" * 60)
 
-    token = auto_get_token()
+    token = get_token()
     if not token:
-        print("\n사용 가능한 대안:")
-        print("  1. 브라우저에서 http://llm-chat.skhynix.com 접속")
-        print("  2. F12 → Console → copy(localStorage.token)")
-        print("  3. chat.py 의 TOKEN에 붙여넣기")
+        print("❌ 토큰 획득 실패")
         sys.exit(1)
 
-    print(f"\n✓ JWT 획득 완료")
-    print(f"=" * 60)
-    print("대화 시작 (exit/reset/token)")
+    print(f"\n{'=' * 60}")
+    print("  대화 시작 - 명령어: exit | reset | token")
     print("=" * 60)
 
     history = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     while True:
         try:
-            q = input("\n🧑 당신> ").strip()
+            q = input("\n🧑 > ").strip()
         except (KeyboardInterrupt, EOFError):
-            print("\n👋 종료")
+            print("\n👋")
             break
 
         if not q:
@@ -328,28 +199,38 @@ def main():
             break
         if q.lower() in ("reset", "초기화"):
             history = [{"role": "system", "content": SYSTEM_PROMPT}]
-            print("✓ 초기화")
+            print("✓ 초기화됨")
             continue
         if q.lower() in ("token", "토큰"):
-            t = auto_get_token()
-            if t:
-                token = t
+            new = get_token(force=True)
+            if new:
+                token = new
             continue
 
         history.append({"role": "user", "content": q})
         try:
-            print("\n🤖 AI>", end=" ", flush=True)
+            print("\n🤖 ", end="", flush=True)
             answer = chat(history, token)
             print(answer)
             history.append({"role": "assistant", "content": answer})
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 401:
-                print("\n⚠️ 토큰 만료 → 자동 재발급")
-                token = auto_get_token() or token
-                history.pop()
+                print("\n⚠ 토큰 만료 → 클립보드 확인")
+                print("  북마크 '🔑토큰복사' 누르고 엔터치세요...")
+                input("  완료 후 엔터 > ")
+                new = get_token(force=True)
+                if new:
+                    token = new
+                    history.pop()
+                    print("✓ 토큰 갱신! 다시 질문 입력하세요.")
+                else:
+                    break
             else:
                 print(f"\n❌ HTTP {e.response.status_code}")
                 history.pop()
+        except Exception as e:
+            print(f"\n❌ {e}")
+            history.pop()
 
 
 if __name__ == "__main__":
