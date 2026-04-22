@@ -1,4 +1,11 @@
 """
+
+
+
+javascript:(function(){const t=localStorage.token||'';if(!t){alert('❌ 토큰 없음 - 먼저 로그인하세요');return;}navigator.clipboard.writeText(t).then(()=>alert('✅ 토큰 복사 완료!\n\n길이: '+t.length+'자\n앞부분: '+t.slice(0,50)+'...\n\n이제 파이썬 코드에 붙여넣으세요.'));})();
+
+
+
 SK Hynix LLM-CHAT - 클립보드 자동 읽기 버전
 =============================================
 사용 순서:
