@@ -1,161 +1,170 @@
 """
+SK Hynix LLM-CHAT 완전 자동화 (Playwright)
+============================================
+처음 한 번만 설정하면 됩니다.
 
+[처음 1번만]
+    pip install playwright requests
+    playwright install chromium
 
+[그 다음부터]
+    python auto_chat.py   ← 이것만 실행
 
-javascript:(function(){const t=localStorage.token||'';if(!t){alert('❌ 토큰 없음 - 먼저 로그인하세요');return;}navigator.clipboard.writeText(t).then(()=>alert('✅ 토큰 복사 완료!\n\n길이: '+t.length+'자\n앞부분: '+t.slice(0,50)+'...\n\n이제 파이썬 코드에 붙여넣으세요.'));})();
-
-
-SK Hynix LLM-CHAT - 클립보드 자동 읽기 버전
-=============================================
-사용 순서:
-    1. 브라우저에서 북마크 '🔑토큰복사' 클릭 → 토큰이 클립보드에 복사됨
-    2. python chat_clipboard.py 실행
-    3. 파이썬이 클립보드에서 자동으로 토큰 읽어서 시작
-
-클립보드에 토큰이 없거나 만료됐을 때만 수동 안내.
-토큰은 .llm_token 파일에 캐시되어 다음 실행때는 자동 재사용.
-
-필요 라이브러리:
-    pip install requests pyperclip
+동작:
+    1. 브라우저 창 자동으로 열림
+    2. 처음 실행시: HCP SSO 로그인 하세요 (1번만)
+    3. 로그인되면 토큰 자동 획득
+    4. 브라우저는 백그라운드에 남고 챗봇 시작
+    5. 다음 실행부터는 로그인 세션 기억해서 자동 로그인
 """
 import requests
 import json
 import os
 import sys
 import time
-import base64
 
 
 # ============================================================
 # 설정
 # ============================================================
-URL = "http://llm-chat-backend-basic-prd.api.hcpp01.skhynix.com/api/chat/completions"
+CHAT_URL_FRONTEND = "http://llm-chat.skhynix.com/apps/llm-chat"
+CHAT_URL_BACKEND = "http://llm-chat-backend-basic-prd.api.hcpp01.skhynix.com/api/chat/completions"
 MODEL = "Qwen/Qwen3.5-397B-A17B-FP8"
-SYSTEM_PROMPT = "당신은 SK하이닉스 반도체 FAB 물류(AMHS/OHT) 전문가입니다."
+SYSTEM_PROMPT = "당신은 SK하이닉스 반도체 FAB 물류 전문가입니다. 한국어로 답변합니다."
 
-TOKEN_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".llm_token")
+# 브라우저 세션 저장 폴더 (로그인 유지)
+PROFILE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".browser_profile")
 
 
 # ============================================================
-# JWT 유효성 체크
+# Playwright로 토큰 자동 획득
 # ============================================================
 
-def is_token_valid(token: str) -> bool:
-    """JWT 만료시간 확인"""
-    if not token or not token.startswith("eyJ"):
-        return False
+def get_token_auto():
+    """브라우저 자동으로 띄워서 토큰 가져오기"""
     try:
-        parts = token.split(".")
-        if len(parts) != 3:
-            return False
-        payload = parts[1] + "=" * (4 - len(parts[1]) % 4)
-        decoded = json.loads(base64.urlsafe_b64decode(payload))
-        exp = decoded.get("exp", 0)
-        now = int(time.time())
-        remaining = exp - now
-        if remaining > 60:  # 1분 이상 남아야 유효
-            mins = remaining // 60
-            print(f"  ✓ 토큰 유효 (남은 시간: {mins}분)")
-            return True
-        else:
-            print(f"  ⚠ 토큰 만료됨")
-            return False
-    except Exception as e:
-        print(f"  ⚠ 토큰 파싱 실패: {e}")
-        return False
-
-
-# ============================================================
-# 토큰 소스
-# ============================================================
-
-def token_from_cache():
-    """캐시 파일에서 읽기"""
-    if os.path.exists(TOKEN_CACHE):
-        with open(TOKEN_CACHE, "r") as f:
-            t = f.read().strip()
-            if is_token_valid(t):
-                print("✓ 캐시에서 토큰 복구")
-                return t
-    return None
-
-
-def token_from_clipboard():
-    """클립보드에서 읽기"""
-    try:
-        import pyperclip
+        from playwright.sync_api import sync_playwright
     except ImportError:
-        print("  (pyperclip 미설치 - 클립보드 읽기 건너뜀)")
+        print("❌ 라이브러리 설치 필요:")
+        print("   pip install playwright requests")
+        print("   playwright install chromium")
+        sys.exit(1)
+
+    print("🌐 브라우저 실행 중...")
+
+    with sync_playwright() as p:
+        # 영구 프로파일로 실행 (로그인 세션 유지)
+        ctx = p.chromium.launch_persistent_context(
+            user_data_dir=PROFILE_DIR,
+            headless=False,  # 브라우저 창 보이기
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+
+        page = ctx.new_page()
+
+        # 네트워크 요청 가로채서 토큰 추출
+        token_container = {"token": None}
+
+        def on_request(request):
+            """모든 요청의 Authorization 헤더 감시"""
+            auth = request.headers.get("authorization", "")
+            if auth.startswith("Bearer ey") and not token_container["token"]:
+                token = auth[7:]  # "Bearer " 제거
+                token_container["token"] = token
+                print(f"✓ 토큰 자동 획득 ({len(token)}자)")
+
+        page.on("request", on_request)
+
+        # LLM-CHAT 페이지 열기
+        print(f"📍 접속: {CHAT_URL_FRONTEND}")
+        try:
+            page.goto(CHAT_URL_FRONTEND, timeout=60000)
+        except Exception as e:
+            print(f"⚠ 페이지 로드 지연 (계속 진행): {e}")
+
+        # 토큰 획득까지 대기 (최대 3분)
+        print("\n" + "=" * 60)
+        print("  브라우저에서 로그인 해주세요 (처음 1번만)")
+        print("  로그인되면 자동으로 토큰 획득합니다")
+        print("=" * 60)
+
+        for i in range(180):  # 최대 180초 대기
+            if token_container["token"]:
+                break
+            time.sleep(1)
+            if i % 10 == 9:
+                print(f"  ... 대기 중 ({i+1}초)")
+
+        if not token_container["token"]:
+            # 직접 JS 실행으로 시도
+            print("\n🔍 토큰 재검색 중...")
+            try:
+                # iframe 내부 확인
+                for frame in page.frames:
+                    try:
+                        t = frame.evaluate("() => localStorage.getItem('token') || localStorage.getItem('authToken') || ''")
+                        if t and t.startswith("eyJ"):
+                            token_container["token"] = t
+                            print(f"✓ iframe localStorage에서 획득")
+                            break
+                    except Exception:
+                        continue
+            except Exception as e:
+                print(f"  재검색 실패: {e}")
+
+        ctx.close()
+
+        if not token_container["token"]:
+            print("\n❌ 토큰 획득 실패")
+            print("   브라우저에서 로그인이 완료되었는지 확인하세요")
+            return None
+
+        # 토큰 캐시 저장
+        cache_file = os.path.join(os.path.dirname(__file__), ".token_cache")
+        with open(cache_file, "w") as f:
+            f.write(token_container["token"])
+        print(f"💾 토큰 저장: {cache_file}")
+
+        return token_container["token"]
+
+
+def get_cached_token():
+    """캐시된 토큰 확인 (만료 체크)"""
+    cache_file = os.path.join(os.path.dirname(__file__), ".token_cache")
+    if not os.path.exists(cache_file):
         return None
 
+    with open(cache_file, "r") as f:
+        token = f.read().strip()
+
+    if not token.startswith("eyJ"):
+        return None
+
+    # JWT 만료 확인
     try:
-        t = pyperclip.paste().strip()
-        if t.startswith("Bearer "):
-            t = t[7:]
-        if is_token_valid(t):
-            print("✓ 클립보드에서 토큰 획득")
-            return t
+        import base64
+        parts = token.split(".")
+        payload = parts[1] + "=" * (4 - len(parts[1]) % 4)
+        data = json.loads(base64.urlsafe_b64decode(payload))
+        exp = data.get("exp", 0)
+        remaining = exp - int(time.time())
+        if remaining > 120:  # 2분 이상 남음
+            print(f"✓ 캐시 토큰 사용 (남은 시간: {remaining // 60}분)")
+            return token
+        else:
+            print("⚠ 캐시 토큰 만료됨")
+            return None
     except Exception:
-        pass
-    return None
-
-
-def token_from_input():
-    """수동 입력"""
-    print("\n" + "=" * 60)
-    print("  토큰을 찾을 수 없습니다.")
-    print("=" * 60)
-    print("  방법 1 (북마크릿 사용 - 추천):")
-    print("    브라우저에서 북마크 '🔑토큰복사' 클릭 후 재실행")
-    print()
-    print("  방법 2 (수동):")
-    print("    1. LLM-CHAT 페이지에서 F12 → Console")
-    print("    2. copy(localStorage.token) 입력 후 엔터")
-    print("    3. 아래에 Ctrl+V")
-    print("=" * 60)
-    t = input("\n🔑 토큰 > ").strip()
-    if t.startswith("Bearer "):
-        t = t[7:]
-    if not is_token_valid(t):
         return None
-    return t
-
-
-def save_token(token: str):
-    """토큰 캐시"""
-    with open(TOKEN_CACHE, "w") as f:
-        f.write(token)
-
-
-def get_token(force=False):
-    """토큰 획득 - 캐시→클립보드→수동 순"""
-    print("\n🔍 토큰 찾는 중...")
-
-    if not force:
-        t = token_from_cache()
-        if t:
-            return t
-
-    t = token_from_clipboard()
-    if t:
-        save_token(t)
-        return t
-
-    t = token_from_input()
-    if t:
-        save_token(t)
-        return t
-
-    return None
 
 
 # ============================================================
 # LLM 호출
 # ============================================================
 
-def chat(messages, token):
-    resp = requests.post(
-        URL,
+def chat_api(messages, token):
+    r = requests.post(
+        CHAT_URL_BACKEND,
         headers={
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
@@ -168,8 +177,8 @@ def chat(messages, token):
         },
         timeout=180,
     )
-    resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"]
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"]
 
 
 # ============================================================
@@ -178,16 +187,23 @@ def chat(messages, token):
 
 def main():
     print("=" * 60)
-    print("  SK Hynix LLM-CHAT (클립보드 자동)")
+    print("  SK Hynix LLM-CHAT 자동 버전")
     print("=" * 60)
 
-    token = get_token()
+    # 1. 캐시 확인
+    token = get_cached_token()
+
+    # 2. 없으면 브라우저로 자동 획득
     if not token:
-        print("❌ 토큰 획득 실패")
+        token = get_token_auto()
+
+    if not token:
+        print("\n❌ 토큰 획득 실패")
         sys.exit(1)
 
+    # 3. 챗봇 시작
     print(f"\n{'=' * 60}")
-    print("  대화 시작 - 명령어: exit | reset | token")
+    print("  대화 시작 (exit: 종료, reset: 초기화)")
     print("=" * 60)
 
     history = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -204,33 +220,28 @@ def main():
         if q.lower() in ("exit", "quit", "종료"):
             break
         if q.lower() in ("reset", "초기화"):
-            history = [{"role": "system", "content": SYSTEM_PROMPT}]
-            print("✓ 초기화됨")
-            continue
-        if q.lower() in ("token", "토큰"):
-            new = get_token(force=True)
-            if new:
-                token = new
+            history = [history[0]]
+            print("✓ 초기화")
             continue
 
         history.append({"role": "user", "content": q})
         try:
             print("\n🤖 ", end="", flush=True)
-            answer = chat(history, token)
+            answer = chat_api(history, token)
             print(answer)
             history.append({"role": "assistant", "content": answer})
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 401:
-                print("\n⚠ 토큰 만료 → 클립보드 확인")
-                print("  북마크 '🔑토큰복사' 누르고 엔터치세요...")
-                input("  완료 후 엔터 > ")
-                new = get_token(force=True)
-                if new:
-                    token = new
-                    history.pop()
-                    print("✓ 토큰 갱신! 다시 질문 입력하세요.")
-                else:
+                print("\n⚠ 토큰 만료 → 브라우저 재열림")
+                history.pop()
+                # 캐시 삭제 후 재획득
+                cache_file = os.path.join(os.path.dirname(__file__), ".token_cache")
+                if os.path.exists(cache_file):
+                    os.remove(cache_file)
+                token = get_token_auto()
+                if not token:
                     break
+                print("✓ 토큰 갱신! 다시 질문하세요")
             else:
                 print(f"\n❌ HTTP {e.response.status_code}")
                 history.pop()
