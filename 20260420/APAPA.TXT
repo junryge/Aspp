@@ -1,169 +1,183 @@
 """
-SK Hynix LLM-CHAT API Client
-Endpoint: POST /api/chat/completed
-Model: Qwen/Qwen3.5-397B-A17B-FP8
+SK Hynix LLM-CHAT API Client (Open WebUI 기반)
+=============================================
+백엔드가 Open WebUI (github.com/open-webui/open-webui) 기반임을 확인.
+따라서 표준 OpenAI 호환 엔드포인트 사용:
+    POST /api/chat/completions
 
 사용법:
-    1. TOKEN 값을 최신 JWT로 교체 (만료시 401 발생)
-    2. python llm_chat_client.py 실행
+    1. TOKEN 에 최신 JWT 입력
+    2. python llm_chat_client_v2.py
 """
 import requests
-import uuid
-import time
 import json
-import random
-import string
 
 
 # ============================================================
-# 토큰 (만료시 F12 → Network → completed 요청 → Headers →
-#       authorization: Bearer <여기부분> 복사해서 교체)
+# 설정
 # ============================================================
 TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjkwMjkzZTI2LTA2ZDYtNGFhOS04Mzc1LTg2YmM1ZTkzZjA5MyIsImV4cCI6MTc3NjgyNjA5Miwicm9sZSI6InBhcnRuZXIifQ.E6zNWLsODq-bTyuT6q5IU8XyqtVeDs82k1YG5NglgbE"
 
+BASE_URL = "http://llm-chat-backend-basic-prd.api.hcpp01.skhynix.com"
+MODEL = "Qwen/Qwen3.5-397B-A17B-FP8"
 
-class LLMChatClient:
-    BASE_URL = "http://llm-chat-backend-basic-prd.api.hcpp01.skhynix.com"
-    ENDPOINT = "/api/chat/completed"
-    DEFAULT_MODEL = "Qwen/Qwen3.5-397B-A17B-FP8"
-    FRONTEND_ORIGIN = "http://llm-chat-frontend-basic-prd.api.aipp01.skhynix.com"
 
-    def __init__(self, bearer_token: str, session_id: str = None):
-        self.token = bearer_token
-        self.session_id = session_id or self._gen_session_id()
-        self.chat_id = str(uuid.uuid4())
+class LLMChat:
+    """Open WebUI 표준 API 클라이언트"""
+
+    def __init__(self, token: str, base_url: str = BASE_URL, model: str = MODEL):
+        self.token = token
+        self.base_url = base_url
+        self.model = model
         self.history = []
-
-    @staticmethod
-    def _gen_session_id(length: int = 20) -> str:
-        chars = string.ascii_letters + string.digits
-        return ''.join(random.choices(chars, k=length))
 
     def _headers(self) -> dict:
         return {
+            "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Authorization": f"Bearer {self.token}",
-            "Origin": self.FRONTEND_ORIGIN,
-            "Referer": f"{self.FRONTEND_ORIGIN}/",
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/147.0.0.0 Safari/537.36"
-            ),
+            "Origin": "http://llm-chat-frontend-basic-prd.api.aipp01.skhynix.com",
+            "Referer": "http://llm-chat-frontend-basic-prd.api.aipp01.skhynix.com/",
         }
 
-    def chat(self, user_message: str, model: str = None,
-             keep_history: bool = True, timeout: int = 120) -> dict:
-        """
-        메시지 전송 → 응답 JSON 반환
-        keep_history=True 면 대화 맥락 유지
-        """
-        user_msg = {
-            "id": str(uuid.uuid4()),
-            "role": "user",
-            "content": user_message,
-            "timestamp": int(time.time()),
-        }
+    def ask(self, question: str, system: str = None,
+            keep_history: bool = True, temperature: float = 0.7) -> str:
+        """질문 → 답변 반환"""
+        messages = []
+
+        if system:
+            messages.append({"role": "system", "content": system})
 
         if keep_history:
-            self.history.append(user_msg)
-            messages = self.history
-        else:
-            messages = [user_msg]
+            messages.extend(self.history)
+
+        messages.append({"role": "user", "content": question})
 
         payload = {
-            "model": model or self.DEFAULT_MODEL,
-            "chat_id": self.chat_id,
-            "id": str(uuid.uuid4()),
-            "session_id": self.session_id,
+            "model": self.model,
             "messages": messages,
+            "stream": False,
+            "temperature": temperature,
         }
 
-        url = f"{self.BASE_URL}{self.ENDPOINT}"
-        print(f"[REQUEST] POST {url}")
-        print(f"[PAYLOAD] {json.dumps(payload, ensure_ascii=False)[:300]}...")
+        # 시도할 엔드포인트들 (우선순위 순)
+        endpoints = [
+            "/api/chat/completions",     # Open WebUI 표준
+            "/openai/chat/completions",  # OpenAI 프록시
+            "/ollama/v1/chat/completions",  # Ollama 프록시
+            "/api/v1/chat/completions",
+        ]
 
-        resp = requests.post(url, headers=self._headers(),
-                             json=payload, timeout=timeout)
+        last_error = None
+        for ep in endpoints:
+            url = f"{self.base_url}{ep}"
+            try:
+                print(f"[TRY] POST {url}")
+                resp = requests.post(url, headers=self._headers(),
+                                     json=payload, timeout=180)
+                print(f"  → STATUS {resp.status_code}")
 
-        print(f"[STATUS] {resp.status_code}")
+                if resp.status_code == 404:
+                    last_error = f"404 at {ep}"
+                    continue
+                if resp.status_code == 401:
+                    raise RuntimeError("토큰 만료됨 - 새로 발급받아 TOKEN 교체")
 
-        if resp.status_code == 401:
-            raise RuntimeError(
-                "401 Unauthorized - JWT 토큰 만료됨.\n"
-                "브라우저 F12 → Network → completed 요청 → "
-                "Request Headers 의 authorization 값을 새로 복사해서 "
-                "TOKEN 변수 교체하세요."
-            )
-        resp.raise_for_status()
-        data = resp.json()
+                resp.raise_for_status()
+                data = resp.json()
 
-        # 어시스턴트 응답을 히스토리에 추가
-        if keep_history:
-            content = self._extract_content(data)
-            self.history.append({
-                "id": str(uuid.uuid4()),
-                "role": "assistant",
-                "content": content,
-                "timestamp": int(time.time()),
-            })
+                # 답변 추출
+                answer = self._extract(data)
 
-        return data
+                # 답변이 있으면 성공
+                if answer and answer.strip() and not self._is_echo(answer, question):
+                    print(f"  ✓ SUCCESS (엔드포인트: {ep})")
+                    if keep_history:
+                        self.history.append({"role": "user", "content": question})
+                        self.history.append({"role": "assistant", "content": answer})
+                    return answer
+                else:
+                    last_error = f"빈 응답 or 에코 at {ep}"
+                    print(f"  ✗ 에코 응답 (계속 시도)")
+                    continue
+
+            except requests.exceptions.HTTPError as e:
+                last_error = f"HTTP {e.response.status_code} at {ep}"
+                print(f"  ✗ {last_error}")
+                continue
+            except requests.exceptions.ConnectionError:
+                raise RuntimeError("서버 접속 불가 (폐쇄망 확인)")
+
+        raise RuntimeError(f"모든 엔드포인트 실패. 마지막: {last_error}")
 
     @staticmethod
-    def _extract_content(response: dict) -> str:
-        """응답 JSON에서 어시스턴트 텍스트 추출 (여러 포맷 대응)"""
-        # OpenAI 스타일
+    def _extract(response: dict) -> str:
+        """응답 JSON에서 답변 텍스트 추출"""
+        # OpenAI 표준: choices[0].message.content
         if isinstance(response.get("choices"), list) and response["choices"]:
             choice = response["choices"][0]
             if isinstance(choice.get("message"), dict):
                 return choice["message"].get("content", "")
             if "text" in choice:
                 return choice["text"]
-        # Ollama/Open WebUI 스타일
+            if "delta" in choice:
+                return choice["delta"].get("content", "")
+
+        # Ollama 스타일
         if isinstance(response.get("message"), dict):
             return response["message"].get("content", "")
-        # Plain
+
+        # 기타
         if "content" in response:
             return response["content"]
         if "response" in response:
             return response["response"]
-        # fallback - 전체 JSON
-        return json.dumps(response, ensure_ascii=False)
+
+        return ""
+
+    @staticmethod
+    def _is_echo(answer: str, question: str) -> bool:
+        """응답이 질문 에코인지 판별"""
+        if not answer:
+            return True
+        # 응답에 model/messages 키가 들어있으면 JSON 에코
+        if '"messages"' in answer and '"role"' in answer:
+            return True
+        return False
+
+    def reset(self):
+        """대화 히스토리 초기화"""
+        self.history = []
 
 
 # ============================================================
-# 실행 예시
+# 실행
 # ============================================================
 if __name__ == "__main__":
-    client = LLMChatClient(bearer_token=TOKEN)
+    print("=" * 60)
+    print("SK Hynix LLM-CHAT API Client")
+    print(f"Base URL: {BASE_URL}")
+    print(f"Model:    {MODEL}")
+    print("=" * 60)
 
-    print("=" * 60)
-    print("LLM-CHAT 테스트")
-    print("=" * 60)
+    chat = LLMChat(token=TOKEN)
 
     try:
-        result = client.chat("안녕하세요, 당신은 누구인가요?")
+        # ─ 1번째 질문 ──────────────────────────────
+        print("\n[Q1] 안녕하세요, 당신은 누구인가요?")
+        answer = chat.ask("안녕하세요, 당신은 누구인가요?")
+        print(f"\n[A1]\n{answer}")
 
-        print("\n[FULL RESPONSE JSON]")
-        print(json.dumps(result, ensure_ascii=False, indent=2)[:2000])
-
-        print("\n[EXTRACTED CONTENT]")
-        print(client._extract_content(result))
-
-        # 2번째 턴 - 맥락 유지 테스트
-        print("\n" + "=" * 60)
-        print("2번째 턴 (맥락 유지 테스트)")
-        print("=" * 60)
-        result2 = client.chat("방금 내가 뭐라고 물어봤지?")
-        print(client._extract_content(result2))
+        # ─ 2번째 질문 (맥락 유지) ─────────────────
+        print("\n" + "-" * 60)
+        print("\n[Q2] 방금 내가 뭐라고 물어봤지?")
+        answer = chat.ask("방금 내가 뭐라고 물어봤지?")
+        print(f"\n[A2]\n{answer}")
 
     except RuntimeError as e:
-        print(f"\n[ERROR] {e}")
-    except requests.exceptions.ConnectionError:
-        print("\n[ERROR] 서버 접속 불가 - 폐쇄망 내부에서만 동작합니다")
-    except requests.exceptions.HTTPError as e:
-        print(f"\n[HTTP ERROR] {e}")
-        print(f"Response: {e.response.text[:500]}")
+        print(f"\n❌ [ERROR] {e}")
+        print("\n진짜 엔드포인트 확인하려면:")
+        print("  1. 브라우저에서 LLM-CHAT 열기")
+        print("  2. F12 → Network 탭 → 'chat' 필터")
+        print("  3. 채팅 1회 전송")
+        print("  4. response 크기가 큰 요청의 URL을 확인")
