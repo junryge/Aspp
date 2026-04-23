@@ -786,7 +786,6 @@ body.rp-collapsed .chat-box-fixed{right:0}
 
 <button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()">◀</button>
 
-<!-- 인트로 스플래시 제거됨 - 바로 로그인 -->
 
 <div class="main">
   <div class="header">
@@ -1926,6 +1925,7 @@ async function saveTokenSettings(){
     if(status){ status.style.display='inline'; setTimeout(()=>{ status.style.display='none'; }, 3000); }
   }catch(e){ alert('저장 실패: ' + e); }
 }
+
 
 // 모델 타입에 따라 토큰 자동 설정
 async function autoApplyTokenSettings(envId){
@@ -5213,6 +5213,9 @@ function showLoginScreen(){
   if(lo) lo.style.display='flex';
   var idInput = document.getElementById('loginId');
   if(idInput) idInput.focus();
+  // PPT 설계 버튼 숨김 (로그인 전)
+  var pptBtn = document.getElementById('pptBuilderBtn');
+  if(pptBtn) pptBtn.style.display='none';
 }
 
 function showMainUI(){
@@ -5228,6 +5231,9 @@ function showMainUI(){
   // 헤더 버튼 표시/숨김
   var hdAdmin = document.getElementById('hdAdminBtn');
   if(hdAdmin) hdAdmin.style.display = (currentUser && currentUser.role === 'admin') ? '' : 'none';
+  // PPT 설계 버튼 노출 (로그인 완료)
+  var pptBtn = document.getElementById('pptBuilderBtn');
+  if(pptBtn) pptBtn.style.display='flex';
 }
 
 async function doLogin(){
@@ -5698,7 +5704,147 @@ function harnessDelete(sid){
   if(!confirm('삭제할까요?'))return;
   fetch('/api/harness/session/delete/'+sid,{method:'DELETE'}).then(()=>openHarnessSessionTab()).catch(()=>alert('삭제 실패'));
 }
+
+// ═══ 📑 PPT 설계 팝업 (MD → PPT 결정론적 변환, LLM 미사용) ═══
+function openPptBuilder(){ document.getElementById('pptBuilderOverlay').style.display='flex'; }
+function closePptBuilder(){ document.getElementById('pptBuilderOverlay').style.display='none'; }
+function pptSwitchTab(tab){
+  const mdTab=document.getElementById('pptTabMd'), fileTab=document.getElementById('pptTabFile');
+  const mdC=document.getElementById('pptTabMdContent'), fileC=document.getElementById('pptTabFileContent');
+  if(tab==='md'){ mdTab.style.background='#eab308';mdTab.style.color='#fff';fileTab.style.background='#e5e7eb';fileTab.style.color='#6b7280';mdC.style.display='flex';fileC.style.display='none'; }
+  else { fileTab.style.background='#eab308';fileTab.style.color='#fff';mdTab.style.background='#e5e7eb';mdTab.style.color='#6b7280';fileC.style.display='flex';mdC.style.display='none'; }
+}
+function pptShowLoading(msg){
+  document.getElementById('pptResultPanel').innerHTML =
+    `<div style="text-align:center;padding-top:80px;color:#eab308;"><div style="font-size:36px;margin-bottom:10px;">⏳</div>${msg||'변환 중...'}</div>`;
+}
+function pptShowResult(data){
+  const panel=document.getElementById('pptResultPanel');
+  if(data.error){ panel.innerHTML=`<div style="color:#ef4444;"><b>❌ 실패</b><br><br>${data.error}</div>`; return; }
+  const slides=(data.slides_summary||[]).map((s,i)=>
+    `<div style="padding:6px 10px;background:#f1f5f9;border-radius:4px;margin-bottom:4px;display:flex;gap:8px;font-size:11px;">
+       <span style="color:#eab308;font-weight:600;">Slide ${i+1}</span>
+       <span style="color:#64748b;">[${s.type}]</span>
+       <span style="flex:1;color:#334155;">${(s.title||'(제목 없음)').replace(/</g,'&lt;')}</span>
+     </div>`).join('');
+  panel.innerHTML = `
+    <div style="margin-bottom:14px;">
+      <div style="font-size:14px;font-weight:700;color:#16a34a;margin-bottom:6px;">✅ 변환 완료</div>
+      <div style="font-size:11px;color:#64748b;">파일명: ${data.filename||''}</div>
+      <div style="font-size:11px;color:#64748b;">슬라이드: ${data.slide_count||0}개 · 크기 ${((data.size||0)/1024).toFixed(1)} KB</div>
+    </div>
+    <a href="${data.download_url}" download
+       style="display:block;padding:10px;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;text-decoration:none;border-radius:6px;font-weight:700;text-align:center;margin-bottom:14px;font-size:13px;">💾 .pptx 다운로드</a>
+    <div style="font-size:11px;color:#64748b;margin-bottom:6px;">슬라이드 구성</div>${slides}`;
+}
+async function pptGenerateFromMd(){
+  const md=document.getElementById('pptMdInput').value.trim();
+  if(!md){ alert('MD 내용을 입력해주세요'); return; }
+  pptShowLoading('MD → PPT 변환 중...');
+  try{
+    const r=await fetch('/api/ppt/from-md',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({md})});
+    pptShowResult(await r.json());
+  }catch(e){ pptShowResult({error:'네트워크 오류: '+e.message}); }
+}
+async function pptGenerateFromFile(file){
+  if(!file) return;
+  pptShowLoading('파일 업로드 중... ('+file.name+')');
+  const fd=new FormData(); fd.append('file',file);
+  try{
+    const r=await fetch('/api/ppt/from-md-file',{method:'POST',body:fd});
+    pptShowResult(await r.json());
+  }catch(e){ pptShowResult({error:'네트워크 오류: '+e.message}); }
+}
+// 드롭존 이벤트
+(function(){
+  const zone=document.getElementById('pptDropZone'); if(!zone) return;
+  zone.addEventListener('dragover',e=>{e.preventDefault();zone.style.borderColor='#eab308';zone.style.background='#fefce8';});
+  zone.addEventListener('dragleave',e=>{zone.style.borderColor='#cbd5e1';zone.style.background='#f8fafc';});
+  zone.addEventListener('drop',e=>{
+    e.preventDefault();
+    zone.style.borderColor='#cbd5e1';zone.style.background='#f8fafc';
+    const f=e.dataTransfer.files && e.dataTransfer.files[0];
+    if(f) pptGenerateFromFile(f);
+  });
+})();
 </script>
+
+<!-- 📑 PPT 설계 플로팅 버튼 (로그인 후에만 노출) -->
+<button id="pptBuilderBtn" onclick="openPptBuilder()"
+        title=".md 파일/텍스트 → .pptx 자동 변환 (LLM 미사용, 결정론적)"
+        style="position:fixed;left:20px;bottom:20px;z-index:9998;padding:12px 18px;
+               background:linear-gradient(135deg,#eab308,#d97706);color:#fff;border:none;
+               border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;
+               box-shadow:0 4px 14px rgba(234,179,8,0.4);display:none;align-items:center;gap:6px;">
+  📑 PPT 설계
+</button>
+
+<!-- 📑 PPT 설계 팝업 -->
+<div id="pptBuilderOverlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;
+     background:rgba(0,0,0,0.5);z-index:10000;justify-content:center;align-items:center;"
+     onclick="if(event.target===this)closePptBuilder()">
+  <div style="width:min(1100px,94vw);height:min(780px,90vh);background:#fff;border:1px solid #cbd5e1;
+       border-radius:12px;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+    <div style="padding:14px 20px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;
+         justify-content:space-between;background:linear-gradient(135deg,#fefce8,#fef3c7);border-radius:12px 12px 0 0;">
+      <div>
+        <div style="font-size:16px;font-weight:700;color:#a16207;">📑 PPT 설계</div>
+        <div style="font-size:11px;color:#78716c;margin-top:2px;">
+          MD 파일 드롭 · 텍스트 붙여넣기 → .pptx 자동 변환 (LLM 안 거침, 결정론적)
+        </div>
+      </div>
+      <button onclick="closePptBuilder()" style="background:transparent;border:none;color:#78716c;font-size:22px;cursor:pointer;padding:4px 10px;">✕</button>
+    </div>
+    <div style="flex:1;display:flex;overflow:hidden;">
+      <div style="flex:1;border-right:1px solid #e2e8f0;display:flex;flex-direction:column;padding:14px;">
+        <div style="display:flex;gap:8px;margin-bottom:10px;">
+          <button id="pptTabMd" onclick="pptSwitchTab('md')"
+                  style="flex:1;padding:8px;background:#eab308;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px;">📝 MD 텍스트</button>
+          <button id="pptTabFile" onclick="pptSwitchTab('file')"
+                  style="flex:1;padding:8px;background:#e5e7eb;color:#6b7280;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px;">📎 파일 업로드</button>
+        </div>
+        <div id="pptTabMdContent" style="flex:1;display:flex;flex-direction:column;">
+          <label style="font-size:11px;color:#64748b;margin-bottom:4px;">
+            마크다운 입력 (# 제목 / ## 슬라이드 / - 불릿 / | 표 | / ```코드``` 지원)
+          </label>
+          <textarea id="pptMdInput"
+            style="flex:1;background:#f8fafc;color:#1e293b;border:1px solid #cbd5e1;border-radius:6px;
+                   padding:10px;font-family:Consolas,monospace;font-size:12px;resize:none;min-height:300px;"
+            placeholder="# 발표 제목&#10;> 부제 또는 날짜&#10;&#10;## 첫 슬라이드&#10;- 요점 1&#10;- 요점 2&#10;&#10;## 표 슬라이드&#10;| 항목 | 값 |&#10;|---|---|&#10;| A | 1 |&#10;&#10;## 코드 슬라이드&#10;```python&#10;def hello():&#10;    print('hi')&#10;```"></textarea>
+          <button onclick="pptGenerateFromMd()"
+                  style="margin-top:10px;padding:10px;background:linear-gradient(135deg,#eab308,#d97706);
+                         color:#fff;border:none;border-radius:6px;font-weight:700;cursor:pointer;font-size:13px;">🚀 PPT 만들기</button>
+        </div>
+        <div id="pptTabFileContent" style="flex:1;display:none;flex-direction:column;">
+          <label style="font-size:11px;color:#64748b;margin-bottom:4px;">.md / .markdown / .txt 파일 드래그-드롭 또는 클릭</label>
+          <div id="pptDropZone"
+               style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+                      border:2px dashed #cbd5e1;border-radius:8px;cursor:pointer;padding:40px;
+                      transition:all .2s;background:#f8fafc;min-height:300px;"
+               onclick="document.getElementById('pptFileInput').click()">
+            <div style="font-size:48px;margin-bottom:12px;">📎</div>
+            <div style="color:#a16207;font-size:14px;font-weight:700;">파일 드롭 또는 클릭</div>
+            <div style="color:#78716c;font-size:11px;margin-top:6px;">.md · .markdown · .txt (UTF-8 / CP949 자동 감지)</div>
+          </div>
+          <input type="file" id="pptFileInput" accept=".md,.markdown,.txt" style="display:none;"
+                 onchange="pptGenerateFromFile(this.files[0])"/>
+        </div>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;padding:14px;overflow-y:auto;">
+        <label style="font-size:11px;color:#64748b;margin-bottom:4px;">결과</label>
+        <div id="pptResultPanel"
+             style="flex:1;background:#f8fafc;border:1px solid #cbd5e1;border-radius:6px;
+                    padding:16px;color:#1e293b;font-size:12px;overflow-y:auto;min-height:300px;">
+          <div style="text-align:center;color:#94a3b8;padding-top:80px;">
+            <div style="font-size:36px;margin-bottom:10px;">⬅️</div>
+            왼쪽에서 MD 입력 또는 파일 업로드 후<br>결과가 여기 나옵니다
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
 """
