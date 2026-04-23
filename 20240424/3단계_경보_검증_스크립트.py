@@ -4,17 +4,31 @@
 3단계 데드락 경보 룰 검증 스크립트 (단독 실행)
 
 사용법:
-    python3 3단계_경보_검증_스크립트.py <STAR_CSV_경로> [데드락_발생시각_HH:MM ...]
+    python3 3단계_경보_검증_스크립트.py <STAR_CSV_경로> [데드락시각 ...]
+
+데드락 시각 포맷 (혼용 가능):
+    14:00                    # 시:분만 (CSV 1개 처리 시 그 날짜로 가정)
+    20260421 14:00           # 날짜 + 시:분 (일주일 치 일괄 처리 시 필수)
+    2026-04-21 14:00         # 하이픈 포맷
+    2026-04-21T14:00         # ISO
+    20260421_14:00           # 언더스코어 구분
 
 예:
-    python3 3단계_경보_검증_스크립트.py STAR_OHT_컬럼수집_DATA_20260421.csv 14:00
-    python3 3단계_경보_검증_스크립트.py *.csv                      # 여러 파일 일괄
+    # 1개 파일 + 시각
+    python3 3단계_경보_검증_스크립트.py STAR_20260421.csv 14:00
+
+    # 여러 파일 (일주일) + 날짜별 데드락
+    python3 3단계_경보_검증_스크립트.py "STAR_*.csv" \\
+        "20260421 14:00" "20260421 16:30" "20260423 09:15"
+
+    # 데드락 시각 모를 때 (탐지만)
+    python3 3단계_경보_검증_스크립트.py "STAR_*.csv"
 
 출력:
-    - 단계별 발동 시점 타임라인
-    - 데드락 발생 시각 대비 선행시간
+    - 날짜별 단계 전환 타임라인
+    - 데드락 발생 시각 대비 선행시간 (매칭 자동)
     - 단계별 발동 횟수 통계
-    - false positive / true positive 분류 (데드락 시각 주면)
+    - False positive / True positive 분류
 
 룰 정의 (M16A_BR 검증):
     R-A' AVGTOTAL1MIN ≥ 9분이 10분창 1회 이상
@@ -68,6 +82,33 @@ def parse_time(s):
         except ValueError:
             continue
     return None
+
+
+def parse_deadlock_arg(s, fallback_date=None):
+    """데드락 시각 인자 파싱 — 날짜 포함 / 시각만 모두 지원.
+
+    반환: datetime or None
+    """
+    if not s:
+        return None
+    s = s.strip().replace('_', ' ').replace('T', ' ')
+
+    # 날짜+시각 포맷 우선
+    for fmt in ('%Y-%m-%d %H:%M', '%Y-%m-%d %H:%M:%S',
+                '%Y/%m/%d %H:%M', '%Y%m%d %H:%M', '%Y%m%d %H:%M:%S'):
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+
+    # 시각만 (HH:MM) — fallback_date 필요
+    try:
+        hh, mm = map(int, s.split(':')[:2])
+        if fallback_date is None:
+            return None  # 날짜 미상
+        return datetime.combine(fallback_date, datetime.min.time()).replace(hour=hh, minute=mm)
+    except (ValueError, AttributeError):
+        return None
 
 
 def detect_prefix(fieldnames):
@@ -220,9 +261,12 @@ def evaluate_timeline(timeline):
     return events
 
 
-def report(filepath, events, deadlock_times=None):
-    """결과 출력"""
-    deadlock_times = deadlock_times or []
+def report(filepath, events, deadlock_datetimes=None):
+    """결과 출력.
+
+    deadlock_datetimes: 이 파일 날짜와 매칭되는 데드락 datetime 리스트 (이미 필터됨)
+    """
+    deadlock_datetimes = deadlock_datetimes or []
     print()
     print('═' * 78)
     print(f'📁 {os.path.basename(filepath)}')
@@ -230,12 +274,14 @@ def report(filepath, events, deadlock_times=None):
 
     if not events:
         print('  ✅ 어느 단계도 발동 안 함 (완전 정상 / 또는 데이터 부족)')
-        return
+        return [], [], []
 
     icons = {0: '✅', 1: '🔔', 2: '⚠️', 3: '🚨'}
     names = {0: '정상화', 1: '1단계 조기경보', 2: '2단계 주의보', 3: '3단계 ⭐확정'}
 
-    print(f'\n  📊 단계 전환 타임라인 ({len(events)}건)')
+    file_date = events[0]['time'].strftime('%Y-%m-%d')
+    print(f'\n  📅 날짜: {file_date}')
+    print(f'  📊 단계 전환 타임라인 ({len(events)}건)')
     print(f'  {"-"*74}')
     for e in events:
         print(f"  {e['time'].strftime('%H:%M')}  {icons[e['stage']]} {names[e['stage']]:<18} {e['reason']}")
@@ -248,20 +294,14 @@ def report(filepath, events, deadlock_times=None):
     for stage in (1, 2, 3):
         print(f'    {names[stage]:<18}: {counts[stage]}회')
 
+    tp_list, fn_list, fp_list = [], [], []
+
     # 데드락 ground truth 매칭
-    if deadlock_times:
-        print(f'\n  🎯 데드락 발생 시각과 매칭 ({len(deadlock_times)}건)')
+    if deadlock_datetimes:
+        print(f'\n  🎯 이 날짜의 데드락 발생 시각 매칭 ({len(deadlock_datetimes)}건)')
         s3_events = [e for e in events if e['stage'] == 3]
 
-        for dt_str in deadlock_times:
-            try:
-                base = events[0]['time'].date()
-                hh, mm = map(int, dt_str.split(':'))
-                dt = datetime.combine(base, datetime.min.time()).replace(hour=hh, minute=mm)
-            except ValueError:
-                print(f'    ❌ 잘못된 시각 포맷: {dt_str}')
-                continue
-
+        for dt in deadlock_datetimes:
             # 가장 가까운 3단계 발동 (이전 1시간 내)
             closest = None
             min_diff = None
@@ -275,33 +315,30 @@ def report(filepath, events, deadlock_times=None):
             if closest:
                 lead_min = min_diff / 60.0
                 mark = '✅' if 5 <= lead_min <= 30 else '⚠️'
-                print(f'    {mark} 데드락 {dt_str} ← 3단계 {closest["time"].strftime("%H:%M")} '
-                      f'(선행 {lead_min:.0f}분)')
+                print(f'    {mark} 데드락 {dt.strftime("%Y-%m-%d %H:%M")} ← '
+                      f'3단계 {closest["time"].strftime("%H:%M")} (선행 {lead_min:.0f}분)')
+                tp_list.append((dt, closest, lead_min))
             else:
-                print(f'    ❌ 데드락 {dt_str}: 직전 1시간 내 3단계 발동 없음 (FN)')
+                print(f'    ❌ 데드락 {dt.strftime("%Y-%m-%d %H:%M")}: 직전 1시간 내 3단계 없음 (FN)')
+                fn_list.append(dt)
 
-        # False positive 추정 (데드락 시각과 30분 이상 떨어진 3단계)
-        fp = []
+        # False positive 추정
         for s3 in s3_events:
             matched = False
-            for dt_str in deadlock_times:
-                try:
-                    base = events[0]['time'].date()
-                    hh, mm = map(int, dt_str.split(':'))
-                    dt = datetime.combine(base, datetime.min.time()).replace(hour=hh, minute=mm)
-                    diff = (dt - s3['time']).total_seconds()
-                    if -600 <= diff <= 1800:  # 데드락 -10분 ~ +30분
-                        matched = True
-                        break
-                except ValueError:
-                    continue
+            for dt in deadlock_datetimes:
+                diff = (dt - s3['time']).total_seconds()
+                if -600 <= diff <= 1800:  # 데드락 -10분 ~ +30분
+                    matched = True
+                    break
             if not matched:
-                fp.append(s3)
+                fp_list.append(s3)
 
-        if fp:
-            print(f'\n  ⚠️  False positive 후보 ({len(fp)}건, 데드락 시각과 무관한 3단계)')
-            for e in fp:
+        if fp_list:
+            print(f'\n  ⚠️  False positive 후보 ({len(fp_list)}건, 데드락 시각과 무관한 3단계)')
+            for e in fp_list:
                 print(f'    {e["time"].strftime("%H:%M")} - {e["reason"]}')
+
+    return tp_list, fn_list, fp_list
 
 
 def main():
@@ -310,18 +347,38 @@ def main():
         sys.exit(1)
 
     pattern = sys.argv[1]
-    deadlock_times = sys.argv[2:]
+    raw_deadlock_args = sys.argv[2:]
 
     files = sorted(glob.glob(pattern)) if any(c in pattern for c in '*?[]') else [pattern]
     if not files:
         print(f'❌ 파일 없음: {pattern}')
         sys.exit(1)
 
+    # 데드락 인자 1차 파싱 — 날짜 포함된 것만 우선 파싱. 시각만 온 것은 파일별로 fallback.
+    dl_dated = []        # datetime (날짜 포함)
+    dl_time_only = []    # "HH:MM" 문자열
+    for arg in raw_deadlock_args:
+        parsed = parse_deadlock_arg(arg)
+        if parsed is not None:
+            dl_dated.append(parsed)
+        elif ':' in arg:
+            dl_time_only.append(arg)
+        else:
+            print(f'  ⚠️  해석 불가 인자 무시: {arg!r}')
+
     print(f'\n🔍 검증 시작 — 파일 {len(files)}개')
-    if deadlock_times:
-        print(f'   데드락 발생 시각: {deadlock_times}')
+    if dl_dated:
+        print(f'   데드락 시각 (날짜 포함, {len(dl_dated)}건):')
+        for dt in dl_dated:
+            print(f'     · {dt.strftime("%Y-%m-%d %H:%M")}')
+    if dl_time_only:
+        print(f'   데드락 시각 (날짜 없음, {len(dl_time_only)}건): {dl_time_only}')
+        if len(files) > 1:
+            print('   ⚠️  파일이 여러 개면 날짜 없는 시각은 모든 파일에 동일 적용됩니다.')
 
     all_summary = []
+    total_tp, total_fn, total_fp = [], [], []
+
     for fp in files:
         if not os.path.exists(fp):
             print(f'⚠️  스킵 (없음): {fp}')
@@ -332,22 +389,55 @@ def main():
             print(f'⚠️  스킵 (데이터 없음): {fp}')
             continue
 
-        print(f'\n📥 {os.path.basename(fp)} — prefix={prefix}, {len(timeline)}행 로드')
+        file_date = timeline[0][0].date()
+        print(f'\n📥 {os.path.basename(fp)} — prefix={prefix}, 날짜={file_date}, {len(timeline)}행 로드')
+
+        # 이 파일 날짜와 매칭되는 데드락 시각 필터
+        file_deadlocks = [dt for dt in dl_dated if dt.date() == file_date]
+        # 날짜 없는 시각은 이 파일 날짜로 보정해 추가
+        for ts in dl_time_only:
+            dt = parse_deadlock_arg(ts, fallback_date=file_date)
+            if dt is not None:
+                file_deadlocks.append(dt)
 
         events = evaluate_timeline(timeline)
-        report(fp, events, deadlock_times if len(files) == 1 else None)
+        tp, fn, fp_list = report(fp, events, file_deadlocks)
 
         s3_count = sum(1 for e in events if e['stage'] == 3)
-        all_summary.append((os.path.basename(fp), len(events), s3_count))
+        all_summary.append((os.path.basename(fp), str(file_date), len(events), s3_count,
+                            len(tp), len(fn), len(fp_list)))
+        total_tp.extend(tp)
+        total_fn.extend(fn)
+        total_fp.extend(fp_list)
 
-    if len(files) > 1:
+    # 종합 요약
+    if len(files) > 1 or dl_dated or dl_time_only:
         print('\n' + '═' * 78)
         print('📊 전체 요약')
         print('═' * 78)
-        print(f'{"파일":<55} {"단계전환":>8} {"3단계":>6}')
+        print(f'{"파일":<45} {"날짜":<12} {"전환":>5} {"S3":>4} {"TP":>4} {"FN":>4} {"FP":>4}')
         print('-' * 78)
-        for name, ev, s3 in all_summary:
-            print(f'{name:<55} {ev:>8} {s3:>6}')
+        for name, d, ev, s3, tp, fn, fp_ct in all_summary:
+            print(f'{name[:45]:<45} {d:<12} {ev:>5} {s3:>4} {tp:>4} {fn:>4} {fp_ct:>4}')
+
+        n_tp = len(total_tp)
+        n_fn = len(total_fn)
+        n_fp = len(total_fp)
+        if n_tp + n_fn + n_fp > 0:
+            print()
+            print(f'  실제 데드락: {n_tp + n_fn}건')
+            print(f'  3단계 적중 (TP): {n_tp}건')
+            print(f'  3단계 놓침 (FN): {n_fn}건')
+            print(f'  False positive (FP): {n_fp}건')
+            if n_tp + n_fp > 0:
+                prec = 100.0 * n_tp / (n_tp + n_fp)
+                print(f'  Precision: {prec:.1f}%  ({n_tp}/{n_tp+n_fp})')
+            if n_tp + n_fn > 0:
+                rec = 100.0 * n_tp / (n_tp + n_fn)
+                print(f'  Recall:    {rec:.1f}%  ({n_tp}/{n_tp+n_fn})')
+            if total_tp:
+                avg_lead = sum(lead for _, _, lead in total_tp) / len(total_tp)
+                print(f'  평균 선행시간: {avg_lead:.1f}분')
 
 
 if __name__ == '__main__':
