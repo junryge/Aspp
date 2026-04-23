@@ -25,10 +25,12 @@
     python3 3단계_경보_검증_스크립트.py "STAR_*.csv"
 
 출력:
-    - 날짜별 단계 전환 타임라인
-    - 데드락 발생 시각 대비 선행시간 (매칭 자동)
-    - 단계별 발동 횟수 통계
-    - False positive / True positive 분류
+    - 터미널: 날짜별 단계 전환 타임라인 + 종합 precision/recall
+    - CSV 3종 자동 저장:
+        · 검증결과_이벤트_YYYYMMDD_HHMMSS.csv     (모든 단계 전환 이벤트 + TP/FP 분류)
+        · 검증결과_파일별요약_YYYYMMDD_HHMMSS.csv (파일별 S3/TP/FN/FP 개수)
+        · 검증결과_종합지표_YYYYMMDD_HHMMSS.csv   (precision/recall/평균선행시간)
+      ※ UTF-8 BOM 포함 (엑셀 한글 깨짐 방지)
 
 룰 정의 (M16A_BR 검증):
     R-A' AVGTOTAL1MIN ≥ 9분이 10분창 1회 이상
@@ -354,9 +356,9 @@ def main():
         print(f'❌ 파일 없음: {pattern}')
         sys.exit(1)
 
-    # 데드락 인자 1차 파싱 — 날짜 포함된 것만 우선 파싱. 시각만 온 것은 파일별로 fallback.
-    dl_dated = []        # datetime (날짜 포함)
-    dl_time_only = []    # "HH:MM" 문자열
+    # 데드락 인자 1차 파싱
+    dl_dated = []
+    dl_time_only = []
     for arg in raw_deadlock_args:
         parsed = parse_deadlock_arg(arg)
         if parsed is not None:
@@ -373,11 +375,10 @@ def main():
             print(f'     · {dt.strftime("%Y-%m-%d %H:%M")}')
     if dl_time_only:
         print(f'   데드락 시각 (날짜 없음, {len(dl_time_only)}건): {dl_time_only}')
-        if len(files) > 1:
-            print('   ⚠️  파일이 여러 개면 날짜 없는 시각은 모든 파일에 동일 적용됩니다.')
 
     all_summary = []
     total_tp, total_fn, total_fp = [], [], []
+    all_events_rows = []  # CSV 출력용 (전체 단계 전환 이벤트)
 
     for fp in files:
         if not os.path.exists(fp):
@@ -392,9 +393,7 @@ def main():
         file_date = timeline[0][0].date()
         print(f'\n📥 {os.path.basename(fp)} — prefix={prefix}, 날짜={file_date}, {len(timeline)}행 로드')
 
-        # 이 파일 날짜와 매칭되는 데드락 시각 필터
         file_deadlocks = [dt for dt in dl_dated if dt.date() == file_date]
-        # 날짜 없는 시각은 이 파일 날짜로 보정해 추가
         for ts in dl_time_only:
             dt = parse_deadlock_arg(ts, fallback_date=file_date)
             if dt is not None:
@@ -410,8 +409,37 @@ def main():
         total_fn.extend(fn)
         total_fp.extend(fp_list)
 
-    # 종합 요약
-    if len(files) > 1 or dl_dated or dl_time_only:
+        # CSV 행 구성: 각 이벤트 + 분류
+        fp_times = {e['time'] for e in fp_list}
+        tp_times = {closest['time']: (dl_dt, lead) for dl_dt, closest, lead in tp}
+
+        for e in events:
+            classification = '-'
+            matched_deadlock = ''
+            lead_min = ''
+            if e['stage'] == 3:
+                if e['time'] in tp_times:
+                    dl_dt, lead = tp_times[e['time']]
+                    classification = 'TP'
+                    matched_deadlock = dl_dt.strftime('%Y-%m-%d %H:%M')
+                    lead_min = f'{lead:.1f}'
+                elif e['time'] in fp_times:
+                    classification = 'FP'
+            all_events_rows.append({
+                'file': os.path.basename(fp),
+                'date': str(file_date),
+                'time': e['time'].strftime('%H:%M'),
+                'datetime': e['time'].strftime('%Y-%m-%d %H:%M'),
+                'stage': e['stage'],
+                'stage_name': {0:'정상화', 1:'1단계 조기경보', 2:'2단계 주의보', 3:'3단계 확정'}[e['stage']],
+                'reason': e['reason'],
+                'classification': classification,
+                'matched_deadlock': matched_deadlock,
+                'lead_minutes': lead_min,
+            })
+
+    # 종합 요약 + CSV 저장
+    if all_summary:
         print('\n' + '═' * 78)
         print('📊 전체 요약')
         print('═' * 78)
@@ -420,24 +448,66 @@ def main():
         for name, d, ev, s3, tp, fn, fp_ct in all_summary:
             print(f'{name[:45]:<45} {d:<12} {ev:>5} {s3:>4} {tp:>4} {fn:>4} {fp_ct:>4}')
 
-        n_tp = len(total_tp)
-        n_fn = len(total_fn)
-        n_fp = len(total_fp)
+        n_tp, n_fn, n_fp = len(total_tp), len(total_fn), len(total_fp)
+        metrics = {}
         if n_tp + n_fn + n_fp > 0:
             print()
             print(f'  실제 데드락: {n_tp + n_fn}건')
             print(f'  3단계 적중 (TP): {n_tp}건')
             print(f'  3단계 놓침 (FN): {n_fn}건')
             print(f'  False positive (FP): {n_fp}건')
+            metrics['total_deadlocks'] = n_tp + n_fn
+            metrics['TP'] = n_tp
+            metrics['FN'] = n_fn
+            metrics['FP'] = n_fp
             if n_tp + n_fp > 0:
                 prec = 100.0 * n_tp / (n_tp + n_fp)
                 print(f'  Precision: {prec:.1f}%  ({n_tp}/{n_tp+n_fp})')
+                metrics['precision_pct'] = f'{prec:.1f}'
             if n_tp + n_fn > 0:
                 rec = 100.0 * n_tp / (n_tp + n_fn)
                 print(f'  Recall:    {rec:.1f}%  ({n_tp}/{n_tp+n_fn})')
+                metrics['recall_pct'] = f'{rec:.1f}'
             if total_tp:
                 avg_lead = sum(lead for _, _, lead in total_tp) / len(total_tp)
                 print(f'  평균 선행시간: {avg_lead:.1f}분')
+                metrics['avg_lead_minutes'] = f'{avg_lead:.1f}'
+
+        # === CSV 3종 출력 ===
+        ts_suffix = datetime.now().strftime('%Y%m%d_%H%M%S')
+        out_events = f'검증결과_이벤트_{ts_suffix}.csv'
+        out_summary = f'검증결과_파일별요약_{ts_suffix}.csv'
+        out_metrics = f'검증결과_종합지표_{ts_suffix}.csv'
+
+        # 1. 이벤트 CSV
+        if all_events_rows:
+            with open(out_events, 'w', encoding='utf-8-sig', newline='') as f:
+                w = csv.DictWriter(f, fieldnames=list(all_events_rows[0].keys()))
+                w.writeheader()
+                w.writerows(all_events_rows)
+
+        # 2. 파일별 요약 CSV
+        with open(out_summary, 'w', encoding='utf-8-sig', newline='') as f:
+            w = csv.writer(f)
+            w.writerow(['file', 'date', 'transitions', 'S3_count', 'TP', 'FN', 'FP'])
+            for row in all_summary:
+                w.writerow(row)
+
+        # 3. 종합 지표 CSV
+        if metrics:
+            with open(out_metrics, 'w', encoding='utf-8-sig', newline='') as f:
+                w = csv.writer(f)
+                w.writerow(['metric', 'value'])
+                for k, v in metrics.items():
+                    w.writerow([k, v])
+
+        print('\n💾 CSV 저장:')
+        if all_events_rows:
+            print(f'   · {out_events}  ({len(all_events_rows)} 이벤트)')
+        print(f'   · {out_summary}  ({len(all_summary)} 파일)')
+        if metrics:
+            print(f'   · {out_metrics}  ({len(metrics)} 지표)')
+        print(f'\n👉 이 3개 CSV 를 전달해주세요.')
 
 
 if __name__ == '__main__':
