@@ -72,17 +72,44 @@ def safe_int(v):
         return None
 
 
+_parse_time_failed_samples = []
+
 def parse_time(s):
     """CRT_TM 파싱 — 다양한 포맷 대응"""
     if not s:
         return None
-    s = s.strip().rstrip('Z').split('.')[0]
+    raw = s
+    s = s.strip().strip('"').strip("'")
+    # Timezone suffix 제거
+    if 'T' in s and '+' in s.split('T')[1]:
+        s = s.split('+')[0]
+    if s.endswith('Z'):
+        s = s[:-1]
+    # 밀리초 제거
+    if '.' in s:
+        s = s.split('.')[0]
+    # Unix timestamp (숫자만)
+    if s.isdigit() and len(s) in (10, 13):
+        try:
+            ts = int(s)
+            if len(s) == 13:
+                ts //= 1000
+            return datetime.fromtimestamp(ts)
+        except (ValueError, OSError):
+            pass
     for fmt in ('%Y-%m-%d %H:%M:%S', '%Y/%m/%d %H:%M:%S',
-                '%Y-%m-%dT%H:%M:%S', '%Y%m%d%H%M%S'):
+                '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M',
+                '%Y/%m/%d %H:%M', '%Y.%m.%d %H:%M:%S',
+                '%Y%m%d%H%M%S', '%Y%m%d %H%M%S',
+                '%Y%m%d %H:%M:%S', '%Y%m%d %H:%M',
+                '%m/%d/%Y %H:%M:%S', '%d/%m/%Y %H:%M:%S',
+                '%d-%m-%Y %H:%M:%S'):
         try:
             return datetime.strptime(s, fmt)
         except ValueError:
             continue
+    if len(_parse_time_failed_samples) < 3:
+        _parse_time_failed_samples.append(raw)
     return None
 
 
@@ -391,7 +418,13 @@ def main():
             continue
 
         file_date = timeline[0][0].date()
-        print(f'\n📥 {os.path.basename(fp)} — prefix={prefix}, 날짜={file_date}, {len(timeline)}행 로드')
+        first_ts = timeline[0][0].strftime('%Y-%m-%d %H:%M:%S')
+        last_ts = timeline[-1][0].strftime('%Y-%m-%d %H:%M:%S')
+        print(f'\n📥 {os.path.basename(fp)} — prefix={prefix}, 날짜={file_date}, {len(timeline)}행')
+        print(f'    CRT_TM 범위: {first_ts} ~ {last_ts}')
+        if _parse_time_failed_samples:
+            print(f'    ⚠️  시각 파싱 실패 샘플: {_parse_time_failed_samples[:3]}')
+            _parse_time_failed_samples.clear()
 
         file_deadlocks = [dt for dt in dl_dated if dt.date() == file_date]
         for ts in dl_time_only:
