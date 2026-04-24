@@ -285,9 +285,72 @@ def evaluate_timeline(timeline):
                 'time': t,
                 'stage': stage,
                 'reason': reason,
+                'ra_value': ra_value,
+                'rb_diff': rb_diff,
+                'rev_count': rev_count,
             })
 
     return events
+
+
+def build_incidents(events):
+    """3단계 이벤트를 "사건 단위" 로 묶음.
+
+    1개 사건 = [신규 AND 만족] + 뒤따르는 [재발동 ...] 의 연속. '정상화' 나
+    다른 신규 S3 를 만나면 사건 종료.
+
+    반환: [{start, end, refire_count, max_1min, max_rb_diff, max_rev, severity}, ...]
+    """
+    incidents = []
+    cur = None
+
+    def _finalize(c, end_time):
+        if not c:
+            return
+        c['end'] = end_time
+        dur = (c['end'] - c['start']).total_seconds() / 60.0
+        c['duration_min'] = round(dur, 1)
+        # ★ 등급 판정
+        rc = c['refire_count']
+        m1 = c['max_1min'] or 0
+        if rc >= 4 or m1 >= 20:
+            c['severity'] = '★★★'
+        elif rc >= 2 or m1 >= 15:
+            c['severity'] = '★★'
+        elif rc >= 1 or m1 >= 10:
+            c['severity'] = '★'
+        else:
+            c['severity'] = '-'
+        incidents.append(c)
+
+    for e in events:
+        if e['stage'] == 3 and e['reason'].startswith('AND 만족'):
+            # 신규 S3 → 이전 사건 종료, 새 사건 시작
+            _finalize(cur, e['time'])
+            cur = {
+                'start': e['time'],
+                'end': e['time'],
+                'refire_count': 0,
+                'max_1min': e.get('ra_value') or 0,
+                'max_rb_diff': e.get('rb_diff') or 0,
+                'max_rev': e.get('rev_count') or 0,
+                'start_reason': e['reason'],
+            }
+        elif e['stage'] == 3 and e['reason'].startswith('재발동'):
+            if cur is not None:
+                cur['refire_count'] += 1
+                cur['end'] = e['time']
+                cur['max_rev'] = max(cur['max_rev'], e.get('rev_count') or 0)
+        elif e['stage'] == 0 and cur is not None:
+            # 정상화 → 사건 종료
+            _finalize(cur, e['time'])
+            cur = None
+
+    # 파일 끝난 시점에 열려있는 사건 종료
+    if cur is not None and events:
+        _finalize(cur, events[-1]['time'])
+
+    return incidents
 
 
 def report(filepath, events, deadlock_datetimes=None):
@@ -327,6 +390,23 @@ def report(filepath, events, deadlock_datetimes=None):
     print(f'\n  📈 단계별 발동 횟수')
     for stage in (1, 2, 3):
         print(f'    {names[stage]:<18}: {counts[stage]}회')
+
+    # 사건 단위 묶음 + ★ 등급
+    incidents = build_incidents(events)
+    if incidents:
+        new_count = len(incidents)
+        refire_total = sum(i['refire_count'] for i in incidents)
+        print(f'\n  🧩 사건 단위 분류: {new_count}개 사건 (신규 {new_count} + 재발동 {refire_total} = {counts[3]})')
+        print(f'  {"-"*74}')
+        # ★ 등급 높은 순 → 시각 순
+        sev_rank = {'★★★': 3, '★★': 2, '★': 1, '-': 0}
+        sorted_inc = sorted(incidents, key=lambda i: (-sev_rank[i['severity']], i['start']))
+        for i in sorted_inc:
+            stamp = i['start'].strftime('%Y-%m-%d %H:%M')
+            one_min = i['max_1min']
+            dur = f"{i['duration_min']:.0f}분" if i['duration_min'] > 0 else '단발'
+            refire = f"재발동 {i['refire_count']}회" if i['refire_count'] else '단발'
+            print(f"  {i['severity']:<4}  {stamp}  1MIN {one_min:>5.2f}  M14→M16 +{i['max_rb_diff']:<3}  {refire:<10}  {dur} 지속")
 
     tp_list, fn_list, fp_list = [], [], []
 
@@ -410,7 +490,8 @@ def main():
 
     all_summary = []
     total_tp, total_fn, total_fp = [], [], []
-    all_events_rows = []  # CSV 출력용 (전체 단계 전환 이벤트)
+    all_events_rows = []      # CSV 출력용 (전체 단계 전환 이벤트)
+    all_incidents_rows = []   # CSV 출력용 (사건 단위)
 
     for fp in files:
         if not os.path.exists(fp):
@@ -480,6 +561,22 @@ def main():
                 'lead_minutes': lead_min,
             })
 
+        # 사건 단위 CSV
+        file_incidents = build_incidents(events)
+        for i in file_incidents:
+            all_incidents_rows.append({
+                'file': os.path.basename(fp),
+                'date': i['start'].strftime('%Y-%m-%d'),
+                'start_time': i['start'].strftime('%H:%M'),
+                'end_time': i['end'].strftime('%H:%M'),
+                'duration_min': i['duration_min'],
+                'refire_count': i['refire_count'],
+                'max_1min': round(i['max_1min'], 2),
+                'max_m14_diff': i['max_rb_diff'],
+                'max_reverse_lifters': i['max_rev'],
+                'severity': i['severity'],
+            })
+
     # 종합 요약 + CSV 저장
     if all_summary:
         print('\n' + '═' * 78)
@@ -515,41 +612,66 @@ def main():
                 print(f'  평균 선행시간: {avg_lead:.1f}분')
                 metrics['avg_lead_minutes'] = f'{avg_lead:.1f}'
 
-        # === CSV 3종 출력 ===
+        # === CSV 6종 출력 (각 용도별 분리) ===
         ts_suffix = datetime.now().strftime('%Y%m%d_%H%M%S')
-        out_events = f'검증결과_이벤트_{ts_suffix}.csv'
-        out_summary = f'검증결과_파일별요약_{ts_suffix}.csv'
-        out_metrics = f'검증결과_종합지표_{ts_suffix}.csv'
+        out_events  = f'검증결과_01_전체이벤트_{ts_suffix}.csv'
+        out_s3_all  = f'검증결과_02_S3전체_{ts_suffix}.csv'
+        out_s3_new  = f'검증결과_03_S3신규만_{ts_suffix}.csv'
+        out_s3_ref  = f'검증결과_04_S3재발동만_{ts_suffix}.csv'
+        out_incidents = f'검증결과_05_사건단위_{ts_suffix}.csv'
+        out_summary = f'검증결과_06_파일별요약_{ts_suffix}.csv'
+        out_metrics = f'검증결과_07_종합지표_{ts_suffix}.csv'
 
-        # 1. 이벤트 CSV
-        if all_events_rows:
-            with open(out_events, 'w', encoding='utf-8-sig', newline='') as f:
-                w = csv.DictWriter(f, fieldnames=list(all_events_rows[0].keys()))
-                w.writeheader()
-                w.writerows(all_events_rows)
+        def write_csv(path, rows, header=None):
+            if not rows:
+                return
+            with open(path, 'w', encoding='utf-8-sig', newline='') as f:
+                if header:
+                    w = csv.writer(f)
+                    w.writerows([header] + rows)
+                else:
+                    w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+                    w.writeheader()
+                    w.writerows(rows)
 
-        # 2. 파일별 요약 CSV
-        with open(out_summary, 'w', encoding='utf-8-sig', newline='') as f:
-            w = csv.writer(f)
-            w.writerow(['file', 'date', 'transitions', 'S3_count', 'TP', 'FN', 'FP'])
-            for row in all_summary:
-                w.writerow(row)
+        # 1. 전체 이벤트 (모든 단계 전환)
+        write_csv(out_events, all_events_rows)
 
-        # 3. 종합 지표 CSV
+        # 2/3/4. S3 관련 분리
+        s3_all  = [r for r in all_events_rows if r['stage'] == 3]
+        s3_new  = [r for r in s3_all if 'AND 만족' in r['reason']]
+        s3_ref  = [r for r in s3_all if '재발동' in r['reason']]
+        write_csv(out_s3_all, s3_all)
+        write_csv(out_s3_new, s3_new)
+        write_csv(out_s3_ref, s3_ref)
+
+        # 5. 사건 단위 CSV (★ 등급 내림차순)
+        if all_incidents_rows:
+            sev_rank = {'★★★': 3, '★★': 2, '★': 1, '-': 0}
+            all_incidents_rows.sort(key=lambda r: (-sev_rank.get(r['severity'], 0), r['date'], r['start_time']))
+            write_csv(out_incidents, all_incidents_rows)
+
+        # 6. 파일별 요약
+        write_csv(out_summary, [list(row) for row in all_summary],
+                  header=['file', 'date', 'transitions', 'S3_count', 'TP', 'FN', 'FP'])
+
+        # 7. 종합 지표
         if metrics:
-            with open(out_metrics, 'w', encoding='utf-8-sig', newline='') as f:
-                w = csv.writer(f)
-                w.writerow(['metric', 'value'])
-                for k, v in metrics.items():
-                    w.writerow([k, v])
+            write_csv(out_metrics, [[k, v] for k, v in metrics.items()],
+                      header=['metric', 'value'])
 
-        print('\n💾 CSV 저장:')
-        if all_events_rows:
-            print(f'   · {out_events}  ({len(all_events_rows)} 이벤트)')
-        print(f'   · {out_summary}  ({len(all_summary)} 파일)')
+        print('\n💾 CSV 저장 (용도별 분리):')
+        if all_events_rows: print(f'   01 · {out_events}  ({len(all_events_rows)} 전체 이벤트)')
+        if s3_all:  print(f'   02 · {out_s3_all}  ({len(s3_all)} S3 전체)')
+        if s3_new:  print(f'   03 · {out_s3_new}  ({len(s3_new)} S3 신규만)')
+        if s3_ref:  print(f'   04 · {out_s3_ref}  ({len(s3_ref)} S3 재발동만)')
+        if all_incidents_rows:
+            high = sum(1 for r in all_incidents_rows if r["severity"] in ("★★★", "★★"))
+            print(f'   05 · {out_incidents}  ({len(all_incidents_rows)} 사건, ★★ 이상 {high}건)')
+        print(f'   06 · {out_summary}  ({len(all_summary)} 파일)')
         if metrics:
-            print(f'   · {out_metrics}  ({len(metrics)} 지표)')
-        print(f'\n👉 이 3개 CSV 를 전달해주세요.')
+            print(f'   07 · {out_metrics}  ({len(metrics)} 지표)')
+        print(f'\n👉 이 CSV들을 전달해주세요.')
 
 
 if __name__ == '__main__':
