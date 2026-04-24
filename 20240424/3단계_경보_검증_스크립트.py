@@ -4,7 +4,12 @@
 3단계 데드락 경보 룰 검증 스크립트 (단독 실행)
 
 사용법:
-    python3 3단계_경보_검증_스크립트.py <STAR_CSV_경로> [데드락시각 ...]
+    python3 3단계_경보_검증_스크립트.py <STAR_CSV_경로> [--ops-log <운영로그.txt>] [데드락시각 ...]
+
+운영로그 옵션:
+    --ops-log 운영로그.txt  (선택, 제공 시 각 CSV 에 운영이벤트 컬럼 추가)
+    → 3단계 경보가 실제 운영 이슈와 얼마나 일치하는지 자동 검증.
+    → '가설 입증' 용: 알고리즘이 실제 데드락 징후를 포착했다는 증거 확보.
 
 데드락 시각 포맷 (혼용 가능):
     14:00                    # 시:분만 (CSV 1개 처리 시 그 날짜로 가정)
@@ -56,6 +61,131 @@ LIFTER_IDS = [
     '6ABL6031', '6ABL6032', '6ABL0111', '6ABL0112',
     '6ABL0121', '6ABL0122',
 ]
+
+
+# ────────────────────────────────────────────────────────────
+# 운영 채팅 로그 파싱 (선택적, --ops-log 제공 시)
+# ────────────────────────────────────────────────────────────
+import re as _re
+
+_OPS_EVENT_PATTERNS = [
+    ('DEADLOCK_SIGNAL',  ['정체', '몰림', '밀림', '밀리는', '밀려', '증가하고 있', 'Queue 증가', 'QUE 증가', 'Que 증가', '쌓이고']),
+    ('BRIDGE_ERROR',     ['Bridge OHT Error', 'Bridge OHT 발생', 'bridge 이상', 'Bridge 정체']),
+    ('MLUD_ISSUE',       ['MLUD', 'Mlud', 'mlud']),
+    ('CAPA_CHANGE_1',    ['MAX CAPA "1"', 'MAX CAPA 1', 'Max Capa 1', 'MAXCAPA 1', 'Capa 1로', '"1"로 변경']),
+    ('CAPA_CHANGE_50',   ['MAX CAPA 50', 'Max Capa 50', 'MAXCAPA 50', 'Capa 50']),
+    ('CAPA_CHANGE_3',    ['MAX CAPA "3"', 'MAX CAPA 3', 'Max Capa 3', 'MAXCAPA 3']),
+    ('CAPA_RESTORE',     ['원복', '원위치']),
+    ('LIFTER_DOWN',      ['Lifter', 'lifter', 'LIFTER', '리프터']),
+    ('ERROR_OCCURRED',   ['Error 발생', 'Error발생', 'Err 발생', 'ERROR 발생', 'Alarm 발생']),
+    ('ERROR_RECOVERED',  ['Error 조치', 'Error조치', 'Err 조치', 'Error 처리', 'Error Clear', 'ERROR 처리', 'ERROR 조치']),
+    ('PORT_CLOSE',       ['AI Close', 'AI close', 'AI CLOSE', 'PORT Close', 'Port Close', 'Port 차단', 'PORT 차단']),
+    ('PORT_OPEN',        ['AI Open', 'AI open', 'AI OPEN', 'PORT Open', 'Port Open']),
+    ('MAINTENANCE',      ['작업', '교체', '점검', 'H/T', 'Handy Stop', 'HT-STOP', 'HT STOP']),
+    ('ALERT_BOT',        ['통합알림센터', 'Intelligent Bot', 'LOW_ALARM', 'HIGH_ALARM']),
+]
+
+_OPS_HEADER_RE = _re.compile(
+    r'^(?P<author>[^,]+),(?P<org>[^,]+),(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s*$'
+)
+
+
+def _ops_classify(text):
+    for ev_type, keywords in _OPS_EVENT_PATTERNS:
+        for kw in keywords:
+            if kw in text:
+                return ev_type, kw
+    return 'OTHER', ''
+
+
+def _ops_strip(text):
+    text = _re.sub(r'<<이미지>>[^\n]*', '', text)
+    text = _re.sub(r'<<파일>>[^\n]*', '', text)
+    text = _re.sub(r'http[s]?://\S+', '', text)
+    return text
+
+
+def _ops_truncate(text, n=80):
+    text = _re.sub(r'\s+', ' ', text).strip()
+    return text if len(text) <= n else text[:n-1] + '…'
+
+
+def parse_ops_log(path):
+    """운영 채팅 로그 → [{dt, author, org, event_type, keyword, summary}, ...]"""
+    ops = []
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+    except (IOError, OSError) as e:
+        print(f'  ⚠️  운영로그 읽기 실패: {e}')
+        return ops
+
+    i = 0
+    while i < len(lines):
+        m = _OPS_HEADER_RE.match(lines[i])
+        if not m:
+            i += 1
+            continue
+        author = m['author'].strip()
+        org = m['org'].strip()
+        try:
+            dt = datetime.strptime(m['ts'], '%Y-%m-%d %H:%M:%S')
+        except ValueError:
+            i += 1
+            continue
+        body_lines = []
+        i += 1
+        while i < len(lines) and not _OPS_HEADER_RE.match(lines[i]):
+            body_lines.append(lines[i].rstrip())
+            i += 1
+        body = _ops_strip('\n'.join(body_lines).strip())
+        if not body:
+            continue
+        ev_type, kw = _ops_classify(body)
+        ops.append({
+            'dt': dt,
+            'author': author,
+            'org': org,
+            'event_type': ev_type,
+            'keyword': kw,
+            'summary': _ops_truncate(body, 60),
+        })
+    ops.sort(key=lambda x: x['dt'])
+    return ops
+
+
+def find_nearby_ops(query_dt, ops_list, window_min=30):
+    """query_dt ±window_min 범위의 운영 이벤트 반환 (ALERT_BOT 제외)"""
+    if not ops_list or query_dt is None:
+        return []
+    lo = query_dt - timedelta(minutes=window_min)
+    hi = query_dt + timedelta(minutes=window_min)
+    result = []
+    for op in ops_list:
+        if op['dt'] < lo:
+            continue
+        if op['dt'] > hi:
+            break
+        if op['event_type'] == 'ALERT_BOT':
+            continue
+        result.append(op)
+    return result
+
+
+def summarize_ops(nearby_ops, query_dt):
+    """근처 운영 이벤트 요약 → (count, types_str, top_msg_str)"""
+    if not nearby_ops:
+        return 0, '', ''
+    type_counts = {}
+    for op in nearby_ops:
+        type_counts[op['event_type']] = type_counts.get(op['event_type'], 0) + 1
+    types_str = ', '.join(f'{t}({c})' for t, c in sorted(type_counts.items(), key=lambda x: -x[1]))
+    # 가장 가까운 시각의 이벤트 1개
+    closest = min(nearby_ops, key=lambda x: abs((x['dt'] - query_dt).total_seconds()))
+    diff_min = (closest['dt'] - query_dt).total_seconds() / 60.0
+    sign = '+' if diff_min >= 0 else ''
+    top_msg = f"[{sign}{diff_min:.0f}분] {closest['author']}: {closest['summary']}"
+    return len(nearby_ops), types_str, top_msg
 
 
 def safe_float(v):
@@ -461,7 +591,31 @@ def main():
         sys.exit(1)
 
     pattern = sys.argv[1]
-    raw_deadlock_args = sys.argv[2:]
+    raw_args = sys.argv[2:]
+
+    # --ops-log <path> 파싱
+    ops_log_path = None
+    raw_deadlock_args = []
+    idx = 0
+    while idx < len(raw_args):
+        a = raw_args[idx]
+        if a == '--ops-log' and idx + 1 < len(raw_args):
+            ops_log_path = raw_args[idx + 1]
+            idx += 2
+            continue
+        if a.startswith('--ops-log='):
+            ops_log_path = a.split('=', 1)[1]
+            idx += 1
+            continue
+        raw_deadlock_args.append(a)
+        idx += 1
+
+    # 운영 로그 로드 (선택적)
+    ops_list = []
+    if ops_log_path:
+        print(f'\n📜 운영 로그 로드: {ops_log_path}')
+        ops_list = parse_ops_log(ops_log_path)
+        print(f'   → {len(ops_list)}건 파싱')
 
     files = sorted(glob.glob(pattern)) if any(c in pattern for c in '*?[]') else [pattern]
     if not files:
@@ -548,6 +702,8 @@ def main():
                     lead_min = f'{lead:.1f}'
                 elif e['time'] in fp_times:
                     classification = 'FP'
+            nearby = find_nearby_ops(e['time'], ops_list, 30) if ops_list else []
+            op_cnt, op_types, op_top = summarize_ops(nearby, e['time'])
             all_events_rows.append({
                 'file': os.path.basename(fp),
                 'date': e['time'].strftime('%Y-%m-%d'),
@@ -559,11 +715,41 @@ def main():
                 'classification': classification,
                 'matched_deadlock': matched_deadlock,
                 'lead_minutes': lead_min,
+                'ops_count_30min': op_cnt,
+                'ops_event_types': op_types,
+                'ops_top_message': op_top,
             })
 
-        # 사건 단위 CSV
+        # 사건 단위 CSV (사건 시작 ~ 종료 구간에 걸친 운영 이벤트 집계)
         file_incidents = build_incidents(events)
         for i in file_incidents:
+            # 사건 기간 ±30분 윈도우
+            win_ops = []
+            if ops_list:
+                lo = i['start'] - timedelta(minutes=30)
+                hi = i['end'] + timedelta(minutes=30)
+                for op in ops_list:
+                    if op['dt'] < lo:
+                        continue
+                    if op['dt'] > hi:
+                        break
+                    if op['event_type'] == 'ALERT_BOT':
+                        continue
+                    win_ops.append(op)
+            op_cnt = len(win_ops)
+            op_types_ct = {}
+            for op in win_ops:
+                op_types_ct[op['event_type']] = op_types_ct.get(op['event_type'], 0) + 1
+            op_types_str = ', '.join(f'{t}({c})' for t, c in sorted(op_types_ct.items(), key=lambda x: -x[1]))
+            op_msgs = ' | '.join(f"{o['dt'].strftime('%H:%M')} {o['author']}: {o['summary']}" for o in win_ops[:3])
+            # 가설 검증 플래그
+            has_deadlock_signal = any(o['event_type'] in ('DEADLOCK_SIGNAL', 'BRIDGE_ERROR', 'ERROR_OCCURRED') for o in win_ops)
+            has_operator_action = any(o['event_type'].startswith('CAPA_CHANGE') or o['event_type'].startswith('PORT_') for o in win_ops)
+            verdict = (
+                '✅ 운영 이슈 일치' if has_deadlock_signal else
+                '⚠️ 대응만 있음' if has_operator_action else
+                '❓ 운영 로그 無' if ops_list else '-'
+            )
             all_incidents_rows.append({
                 'file': os.path.basename(fp),
                 'date': i['start'].strftime('%Y-%m-%d'),
@@ -575,6 +761,10 @@ def main():
                 'max_m14_diff': i['max_rb_diff'],
                 'max_reverse_lifters': i['max_rev'],
                 'severity': i['severity'],
+                'ops_count_window': op_cnt,
+                'ops_event_types': op_types_str,
+                'ops_sample_messages': op_msgs,
+                'verdict': verdict,
             })
 
     # 종합 요약 + CSV 저장
@@ -611,6 +801,31 @@ def main():
                 avg_lead = sum(lead for _, _, lead in total_tp) / len(total_tp)
                 print(f'  평균 선행시간: {avg_lead:.1f}분')
                 metrics['avg_lead_minutes'] = f'{avg_lead:.1f}'
+
+        # === 운영 로그 대비 가설 검증 (ops log 제공 시) ===
+        if ops_list and all_incidents_rows:
+            n_inc = len(all_incidents_rows)
+            n_match = sum(1 for r in all_incidents_rows if r.get('verdict', '').startswith('✅'))
+            n_action = sum(1 for r in all_incidents_rows if r.get('verdict', '').startswith('⚠️'))
+            n_noop = sum(1 for r in all_incidents_rows if r.get('verdict', '').startswith('❓'))
+            high = [r for r in all_incidents_rows if r['severity'] in ('★★★', '★★')]
+            n_high = len(high)
+            n_high_match = sum(1 for r in high if r.get('verdict', '').startswith('✅'))
+            print()
+            print(f'🎯 가설 검증 (운영 로그 대비):')
+            print(f'   전체 사건 {n_inc}개 중')
+            print(f'     ✅ 운영 이슈 직접 일치 : {n_match}건 ({100.0*n_match/n_inc:.0f}%)')
+            print(f'     ⚠️ 운영자 대응만 감지   : {n_action}건 ({100.0*n_action/n_inc:.0f}%)')
+            print(f'     ❓ 운영 로그에 근거 無  : {n_noop}건 ({100.0*n_noop/n_inc:.0f}%)')
+            if n_high > 0:
+                print(f'   ★★ 이상 사건 {n_high}개 중 운영 이슈 일치: {n_high_match}건 ({100.0*n_high_match/n_high:.0f}%)')
+            metrics['incidents_total'] = n_inc
+            metrics['incidents_match_ops_issue'] = n_match
+            metrics['incidents_match_operator_action'] = n_action
+            metrics['incidents_no_ops_evidence'] = n_noop
+            metrics['incidents_high_severity'] = n_high
+            metrics['incidents_high_match_pct'] = f'{100.0*n_high_match/n_high:.1f}' if n_high else '0'
+            metrics['hypothesis_precision_pct'] = f'{100.0*(n_match+n_action)/n_inc:.1f}' if n_inc else '0'
 
         # === CSV 6종 출력 (각 용도별 분리) ===
         ts_suffix = datetime.now().strftime('%Y%m%d_%H%M%S')
