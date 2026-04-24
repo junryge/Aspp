@@ -793,14 +793,14 @@ def main():
             op_types_str = ', '.join(f'{t}({c})' for t, c in sorted(op_types_ct.items(), key=lambda x: -x[1]))
             op_msgs = ' | '.join(f"{o['dt'].strftime('%H:%M')} {o['author']}: {o['summary']}" for o in win_ops[:3])
 
-            # ⏱️ 시차 분석: 알고리즘 vs 운영자 (핵심 예측 지표)
+            # ⏱️ 시차 분석: predict_time (알고리즘 최초 인지) vs 운영자 (핵심 예측 지표)
             earliest_op = min(win_ops, key=lambda o: o['dt']) if win_ops else None
             if earliest_op:
                 earliest_op_time = earliest_op['dt'].strftime('%Y-%m-%d %H:%M')
-                # lead = 운영자 첫 메시지 시각 - 알고리즘 발동 시각
-                # 양수 = 알고리즘이 먼저 (예측)
+                # lead = 운영자 첫 메시지 - 알고리즘 최초 인지 시각 (earliest_sig)
+                # 양수 = 알고리즘이 먼저 인지 (예측)
                 # 음수 = 알고리즘이 나중 (라벨)
-                lead_sec = (earliest_op['dt'] - i['start']).total_seconds()
+                lead_sec = (earliest_op['dt'] - earliest_sig).total_seconds()
                 lead_min_vs_op = round(lead_sec / 60.0, 1)
                 if lead_min_vs_op > 5:
                     pred_type = '🔮 예측'
