@@ -773,6 +773,8 @@ def main():
             return earliest
 
         for i in file_incidents:
+            # 알고리즘 최초 인지 시각 (predict_time) — 비교 기준
+            earliest_sig = _find_earliest_signal(i['start'])
             # 사건 기간 ±30분 윈도우
             win_ops = []
             if ops_list:
@@ -821,7 +823,6 @@ def main():
                 '⚠️ 대응만 있음' if has_operator_action else
                 '❓ 운영 로그 無' if ops_list else '-'
             )
-            earliest_sig = _find_earliest_signal(i['start'])
             all_incidents_rows.append({
                 'file': os.path.basename(fp),
                 'date': i['start'].strftime('%Y-%m-%d'),
