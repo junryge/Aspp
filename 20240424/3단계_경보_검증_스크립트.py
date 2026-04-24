@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+python3 3단계_경보_검증_스크립트.py test.csv \
+
+    --ops-log 운영로그.txt \
 3단계 데드락 경보 룰 검증 스크립트 (단독 실행)
 
 사용법:
