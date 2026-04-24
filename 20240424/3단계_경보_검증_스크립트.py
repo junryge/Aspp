@@ -351,20 +351,32 @@ def evaluate_timeline(timeline):
         if star['lft_list']:
             lft_hist.append(dict(star['lft_list']))
 
-        # R-A'
+        # R-A' (기존 — S3 확정에 사용, 9분 기준 유지)
         recent_t1 = t1_hist[-10:]
         ra_count = sum(1 for v in recent_t1 if v >= 9.0)
         ra_value = recent_t1[-1] if recent_t1 else None
         ra_trig = ra_count >= 1
 
-        # R-B
+        # ⚡ R-A' EARLY (튜닝 ① — S1 조기 인지용, 6분 지속)
+        ra_sustained = False
+        if len(recent_t1) >= 5:
+            last5 = recent_t1[-5:]
+            ra_sustained = sum(1 for v in last5 if v >= 6.0) >= 3
+
+        # R-B (기존 — S3 확정에 사용, +100/30분 유지)
         rb_diff = 0
         rb_trig = False
         if len(m14_hist) >= 31:
             rb_diff = m14_hist[-1] - m14_hist[-31]
             rb_trig = rb_diff >= 100
 
-        # R-C'
+        # ⚡ R-B FAST (튜닝 ② — S2 조기 인지용, +30/10분)
+        rb_fast = False
+        if len(m14_hist) >= 11:
+            rb_diff_fast = m14_hist[-1] - m14_hist[-11]
+            rb_fast = rb_diff_fast >= 30
+
+        # R-C' (그대로)
         rc_trend = 0
         rev_count = 0
         rev_lids = []
@@ -379,9 +391,10 @@ def evaluate_timeline(timeline):
                     rev_count += 1
             rc_trig = rc_trend < 0 and rev_count >= 2
 
-        s1 = ra_count >= 2
-        s2 = rb_trig
-        s3 = ra_trig and rb_trig and rc_trig
+        # 단계 판정 — S1/S2 는 튜닝된 조건으로 조기 발동, S3 는 원래 그대로
+        s1 = (ra_count >= 2) or ra_sustained      # 9분 2회 또는 6분 3회 연속
+        s2 = rb_trig or rb_fast                   # +100/30분 또는 +30/10분
+        s3 = ra_trig and rb_trig and rc_trig      # 검증된 원래 룰 유지
         stage = 3 if s3 else (2 if s2 else (1 if s1 else 0))
 
         record = False
