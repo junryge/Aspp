@@ -317,6 +317,19 @@ def load_star(filepath):
                     lid: safe_int(row.get(C(f'.LFT.{lid}.TOTAL_CURRENTQCNT')))
                     for lid in LIFTER_IDS
                 },
+                # 추가: 간접 컬럼도 영향도 통계 계산용 로드
+                'queue_completed':  safe_int(row.get(C('.QUE.ALL.CURRENTQCOMPLETED'))),
+                'queue_oht':        safe_int(row.get(C('.QUE.OHT.CURRENTOHTQCNT'))),
+                'oht_util':         safe_float(row.get(C('.QUE.OHT.OHTUTIL'))),
+                'avg_load_time':    safe_float(row.get(C('.QUE.LOAD.AVGLOADTIME'))),
+                'transport_4over':  safe_int(row.get(C('.QUE.ALL.TRANSPORT4MINOVERCNT'))),
+                'driving':          safe_int(row.get(C('.OHT.STATECNT.DRIVING'))),
+                'obs_bz_stop':      safe_int(row.get(C('.OHT.STATECNT.OBSANDBZSTOP'))),
+                'congested':        safe_int(row.get(C('.OHT.STATECNT.CONGESTED'))),
+                'pause':            safe_int(row.get(C('.OHT.STATECNT.PAUSE'))),
+                'timeout':          safe_int(row.get(C('.OHT.STATECNT.TIMEOUT'))),
+                'mlud_q':           safe_int(row.get(C('.QUE.ALL.M16HUBTOM14MANUAL_CURRENTQCNT'))),
+                'fab_trans_job':    safe_int(row.get(C('.QUE.ALL.FABTRANSJOBCNT'))),
             }
             # 리프터 None 제거 (해당 FAB 에 없으면 빈 dict)
             star['lft_list'] = {k: v for k, v in star['lft_list'].items() if v is not None}
@@ -664,6 +677,8 @@ def main():
     all_incidents_rows = []   # CSV 출력용 (사건 단위)
     all_xai_rows = []         # CSV 출력용 (이상 판단 근거 / XAI)
     all_col_rows = []         # CSV 출력용 (입력 STAR 컬럼별 기여도)
+    all_timelines = []        # CSV 10 계산용: [(t, star_dict), ...]
+    all_incident_starts = []  # CSV 10 계산용: [datetime, ...] 사건 시작 시각
 
     for fp in files:
         if not os.path.exists(fp):
@@ -674,6 +689,9 @@ def main():
         if not timeline:
             print(f'⚠️  스킵 (데이터 없음): {fp}')
             continue
+
+        # CSV 10 계산용 누적
+        all_timelines.extend(timeline)
 
         dates_in_file = sorted({t.date() for t, _ in timeline})
         first_ts = timeline[0][0].strftime('%Y-%m-%d %H:%M:%S')
@@ -764,6 +782,9 @@ def main():
 
         # 사건 단위 CSV (사건 시작 ~ 종료 구간에 걸친 운영 이벤트 집계)
         file_incidents = build_incidents(events)
+        # CSV 10 계산용 — 사건 시작 시각 누적
+        for _inc in file_incidents:
+            all_incident_starts.append(_inc['start'])
         # 각 사건의 "최초 인지 시각" 계산: 3단계 이전 60분 내 최초 S1/S2
         def _find_earliest_signal(incident_start):
             earliest = incident_start
@@ -1095,6 +1116,7 @@ def main():
 
         # 10. 각 STAR 컬럼의 데드락 영향 카탈로그 (전체 input 변수 + 영향도 %)
         from collections import Counter
+
         primary_ct = Counter()
         any_trig_ct = Counter()
         lifter_rev_ct = Counter()  # 개별 리프터 역증가 발생 건수
@@ -1138,6 +1160,7 @@ def main():
                 '경보_임계': threshold,
                 '측정_주기': cycle,
                 '단위': unit,
+                '영향도_pct': col_impact.get(star_col, 0.0),  # S3 시점 ±10분 평균 vs 전체 평균 편차 %
                 '이번_데이터_Primary_기여_pct': primary_pct_val,
                 '이번_데이터_어떤기여라도_pct': total_pct_val,
                 '이번_데이터_Primary_횟수': primary_ct.get(star_col, 0) if primary_pct_val is not None else 0,
@@ -1148,6 +1171,80 @@ def main():
         col_ra = f'{prefix_hint}.QUE.TIME.AVGTOTALTIME1MIN'
         col_rb = f'{prefix_hint}.QUE.M14TOM16.MESCURRENTQCNT'
         col_rc = f'{prefix_hint}.LFT.6ABL*.TOTAL_CURRENTQCNT'
+
+        # ⭐ 통계적 영향도 계산 — S3 사건 시작 ±10분 윈도우 vs 전체 평균
+        # 각 컬럼이 사건 시점에 얼마나 정상 대비 변했는지 %
+        incident_window_min = 10
+        incident_dt_set = all_incident_starts
+
+        def _column_values(key, sub=None):
+            """timeline 에서 특정 컬럼의 값 리스트 추출"""
+            vals = []
+            for t, star in all_timelines:
+                if sub is not None:
+                    v = (star.get(key) or {}).get(sub)
+                else:
+                    v = star.get(key)
+                if v is None:
+                    continue
+                try:
+                    vals.append((t, float(v)))
+                except (TypeError, ValueError):
+                    continue
+            return vals
+
+        def _impact_pct(vals):
+            """사건 시점 ±10분 평균 vs 전체 평균의 편차 %"""
+            if not vals or not incident_dt_set:
+                return 0.0
+            all_mean = sum(v for _, v in vals) / len(vals)
+            if all_mean == 0:
+                return 0.0
+            in_event = []
+            for t, v in vals:
+                for inc_t in incident_dt_set:
+                    diff = abs((t - inc_t).total_seconds())
+                    if diff <= incident_window_min * 60:
+                        in_event.append(v)
+                        break
+            if not in_event:
+                return 0.0
+            event_mean = sum(in_event) / len(in_event)
+            return round(abs(event_mean - all_mean) / abs(all_mean) * 100, 1)
+
+        # 각 컬럼 영향도 사전 계산
+        col_impact = {}
+        col_impact[col_ra] = _impact_pct(_column_values('avgtotal1min'))
+        col_impact[col_rb] = _impact_pct(_column_values('m14_to_m16'))
+        # R-C' 집계: 10개 리프터 합의 영향도
+        lft_sum_vals = []
+        for t, star in all_timelines:
+            lft = star.get('lft_list') or {}
+            if lft:
+                lft_sum_vals.append((t, float(sum(v for v in lft.values() if v is not None))))
+        col_impact[col_rc] = _impact_pct(lft_sum_vals)
+        # 리프터 개별
+        for lid in LIFTER_IDS:
+            full_col = f'{prefix_hint}.LFT.{lid}.TOTAL_CURRENTQCNT'
+            col_impact[full_col] = _impact_pct(_column_values('lft_list', sub=lid))
+        # 간접 컬럼들
+        indirect_keys = {
+            f'{prefix_hint}.QUE.ALL.CURRENTQCNT': 'queue_total',
+            f'{prefix_hint}.QUE.ALL.CURRENTQCOMPLETED': 'queue_completed',
+            f'{prefix_hint}.QUE.OHT.CURRENTOHTQCNT': 'queue_oht',
+            f'{prefix_hint}.QUE.OHT.OHTUTIL': 'oht_util',
+            f'{prefix_hint}.QUE.LOAD.AVGLOADTIME': 'avg_load_time',
+            f'{prefix_hint}.QUE.ALL.TRANSPORT4MINOVERCNT': 'transport_4over',
+            f'{prefix_hint}.OHT.STATECNT.DRIVING': 'driving',
+            f'{prefix_hint}.OHT.STATECNT.OBSANDBZSTOP': 'obs_bz_stop',
+            f'{prefix_hint}.OHT.STATECNT.CONGESTED': 'congested',
+            f'{prefix_hint}.OHT.STATECNT.PAUSE': 'pause',
+            f'{prefix_hint}.OHT.STATECNT.TIMEOUT': 'timeout',
+            f'{prefix_hint}.QUE.ALL.M16HUBTOM14MANUAL_CURRENTQCNT': 'mlud_q',
+            f'{prefix_hint}.QUE.ALL.FABTRANSJOBCNT': 'fab_trans_job',
+        }
+        for full_col, key in indirect_keys.items():
+            col_impact[full_col] = _impact_pct(_column_values(key))
 
         catalog = []
 
@@ -1214,13 +1311,8 @@ def main():
                 note
             ))
 
-        # Primary 기여도 % 높은 순으로 정렬
-        def sort_key(r):
-            v = r['이번_데이터_Primary_기여_pct']
-            if v == '-' or v is None:
-                return (-r['이번_데이터_어떤기여라도_pct'], 999)
-            return (-v, 0)
-        catalog.sort(key=sort_key)
+        # 영향도 % 높은 순으로 정렬
+        catalog.sort(key=lambda r: -r.get('영향도_pct', 0))
         # 순위 부여
         for idx, r in enumerate(catalog, 1):
             r['순위'] = idx
