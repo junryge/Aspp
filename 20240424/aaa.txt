@@ -1093,138 +1093,142 @@ def main():
         if all_col_rows:
             write_csv(out_columns, all_col_rows)
 
-        # 10. 각 STAR 컬럼의 데드락 영향 설명 + 이번 데이터 실측 통계
-        # 09 에서 집계
+        # 10. 각 STAR 컬럼의 데드락 영향 카탈로그 (전체 input 변수 + 영향도 %)
         from collections import Counter
         primary_ct = Counter()
         any_trig_ct = Counter()
+        lifter_rev_ct = Counter()  # 개별 리프터 역증가 발생 건수
         for r in all_col_rows:
             col = r['STAR_컬럼']
             if r['기여도'].startswith('Primary'):
                 primary_ct[col] += 1
             if r['초과율_pct'] > 0:
                 any_trig_ct[col] += 1
+            # 세부 리프터 카운트
+            sep_lids = r.get('세부_리프터', '')
+            if sep_lids:
+                for lid in sep_lids.split(','):
+                    lid = lid.strip()
+                    if lid:
+                        lifter_rev_ct[lid] += 1
 
-        # 첫 파일에서 감지된 prefix 사용 (단일 prefix 가정)
-        prefix_hint = ''
+        # 분모 (전체 사건 수)
+        total_incidents = len(all_incidents_rows) if all_incidents_rows else 1
+
+        # prefix 감지
+        prefix_hint = 'M16HUB'
         for r in all_col_rows:
-            # 'M16HUB.QUE.TIME.AVGTOTALTIME1MIN' 에서 prefix 추출
             col = r['STAR_컬럼']
             if '.QUE.' in col or '.LFT.' in col:
                 prefix_hint = col.split('.')[0]
                 break
-        if not prefix_hint:
-            prefix_hint = 'M16HUB'
 
-        catalog = [
-            {
-                '순위': 1,
-                'STAR_컬럼': f'{prefix_hint}.QUE.TIME.AVGTOTALTIME1MIN',
-                '컬럼_의미': '최근 1분 평균 반송 시간 (분)',
-                '데드락_영향_경로': 'OHT 가 한 작업을 끝내는 데 시간이 길어지기 시작 → 시스템 부하 증가의 초기 신호',
-                '사용_룰': "R-A' (반송시간 스파이크)",
-                '영향_방향': '값이 커질수록 위험',
-                '정상_범위': '4~7분',
-                '경보_임계': '≥9분 1회+ 또는 ≥6분 3회 연속 (튜닝)',
-                '측정_주기': '1분',
-                '단위': '분',
-                '이번_데이터_Primary_기여_횟수': primary_ct.get(f'{prefix_hint}.QUE.TIME.AVGTOTALTIME1MIN', 0),
-                '이번_데이터_어떤기여라도_횟수': any_trig_ct.get(f'{prefix_hint}.QUE.TIME.AVGTOTALTIME1MIN', 0),
-                '비고': '04-21 데드락에서 13:50 시점 9.27분 기록',
-            },
-            {
-                '순위': 2,
-                'STAR_컬럼': f'{prefix_hint}.QUE.M14TOM16.MESCURRENTQCNT',
-                '컬럼_의미': 'M14 에서 M16 으로 가는 반송 대기 큐 갯수',
-                '데드락_영향_경로': 'FAB 간 처리 격차 발생 → 브릿지 구간에서 작업 누적 → 데드락 직전 상태',
-                '사용_룰': 'R-B (FAB 간 큐 누적)',
-                '영향_방향': '값이 커질수록 위험 (특히 30분간 증가 추세)',
-                '정상_범위': '500 대',
-                '경보_임계': '30분간 +100 이상 또는 10분간 +30 (튜닝)',
-                '측정_주기': '1분',
-                '단위': '개',
-                '이번_데이터_Primary_기여_횟수': primary_ct.get(f'{prefix_hint}.QUE.M14TOM16.MESCURRENTQCNT', 0),
-                '이번_데이터_어떤기여라도_횟수': any_trig_ct.get(f'{prefix_hint}.QUE.M14TOM16.MESCURRENTQCNT', 0),
-                '비고': '04-21 데드락에서 13:50 시점 +112 기록 (30분간)',
-            },
-            {
-                '순위': 3,
-                'STAR_컬럼': f'{prefix_hint}.LFT.6ABL*.TOTAL_CURRENTQCNT (10개)',
-                '컬럼_의미': '리프터 10대 각각의 개별 큐 갯수 (6ABL6011~6032, 6ABL0111~0122)',
-                '데드락_영향_경로': '전체 리프터 합은 줄어드는데 일부만 역증가 → 경로 병목 시그너처 → 데드락 고유 패턴',
-                '사용_룰': "R-C' (리프터 역증가)",
-                '영향_방향': '역증가 리프터 수가 많을수록 위험',
-                '정상_범위': '10대 큐 합 100~200 (동기 변화)',
-                '경보_임계': '전체 합 감소 + 역증가 2개 이상',
-                '측정_주기': '1분',
-                '단위': '개',
-                '이번_데이터_Primary_기여_횟수': primary_ct.get(f'{prefix_hint}.LFT.6ABL*.TOTAL_CURRENTQCNT', 0),
-                '이번_데이터_어떤기여라도_횟수': any_trig_ct.get(f'{prefix_hint}.LFT.6ABL*.TOTAL_CURRENTQCNT', 0),
-                '비고': '04-21 데드락에서 6ABL0111/0122/6031 역증가 발생',
-            },
-            {
-                '순위': 4,
-                'STAR_컬럼': f'{prefix_hint}.QUE.ALL.CURRENTQCNT',
-                '컬럼_의미': '전체 반송 큐 갯수',
-                '데드락_영향_경로': '참고 지표 (전체 부하). 데드락 직전 증가하지만 결정적 신호는 아님',
-                '사용_룰': '(미사용, 참고용)',
-                '영향_방향': '커질수록 부하 증가',
-                '정상_범위': '389~574',
-                '경보_임계': '-',
-                '측정_주기': '1분',
-                '단위': '개',
-                '이번_데이터_Primary_기여_횟수': 0,
-                '이번_데이터_어떤기여라도_횟수': 0,
-                '비고': '보조 모니터링 지표',
-            },
-            {
-                '순위': 5,
-                'STAR_컬럼': f'{prefix_hint}.QUE.OHT.OHTUTIL',
-                '컬럼_의미': 'OHT 큐 할당률 (%)',
-                '데드락_영향_경로': '참고 지표. 실제 주행 차량 비율 아님 (UDP 와 상관 +0.005)',
-                '사용_룰': '(미사용)',
-                '영향_방향': '해석 주의 (이름과 실제 의미 다름)',
-                '정상_범위': '53~95%',
-                '경보_임계': '-',
-                '측정_주기': '1분',
-                '단위': '%',
-                '이번_데이터_Primary_기여_횟수': 0,
-                '이번_데이터_어떤기여라도_횟수': 0,
-                '비고': '이름 오해 주의 (큐 할당률, 주행률 아님)',
-            },
-            {
-                '순위': 6,
-                'STAR_컬럼': f'{prefix_hint}.QUE.ALL.M16HUBTOM14MANUAL_CURRENTQCNT',
-                '컬럼_의미': 'MLUD (Manual 출고 포트) 큐',
-                '데드락_영향_경로': '데드락 시 "MLUD 쏠림" 현장 증언과 일치. 대응 조치 대상 (MLUD CAPA 조정)',
-                '사용_룰': '(참고 지표)',
-                '영향_방향': '큰 값 + 증가 추세 = 데드락 전조',
-                '정상_범위': '40 대',
-                '경보_임계': '-',
-                '측정_주기': '1분',
-                '단위': '개',
-                '이번_데이터_Primary_기여_횟수': 0,
-                '이번_데이터_어떤기여라도_횟수': 0,
-                '비고': '대응 조치 컬럼. 운영자가 50%로 낮추는 대상',
-            },
-            {
-                '순위': 7,
-                'STAR_컬럼': f'{prefix_hint}.OHT.STATECNT.OBSANDBZSTOP',
-                '컬럼_의미': 'OHT OBS/BZ STOP 상태 차량 수',
-                '데드락_영향_경로': '기존 OBS 추세 기반 경보의 입력. 데드락 전 증가하는 경향',
-                '사용_룰': '(별도 OBS 5단계 배지)',
-                '영향_방향': '커질수록 위험',
-                '정상_범위': '30~50',
-                '경보_임계': 'OBS_WARNING_THRESHOLD (config 참고)',
-                '측정_주기': '1분',
-                '단위': '대',
-                '이번_데이터_Primary_기여_횟수': 0,
-                '이번_데이터_어떤기여라도_횟수': 0,
-                '비고': '기존 NORMAL/WARNING/DANGER/CRITICAL 배지 입력',
-            },
+        def pct(n):
+            return round(100.0 * n / total_incidents, 1) if total_incidents else 0.0
+
+        def row(star_col, meaning, path, rule, direction, normal, threshold, cycle, unit,
+                primary_pct_val, total_pct_val, note):
+            return {
+                'STAR_컬럼': star_col,
+                '컬럼_의미': meaning,
+                '데드락_영향_경로': path,
+                '사용_룰': rule,
+                '영향_방향': direction,
+                '정상_범위': normal,
+                '경보_임계': threshold,
+                '측정_주기': cycle,
+                '단위': unit,
+                '이번_데이터_Primary_기여_pct': primary_pct_val,
+                '이번_데이터_어떤기여라도_pct': total_pct_val,
+                '이번_데이터_Primary_횟수': primary_ct.get(star_col, 0) if primary_pct_val is not None else 0,
+                '비고': note,
+            }
+
+        # 직접 사용 3종 (R-A'/R-B/R-C')
+        col_ra = f'{prefix_hint}.QUE.TIME.AVGTOTALTIME1MIN'
+        col_rb = f'{prefix_hint}.QUE.M14TOM16.MESCURRENTQCNT'
+        col_rc = f'{prefix_hint}.LFT.6ABL*.TOTAL_CURRENTQCNT'
+
+        catalog = []
+
+        # === 직접 룰 사용 컬럼 (Primary 기여도 계산 가능) ===
+        catalog.append(row(
+            col_ra, '최근 1분 평균 반송 시간',
+            '반송 시간이 길어짐 → 시스템 부하 증가 → 데드락 위험',
+            "R-A' (반송시간 스파이크)", '커질수록 위험', '4~7분', '≥9분 1회+ 또는 ≥6분 3회연속', '1분', '분',
+            pct(primary_ct.get(col_ra, 0)), pct(any_trig_ct.get(col_ra, 0)),
+            '04-21 13:50 기록 9.27분'
+        ))
+        catalog.append(row(
+            col_rb, 'M14 → M16 반송 대기 큐 갯수',
+            'FAB 간 처리 격차 → 브릿지 누적 → 데드락 직전',
+            'R-B (FAB 간 큐 누적)', '커질수록 위험 (추세)', '500 대', '30분간 +100 또는 10분간 +30', '1분', '개',
+            pct(primary_ct.get(col_rb, 0)), pct(any_trig_ct.get(col_rb, 0)),
+            '04-21 13:50 +112 (30분간)'
+        ))
+        catalog.append(row(
+            col_rc, '리프터 10대 개별 큐 (집계)',
+            '전체 감소 + 일부 역증가 → 경로 병목 시그너처',
+            "R-C' (리프터 역증가)", '역증가 수 많을수록 위험', '합 100~200 (동기)', '합 감소 + 역증가 2개+', '1분', '개',
+            pct(primary_ct.get(col_rc, 0)), pct(any_trig_ct.get(col_rc, 0)),
+            'R-C\' 의 집계 지표. 아래 10개 리프터 세부 참조'
+        ))
+
+        # === 리프터 10개 개별 ===
+        for lid in LIFTER_IDS:
+            full_col = f'{prefix_hint}.LFT.{lid}.TOTAL_CURRENTQCNT'
+            cnt = lifter_rev_ct.get(lid, 0)
+            catalog.append(row(
+                full_col, f'리프터 {lid} 개별 큐',
+                f'데드락 시 특정 리프터에서만 작업 쌓임 (경로 병목 구체 포인트)',
+                "R-C' (세부)", '역증가 발생 시 위험', '10~30', '역증가 (합 감소 중)', '1분', '개',
+                None, pct(cnt),
+                f'3개월 간 역증가 발생 {cnt}회'
+            ))
+            catalog[-1]['이번_데이터_Primary_기여_pct'] = '-'  # 리프터 개별은 집계로만
+            catalog[-1]['이번_데이터_Primary_횟수'] = cnt
+
+        # === 참고 / 간접 입력 변수 (룰 미사용, 0%) ===
+        indirect = [
+            ('QUE.ALL.CURRENTQCNT', '전체 반송 큐', '부하 전반 지표 (데드락 상관 있음)', '-', '커지면 부하↑', '389~574', '-', '1분', '개', '보조 모니터링'),
+            ('QUE.ALL.CURRENTQCOMPLETED', '완료 반송 수', '처리율 지표', '-', '정상 운영 판별', '353~496', '-', '1분', '개', '처리량 모니터링'),
+            ('QUE.OHT.CURRENTOHTQCNT', 'OHT 반송 Q', 'OHT 할당 큐', '-', '커지면 할당 많음', '161~298', '-', '1분', '개', '보조'),
+            ('QUE.OHT.OHTUTIL', 'OHT 큐 할당률 (%)', '실제 주행률 아님 (주의)', '-', '해석 주의', '53~95%', '-', '1분', '%', '이름 오해 주의'),
+            ('QUE.LOAD.AVGLOADTIME', '평균 적재 시간', '로딩 지연 지표', '-', '커지면 적재 지연', '-', '-', '1분', '분', '수집 불가 (DB 미존재)'),
+            ('QUE.ALL.TRANSPORT4MINOVERCNT', '4분 초과 반송 수', '지연 발생 건수', '-', '커지면 지연 많음', '0', '-', '1분', '개', '집계 버그 (전부 0)'),
+            ('OHT.STATECNT.DRIVING', '주행 중 OHT 수', '실제 주행 차량', '-', '증가 시 정상 운영', '150~250', '-', '1분', '대', 'UDP 복원 가능'),
+            ('OHT.STATECNT.OBSANDBZSTOP', 'OBS/BZ STOP 수', '기존 OBS 배지 입력', '별도 OBS 5단계 배지', '커질수록 위험', '30~50', 'OBS_WARNING_THRESHOLD', '1분', '대', '별도 경보 시스템'),
+            ('OHT.STATECNT.CONGESTED', '혼잡 상태 OHT 수', '혼잡도 지표', '-', '커지면 혼잡', '-', '-', '1분', '대', '보조'),
+            ('OHT.STATECNT.PAUSE', 'Pause 상태 OHT 수', '일시정지 차량', '-', '커지면 이상', '-', '-', '1분', '대', '보조'),
+            ('OHT.STATECNT.TIMEOUT', 'Timeout 상태 OHT 수', '타임아웃 차량', '-', '커지면 이상', '-', '-', '1분', '대', '보조'),
+            ('QUE.ALL.M16HUBTOM14MANUAL_CURRENTQCNT', 'MLUD (Manual 출고 포트) 큐', '데드락 시 "MLUD 쏠림" 현장 증언과 일치', '(참고 지표)', '대응 조치 대상', '40 대', '-', '1분', '개', '대응 컬럼 — 운영자가 50% 로 낮추는 대상'),
+            ('QUE.ALL.FABTRANSJOBCNT', 'FAB 전체 작업량', '전체 부하 상위 지표', '-', '커지면 부하↑', '1085~1282', '-', '1분', '개', '모니터링'),
         ]
 
-        write_csv(out_catalog, catalog)
+        for short, meaning, path, rule, direction, normal, threshold, cycle, unit, note in indirect:
+            full_col = f'{prefix_hint}.{short}'
+            catalog.append(row(
+                full_col, meaning, path, rule, direction, normal, threshold, cycle, unit,
+                pct(primary_ct.get(full_col, 0)),
+                pct(any_trig_ct.get(full_col, 0)),
+                note
+            ))
+
+        # Primary 기여도 % 높은 순으로 정렬
+        def sort_key(r):
+            v = r['이번_데이터_Primary_기여_pct']
+            if v == '-' or v is None:
+                return (-r['이번_데이터_어떤기여라도_pct'], 999)
+            return (-v, 0)
+        catalog.sort(key=sort_key)
+        # 순위 부여
+        for idx, r in enumerate(catalog, 1):
+            r['순위'] = idx
+
+        # 컬럼 순서 조정
+        catalog_ordered = [{**{'순위': r['순위']}, **{k: v for k, v in r.items() if k != '순위'}} for r in catalog]
+
+        write_csv(out_catalog, catalog_ordered)
 
         print('\n💾 CSV 저장 (용도별 분리):')
         if all_events_rows: print(f'   01 · {out_events}  ({len(all_events_rows)} 전체 이벤트)')
@@ -1241,7 +1245,7 @@ def main():
             print(f'   08 · {out_xai}  ({len(all_xai_rows)} 이상 판단 근거)')
         if all_col_rows:
             print(f'   09 · {out_columns}  ({len(all_col_rows)} 입력 STAR 컬럼 기여도)')
-        print(f'   10 · {out_catalog}  (7 컬럼 데드락 영향 카탈로그) ⭐ 신규')
+        print(f'   10 · {out_catalog}  ({len(catalog_ordered)} 컬럼 전체 영향도 %) ⭐ 신규')
         print(f'\n👉 이 CSV들을 전달해주세요.')
 
 
