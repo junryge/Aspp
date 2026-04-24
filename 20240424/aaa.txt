@@ -1,521 +1,1114 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-macro_predictor.py - OHT 매크로 예측기
+3단계 데드락 경보 룰 검증 스크립트 (단독 실행)
 
-MD 문서에서 검증된 예측 모델:
-- 큐: 10분 이동평균 + 선형 외삽
-- TAT: 상수 2.88분 (24시간 균일)
-- 물동량: ~20,000건/시 (균일)
-- 혼잡 구간: HID 저속 구간 고정
-- 데드락 위험: OBS 추세 (36분 빌드업)
+사용법:
+    python3 3단계_경보_검증_스크립트.py <STAR_CSV_경로> [--ops-log <운영로그.txt>] [데드락시각 ...]
+
+운영로그 옵션:
+    --ops-log 운영로그.txt  (선택, 제공 시 각 CSV 에 운영이벤트 컬럼 추가)
+    → 3단계 경보가 실제 운영 이슈와 얼마나 일치하는지 자동 검증.
+    → '가설 입증' 용: 알고리즘이 실제 데드락 징후를 포착했다는 증거 확보.
+
+데드락 시각 포맷 (혼용 가능):
+    14:00                    # 시:분만 (CSV 1개 처리 시 그 날짜로 가정)
+    20260421 14:00           # 날짜 + 시:분 (일주일 치 일괄 처리 시 필수)
+    2026-04-21 14:00         # 하이픈 포맷
+    2026-04-21T14:00         # ISO
+    20260421_14:00           # 언더스코어 구분
+
+예:
+    # 1개 파일 + 시각
+    python3 3단계_경보_검증_스크립트.py STAR_20260421.csv 14:00
+
+    # 여러 파일 (일주일) + 날짜별 데드락
+    python3 3단계_경보_검증_스크립트.py "STAR_*.csv" \\
+        "20260421 14:00" "20260421 16:30" "20260423 09:15"
+
+    # 데드락 시각 모를 때 (탐지만)
+    python3 3단계_경보_검증_스크립트.py "STAR_*.csv"
+
+출력:
+    - 터미널: 날짜별 단계 전환 타임라인 + 종합 precision/recall
+    - CSV 3종 자동 저장:
+        · 검증결과_이벤트_YYYYMMDD_HHMMSS.csv     (모든 단계 전환 이벤트 + TP/FP 분류)
+        · 검증결과_파일별요약_YYYYMMDD_HHMMSS.csv (파일별 S3/TP/FN/FP 개수)
+        · 검증결과_종합지표_YYYYMMDD_HHMMSS.csv   (precision/recall/평균선행시간)
+      ※ UTF-8 BOM 포함 (엑셀 한글 깨짐 방지)
+
+룰 정의 (M16A_BR 검증):
+    R-A' AVGTOTAL1MIN ≥ 9분이 10분창 1회 이상
+    R-B  M14→M16 큐 30분간 +100 이상
+    R-C' 리프터 합 감소 + 역증가 2개 이상
+
+    1단계 = R-A' 2회+
+    2단계 = R-B 발동
+    3단계 = R-A' AND R-B AND R-C' (AND 조건 / 데드락 10분 전 목표)
 """
 
-from collections import deque
-from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+import csv
+import sys
+import os
+import glob
+from datetime import datetime, timedelta
+from collections import defaultdict
 
-from config import (
-    TAT_AVERAGE_MIN, TAT_MEDIAN_MIN,
-    THROUGHPUT_PER_HOUR,
-    QUEUE_NORMAL_RANGE, QUEUE_AVG,
-    OBS_NORMAL_RANGE, OBS_WARNING_THRESHOLD,
-    OBS_DANGER_THRESHOLD, OBS_DEADLOCK_THRESHOLD,
+
+# 리프터 ID 10개 (M16A_BR 기준)
+LIFTER_IDS = [
+    '6ABL6011', '6ABL6012', '6ABL6021', '6ABL6022',
+    '6ABL6031', '6ABL6032', '6ABL0111', '6ABL0112',
+    '6ABL0121', '6ABL0122',
+]
+
+
+# ────────────────────────────────────────────────────────────
+# 운영 채팅 로그 파싱 (선택적, --ops-log 제공 시)
+# ────────────────────────────────────────────────────────────
+import re as _re
+
+_OPS_EVENT_PATTERNS = [
+    ('DEADLOCK_SIGNAL',  ['정체', '몰림', '밀림', '밀리는', '밀려', '증가하고 있', 'Queue 증가', 'QUE 증가', 'Que 증가', '쌓이고']),
+    ('BRIDGE_ERROR',     ['Bridge OHT Error', 'Bridge OHT 발생', 'bridge 이상', 'Bridge 정체']),
+    ('MLUD_ISSUE',       ['MLUD', 'Mlud', 'mlud']),
+    ('CAPA_CHANGE_1',    ['MAX CAPA "1"', 'MAX CAPA 1', 'Max Capa 1', 'MAXCAPA 1', 'Capa 1로', '"1"로 변경']),
+    ('CAPA_CHANGE_50',   ['MAX CAPA 50', 'Max Capa 50', 'MAXCAPA 50', 'Capa 50']),
+    ('CAPA_CHANGE_3',    ['MAX CAPA "3"', 'MAX CAPA 3', 'Max Capa 3', 'MAXCAPA 3']),
+    ('CAPA_RESTORE',     ['원복', '원위치']),
+    ('LIFTER_DOWN',      ['Lifter', 'lifter', 'LIFTER', '리프터']),
+    ('ERROR_OCCURRED',   ['Error 발생', 'Error발생', 'Err 발생', 'ERROR 발생', 'Alarm 발생']),
+    ('ERROR_RECOVERED',  ['Error 조치', 'Error조치', 'Err 조치', 'Error 처리', 'Error Clear', 'ERROR 처리', 'ERROR 조치']),
+    ('PORT_CLOSE',       ['AI Close', 'AI close', 'AI CLOSE', 'PORT Close', 'Port Close', 'Port 차단', 'PORT 차단']),
+    ('PORT_OPEN',        ['AI Open', 'AI open', 'AI OPEN', 'PORT Open', 'Port Open']),
+    ('MAINTENANCE',      ['작업', '교체', '점검', 'H/T', 'Handy Stop', 'HT-STOP', 'HT STOP']),
+    ('ALERT_BOT',        ['통합알림센터', 'Intelligent Bot', 'LOW_ALARM', 'HIGH_ALARM']),
+]
+
+_OPS_HEADER_RE = _re.compile(
+    r'^(?P<author>[^,]+),(?P<org>[^,]+),(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s*$'
 )
 
 
-class MacroPredictor:
-    """매크로 예측기"""
+def _ops_classify(text):
+    for ev_type, keywords in _OPS_EVENT_PATTERNS:
+        for kw in keywords:
+            if kw in text:
+                return ev_type, kw
+    return 'OTHER', ''
 
-    def __init__(self, history_size: int = 30):
-        # 최근 N분 히스토리 (이동평균용)
-        self.queue_history: deque = deque(maxlen=history_size)
-        self.obs_history: deque = deque(maxlen=history_size)
-        self.driving_history: deque = deque(maxlen=history_size)
 
-        # 3단계 데드락 경보용 히스토리 (M16A_BR 확장)
-        self.t1min_history: deque = deque(maxlen=20)         # AVGTOTAL1MIN
-        self.m14_history:   deque = deque(maxlen=35)         # M14→M16
-        self.lft_history:   deque = deque(maxlen=25)         # 리프터 10개 dict
-        self.mlud_history:  deque = deque(maxlen=30)         # MLUD Q
-        self.warning_log:   List[dict] = []                   # 단계 발동 이력 (타임라인용)
-        self._last_stage:   int = 0
-        self.full_timeline: List[dict] = []                   # 사전 계산 전체 타임라인
+def _ops_strip(text):
+    text = _re.sub(r'<<이미지>>[^\n]*', '', text)
+    text = _re.sub(r'<<파일>>[^\n]*', '', text)
+    text = _re.sub(r'http[s]?://\S+', '', text)
+    return text
 
-        # 현재 값
-        self.current_queue: int = 0
-        self.current_obs: int = 0
-        self.current_driving: int = 0
-        self.current_time: Optional[datetime] = None
 
-        # 상관관계 데이터 (전체 기간)
-        self.queue_tat_pairs: List[Tuple[int, float]] = []  # (큐, TAT) 쌍
-        self.queue_obs_pairs: List[Tuple[int, int]] = []
+def _ops_truncate(text, n=80):
+    text = _re.sub(r'\s+', ' ', text).strip()
+    return text if len(text) <= n else text[:n-1] + '…'
 
-    def update(self, t: datetime, star: dict, vehicle_stats: dict):
-        """스타 지표 + 차량 통계로 업데이트. STAR 없으면 vehicle_stats 기반 fallback."""
-        self.current_time = t
 
-        if star:
-            q = star.get('queue_total', 0)
-            obs = star.get('obs_bz_stop', 0)
-            driving = star.get('driving', 0)
+def parse_ops_log(path):
+    """운영 채팅 로그 → [{dt, author, org, event_type, keyword, summary}, ...]"""
+    ops = []
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+    except (IOError, OSError) as e:
+        print(f'  ⚠️  운영로그 읽기 실패: {e}')
+        return ops
 
-            if q > 0:
-                self.current_queue = q
-                self.queue_history.append((t, q))
-            if obs >= 0:
-                self.current_obs = obs
-                self.obs_history.append((t, obs))
-            if driving > 0:
-                self.current_driving = driving
-                self.driving_history.append((t, driving))
+    i = 0
+    while i < len(lines):
+        m = _OPS_HEADER_RE.match(lines[i])
+        if not m:
+            i += 1
+            continue
+        author = m['author'].strip()
+        org = m['org'].strip()
+        try:
+            dt = datetime.strptime(m['ts'], '%Y-%m-%d %H:%M:%S')
+        except ValueError:
+            i += 1
+            continue
+        body_lines = []
+        i += 1
+        while i < len(lines) and not _OPS_HEADER_RE.match(lines[i]):
+            body_lines.append(lines[i].rstrip())
+            i += 1
+        body = _ops_strip('\n'.join(body_lines).strip())
+        if not body:
+            continue
+        ev_type, kw = _ops_classify(body)
+        ops.append({
+            'dt': dt,
+            'author': author,
+            'org': org,
+            'event_type': ev_type,
+            'keyword': kw,
+            'summary': _ops_truncate(body, 60),
+        })
+    ops.sort(key=lambda x: x['dt'])
+    return ops
 
-            # 상관관계 데이터 축적
-            if q > 0 and obs >= 0:
-                self.queue_obs_pairs.append((q, obs))
 
-            # 3단계 경보용 히스토리
-            t1min = star.get('avgtotal1min')
-            m14 = star.get('m14_to_m16')
-            lft = star.get('lft_list')
-            mlud = star.get('mlud_q')
-            if t1min is not None:
-                self.t1min_history.append((t, float(t1min)))
-            if m14 is not None and m14 > 0:
-                self.m14_history.append((t, int(m14)))
-            if isinstance(lft, dict) and lft:
-                self.lft_history.append((t, dict(lft)))
-            if mlud is not None:
-                self.mlud_history.append((t, int(mlud)))
-        elif vehicle_stats:
-            # STAR 없을 때 — 차량 상태 집계에서 OBS 추출
-            obs = vehicle_stats.get('obs_bz_stop', 0)
-            driving = vehicle_stats.get('running', 0)
-            self.current_obs = obs
-            self.obs_history.append((t, obs))
-            if driving > 0:
-                self.current_driving = driving
-                self.driving_history.append((t, driving))
+def find_nearby_ops(query_dt, ops_list, window_min=30):
+    """query_dt ±window_min 범위의 운영 이벤트 반환 (ALERT_BOT 제외)"""
+    if not ops_list or query_dt is None:
+        return []
+    lo = query_dt - timedelta(minutes=window_min)
+    hi = query_dt + timedelta(minutes=window_min)
+    result = []
+    for op in ops_list:
+        if op['dt'] < lo:
+            continue
+        if op['dt'] > hi:
+            break
+        if op['event_type'] == 'ALERT_BOT':
+            continue
+        result.append(op)
+    return result
 
-        # fleet 크기 기억 (임계값 스케일용)
-        if vehicle_stats and vehicle_stats.get('total', 0) > 0:
-            self.current_fleet = vehicle_stats['total']
 
-    def get_prediction(self) -> dict:
-        """매크로 예측 결과"""
-        return {
-            'queue_10min': self._predict_queue_10min(),
-            'tat': self._predict_tat(),
-            'throughput': self._predict_throughput(),
-            'deadlock_risk': self._predict_deadlock_risk(),
-            'early_warning': self._predict_early_warning(),
-            'obs_trend': self._get_obs_trend(),
-            'current': {
-                'queue': self.current_queue,
-                'obs': self.current_obs,
-                'driving': self.current_driving,
-            },
+def summarize_ops(nearby_ops, query_dt):
+    """근처 운영 이벤트 요약 → (count, types_str, top_msg_str)"""
+    if not nearby_ops:
+        return 0, '', ''
+    type_counts = {}
+    for op in nearby_ops:
+        type_counts[op['event_type']] = type_counts.get(op['event_type'], 0) + 1
+    types_str = ', '.join(f'{t}({c})' for t, c in sorted(type_counts.items(), key=lambda x: -x[1]))
+    # 가장 가까운 시각의 이벤트 1개
+    closest = min(nearby_ops, key=lambda x: abs((x['dt'] - query_dt).total_seconds()))
+    diff_min = (closest['dt'] - query_dt).total_seconds() / 60.0
+    sign = '+' if diff_min >= 0 else ''
+    top_msg = f"[{sign}{diff_min:.0f}분] {closest['author']}: {closest['summary']}"
+    return len(nearby_ops), types_str, top_msg
+
+
+def safe_float(v):
+    try:
+        return float(v) if v not in (None, '', 'null') else None
+    except (ValueError, TypeError):
+        return None
+
+
+def safe_int(v):
+    try:
+        return int(float(v)) if v not in (None, '', 'null') else None
+    except (ValueError, TypeError):
+        return None
+
+
+_parse_time_failed_samples = []
+
+def parse_time(s):
+    """CRT_TM 파싱 — 다양한 포맷 대응"""
+    if not s:
+        return None
+    raw = s
+    s = s.strip().strip('"').strip("'")
+    # Timezone suffix 제거
+    if 'T' in s and '+' in s.split('T')[1]:
+        s = s.split('+')[0]
+    if s.endswith('Z'):
+        s = s[:-1]
+    # 밀리초 제거
+    if '.' in s:
+        s = s.split('.')[0]
+    # Unix timestamp (숫자만)
+    if s.isdigit() and len(s) in (10, 13):
+        try:
+            ts = int(s)
+            if len(s) == 13:
+                ts //= 1000
+            return datetime.fromtimestamp(ts)
+        except (ValueError, OSError):
+            pass
+    for fmt in ('%Y-%m-%d %H:%M:%S', '%Y/%m/%d %H:%M:%S',
+                '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M',
+                '%Y/%m/%d %H:%M', '%Y.%m.%d %H:%M:%S',
+                '%Y%m%d%H%M%S', '%Y%m%d %H%M%S',
+                '%Y%m%d %H:%M:%S', '%Y%m%d %H:%M',
+                '%m/%d/%Y %H:%M:%S', '%d/%m/%Y %H:%M:%S',
+                '%d-%m-%Y %H:%M:%S'):
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    if len(_parse_time_failed_samples) < 3:
+        _parse_time_failed_samples.append(raw)
+    return None
+
+
+def parse_deadlock_arg(s, fallback_date=None):
+    """데드락 시각 인자 파싱 — 날짜 포함 / 시각만 모두 지원.
+
+    반환: datetime or None
+    """
+    if not s:
+        return None
+    s = s.strip().replace('_', ' ').replace('T', ' ')
+
+    # 날짜+시각 포맷 우선
+    for fmt in ('%Y-%m-%d %H:%M', '%Y-%m-%d %H:%M:%S',
+                '%Y/%m/%d %H:%M', '%Y%m%d %H:%M', '%Y%m%d %H:%M:%S'):
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+
+    # 시각만 (HH:MM) — fallback_date 필요
+    try:
+        hh, mm = map(int, s.split(':')[:2])
+        if fallback_date is None:
+            return None  # 날짜 미상
+        return datetime.combine(fallback_date, datetime.min.time()).replace(hour=hh, minute=mm)
+    except (ValueError, AttributeError):
+        return None
+
+
+def detect_prefix(fieldnames):
+    """STAR 컬럼 prefix 자동 감지 (M16HUB / M14 / 기타)"""
+    anchor = '.QUE.ALL.CURRENTQCNT'
+    for col in fieldnames or []:
+        if col and col.endswith(anchor):
+            return col[:-len(anchor)]
+    return None
+
+
+def load_star(filepath):
+    """STAR CSV 로드 → [(time, star_dict), ...]"""
+    timeline = []
+    missing_cols = defaultdict(int)
+    total = 0
+
+    with open(filepath, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        prefix = detect_prefix(reader.fieldnames)
+        if not prefix:
+            print(f"❌ {filepath}: prefix 감지 실패 (CURRENTQCNT 컬럼 없음)")
+            return [], None
+
+        def C(suffix):
+            return f"{prefix}{suffix}"
+
+        # 핵심 컬럼 존재 여부 사전 체크
+        required = {
+            'avgtotal1min': C('.QUE.TIME.AVGTOTALTIME1MIN'),
+            'm14_to_m16':   C('.QUE.M14TOM16.MESCURRENTQCNT'),
         }
+        for k, col in required.items():
+            if col not in (reader.fieldnames or []):
+                missing_cols[k] += 1
 
-    def _predict_queue_10min(self) -> dict:
-        """10분 후 큐 예측 — 이동평균 + 선형 외삽"""
-        if len(self.queue_history) < 3:
-            return {
-                'value': self.current_queue,
-                'confidence': 'low',
-                'method': 'insufficient_data',
+        for row in reader:
+            total += 1
+            t = parse_time(row.get('CRT_TM', ''))
+            if not t:
+                continue
+            star = {
+                'avgtotal1min': safe_float(row.get(C('.QUE.TIME.AVGTOTALTIME1MIN'))),
+                'm14_to_m16':   safe_int(row.get(C('.QUE.M14TOM16.MESCURRENTQCNT'))),
+                'queue_total':  safe_int(row.get(C('.QUE.ALL.CURRENTQCNT'))),
+                'lft_list': {
+                    lid: safe_int(row.get(C(f'.LFT.{lid}.TOTAL_CURRENTQCNT')))
+                    for lid in LIFTER_IDS
+                },
             }
+            # 리프터 None 제거 (해당 FAB 에 없으면 빈 dict)
+            star['lft_list'] = {k: v for k, v in star['lft_list'].items() if v is not None}
+            timeline.append((t, star))
 
-        # 최근 10분 이동평균
-        recent = list(self.queue_history)[-10:]
-        avg = sum(v for _, v in recent) / len(recent)
+    timeline.sort(key=lambda x: x[0])
 
-        # 선형 추세 (최근 5분)
-        if len(recent) >= 5:
-            first_half = recent[:len(recent)//2]
-            second_half = recent[len(recent)//2:]
-            avg_first = sum(v for _, v in first_half) / len(first_half)
-            avg_second = sum(v for _, v in second_half) / len(second_half)
-            trend_per_min = (avg_second - avg_first) / (len(recent) / 2)
+    if missing_cols:
+        print(f"  ⚠️  누락 컬럼: {list(missing_cols.keys())} (해당 룰 평가 불가)")
 
-            predicted = avg + trend_per_min * 10  # 10분 외삽
-        else:
-            predicted = avg
-            trend_per_min = 0
+    return timeline, prefix
 
-        # 범위 (±50)
-        return {
-            'value': round(predicted),
-            'range_low': round(predicted - 50),
-            'range_high': round(predicted + 50),
-            'trend': round(trend_per_min, 1),
-            'trend_direction': 'up' if trend_per_min > 5 else 'down' if trend_per_min < -5 else 'stable',
-            'moving_avg': round(avg),
-            'confidence': 'high' if len(recent) >= 8 else 'medium',
-            'method': 'linear_extrapolation',
-        }
 
-    def _predict_tat(self) -> dict:
-        """TAT 예측 — 상수 2.88분 (24시간 균일 확인됨)"""
-        return {
-            'average': TAT_AVERAGE_MIN,
-            'median': TAT_MEDIAN_MIN,
-            'prediction_10min': TAT_AVERAGE_MIN,  # 변동 없음
-            'confidence': 'high',
-            'method': 'constant (24h uniform)',
-            'note': '큐 1000~1800 범위에서 TAT 2.4~2.6분으로 안정적',
-        }
+def evaluate_timeline(timeline):
+    """3단계 룰 평가 → [{time, stage, label, reason, rules_detail}, ...]"""
+    events = []
+    if not timeline:
+        return events
 
-    def _predict_throughput(self) -> dict:
-        """물동량 예측 — ~20,000건/시 균일"""
-        return {
-            'per_hour': THROUGHPUT_PER_HOUR,
-            'per_minute': round(THROUGHPUT_PER_HOUR / 60),
-            'confidence': 'high',
-            'method': 'constant (day/night same)',
-            'note': '주간 ~20,000건/시, 야간 ~19,700건/시',
-        }
+    t1_hist = []
+    m14_hist = []
+    lft_hist = []
 
-    def _predict_deadlock_risk(self) -> dict:
-        """데드락 위험도 예측 — OBS 추세 기반"""
-        if len(self.obs_history) < 3:
-            return {
-                'level': 'unknown',
-                'obs_current': self.current_obs,
-                'method': 'insufficient_data',
-            }
+    last_logged_stage = -1
+    last_s3_time = None
 
-        recent_obs = [v for _, v in list(self.obs_history)[-10:]]
-        avg_obs = sum(recent_obs) / len(recent_obs)
+    for t, star in timeline:
+        if star['avgtotal1min'] is not None:
+            t1_hist.append(star['avgtotal1min'])
+        if star['m14_to_m16'] is not None and star['m14_to_m16'] > 0:
+            m14_hist.append(star['m14_to_m16'])
+        if star['lft_list']:
+            lft_hist.append(dict(star['lft_list']))
 
-        # 추세 분석
-        if len(recent_obs) >= 5:
-            first = sum(recent_obs[:len(recent_obs)//2]) / (len(recent_obs)//2)
-            second = sum(recent_obs[len(recent_obs)//2:]) / (len(recent_obs) - len(recent_obs)//2)
-            trend = second - first
-        else:
-            trend = 0
+        # R-A' (기존 — S3 확정에 사용, 9분 기준 유지)
+        recent_t1 = t1_hist[-10:]
+        ra_count = sum(1 for v in recent_t1 if v >= 9.0)
+        ra_value = recent_t1[-1] if recent_t1 else None
+        ra_trig = ra_count >= 1
 
-        # 위험 레벨 판단
-        if avg_obs >= OBS_DEADLOCK_THRESHOLD:
-            level = "CRITICAL"
-            message = f"OBS {int(avg_obs)}대 — 데드락 발생 가능"
-        elif avg_obs >= OBS_DANGER_THRESHOLD:
-            level = "DANGER"
-            message = f"OBS {int(avg_obs)}대 — 위험 수준, 빌드업 중"
-        elif avg_obs >= OBS_WARNING_THRESHOLD:
-            level = "WARNING"
-            message = f"OBS {int(avg_obs)}대 — 주의 필요"
-        elif trend > 10:
-            level = "WATCH"
-            message = f"OBS {int(avg_obs)}대 — 상승 추세 감지"
-        else:
-            level = "NORMAL"
-            message = f"OBS {int(avg_obs)}대 — 정상 범위"
-
-        return {
-            'level': level,
-            'message': message,
-            'obs_current': self.current_obs,
-            'obs_avg': round(avg_obs, 1),
-            'obs_trend': round(trend, 1),
-            'obs_trend_direction': 'rising' if trend > 5 else 'falling' if trend < -5 else 'stable',
-            'thresholds': {
-                'normal': f"{OBS_NORMAL_RANGE[0]}~{OBS_NORMAL_RANGE[1]}",
-                'warning': str(OBS_WARNING_THRESHOLD),
-                'danger': str(OBS_DANGER_THRESHOLD),
-                'deadlock': str(OBS_DEADLOCK_THRESHOLD),
-            },
-        }
-
-    def _get_obs_trend(self) -> List[dict]:
-        """OBS 추이 (차트용)"""
-        return [
-            {'time': t.strftime("%H:%M"), 'value': v}
-            for t, v in self.obs_history
-        ]
-
-    def _predict_early_warning(self) -> dict:
-        """3단계 데드락 경보 (M16A_BR 룰 — R-A' + R-B + R-C' AND).
-
-        검증 사례: 2026-04-21 14:00 데드락 체인 6대
-        - 13:50 시점에 3단계 확정 발동 (10분 전)
-        - 14:14 / 14:16 재발동 (진행 중 재확인)
-        - 16:00 false positive 구간 완벽 차단
-        """
-
-        # R-A': 최근 10분창에 AVGTOTAL1MIN ≥ 9분 이 몇 회
-        t1_values = [v for _, v in list(self.t1min_history)[-10:]]
-        ra_count = sum(1 for v in t1_values if v >= 9.0)
-        ra_latest = t1_values[-1] if t1_values else None
-        ra_triggered = ra_count >= 1
-
-        # ⚡ R-A' SUSTAINED (튜닝: S1 조기 인지용 — 6분이 5샘플 중 3회 이상)
+        # ⚡ R-A' EARLY (튜닝 ① — S1 조기 인지용, 6분 지속)
         ra_sustained = False
-        if len(t1_values) >= 5:
-            ra_sustained = sum(1 for v in t1_values[-5:] if v >= 6.0) >= 3
+        if len(recent_t1) >= 5:
+            last5 = recent_t1[-5:]
+            ra_sustained = sum(1 for v in last5 if v >= 6.0) >= 3
 
-        # R-B: M14→M16 30분 전 대비 +100 이상
+        # R-B (기존 — S3 확정에 사용, +100/30분 유지)
         rb_diff = 0
-        rb_triggered = False
-        if len(self.m14_history) >= 31:
-            rb_diff = self.m14_history[-1][1] - self.m14_history[-31][1]
-            rb_triggered = rb_diff >= 100
+        rb_trig = False
+        if len(m14_hist) >= 31:
+            rb_diff = m14_hist[-1] - m14_hist[-31]
+            rb_trig = rb_diff >= 100
 
-        # ⚡ R-B FAST (튜닝: S2 조기 인지용 — 10분 +30)
+        # ⚡ R-B FAST (튜닝 ② — S2 조기 인지용, +30/10분)
         rb_fast = False
-        if len(self.m14_history) >= 11:
-            rb_diff_fast = self.m14_history[-1][1] - self.m14_history[-11][1]
+        if len(m14_hist) >= 11:
+            rb_diff_fast = m14_hist[-1] - m14_hist[-11]
             rb_fast = rb_diff_fast >= 30
 
-        # R-C': 전체 리프터 합 20분 전 대비 감소 AND 역증가 2개+
+        # R-C' (그대로)
         rc_trend = 0
-        reverse_count = 0
-        reverse_lids: List[str] = []
-        rc_triggered = False
-        if len(self.lft_history) >= 21:
-            now_lft = self.lft_history[-1][1]
-            prev_lft = self.lft_history[-21][1]
-            rc_trend = sum(now_lft.values()) - sum(prev_lft.values())
-            for lid in now_lft:
-                if now_lft[lid] > prev_lft.get(lid, 0):
-                    reverse_lids.append(lid)
-                    reverse_count += 1
-            rc_triggered = rc_trend < 0 and reverse_count >= 2
+        rev_count = 0
+        rev_lids = []
+        rc_trig = False
+        if len(lft_hist) >= 21:
+            now_l = lft_hist[-1]
+            prev_l = lft_hist[-21]
+            rc_trend = sum(now_l.values()) - sum(prev_l.values())
+            for lid in now_l:
+                if now_l[lid] > prev_l.get(lid, 0):
+                    rev_lids.append(lid)
+                    rev_count += 1
+            rc_trig = rc_trend < 0 and rev_count >= 2
 
-        # Stage 판정 (튜닝: S1/S2 조기 발동, S3 그대로 — 04-21 검증 보호)
-        s1 = (ra_count >= 2) or ra_sustained         # 9분 2회 OR 6분 3회 연속
-        s2 = rb_triggered or rb_fast                  # +100/30분 OR +30/10분
-        s3 = ra_triggered and rb_triggered and rc_triggered  # 3단계 확정 (그대로)
-
+        # 단계 판정 — S1/S2 는 튜닝된 조건으로 조기 발동, S3 는 원래 그대로
+        s1 = (ra_count >= 2) or ra_sustained      # 9분 2회 또는 6분 3회 연속
+        s2 = rb_trig or rb_fast                   # +100/30분 또는 +30/10분
+        s3 = ra_trig and rb_trig and rc_trig      # 검증된 원래 룰 유지
         stage = 3 if s3 else (2 if s2 else (1 if s1 else 0))
 
-        labels = ['NORMAL', 'S1_EARLY', 'S2_WATCH', 'S3_CONFIRMED']
-        messages = [
-            '정상 운영 중',
-            '조기경보: 반송시간 급증 감지',
-            '주의보: FAB 간 큐 누적',
-            '⚠️ 확정: 데드락 10분 전 임박',
-        ]
-        guides = [
-            '',
-            '대시보드 확인 빈도 상향',
-            'FAB 간 물동량 점검, 관리자 알림',
-            '즉시 MLUD port capa 조정 검토 / SFA 리프터 상태 확인 / 10분 내 데드락 방지 윈도우',
-        ]
+        record = False
+        reason = ''
+        if stage > last_logged_stage and stage > 0:
+            record = True
+            if stage == 1:
+                reason = f'1MIN ≥9분이 {ra_count}회'
+            elif stage == 2:
+                reason = f'M14→M16 +{rb_diff} (30분간)'
+            elif stage == 3:
+                reason = (f'AND 만족 (1MIN {ra_value:.2f}, '
+                          f'M14→M16 +{rb_diff}, 역증가 {rev_count}개)')
+            last_logged_stage = stage
+            if stage == 3:
+                last_s3_time = t
+        elif stage == 3 and last_s3_time is not None:
+            diff_min = (t - last_s3_time).total_seconds() / 60.0
+            if diff_min >= 10:
+                record = True
+                reason = f'재발동 (역증가 {rev_count}개)'
+                last_s3_time = t
+        elif stage == 0 and last_logged_stage >= 1:
+            record = True
+            reason = '정상화'
+            last_logged_stage = 0
+            last_s3_time = None
 
-        return {
-            'stage': stage,
-            'label': labels[stage],
-            'message': messages[stage],
-            'guide': guides[stage],
-            'rules': {
-                'R-A_prime': {
-                    'triggered': ra_triggered,
-                    'count': ra_count,
-                    'value': round(ra_latest, 2) if ra_latest is not None else None,
-                    'sustained': ra_sustained,
-                    'threshold': '≥9분 1회+ / S1: 9분 2회+ 또는 6분 3회연속 (튜닝)',
-                },
-                'R-B': {
-                    'triggered': rb_triggered,
-                    'diff_30min': rb_diff,
-                    'fast': rb_fast,
-                    'threshold': '+100/30분 또는 +30/10분 (튜닝)',
-                },
-                'R-C_prime': {
-                    'triggered': rc_triggered,
-                    'reverse_count': reverse_count,
-                    'reverse_lids': reverse_lids,
-                    'trend': rc_trend,
-                    'threshold': '합 감소 + 역증가 2개+',
-                },
-            },
-            'history': self.full_timeline,  # 사전 계산된 전체 타임라인 (replay 시각과 무관)
-        }
+        if record:
+            events.append({
+                'time': t,
+                'stage': stage,
+                'reason': reason,
+                'ra_value': ra_value,
+                'rb_diff': rb_diff,
+                'rev_count': rev_count,
+                'rev_lids': list(rev_lids),
+            })
 
-    def precompute_timeline(self, star_timeline: List[Tuple[datetime, dict]]) -> None:
-        """전체 star_timeline 을 미리 스캔해 경보 진행 타임라인 고정 생성.
+    return events
 
-        데이터 로드 직후 1회 호출. replay 재생 시각과 무관하게 동일 결과 반환.
-        단계 전환 시점만 기록 (같은 단계 연속 유지는 무시, 하락 후 재발동은 기록).
-        """
-        self.full_timeline = []
-        if not star_timeline:
+
+def build_incidents(events):
+    """3단계 이벤트를 "사건 단위" 로 묶음.
+
+    1개 사건 = [신규 AND 만족] + 뒤따르는 [재발동 ...] 의 연속. '정상화' 나
+    다른 신규 S3 를 만나면 사건 종료.
+
+    반환: [{start, end, refire_count, max_1min, max_rb_diff, max_rev, severity}, ...]
+    """
+    incidents = []
+    cur = None
+
+    def _finalize(c, end_time):
+        if not c:
             return
+        c['end'] = end_time
+        dur = (c['end'] - c['start']).total_seconds() / 60.0
+        c['duration_min'] = round(dur, 1)
+        # ★ 등급 판정
+        rc = c['refire_count']
+        m1 = c['max_1min'] or 0
+        if rc >= 4 or m1 >= 20:
+            c['severity'] = '★★★'
+        elif rc >= 2 or m1 >= 15:
+            c['severity'] = '★★'
+        elif rc >= 1 or m1 >= 10:
+            c['severity'] = '★'
+        else:
+            c['severity'] = '-'
+        incidents.append(c)
 
-        t1_hist: List[float] = []
-        m14_hist: List[int] = []
-        lft_hist: List[dict] = []
-        last_logged_stage = -1  # -1 = 아직 없음 (0 도 기록하기 위해)
-        last_s3_time: Optional[datetime] = None
+    for e in events:
+        if e['stage'] == 3 and e['reason'].startswith('AND 만족'):
+            # 신규 S3 → 이전 사건 종료, 새 사건 시작
+            _finalize(cur, e['time'])
+            cur = {
+                'start': e['time'],
+                'end': e['time'],
+                'refire_count': 0,
+                'max_1min': e.get('ra_value') or 0,
+                'max_rb_diff': e.get('rb_diff') or 0,
+                'max_rev': e.get('rev_count') or 0,
+                'rev_lids_union': set(e.get('rev_lids') or []),
+                'start_reason': e['reason'],
+            }
+        elif e['stage'] == 3 and e['reason'].startswith('재발동'):
+            if cur is not None:
+                cur['refire_count'] += 1
+                cur['end'] = e['time']
+                cur['max_rev'] = max(cur['max_rev'], e.get('rev_count') or 0)
+                cur['rev_lids_union'].update(e.get('rev_lids') or [])
+        elif e['stage'] == 0 and cur is not None:
+            # 정상화 → 사건 종료
+            _finalize(cur, e['time'])
+            cur = None
 
-        for t, star in star_timeline:
-            t1 = star.get('avgtotal1min')
-            m14 = star.get('m14_to_m16')
-            lft = star.get('lft_list')
+    # 파일 끝난 시점에 열려있는 사건 종료
+    if cur is not None and events:
+        _finalize(cur, events[-1]['time'])
 
-            if t1 is not None:
-                t1_hist.append(float(t1))
-            if m14 is not None and m14 > 0:
-                m14_hist.append(int(m14))
-            if isinstance(lft, dict) and lft:
-                lft_hist.append(dict(lft))
+    return incidents
 
-            # R-A'
-            recent_t1 = t1_hist[-10:]
-            ra_count = sum(1 for v in recent_t1 if v >= 9.0)
-            ra_value = recent_t1[-1] if recent_t1 else None
-            ra_trig = ra_count >= 1
 
-            # ⚡ R-A' SUSTAINED (튜닝)
-            ra_sustained = False
-            if len(recent_t1) >= 5:
-                ra_sustained = sum(1 for v in recent_t1[-5:] if v >= 6.0) >= 3
+def report(filepath, events, deadlock_datetimes=None):
+    """결과 출력.
 
-            # R-B
-            rb_diff = 0
-            rb_trig = False
-            if len(m14_hist) >= 31:
-                rb_diff = m14_hist[-1] - m14_hist[-31]
-                rb_trig = rb_diff >= 100
+    deadlock_datetimes: 이 파일 날짜와 매칭되는 데드락 datetime 리스트 (이미 필터됨)
+    """
+    deadlock_datetimes = deadlock_datetimes or []
+    print()
+    print('═' * 78)
+    print(f'📁 {os.path.basename(filepath)}')
+    print('═' * 78)
 
-            # ⚡ R-B FAST (튜닝)
-            rb_fast = False
-            if len(m14_hist) >= 11:
-                rb_fast = (m14_hist[-1] - m14_hist[-11]) >= 30
+    if not events:
+        print('  ✅ 어느 단계도 발동 안 함 (완전 정상 / 또는 데이터 부족)')
+        return [], [], []
 
-            # R-C'
-            rc_trend = 0
-            rev_count = 0
-            rev_lids: List[str] = []
-            rc_trig = False
-            if len(lft_hist) >= 21:
-                now_l = lft_hist[-1]
-                prev_l = lft_hist[-21]
-                rc_trend = sum(now_l.values()) - sum(prev_l.values())
-                for lid in now_l:
-                    if now_l[lid] > prev_l.get(lid, 0):
-                        rev_lids.append(lid)
-                        rev_count += 1
-                rc_trig = rc_trend < 0 and rev_count >= 2
+    icons = {0: '✅', 1: '🔔', 2: '⚠️', 3: '🚨'}
+    names = {0: '정상화', 1: '1단계 조기경보', 2: '2단계 주의보', 3: '3단계 ⭐확정'}
 
-            s1 = (ra_count >= 2) or ra_sustained
-            s2 = rb_trig or rb_fast
-            s3 = ra_trig and rb_trig and rc_trig
-            stage = 3 if s3 else (2 if s2 else (1 if s1 else 0))
+    distinct_dates = sorted({e['time'].date() for e in events})
+    multi_day = len(distinct_dates) > 1
+    if multi_day:
+        print(f'\n  📅 기간: {distinct_dates[0]} ~ {distinct_dates[-1]} ({len(distinct_dates)}일)')
+    else:
+        print(f'\n  📅 날짜: {distinct_dates[0]}')
+    print(f'  📊 단계 전환 타임라인 ({len(events)}건)')
+    print(f'  {"-"*74}')
+    for e in events:
+        ts = e['time'].strftime('%Y-%m-%d %H:%M') if multi_day else e['time'].strftime('%H:%M')
+        print(f"  {ts}  {icons[e['stage']]} {names[e['stage']]:<18} {e['reason']}")
 
-            # 기록 규칙:
-            #  (a) 단계 상승 (last → stage, stage > last) → 기록
-            #  (b) stage==3 유지 중이나 직전 S3 와 10분 이상 차이 → 재발동 기록
-            #  (c) stage==0 으로 떨어질 때 정상화 기록 (최초 한 번)
-            record = False
-            reason = ''
-            if stage > last_logged_stage and stage > 0:
-                record = True
-                if stage == 1:
-                    if ra_count >= 2:
-                        reason = f'1MIN ≥9분이 {ra_count}회'
-                    elif ra_sustained:
-                        reason = '1MIN ≥6분 지속 (튜닝 조기 인지)'
-                    else:
-                        reason = '1단계 조기경보'
-                elif stage == 2:
-                    if rb_trig:
-                        reason = f'M14→M16 +{rb_diff} (30분간)'
-                    elif rb_fast:
-                        rb_d10 = m14_hist[-1] - m14_hist[-11] if len(m14_hist) >= 11 else 0
-                        reason = f'M14→M16 +{rb_d10} (10분간, 튜닝)'
-                    else:
-                        reason = '2단계 주의보'
-                elif stage == 3:
-                    reason = f'R-A+R-B+R-C AND 만족 (1MIN {ra_value:.2f}, M14→M16 +{rb_diff}, 역증가 {rev_count}개)'
-                last_logged_stage = stage
-                if stage == 3:
-                    last_s3_time = t
-            elif stage == 3 and last_s3_time is not None:
-                diff_min = (t - last_s3_time).total_seconds() / 60.0
-                if diff_min >= 10:
-                    record = True
-                    reason = f'재발동 (진행 중 재확인, 역증가 {rev_count}개)'
-                    last_s3_time = t
-            elif stage == 0 and last_logged_stage >= 1:
-                record = True
-                reason = '정상화 완료'
-                last_logged_stage = 0
-                last_s3_time = None
+    # 통계
+    counts = defaultdict(int)
+    for e in events:
+        counts[e['stage']] += 1
+    print(f'\n  📈 단계별 발동 횟수')
+    for stage in (1, 2, 3):
+        print(f'    {names[stage]:<18}: {counts[stage]}회')
 
-            if record:
-                self.full_timeline.append({
-                    'time': t.strftime('%H:%M'),
-                    'stage': stage,
-                    'label': ['NORMAL', 'S1_EARLY', 'S2_WATCH', 'S3_CONFIRMED'][stage],
-                    'reason': reason,
+    # 사건 단위 묶음 + ★ 등급
+    incidents = build_incidents(events)
+    if incidents:
+        new_count = len(incidents)
+        refire_total = sum(i['refire_count'] for i in incidents)
+        print(f'\n  🧩 사건 단위 분류: {new_count}개 사건 (신규 {new_count} + 재발동 {refire_total} = {counts[3]})')
+        print(f'  {"-"*74}')
+        # ★ 등급 높은 순 → 시각 순
+        sev_rank = {'★★★': 3, '★★': 2, '★': 1, '-': 0}
+        sorted_inc = sorted(incidents, key=lambda i: (-sev_rank[i['severity']], i['start']))
+        for i in sorted_inc:
+            stamp = i['start'].strftime('%Y-%m-%d %H:%M')
+            one_min = i['max_1min']
+            dur = f"{i['duration_min']:.0f}분" if i['duration_min'] > 0 else '단발'
+            refire = f"재발동 {i['refire_count']}회" if i['refire_count'] else '단발'
+            print(f"  {i['severity']:<4}  {stamp}  1MIN {one_min:>5.2f}  M14→M16 +{i['max_rb_diff']:<3}  {refire:<10}  {dur} 지속")
+
+    tp_list, fn_list, fp_list = [], [], []
+
+    # 데드락 ground truth 매칭
+    if deadlock_datetimes:
+        print(f'\n  🎯 이 날짜의 데드락 발생 시각 매칭 ({len(deadlock_datetimes)}건)')
+        s3_events = [e for e in events if e['stage'] == 3]
+
+        for dt in deadlock_datetimes:
+            # 가장 가까운 3단계 발동 (이전 1시간 내)
+            closest = None
+            min_diff = None
+            for s3 in s3_events:
+                diff_sec = (dt - s3['time']).total_seconds()
+                if 0 <= diff_sec <= 3600:
+                    if min_diff is None or diff_sec < min_diff:
+                        min_diff = diff_sec
+                        closest = s3
+
+            if closest:
+                lead_min = min_diff / 60.0
+                mark = '✅' if 5 <= lead_min <= 30 else '⚠️'
+                print(f'    {mark} 데드락 {dt.strftime("%Y-%m-%d %H:%M")} ← '
+                      f'3단계 {closest["time"].strftime("%H:%M")} (선행 {lead_min:.0f}분)')
+                tp_list.append((dt, closest, lead_min))
+            else:
+                print(f'    ❌ 데드락 {dt.strftime("%Y-%m-%d %H:%M")}: 직전 1시간 내 3단계 없음 (FN)')
+                fn_list.append(dt)
+
+        # False positive 추정
+        for s3 in s3_events:
+            matched = False
+            for dt in deadlock_datetimes:
+                diff = (dt - s3['time']).total_seconds()
+                if -600 <= diff <= 1800:  # 데드락 -10분 ~ +30분
+                    matched = True
+                    break
+            if not matched:
+                fp_list.append(s3)
+
+        if fp_list:
+            print(f'\n  ⚠️  False positive 후보 ({len(fp_list)}건, 데드락 시각과 무관한 3단계)')
+            for e in fp_list:
+                print(f'    {e["time"].strftime("%H:%M")} - {e["reason"]}')
+
+    return tp_list, fn_list, fp_list
+
+
+def main():
+    if len(sys.argv) < 2:
+        print(__doc__)
+        sys.exit(1)
+
+    pattern = sys.argv[1]
+    raw_args = sys.argv[2:]
+
+    # --ops-log <path> 파싱
+    ops_log_path = None
+    raw_deadlock_args = []
+    idx = 0
+    while idx < len(raw_args):
+        a = raw_args[idx]
+        if a == '--ops-log' and idx + 1 < len(raw_args):
+            ops_log_path = raw_args[idx + 1]
+            idx += 2
+            continue
+        if a.startswith('--ops-log='):
+            ops_log_path = a.split('=', 1)[1]
+            idx += 1
+            continue
+        raw_deadlock_args.append(a)
+        idx += 1
+
+    # 운영 로그 로드 (선택적)
+    ops_list = []
+    if ops_log_path:
+        print(f'\n📜 운영 로그 로드: {ops_log_path}')
+        ops_list = parse_ops_log(ops_log_path)
+        print(f'   → {len(ops_list)}건 파싱')
+
+    files = sorted(glob.glob(pattern)) if any(c in pattern for c in '*?[]') else [pattern]
+    if not files:
+        print(f'❌ 파일 없음: {pattern}')
+        sys.exit(1)
+
+    # 데드락 인자 1차 파싱
+    dl_dated = []
+    dl_time_only = []
+    for arg in raw_deadlock_args:
+        parsed = parse_deadlock_arg(arg)
+        if parsed is not None:
+            dl_dated.append(parsed)
+        elif ':' in arg:
+            dl_time_only.append(arg)
+        else:
+            print(f'  ⚠️  해석 불가 인자 무시: {arg!r}')
+
+    print(f'\n🔍 검증 시작 — 파일 {len(files)}개')
+    if dl_dated:
+        print(f'   데드락 시각 (날짜 포함, {len(dl_dated)}건):')
+        for dt in dl_dated:
+            print(f'     · {dt.strftime("%Y-%m-%d %H:%M")}')
+    if dl_time_only:
+        print(f'   데드락 시각 (날짜 없음, {len(dl_time_only)}건): {dl_time_only}')
+
+    all_summary = []
+    total_tp, total_fn, total_fp = [], [], []
+    all_events_rows = []      # CSV 출력용 (전체 단계 전환 이벤트)
+    all_incidents_rows = []   # CSV 출력용 (사건 단위)
+    all_xai_rows = []         # CSV 출력용 (이상 판단 근거 / XAI)
+    all_col_rows = []         # CSV 출력용 (입력 STAR 컬럼별 기여도)
+
+    for fp in files:
+        if not os.path.exists(fp):
+            print(f'⚠️  스킵 (없음): {fp}')
+            continue
+
+        timeline, prefix = load_star(fp)
+        if not timeline:
+            print(f'⚠️  스킵 (데이터 없음): {fp}')
+            continue
+
+        dates_in_file = sorted({t.date() for t, _ in timeline})
+        first_ts = timeline[0][0].strftime('%Y-%m-%d %H:%M:%S')
+        last_ts = timeline[-1][0].strftime('%Y-%m-%d %H:%M:%S')
+        span_info = f'{dates_in_file[0]} ~ {dates_in_file[-1]} ({len(dates_in_file)}일)' if len(dates_in_file) > 1 else str(dates_in_file[0])
+        print(f'\n📥 {os.path.basename(fp)} — prefix={prefix}, 날짜={span_info}, {len(timeline)}행')
+        print(f'    CRT_TM 범위: {first_ts} ~ {last_ts}')
+        # 하위 호환: report 에 쓸 대표 날짜 (다일 파일일 땐 전체 범위)
+        file_date = dates_in_file[0] if len(dates_in_file) == 1 else None
+        if _parse_time_failed_samples:
+            print(f'    ⚠️  시각 파싱 실패 샘플: {_parse_time_failed_samples[:3]}')
+            _parse_time_failed_samples.clear()
+
+        file_deadlocks = [dt for dt in dl_dated if dt.date() == file_date]
+        for ts in dl_time_only:
+            dt = parse_deadlock_arg(ts, fallback_date=file_date)
+            if dt is not None:
+                file_deadlocks.append(dt)
+
+        events = evaluate_timeline(timeline)
+        tp, fn, fp_list = report(fp, events, file_deadlocks)
+
+        s3_count = sum(1 for e in events if e['stage'] == 3)
+        date_label = span_info  # 다일 파일이면 'YYYY-MM-DD ~ YYYY-MM-DD (N일)'
+        all_summary.append((os.path.basename(fp), date_label, len(events), s3_count,
+                            len(tp), len(fn), len(fp_list)))
+        total_tp.extend(tp)
+        total_fn.extend(fn)
+        total_fp.extend(fp_list)
+
+        # CSV 행 구성: 각 이벤트 + 분류
+        fp_times = {e['time'] for e in fp_list}
+        tp_times = {closest['time']: (dl_dt, lead) for dl_dt, closest, lead in tp}
+
+        for e in events:
+            classification = '-'
+            matched_deadlock = ''
+            lead_min = ''
+            if e['stage'] == 3:
+                if e['time'] in tp_times:
+                    dl_dt, lead = tp_times[e['time']]
+                    classification = 'TP'
+                    matched_deadlock = dl_dt.strftime('%Y-%m-%d %H:%M')
+                    lead_min = f'{lead:.1f}'
+                elif e['time'] in fp_times:
+                    classification = 'FP'
+            nearby = find_nearby_ops(e['time'], ops_list, 30) if ops_list else []
+            op_cnt, op_types, op_top = summarize_ops(nearby, e['time'])
+            # 알고리즘 vs 운영자 시차
+            earliest = min(nearby, key=lambda o: o['dt']) if nearby else None
+            if earliest:
+                lead_vs_op = round((earliest['dt'] - e['time']).total_seconds() / 60.0, 1)
+                pred_tag = '🔮 예측' if lead_vs_op > 5 else '🏷️ 라벨' if lead_vs_op < -5 else '⏱️ 동시'
+            else:
+                lead_vs_op = ''
+                pred_tag = '❓' if ops_list else ''
+            if e['stage'] == 3:
+                cutoff = e['time'] - timedelta(minutes=60)
+                earliest_for_this = e['time']
+                for ev in events:
+                    if ev['time'] >= e['time']:
+                        break
+                    if ev['time'] < cutoff:
+                        continue
+                    if ev['stage'] in (1, 2) and ev['time'] < earliest_for_this:
+                        earliest_for_this = ev['time']
+                predict_time_str = earliest_for_this.strftime('%Y-%m-%d %H:%M')
+            else:
+                predict_time_str = ''
+            all_events_rows.append({
+                'file': os.path.basename(fp),
+                'date': e['time'].strftime('%Y-%m-%d'),
+                'predict_time': predict_time_str,
+                'time': e['time'].strftime('%H:%M'),
+                'datetime': e['time'].strftime('%Y-%m-%d %H:%M'),
+                'stage': e['stage'],
+                'stage_name': {0:'정상화', 1:'1단계 조기경보', 2:'2단계 주의보', 3:'3단계 확정'}[e['stage']],
+                'reason': e['reason'],
+                'classification': classification,
+                'matched_deadlock': matched_deadlock,
+                'lead_minutes': lead_min,
+                'ops_count_30min': op_cnt,
+                'ops_event_types': op_types,
+                'ops_top_message': op_top,
+                'lead_min_vs_op': lead_vs_op,
+                'prediction_type': pred_tag,
+            })
+
+        # 사건 단위 CSV (사건 시작 ~ 종료 구간에 걸친 운영 이벤트 집계)
+        file_incidents = build_incidents(events)
+        # 각 사건의 "최초 인지 시각" 계산: 3단계 이전 60분 내 최초 S1/S2
+        def _find_earliest_signal(incident_start):
+            earliest = incident_start
+            cutoff = incident_start - timedelta(minutes=60)
+            for ev in events:
+                if ev['time'] >= incident_start:
+                    break
+                if ev['time'] < cutoff:
+                    continue
+                if ev['stage'] in (1, 2) and ev['time'] < earliest:
+                    earliest = ev['time']
+            return earliest
+
+        for i in file_incidents:
+            # 알고리즘 최초 인지 시각 (predict_time) — 비교 기준
+            earliest_sig = _find_earliest_signal(i['start'])
+            # 사건 기간 ±30분 윈도우
+            win_ops = []
+            if ops_list:
+                lo = i['start'] - timedelta(minutes=30)
+                hi = i['end'] + timedelta(minutes=30)
+                for op in ops_list:
+                    if op['dt'] < lo:
+                        continue
+                    if op['dt'] > hi:
+                        break
+                    if op['event_type'] == 'ALERT_BOT':
+                        continue
+                    win_ops.append(op)
+            op_cnt = len(win_ops)
+            op_types_ct = {}
+            for op in win_ops:
+                op_types_ct[op['event_type']] = op_types_ct.get(op['event_type'], 0) + 1
+            op_types_str = ', '.join(f'{t}({c})' for t, c in sorted(op_types_ct.items(), key=lambda x: -x[1]))
+            op_msgs = ' | '.join(f"{o['dt'].strftime('%H:%M')} {o['author']}: {o['summary']}" for o in win_ops[:3])
+
+            # ⏱️ 시차 분석: predict_time (알고리즘 최초 인지) vs 운영자 (핵심 예측 지표)
+            earliest_op = min(win_ops, key=lambda o: o['dt']) if win_ops else None
+            if earliest_op:
+                earliest_op_time = earliest_op['dt'].strftime('%Y-%m-%d %H:%M')
+                # lead = 운영자 첫 메시지 - 알고리즘 최초 인지 시각 (earliest_sig)
+                # 양수 = 알고리즘이 먼저 인지 (예측)
+                # 음수 = 알고리즘이 나중 (라벨)
+                lead_sec = (earliest_op['dt'] - earliest_sig).total_seconds()
+                lead_min_vs_op = round(lead_sec / 60.0, 1)
+                if lead_min_vs_op > 5:
+                    pred_type = '🔮 예측'
+                elif lead_min_vs_op < -5:
+                    pred_type = '🏷️ 라벨'
+                else:
+                    pred_type = '⏱️ 동시'
+            else:
+                earliest_op_time = ''
+                lead_min_vs_op = ''
+                pred_type = '❓ 운영로그無'
+
+            # 가설 검증 플래그
+            has_deadlock_signal = any(o['event_type'] in ('DEADLOCK_SIGNAL', 'BRIDGE_ERROR', 'ERROR_OCCURRED') for o in win_ops)
+            has_operator_action = any(o['event_type'].startswith('CAPA_CHANGE') or o['event_type'].startswith('PORT_') for o in win_ops)
+            verdict = (
+                '✅ 운영 이슈 일치' if has_deadlock_signal else
+                '⚠️ 대응만 있음' if has_operator_action else
+                '❓ 운영 로그 無' if ops_list else '-'
+            )
+
+            # 🔍 이상 판단 근거 (설명가능성 XAI)
+            # 각 룰이 임계치를 얼마나 초과했는지 점수화 (초과 비율 %)
+            ra_val = float(i['max_1min']) if i['max_1min'] else 0
+            rb_val = int(i['max_rb_diff']) if i['max_rb_diff'] else 0
+            rc_val = int(i['max_rev']) if i['max_rev'] else 0
+            ra_score = round(100 * (ra_val / 9.0 - 1) * 100) / 100 if ra_val >= 9.0 else 0  # 9분 기준 초과 %
+            rb_score = round(100 * (rb_val / 100.0 - 1) * 100) / 100 if rb_val >= 100 else 0  # 100 기준
+            rc_score = round(100 * (rc_val / 2.0 - 1) * 100) / 100 if rc_val >= 2 else 0  # 2개 기준
+
+            contrib_list = [
+                ("R-A' 반송시간", ra_score, ra_val, f"{ra_val:.2f}분 (기준 9분)"),
+                ("R-B FAB큐",    rb_score, rb_val, f"+{rb_val} (기준 +100)"),
+                ("R-C' 리프터",  rc_score, rc_val, f"{rc_val}개 역증가 (기준 2개)"),
+            ]
+            # 임계 초과율 높은 순
+            contrib_list.sort(key=lambda x: -x[1])
+            primary_cause = contrib_list[0][0] if contrib_list[0][1] > 0 else '기준 미달'
+            contrib_breakdown = ' | '.join(f"{name} {desc}" for name, _, _, desc in contrib_list)
+
+            # 사람이 읽기 쉬운 설명 한 줄
+            if contrib_list[0][1] > 50:
+                impact = '매우 강함'
+            elif contrib_list[0][1] > 20:
+                impact = '강함'
+            elif contrib_list[0][1] > 0:
+                impact = '보통'
+            else:
+                impact = '약함'
+
+            explanation_parts = []
+            if ra_score > 0:
+                explanation_parts.append(f"반송시간 {ra_val:.1f}분")
+            if rb_score > 0:
+                explanation_parts.append(f"FAB간 큐 +{rb_val}")
+            if rc_score > 0:
+                explanation_parts.append(f"리프터 역증가 {rc_val}개")
+            if not explanation_parts:
+                anomaly_explanation = '3단계 조건 일부만 부분 충족'
+            else:
+                anomaly_explanation = f"{primary_cause} 주도 ({impact}): " + ", ".join(explanation_parts)
+
+            all_incidents_rows.append({
+                'file': os.path.basename(fp),
+                'date': i['start'].strftime('%Y-%m-%d'),
+                'predict_time': earliest_sig.strftime('%H:%M'),
+                'start_time': i['start'].strftime('%H:%M'),
+                'end_time': i['end'].strftime('%H:%M'),
+                'duration_min': i['duration_min'],
+                'refire_count': i['refire_count'],
+                'max_1min': round(i['max_1min'], 2),
+                'max_m14_diff': i['max_rb_diff'],
+                'max_reverse_lifters': i['max_rev'],
+                'severity': i['severity'],
+                'primary_cause': primary_cause,
+                'contrib_breakdown': contrib_breakdown,
+                'anomaly_explanation': anomaly_explanation,
+                'ops_count_window': op_cnt,
+                'ops_event_types': op_types_str,
+                'ops_sample_messages': op_msgs,
+                'earliest_op_time': earliest_op_time,
+                'lead_min_vs_op': lead_min_vs_op,
+                'prediction_type': pred_type,
+                'verdict': verdict,
+            })
+
+            # 이상 판단 근거 (별도 XAI CSV)
+            all_xai_rows.append({
+                'file': os.path.basename(fp),
+                'date': i['start'].strftime('%Y-%m-%d'),
+                'start_time': i['start'].strftime('%H:%M'),
+                'severity': i['severity'],
+                '주요_원인': primary_cause,
+                'R_A_반송시간_값': round(ra_val, 2),
+                'R_A_기준': '9분',
+                'R_A_초과율_pct': round(ra_score, 1),
+                'R_B_FAB큐_증가': rb_val,
+                'R_B_기준': '+100',
+                'R_B_초과율_pct': round(rb_score, 1),
+                'R_C_리프터_역증가': rc_val,
+                'R_C_기준': '2개',
+                'R_C_초과율_pct': round(rc_score, 1),
+                '영향도': impact,
+                '한줄_설명': anomaly_explanation,
+                '기여도_순위': contrib_breakdown,
+            })
+
+            # 입력 STAR 컬럼별 기여도 (한 사건당 여러 행, 룰별)
+            # 초과율 높은 순으로 rank 부여
+            ranked = sorted(
+                [('R-A\'', '반송시간 스파이크', f'{prefix}.QUE.TIME.AVGTOTALTIME1MIN', f'{ra_val:.2f}분', '9분', ra_score),
+                 ('R-B', 'FAB 간 큐 누적', f'{prefix}.QUE.M14TOM16.MESCURRENTQCNT', f'+{rb_val}', '+100', rb_score),
+                 ('R-C\'', '리프터 역증가', f'{prefix}.LFT.6ABL*.TOTAL_CURRENTQCNT', f'{rc_val}개 역증가', '2개', rc_score)],
+                key=lambda x: -x[5]
+            )
+            rev_lids_str = ', '.join(sorted(i.get('rev_lids_union') or set()))
+            for rank_no, (rule, rule_meaning, column_name, value_str, threshold_str, score) in enumerate(ranked, 1):
+                contribution = (
+                    'Primary (주요)' if rank_no == 1 and score > 0 else
+                    'Secondary (보조)' if rank_no == 2 and score > 0 else
+                    'Minor (경미)' if rank_no == 3 and score > 0 else
+                    '-'
+                )
+                # R-C' 인 경우 구체 리프터 ID 를 value 에 포함
+                extra_info = rev_lids_str if rule == "R-C'" and rev_lids_str else ''
+                all_col_rows.append({
+                    'file': os.path.basename(fp),
+                    'date': i['start'].strftime('%Y-%m-%d'),
+                    'start_time': i['start'].strftime('%H:%M'),
+                    'severity': i['severity'],
+                    'rule': rule,
+                    'rule_meaning': rule_meaning,
+                    'STAR_컬럼': column_name,
+                    '관측값': value_str,
+                    '임계값': threshold_str,
+                    '초과율_pct': round(score, 1),
+                    '기여도_순위': rank_no,
+                    '기여도': contribution,
+                    '세부_리프터': extra_info,
                 })
 
-    def get_correlations(self) -> dict:
-        """데이터 간 상관관계 (MD 문서 검증 결과 반영)"""
-        # 큐↔OBS 상관계수
-        queue_obs_r = self._calc_correlation(self.queue_obs_pairs) if len(self.queue_obs_pairs) > 10 else None
+    # 종합 요약 + CSV 저장
+    if all_summary:
+        print('\n' + '═' * 78)
+        print('📊 전체 요약')
+        print('═' * 78)
+        print(f'{"파일":<45} {"날짜":<12} {"전환":>5} {"S3":>4} {"TP":>4} {"FN":>4} {"FP":>4}')
+        print('-' * 78)
+        for name, d, ev, s3, tp, fn, fp_ct in all_summary:
+            print(f'{name[:45]:<45} {d:<12} {ev:>5} {s3:>4} {tp:>4} {fn:>4} {fp_ct:>4}')
 
-        return {
-            'queue_tat': {
-                'correlation': 'weak_positive',
-                'r_value': 0.12,
-                'description': '큐가 올라가면 TAT도 약간 증가 (2.4~2.6분 범위)',
-                'data_source': 'OHT_데이터_연관관계_월드모델_예측.md',
-                'detail': [
-                    {'queue_range': '1000~1200', 'tat': 2.49},
-                    {'queue_range': '1200~1400', 'tat': 2.53},
-                    {'queue_range': '1600~1800', 'tat': 2.62},
-                ],
-            },
-            'queue_obs': {
-                'correlation': 'none',
-                'r_value': round(queue_obs_r, 3) if queue_obs_r else 0.03,
-                'description': 'OBS 정지는 큐와 거의 무관. 물리적 구간 혼잡이 원인',
-                'detail': [
-                    {'queue_range': '<1300', 'obs': 154},
-                    {'queue_range': '>1600', 'obs': 157},
-                ],
-            },
-            'queue_hid_speed': {
-                'correlation': 'none',
-                'r_value': -0.01,
-                'description': '큐가 올라가도 HID 구간 속도 변화 없음. 물리적 구조에 의해 결정',
-                'detail': [
-                    {'queue_range': '1000~1200', 'avg_speed': 92.0},
-                    {'queue_range': '1200~1400', 'avg_speed': 91.9},
-                ],
-            },
-            'time_tat': {
-                'correlation': 'none',
-                'description': 'TAT는 24시간 균일 (~2.88분)',
-            },
-            'time_throughput': {
-                'correlation': 'none',
-                'description': '물동량은 24시간 균일 (~20,000건/시)',
-            },
-        }
+        n_tp, n_fn, n_fp = len(total_tp), len(total_fn), len(total_fp)
+        metrics = {}
+        if n_tp + n_fn + n_fp > 0:
+            print()
+            print(f'  실제 데드락: {n_tp + n_fn}건')
+            print(f'  3단계 적중 (TP): {n_tp}건')
+            print(f'  3단계 놓침 (FN): {n_fn}건')
+            print(f'  False positive (FP): {n_fp}건')
+            metrics['total_deadlocks'] = n_tp + n_fn
+            metrics['TP'] = n_tp
+            metrics['FN'] = n_fn
+            metrics['FP'] = n_fp
+            if n_tp + n_fp > 0:
+                prec = 100.0 * n_tp / (n_tp + n_fp)
+                print(f'  Precision: {prec:.1f}%  ({n_tp}/{n_tp+n_fp})')
+                metrics['precision_pct'] = f'{prec:.1f}'
+            if n_tp + n_fn > 0:
+                rec = 100.0 * n_tp / (n_tp + n_fn)
+                print(f'  Recall:    {rec:.1f}%  ({n_tp}/{n_tp+n_fn})')
+                metrics['recall_pct'] = f'{rec:.1f}'
+            if total_tp:
+                avg_lead = sum(lead for _, _, lead in total_tp) / len(total_tp)
+                print(f'  평균 선행시간: {avg_lead:.1f}분')
+                metrics['avg_lead_minutes'] = f'{avg_lead:.1f}'
 
-    def _calc_correlation(self, pairs: List[Tuple]) -> float:
-        """피어슨 상관계수 계산"""
-        n = len(pairs)
-        if n < 3:
-            return 0.0
+        # === 운영 로그 대비 가설 검증 (ops log 제공 시) ===
+        if ops_list and all_incidents_rows:
+            n_inc = len(all_incidents_rows)
+            n_match = sum(1 for r in all_incidents_rows if r.get('verdict', '').startswith('✅'))
+            n_action = sum(1 for r in all_incidents_rows if r.get('verdict', '').startswith('⚠️'))
+            n_noop = sum(1 for r in all_incidents_rows if r.get('verdict', '').startswith('❓'))
+            high = [r for r in all_incidents_rows if r['severity'] in ('★★★', '★★')]
+            n_high = len(high)
+            n_high_match = sum(1 for r in high if r.get('verdict', '').startswith('✅'))
+            print()
+            print(f'🎯 가설 검증 (운영 로그 대비):')
+            print(f'   전체 사건 {n_inc}개 중')
+            print(f'     ✅ 운영 이슈 직접 일치 : {n_match}건 ({100.0*n_match/n_inc:.0f}%)')
+            print(f'     ⚠️ 운영자 대응만 감지   : {n_action}건 ({100.0*n_action/n_inc:.0f}%)')
+            print(f'     ❓ 운영 로그에 근거 無  : {n_noop}건 ({100.0*n_noop/n_inc:.0f}%)')
+            if n_high > 0:
+                print(f'   ★★ 이상 사건 {n_high}개 중 운영 이슈 일치: {n_high_match}건 ({100.0*n_high_match/n_high:.0f}%)')
+            metrics['incidents_total'] = n_inc
+            metrics['incidents_match_ops_issue'] = n_match
+            metrics['incidents_match_operator_action'] = n_action
+            metrics['incidents_no_ops_evidence'] = n_noop
+            metrics['incidents_high_severity'] = n_high
+            metrics['incidents_high_match_pct'] = f'{100.0*n_high_match/n_high:.1f}' if n_high else '0'
+            metrics['hypothesis_precision_pct'] = f'{100.0*(n_match+n_action)/n_inc:.1f}' if n_inc else '0'
 
-        x = [p[0] for p in pairs]
-        y = [p[1] for p in pairs]
+            # ⏱️ 진짜 예측 비율 (알고리즘이 운영자보다 먼저 울린 비율)
+            pred_rows = [r for r in all_incidents_rows if r.get('prediction_type', '').startswith('🔮')]
+            label_rows = [r for r in all_incidents_rows if r.get('prediction_type', '').startswith('🏷️')]
+            concur_rows = [r for r in all_incidents_rows if r.get('prediction_type', '').startswith('⏱️')]
+            n_pred = len(pred_rows)
+            n_label = len(label_rows)
+            n_concur = len(concur_rows)
+            n_with_op = n_pred + n_label + n_concur
+            # 시차 평균 (운영자 - 알고리즘, 양수 = 알고 먼저 = 예측)
+            leads = [float(r['lead_min_vs_op']) for r in (pred_rows + label_rows + concur_rows) if r['lead_min_vs_op'] != '']
+            avg_lead_vs_op = sum(leads) / len(leads) if leads else 0
+            print()
+            print(f'⏱️ 진짜 예측 vs 라벨 분석 (알고리즘 발동 시각 vs 운영자 첫 메시지):')
+            print(f'   🔮 예측 (알고리즘이 5분+ 먼저) : {n_pred}건 ({100.0*n_pred/n_with_op:.0f}%)' if n_with_op else f'   🔮 예측: 0건')
+            print(f'   ⏱️ 동시 (±5분 내)            : {n_concur}건')
+            print(f'   🏷️ 라벨 (알고리즘이 5분+ 늦음) : {n_label}건 ({100.0*n_label/n_with_op:.0f}%)' if n_with_op else f'   🏷️ 라벨: 0건')
+            print(f'   평균 시차 (운영자-알고): {avg_lead_vs_op:+.1f}분  (양수=알고 먼저, 음수=알고 늦음)')
+            metrics['prediction_count'] = n_pred
+            metrics['label_count'] = n_label
+            metrics['concurrent_count'] = n_concur
+            metrics['prediction_rate_pct'] = f'{100.0*n_pred/n_with_op:.1f}' if n_with_op else '0'
+            metrics['avg_lead_min_vs_operator'] = f'{avg_lead_vs_op:+.1f}'
 
-        mean_x = sum(x) / n
-        mean_y = sum(y) / n
+        # === CSV 6종 출력 (각 용도별 분리) ===
+        ts_suffix = datetime.now().strftime('%Y%m%d_%H%M%S')
+        out_events  = f'검증결과_01_전체이벤트_{ts_suffix}.csv'
+        out_s3_all  = f'검증결과_02_S3전체_{ts_suffix}.csv'
+        out_s3_new  = f'검증결과_03_S3신규만_{ts_suffix}.csv'
+        out_s3_ref  = f'검증결과_04_S3재발동만_{ts_suffix}.csv'
+        out_incidents = f'검증결과_05_사건단위_{ts_suffix}.csv'
+        out_summary = f'검증결과_06_파일별요약_{ts_suffix}.csv'
+        out_metrics = f'검증결과_07_종합지표_{ts_suffix}.csv'
+        out_xai = f'검증결과_08_이상판단근거_{ts_suffix}.csv'
+        out_columns = f'검증결과_09_입력컬럼기여도_{ts_suffix}.csv'
 
-        cov = sum((xi - mean_x) * (yi - mean_y) for xi, yi in zip(x, y)) / n
-        std_x = (sum((xi - mean_x) ** 2 for xi in x) / n) ** 0.5
-        std_y = (sum((yi - mean_y) ** 2 for yi in y) / n) ** 0.5
+        def write_csv(path, rows, header=None):
+            if not rows:
+                return
+            with open(path, 'w', encoding='utf-8-sig', newline='') as f:
+                if header:
+                    w = csv.writer(f)
+                    w.writerows([header] + rows)
+                else:
+                    w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+                    w.writeheader()
+                    w.writerows(rows)
 
-        if std_x == 0 or std_y == 0:
-            return 0.0
+        # 1. 전체 이벤트 (모든 단계 전환)
+        write_csv(out_events, all_events_rows)
 
-        return cov / (std_x * std_y)
+        # 2/3/4. S3 관련 분리
+        s3_all  = [r for r in all_events_rows if r['stage'] == 3]
+        s3_new  = [r for r in s3_all if 'AND 만족' in r['reason']]
+        s3_ref  = [r for r in s3_all if '재발동' in r['reason']]
+        write_csv(out_s3_all, s3_all)
+        write_csv(out_s3_new, s3_new)
+        write_csv(out_s3_ref, s3_ref)
+
+        # 5. 사건 단위 CSV (★ 등급 내림차순)
+        if all_incidents_rows:
+            sev_rank = {'★★★': 3, '★★': 2, '★': 1, '-': 0}
+            all_incidents_rows.sort(key=lambda r: (-sev_rank.get(r['severity'], 0), r['date'], r['start_time']))
+            write_csv(out_incidents, all_incidents_rows)
+
+        # 6. 파일별 요약
+        write_csv(out_summary, [list(row) for row in all_summary],
+                  header=['file', 'date', 'transitions', 'S3_count', 'TP', 'FN', 'FP'])
+
+        # 7. 종합 지표
+        if metrics:
+            write_csv(out_metrics, [[k, v] for k, v in metrics.items()],
+                      header=['metric', 'value'])
+
+        # 8. 이상 판단 근거 (XAI — 고객 설명용)
+        if all_xai_rows:
+            # severity 높은 순, 같으면 날짜순
+            all_xai_rows.sort(key=lambda r: (-{'★★★':3,'★★':2,'★':1,'-':0}.get(r['severity'], 0), r['date'], r['start_time']))
+            write_csv(out_xai, all_xai_rows)
+
+        # 9. 입력 STAR 컬럼별 기여도 (Primary/Secondary/Minor)
+        if all_col_rows:
+            write_csv(out_columns, all_col_rows)
+
+        print('\n💾 CSV 저장 (용도별 분리):')
+        if all_events_rows: print(f'   01 · {out_events}  ({len(all_events_rows)} 전체 이벤트)')
+        if s3_all:  print(f'   02 · {out_s3_all}  ({len(s3_all)} S3 전체)')
+        if s3_new:  print(f'   03 · {out_s3_new}  ({len(s3_new)} S3 신규만)')
+        if s3_ref:  print(f'   04 · {out_s3_ref}  ({len(s3_ref)} S3 재발동만)')
+        if all_incidents_rows:
+            high = sum(1 for r in all_incidents_rows if r["severity"] in ("★★★", "★★"))
+            print(f'   05 · {out_incidents}  ({len(all_incidents_rows)} 사건, ★★ 이상 {high}건)')
+        print(f'   06 · {out_summary}  ({len(all_summary)} 파일)')
+        if metrics:
+            print(f'   07 · {out_metrics}  ({len(metrics)} 지표)')
+        if all_xai_rows:
+            print(f'   08 · {out_xai}  ({len(all_xai_rows)} 이상 판단 근거)')
+        if all_col_rows:
+            print(f'   09 · {out_columns}  ({len(all_col_rows)} 입력 STAR 컬럼 기여도) ⭐ 신규')
+        print(f'\n👉 이 CSV들을 전달해주세요.')
+
+
+if __name__ == '__main__':
+    main()
