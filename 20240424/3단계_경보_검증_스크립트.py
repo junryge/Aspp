@@ -308,12 +308,17 @@ def report(filepath, events, deadlock_datetimes=None):
     icons = {0: '✅', 1: '🔔', 2: '⚠️', 3: '🚨'}
     names = {0: '정상화', 1: '1단계 조기경보', 2: '2단계 주의보', 3: '3단계 ⭐확정'}
 
-    file_date = events[0]['time'].strftime('%Y-%m-%d')
-    print(f'\n  📅 날짜: {file_date}')
+    distinct_dates = sorted({e['time'].date() for e in events})
+    multi_day = len(distinct_dates) > 1
+    if multi_day:
+        print(f'\n  📅 기간: {distinct_dates[0]} ~ {distinct_dates[-1]} ({len(distinct_dates)}일)')
+    else:
+        print(f'\n  📅 날짜: {distinct_dates[0]}')
     print(f'  📊 단계 전환 타임라인 ({len(events)}건)')
     print(f'  {"-"*74}')
     for e in events:
-        print(f"  {e['time'].strftime('%H:%M')}  {icons[e['stage']]} {names[e['stage']]:<18} {e['reason']}")
+        ts = e['time'].strftime('%Y-%m-%d %H:%M') if multi_day else e['time'].strftime('%H:%M')
+        print(f"  {ts}  {icons[e['stage']]} {names[e['stage']]:<18} {e['reason']}")
 
     # 통계
     counts = defaultdict(int)
@@ -417,11 +422,14 @@ def main():
             print(f'⚠️  스킵 (데이터 없음): {fp}')
             continue
 
-        file_date = timeline[0][0].date()
+        dates_in_file = sorted({t.date() for t, _ in timeline})
         first_ts = timeline[0][0].strftime('%Y-%m-%d %H:%M:%S')
         last_ts = timeline[-1][0].strftime('%Y-%m-%d %H:%M:%S')
-        print(f'\n📥 {os.path.basename(fp)} — prefix={prefix}, 날짜={file_date}, {len(timeline)}행')
+        span_info = f'{dates_in_file[0]} ~ {dates_in_file[-1]} ({len(dates_in_file)}일)' if len(dates_in_file) > 1 else str(dates_in_file[0])
+        print(f'\n📥 {os.path.basename(fp)} — prefix={prefix}, 날짜={span_info}, {len(timeline)}행')
         print(f'    CRT_TM 범위: {first_ts} ~ {last_ts}')
+        # 하위 호환: report 에 쓸 대표 날짜 (다일 파일일 땐 전체 범위)
+        file_date = dates_in_file[0] if len(dates_in_file) == 1 else None
         if _parse_time_failed_samples:
             print(f'    ⚠️  시각 파싱 실패 샘플: {_parse_time_failed_samples[:3]}')
             _parse_time_failed_samples.clear()
@@ -436,7 +444,8 @@ def main():
         tp, fn, fp_list = report(fp, events, file_deadlocks)
 
         s3_count = sum(1 for e in events if e['stage'] == 3)
-        all_summary.append((os.path.basename(fp), str(file_date), len(events), s3_count,
+        date_label = span_info  # 다일 파일이면 'YYYY-MM-DD ~ YYYY-MM-DD (N일)'
+        all_summary.append((os.path.basename(fp), date_label, len(events), s3_count,
                             len(tp), len(fn), len(fp_list)))
         total_tp.extend(tp)
         total_fn.extend(fn)
@@ -460,7 +469,7 @@ def main():
                     classification = 'FP'
             all_events_rows.append({
                 'file': os.path.basename(fp),
-                'date': str(file_date),
+                'date': e['time'].strftime('%Y-%m-%d'),
                 'time': e['time'].strftime('%H:%M'),
                 'datetime': e['time'].strftime('%Y-%m-%d %H:%M'),
                 'stage': e['stage'],
