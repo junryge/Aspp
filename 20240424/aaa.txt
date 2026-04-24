@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-3단계 데드락 경보 룰 검증 스크립트 (단독 실행)
+3단계 데드락 경보 룰 검증 스크립트 (4차 검증 — R-D MLUD 추가)
+
+3차 기준: 예측률 82.6%, 선행 31.6분 (R-A'/R-B/R-C' 룰)
+4차 추가: R-D (MLUD 쏠림) → S1/S2 조기 발동에 기여 (S3 불변)
+  · rd_trig: MLUD_Q ≥ 50
+  · rd_fast: MLUD 10분간 +5 이상
 
 사용법:
     python3 3단계_경보_검증_스크립트.py <STAR_CSV_경로> [--ops-log <운영로그.txt>] [데드락시각 ...]
@@ -352,6 +357,7 @@ def evaluate_timeline(timeline):
     t1_hist = []
     m14_hist = []
     lft_hist = []
+    mlud_hist = []   # R-D 용 MLUD Q 추이
 
     last_logged_stage = -1
     last_s3_time = None
@@ -363,6 +369,10 @@ def evaluate_timeline(timeline):
             m14_hist.append(star['m14_to_m16'])
         if star['lft_list']:
             lft_hist.append(dict(star['lft_list']))
+        # R-D 용 MLUD Q
+        mlud_v = star.get('mlud_q')
+        if mlud_v is not None:
+            mlud_hist.append(int(mlud_v))
 
         # R-A' (기존 — S3 확정에 사용, 9분 기준 유지)
         recent_t1 = t1_hist[-10:]
@@ -404,10 +414,22 @@ def evaluate_timeline(timeline):
                     rev_count += 1
             rc_trig = rc_trend < 0 and rev_count >= 2
 
+        # ⭐ R-D (MLUD 쏠림) — 4차 검증 신규 룰
+        #   rd_trig: MLUD_Q ≥ 50  (절대 임계)
+        #   rd_fast: MLUD 10분간 +5 이상  (빠른 증가)
+        rd_value = mlud_hist[-1] if mlud_hist else 0
+        rd_trig = rd_value >= 50
+        rd_fast = False
+        rd_diff_10 = 0
+        if len(mlud_hist) >= 11:
+            rd_diff_10 = mlud_hist[-1] - mlud_hist[-11]
+            rd_fast = rd_diff_10 >= 5
+
         # 단계 판정 — S1/S2 는 튜닝된 조건으로 조기 발동, S3 는 원래 그대로
-        s1 = (ra_count >= 2) or ra_sustained      # 9분 2회 또는 6분 3회 연속
-        s2 = rb_trig or rb_fast                   # +100/30분 또는 +30/10분
-        s3 = ra_trig and rb_trig and rc_trig      # 검증된 원래 룰 유지
+        # R-D 는 S1/S2 에 OR 결합 (조기 발동 조력), S3 는 04-21 보호 위해 불변
+        s1 = (ra_count >= 2) or ra_sustained or rd_fast    # R-D FAST 도 S1 조기
+        s2 = rb_trig or rb_fast or rd_trig                  # R-D 절대 임계 는 S2
+        s3 = ra_trig and rb_trig and rc_trig                # 불변 (검증 보호)
         stage = 3 if s3 else (2 if s2 else (1 if s1 else 0))
 
         record = False
@@ -415,12 +437,26 @@ def evaluate_timeline(timeline):
         if stage > last_logged_stage and stage > 0:
             record = True
             if stage == 1:
-                reason = f'1MIN ≥9분이 {ra_count}회'
+                if ra_count >= 2:
+                    reason = f'1MIN ≥9분이 {ra_count}회'
+                elif ra_sustained:
+                    reason = '1MIN ≥6분 지속'
+                elif rd_fast:
+                    reason = f'R-D MLUD 10분 +{rd_diff_10} (신규)'
+                else:
+                    reason = '1단계 조기'
             elif stage == 2:
-                reason = f'M14→M16 +{rb_diff} (30분간)'
+                if rb_trig:
+                    reason = f'M14→M16 +{rb_diff} (30분간)'
+                elif rb_fast:
+                    reason = f'M14→M16 10분 +{m14_hist[-1] - m14_hist[-11] if len(m14_hist) >= 11 else 0}'
+                elif rd_trig:
+                    reason = f'R-D MLUD {rd_value} ≥50 (신규)'
+                else:
+                    reason = '2단계 주의'
             elif stage == 3:
                 reason = (f'AND 만족 (1MIN {ra_value:.2f}, '
-                          f'M14→M16 +{rb_diff}, 역증가 {rev_count}개)')
+                          f'M14→M16 +{rb_diff}, 역증가 {rev_count}개, MLUD {rd_value})')
             last_logged_stage = stage
             if stage == 3:
                 last_s3_time = t
@@ -445,6 +481,9 @@ def evaluate_timeline(timeline):
                 'rb_diff': rb_diff,
                 'rev_count': rev_count,
                 'rev_lids': list(rev_lids),
+                'mlud_value': rd_value,
+                'rd_trig': rd_trig,
+                'rd_fast': rd_fast,
             })
 
     return events
