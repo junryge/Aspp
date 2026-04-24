@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-python3 3단계_경보_검증_스크립트.py test.csv \
-
-    --ops-log 운영로그.txt \
 3단계 데드락 경보 룰 검증 스크립트 (단독 실행)
 
 사용법:
@@ -707,9 +704,31 @@ def main():
                     classification = 'FP'
             nearby = find_nearby_ops(e['time'], ops_list, 30) if ops_list else []
             op_cnt, op_types, op_top = summarize_ops(nearby, e['time'])
+            # 알고리즘 vs 운영자 시차
+            earliest = min(nearby, key=lambda o: o['dt']) if nearby else None
+            if earliest:
+                lead_vs_op = round((earliest['dt'] - e['time']).total_seconds() / 60.0, 1)
+                pred_tag = '🔮 예측' if lead_vs_op > 5 else '🏷️ 라벨' if lead_vs_op < -5 else '⏱️ 동시'
+            else:
+                lead_vs_op = ''
+                pred_tag = '❓' if ops_list else ''
+            if e['stage'] == 3:
+                cutoff = e['time'] - timedelta(minutes=60)
+                earliest_for_this = e['time']
+                for ev in events:
+                    if ev['time'] >= e['time']:
+                        break
+                    if ev['time'] < cutoff:
+                        continue
+                    if ev['stage'] in (1, 2) and ev['time'] < earliest_for_this:
+                        earliest_for_this = ev['time']
+                predict_time_str = earliest_for_this.strftime('%Y-%m-%d %H:%M')
+            else:
+                predict_time_str = ''
             all_events_rows.append({
                 'file': os.path.basename(fp),
                 'date': e['time'].strftime('%Y-%m-%d'),
+                'predict_time': predict_time_str,
                 'time': e['time'].strftime('%H:%M'),
                 'datetime': e['time'].strftime('%Y-%m-%d %H:%M'),
                 'stage': e['stage'],
@@ -721,10 +740,25 @@ def main():
                 'ops_count_30min': op_cnt,
                 'ops_event_types': op_types,
                 'ops_top_message': op_top,
+                'lead_min_vs_op': lead_vs_op,
+                'prediction_type': pred_tag,
             })
 
         # 사건 단위 CSV (사건 시작 ~ 종료 구간에 걸친 운영 이벤트 집계)
         file_incidents = build_incidents(events)
+        # 각 사건의 "최초 인지 시각" 계산: 3단계 이전 60분 내 최초 S1/S2
+        def _find_earliest_signal(incident_start):
+            earliest = incident_start
+            cutoff = incident_start - timedelta(minutes=60)
+            for ev in events:
+                if ev['time'] >= incident_start:
+                    break
+                if ev['time'] < cutoff:
+                    continue
+                if ev['stage'] in (1, 2) and ev['time'] < earliest:
+                    earliest = ev['time']
+            return earliest
+
         for i in file_incidents:
             # 사건 기간 ±30분 윈도우
             win_ops = []
@@ -745,6 +779,27 @@ def main():
                 op_types_ct[op['event_type']] = op_types_ct.get(op['event_type'], 0) + 1
             op_types_str = ', '.join(f'{t}({c})' for t, c in sorted(op_types_ct.items(), key=lambda x: -x[1]))
             op_msgs = ' | '.join(f"{o['dt'].strftime('%H:%M')} {o['author']}: {o['summary']}" for o in win_ops[:3])
+
+            # ⏱️ 시차 분석: 알고리즘 vs 운영자 (핵심 예측 지표)
+            earliest_op = min(win_ops, key=lambda o: o['dt']) if win_ops else None
+            if earliest_op:
+                earliest_op_time = earliest_op['dt'].strftime('%Y-%m-%d %H:%M')
+                # lead = 운영자 첫 메시지 시각 - 알고리즘 발동 시각
+                # 양수 = 알고리즘이 먼저 (예측)
+                # 음수 = 알고리즘이 나중 (라벨)
+                lead_sec = (earliest_op['dt'] - i['start']).total_seconds()
+                lead_min_vs_op = round(lead_sec / 60.0, 1)
+                if lead_min_vs_op > 5:
+                    pred_type = '🔮 예측'
+                elif lead_min_vs_op < -5:
+                    pred_type = '🏷️ 라벨'
+                else:
+                    pred_type = '⏱️ 동시'
+            else:
+                earliest_op_time = ''
+                lead_min_vs_op = ''
+                pred_type = '❓ 운영로그無'
+
             # 가설 검증 플래그
             has_deadlock_signal = any(o['event_type'] in ('DEADLOCK_SIGNAL', 'BRIDGE_ERROR', 'ERROR_OCCURRED') for o in win_ops)
             has_operator_action = any(o['event_type'].startswith('CAPA_CHANGE') or o['event_type'].startswith('PORT_') for o in win_ops)
@@ -753,9 +808,11 @@ def main():
                 '⚠️ 대응만 있음' if has_operator_action else
                 '❓ 운영 로그 無' if ops_list else '-'
             )
+            earliest_sig = _find_earliest_signal(i['start'])
             all_incidents_rows.append({
                 'file': os.path.basename(fp),
                 'date': i['start'].strftime('%Y-%m-%d'),
+                'predict_time': earliest_sig.strftime('%H:%M'),
                 'start_time': i['start'].strftime('%H:%M'),
                 'end_time': i['end'].strftime('%H:%M'),
                 'duration_min': i['duration_min'],
@@ -767,6 +824,9 @@ def main():
                 'ops_count_window': op_cnt,
                 'ops_event_types': op_types_str,
                 'ops_sample_messages': op_msgs,
+                'earliest_op_time': earliest_op_time,
+                'lead_min_vs_op': lead_min_vs_op,
+                'prediction_type': pred_type,
                 'verdict': verdict,
             })
 
@@ -829,6 +889,29 @@ def main():
             metrics['incidents_high_severity'] = n_high
             metrics['incidents_high_match_pct'] = f'{100.0*n_high_match/n_high:.1f}' if n_high else '0'
             metrics['hypothesis_precision_pct'] = f'{100.0*(n_match+n_action)/n_inc:.1f}' if n_inc else '0'
+
+            # ⏱️ 진짜 예측 비율 (알고리즘이 운영자보다 먼저 울린 비율)
+            pred_rows = [r for r in all_incidents_rows if r.get('prediction_type', '').startswith('🔮')]
+            label_rows = [r for r in all_incidents_rows if r.get('prediction_type', '').startswith('🏷️')]
+            concur_rows = [r for r in all_incidents_rows if r.get('prediction_type', '').startswith('⏱️')]
+            n_pred = len(pred_rows)
+            n_label = len(label_rows)
+            n_concur = len(concur_rows)
+            n_with_op = n_pred + n_label + n_concur
+            # 시차 평균 (운영자 - 알고리즘, 양수 = 알고 먼저 = 예측)
+            leads = [float(r['lead_min_vs_op']) for r in (pred_rows + label_rows + concur_rows) if r['lead_min_vs_op'] != '']
+            avg_lead_vs_op = sum(leads) / len(leads) if leads else 0
+            print()
+            print(f'⏱️ 진짜 예측 vs 라벨 분석 (알고리즘 발동 시각 vs 운영자 첫 메시지):')
+            print(f'   🔮 예측 (알고리즘이 5분+ 먼저) : {n_pred}건 ({100.0*n_pred/n_with_op:.0f}%)' if n_with_op else f'   🔮 예측: 0건')
+            print(f'   ⏱️ 동시 (±5분 내)            : {n_concur}건')
+            print(f'   🏷️ 라벨 (알고리즘이 5분+ 늦음) : {n_label}건 ({100.0*n_label/n_with_op:.0f}%)' if n_with_op else f'   🏷️ 라벨: 0건')
+            print(f'   평균 시차 (운영자-알고): {avg_lead_vs_op:+.1f}분  (양수=알고 먼저, 음수=알고 늦음)')
+            metrics['prediction_count'] = n_pred
+            metrics['label_count'] = n_label
+            metrics['concurrent_count'] = n_concur
+            metrics['prediction_rate_pct'] = f'{100.0*n_pred/n_with_op:.1f}' if n_with_op else '0'
+            metrics['avg_lead_min_vs_operator'] = f'{avg_lead_vs_op:+.1f}'
 
         # === CSV 6종 출력 (각 용도별 분리) ===
         ts_suffix = datetime.now().strftime('%Y%m%d_%H%M%S')
