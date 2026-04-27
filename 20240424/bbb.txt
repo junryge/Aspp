@@ -199,10 +199,13 @@ def evaluate_rules(t1_window, m14_window, lft_window):
         'ra_count': ra_count,
         'ra_value': ra_value,
         'ra_sustained': ra_sustained,
+        'ra_trig': ra_trig,
         'rb_diff': rb_diff,
         'rb_diff_10': rb_diff_10,
         'rb_fast': rb_fast,
+        'rb_trig': rb_trig,
         'rc_trend': rc_trend,
+        'rc_trig': rc_trig,
         'rev_count': rev_count,
         'rev_lids': rev_lids,
     }
@@ -226,10 +229,48 @@ class IncidentTracker:
         self.current = None
         self.incidents = []
         self.early_signals = deque(maxlen=PREDICT_LOOKBACK_MIN)
+        # 발동 이벤트 타임라인 (단계 전환 시점 기록)
+        self.events = []          # [{time, stage, prev_stage, reason}]
+        self.last_stage = 0
+
+    def _record_event(self, t, stage, ctx):
+        if stage == self.last_stage:
+            return
+        if stage == 1:
+            if ctx.get('ra_count', 0) >= 2:
+                reason = f"1MIN ≥9분이 {ctx['ra_count']}회"
+            elif ctx.get('ra_sustained'):
+                reason = "1MIN ≥6분 지속"
+            else:
+                reason = "1단계 발동"
+        elif stage == 2:
+            if ctx.get('rb_diff', 0) >= 100:
+                reason = f"M14→M16 +{ctx['rb_diff']} (30분간)"
+            elif ctx.get('rb_fast'):
+                reason = f"M14→M16 +{ctx.get('rb_diff_10', 0)} (10분간 fast)"
+            else:
+                reason = "2단계 발동"
+        elif stage == 3:
+            reason = (f"AND 만족 (1MIN {ctx.get('ra_value') or 0:.2f}, "
+                      f"M14→M16 +{ctx.get('rb_diff', 0)}, "
+                      f"역증가 {ctx.get('rev_count', 0)}개)")
+        else:
+            reason = "정상화"
+        self.events.append({
+            'time': t,
+            'stage': stage,
+            'prev_stage': self.last_stage,
+            'reason': reason,
+        })
+        self.last_stage = stage
 
     def update(self, t, s1, s2, s3, ctx):
         if s1 or s2:
             self.early_signals.append(t)
+
+        # 단계 변환 기록 (S1/S2/S3/정상화 전환마다 events 에 추가)
+        cur_stage = 3 if s3 else (2 if s2 else (1 if s1 else 0))
+        self._record_event(t, cur_stage, ctx)
 
         if self.state == 'IDLE':
             if s3:
@@ -349,8 +390,13 @@ def _build_explanation(max_1min, max_rb_diff, max_rev):
 
 def incident_to_row(c, file_name):
     duration_min = round((c['end_time'] - c['start_time']).total_seconds() / 60.0, 1)
+    lead_min = round((c['start_time'] - c['predict_time']).total_seconds() / 60.0)
     primary_cause, breakdown, explanation = _build_explanation(
         c['max_1min'], c['max_rb_diff'], c['max_rev']
+    )
+    early_warning = (
+        f"{c['predict_time'].strftime('%H:%M')} 1·2단계 발동 → "
+        f"{c['start_time'].strftime('%H:%M')} 3단계 확정 ({lead_min}분 먼저 인지)"
     )
     return {
         'file': file_name,
@@ -358,6 +404,7 @@ def incident_to_row(c, file_name):
         'predict_time': c['predict_time'].strftime('%H:%M'),
         'start_time': c['start_time'].strftime('%H:%M'),
         'end_time': c['end_time'].strftime('%H:%M'),
+        'lead_min': lead_min,
         'duration_min': duration_min,
         'refire_count': c['refire_count'],
         'max_1min': round(c['max_1min'], 2),
@@ -366,6 +413,7 @@ def incident_to_row(c, file_name):
         'primary_cause': primary_cause,
         'contrib_breakdown': breakdown,
         'anomaly_explanation': explanation,
+        'early_warning': early_warning,
     }
 
 
@@ -418,10 +466,10 @@ def process(input_csv, output_csv=None):
         print(f'\n⚠️ 사건 0건 — CSV 빈 헤더만 출력')
         rows = [{
             'file': '', 'date': '', 'predict_time': '', 'start_time': '',
-            'end_time': '', 'duration_min': '', 'refire_count': '',
+            'end_time': '', 'lead_min': '', 'duration_min': '', 'refire_count': '',
             'max_1min': '', 'max_m14_diff': '', 'max_reverse_lifters': '',
             'primary_cause': '',
-            'contrib_breakdown': '', 'anomaly_explanation': '',
+            'contrib_breakdown': '', 'anomaly_explanation': '', 'early_warning': '',
         }]
         header_only = True
     else:
@@ -431,17 +479,37 @@ def process(input_csv, output_csv=None):
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         w.writeheader()
         if not header_only:
-            # severity 높은 순, 같으면 시작시각 순
             rows.sort(key=lambda r: (r['date'], r['start_time']))
             w.writerows(rows)
+
+    # 발동 이벤트 타임라인 CSV (S1/S2/S3/정상화 매 전환 시점)
+    events_csv = output_csv.replace('.csv', '_발동이벤트.csv')
+    if not events_csv.endswith('.csv'):
+        events_csv = output_csv + '_발동이벤트.csv'
+    stage_label = {0: '정상', 1: '1단계 조기경보', 2: '2단계 주의보', 3: '3단계 ⭐확정'}
+    with open(events_csv, 'w', encoding='utf-8-sig', newline='') as f:
+        w = csv.writer(f)
+        w.writerow(['file', 'datetime', 'date', 'time', 'stage', 'stage_name',
+                    'prev_stage', 'transition', 'reason'])
+        for ev in tracker.events:
+            t_str = ev['time'].strftime('%Y-%m-%d %H:%M')
+            d_str = ev['time'].strftime('%Y-%m-%d')
+            hm = ev['time'].strftime('%H:%M')
+            transition = f"{ev['prev_stage']}→{ev['stage']}"
+            w.writerow([file_name, t_str, d_str, hm, ev['stage'],
+                        stage_label.get(ev['stage'], ''), ev['prev_stage'],
+                        transition, ev['reason']])
 
     print()
     print(f'📊 처리 결과')
     print(f'   행 처리:    {rows_processed:,} 행')
     print(f'   룰 평가:    {rules_evaluated:,} 회 (90분 채워진 후)')
     print(f'   사건 추출:  {len(tracker.incidents)} 건')
+    print(f'   발동 전환:  {len(tracker.events)} 회 (S1/S2/S3/정상화 합산)')
     print()
-    print(f'💾 출력: {output_csv}')
+    print(f'💾 출력:')
+    print(f'   · {output_csv}                (사건 단위)')
+    print(f'   · {events_csv}  (S1/S2/S3 발동 타임라인)')
 
 
 def main():
