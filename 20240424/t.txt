@@ -1,0 +1,28 @@
+90GB VRAM 최종 확정 추천 TOP 5 (최신순)
+🥇 1순위: Qwen3.6-27B
+
+출시: 2026.04.22
+양자화: FP16
+VRAM: 54GB
+강점: 코딩, Thinking Preservation
+
+🥈 2순위: Gemma 4 31B Dense
+
+출시: 2026.04.02
+양자화: FP16
+VRAM: 62GB
+강점: Arena #3, 멀티모달
+
+🥉 3순위: Gemma 4 26B A4B
+
+출시: 2026.04.02
+양자화: FP16
+VRAM: 52GB
+강점: 3.8B 활성, 매우 빠름
+
+4순위: Qwen3.6-35B-A3B
+
+출시: 2026.04.16
+양자화: Q8
+VRAM: 35GB
+강점: 3B 활성, agentic
