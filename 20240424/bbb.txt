@@ -220,17 +220,14 @@ class IncidentTracker:
       IDLE        + s3 신규     → IN_INCIDENT
       IN_INCIDENT + s3 (10분+)  → 같은 사건 재발동
       IN_INCIDENT + 10분 무 s3  → IDLE (사건 종료)
-      IN_INCIDENT + 새 신규     → 이전 종료, 새 사건 시작
     """
     def __init__(self):
         self.state = 'IDLE'
         self.current = None
-        self.incidents = []   # 종료된 사건 리스트
-        # predict_time 추적용: 최근 PREDICT_LOOKBACK_MIN 분 내 S1/S2 시각
+        self.incidents = []
         self.early_signals = deque(maxlen=PREDICT_LOOKBACK_MIN)
 
     def update(self, t, s1, s2, s3, ctx):
-        # S1/S2 발동 시 early_signals 에 기록 (predict_time 계산용)
         if s1 or s2:
             self.early_signals.append(t)
 
@@ -239,19 +236,16 @@ class IncidentTracker:
                 self._start_new(t, ctx)
         else:  # IN_INCIDENT
             if s3:
-                # 사건 시작 후 10분 이상 지나면 재발동, 아니면 같은 시점 갱신
                 last_s3 = self.current['last_s3_time']
                 if (t - last_s3).total_seconds() / 60.0 >= INCIDENT_END_GAP_MIN:
                     self.current['refire_count'] += 1
                 self._update_current(t, ctx)
             else:
-                # 사건 종료 조건 체크: 마지막 S3 이후 10분 무 s3
                 last_s3 = self.current['last_s3_time']
                 if (t - last_s3).total_seconds() / 60.0 >= INCIDENT_END_GAP_MIN:
                     self._end_current(t)
 
     def _start_new(self, t, ctx):
-        # predict_time = 사건 시작 직전 60분 내 최초 S1/S2 시각
         cutoff = t - timedelta(minutes=PREDICT_LOOKBACK_MIN)
         early = [x for x in self.early_signals if x >= cutoff]
         predict_time = min(early) if early else t
@@ -283,14 +277,12 @@ class IncidentTracker:
 
     def _end_current(self, t):
         c = self.current
-        # 마지막 s3 시각으로 end_time 확정
         c['end_time'] = c['last_s3_time']
         self.incidents.append(c)
         self.current = None
         self.state = 'IDLE'
 
     def finalize(self, last_t):
-        """파일 끝에 미해소 사건 강제 종료"""
         if self.state == 'IN_INCIDENT':
             self.current['end_time'] = self.current['last_s3_time']
             self.incidents.append(self.current)
@@ -357,7 +349,6 @@ def _build_explanation(max_1min, max_rb_diff, max_rev):
 
 def incident_to_row(c, file_name):
     duration_min = round((c['end_time'] - c['start_time']).total_seconds() / 60.0, 1)
-    severity = _classify_severity(c['refire_count'], c['max_1min'])
     primary_cause, breakdown, explanation = _build_explanation(
         c['max_1min'], c['max_rb_diff'], c['max_rev']
     )
@@ -372,7 +363,6 @@ def incident_to_row(c, file_name):
         'max_1min': round(c['max_1min'], 2),
         'max_m14_diff': c['max_rb_diff'],
         'max_reverse_lifters': c['max_rev'],
-        'severity': severity,
         'primary_cause': primary_cause,
         'contrib_breakdown': breakdown,
         'anomaly_explanation': explanation,
@@ -430,7 +420,7 @@ def process(input_csv, output_csv=None):
             'file': '', 'date': '', 'predict_time': '', 'start_time': '',
             'end_time': '', 'duration_min': '', 'refire_count': '',
             'max_1min': '', 'max_m14_diff': '', 'max_reverse_lifters': '',
-            'severity': '', 'primary_cause': '',
+            'primary_cause': '',
             'contrib_breakdown': '', 'anomaly_explanation': '',
         }]
         header_only = True
@@ -442,8 +432,7 @@ def process(input_csv, output_csv=None):
         w.writeheader()
         if not header_only:
             # severity 높은 순, 같으면 시작시각 순
-            sev_rank = {'★★★': 3, '★★': 2, '★': 1, '-': 0}
-            rows.sort(key=lambda r: (-sev_rank.get(r['severity'], 0), r['date'], r['start_time']))
+            rows.sort(key=lambda r: (r['date'], r['start_time']))
             w.writerows(rows)
 
     print()
@@ -451,14 +440,6 @@ def process(input_csv, output_csv=None):
     print(f'   행 처리:    {rows_processed:,} 행')
     print(f'   룰 평가:    {rules_evaluated:,} 회 (90분 채워진 후)')
     print(f'   사건 추출:  {len(tracker.incidents)} 건')
-    if tracker.incidents:
-        sev_count = {}
-        for c in tracker.incidents:
-            r = incident_to_row(c, file_name)
-            sev_count[r['severity']] = sev_count.get(r['severity'], 0) + 1
-        for sev in ['★★★', '★★', '★', '-']:
-            if sev in sev_count:
-                print(f'     {sev:<5} : {sev_count[sev]} 건')
     print()
     print(f'💾 출력: {output_csv}')
 
