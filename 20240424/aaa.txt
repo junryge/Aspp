@@ -33,22 +33,45 @@ else:
     import termios
     import tty
 
-# hlim.py 의 도메인 로직 전부 재사용
-from hlim import (
-    State,
-    chat_loop,
-    console,
-    cost_tier_color,
-    cost_tier_label,
-    load_config,
-    load_token,
-    models_sorted,
-    show_compare,
-    show_model_info,
-)
+# hlim.py / hllm.py 의 도메인 로직 재사용.
+# 스크립트와 같은 폴더를 sys.path 맨 앞에 두고, 파일 이름이 hlim 인지
+# hllm 인지에 상관없이 import 되도록 후보를 차례로 시도한다.
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPT_DIR)
+
+_hlim = None
+_import_errors = []
+for _modname in ("hlim", "hllm"):
+    try:
+        _hlim = __import__(_modname)
+        break
+    except ImportError as _e:
+        _import_errors.append(f"{_modname}: {_e}")
+
+if _hlim is None:
+    sys.stderr.write(
+        "[hllm2] hlim.py (또는 hllm.py) 를 찾지 못했습니다.\n"
+        f"        검색 경로: {_SCRIPT_DIR}\n"
+        f"        시도: {' / '.join(_import_errors)}\n"
+        "        hllm2.py 와 같은 폴더에 hlim.py 를 두고 다시 실행하세요.\n"
+    )
+    sys.exit(1)
+
+State            = _hlim.State
+chat_loop        = _hlim.chat_loop
+console          = _hlim.console
+cost_tier_color  = _hlim.cost_tier_color
+cost_tier_label  = _hlim.cost_tier_label
+load_config      = _hlim.load_config
+load_token       = _hlim.load_token
+models_sorted    = _hlim.models_sorted
+show_compare     = _hlim.show_compare
+show_model_info  = _hlim.show_model_info
 
 try:
     from rich.layout import Layout
+    from rich.live import Live
     from rich.panel import Panel
     from rich.text import Text
     from rich.align import Align
@@ -373,63 +396,96 @@ def commander(state: State) -> None:
             break
     state.model_id = sorted_models[cursor][0]
 
+    # 루프 구조:
+    #   외곽 while  → Live(alternate-screen) 로 진입.
+    #     내부 while → 키를 받고 layout 만 in-place update (clear 안 씀!).
+    #     모달/챗 진입이 필요하면 break 로 Live 빠져나가서 처리하고 재진입.
     with raw_tty() as cooked:
-        while True:
-            console.clear()
-            console.print(build_layout(state, sorted_models, cursor))
+        running = True
+        pending = None  # ('chat',) | ('help',) | ('info',) | ('compare',)
+        while running:
+            with Live(
+                build_layout(state, sorted_models, cursor),
+                console=console,
+                screen=True,            # alternate screen — 멀미 방지 핵심
+                auto_refresh=False,     # 키 이벤트 시에만 update
+                redirect_stdout=False,
+                redirect_stderr=False,
+            ) as live:
+                pending = None
+                while True:
+                    try:
+                        key = read_key()
+                    except KeyboardInterrupt:
+                        running = False
+                        break
 
-            try:
-                key = read_key()
-            except KeyboardInterrupt:
+                    dirty = True
+                    if key == "UP":
+                        cursor = (cursor - 1) % len(sorted_models)
+                        state.model_id = sorted_models[cursor][0]
+                    elif key == "DOWN":
+                        cursor = (cursor + 1) % len(sorted_models)
+                        state.model_id = sorted_models[cursor][0]
+                    elif key == "HOME":
+                        cursor = 0
+                        state.model_id = sorted_models[cursor][0]
+                    elif key == "END":
+                        cursor = len(sorted_models) - 1
+                        state.model_id = sorted_models[cursor][0]
+                    elif key.isdigit() and key != "0":
+                        idx = int(key) - 1
+                        if 0 <= idx < len(sorted_models):
+                            cursor = idx
+                            state.model_id = sorted_models[cursor][0]
+                    elif key == "ENTER":
+                        state.model_id = sorted_models[cursor][0]
+                        pending = "chat"; break
+                    elif key in ("F1", "?"):
+                        pending = "help"; break
+                    elif key == "F3":
+                        idx = (DISPLAYS.index(state.display) + 1) % len(DISPLAYS) \
+                              if state.display in DISPLAYS else 0
+                        state.display = DISPLAYS[idx]
+                    elif key == "F4":
+                        state.history.clear()
+                        state.turn_no = 0
+                    elif key == "F5":
+                        pass  # 그냥 다시 update
+                    elif key == "F7":
+                        pending = "info"; break
+                    elif key in ("F9", "F2"):
+                        pending = "compare"; break
+                    elif key in ("F10", "q", "Q", "ESC"):
+                        running = False; break
+                    else:
+                        dirty = False
+
+                    if dirty:
+                        live.update(build_layout(state, sorted_models, cursor),
+                                    refresh=True)
+
+            # ── Live 종료(alternate-screen 복귀) 후 모달/챗 처리 ──
+            if not running:
                 break
-
-            if key == "UP":
-                cursor = (cursor - 1) % len(sorted_models)
-                state.model_id = sorted_models[cursor][0]
-            elif key == "DOWN":
-                cursor = (cursor + 1) % len(sorted_models)
-                state.model_id = sorted_models[cursor][0]
-            elif key == "HOME":
-                cursor = 0
-                state.model_id = sorted_models[cursor][0]
-            elif key == "END":
-                cursor = len(sorted_models) - 1
-                state.model_id = sorted_models[cursor][0]
-            elif key.isdigit() and key != "0":
-                idx = int(key) - 1
-                if 0 <= idx < len(sorted_models):
-                    cursor = idx
-                    state.model_id = sorted_models[cursor][0]
-            elif key == "ENTER":
-                state.model_id = sorted_models[cursor][0]
-                # cooked 로 잠시 돌리고 chat_loop 진입
+            if pending == "chat":
                 with cooked_tty(cooked):
                     console.clear()
                     chat_loop(state)
-                continue
-            elif key in ("F1", "?"):
+            elif pending == "help":
                 show_help()
-            elif key == "F3":
-                idx = (DISPLAYS.index(state.display) + 1) % len(DISPLAYS) if state.display in DISPLAYS else 0
-                state.display = DISPLAYS[idx]
-            elif key == "F4":
-                state.history.clear()
-                state.turn_no = 0
-            elif key == "F5":
-                pass  # 루프 상단에서 다시 그림
-            elif key == "F7":
+            elif pending == "info":
                 _showcase(lambda: show_model_info(sorted_models))
-            elif key in ("F9", "F2"):
+            elif pending == "compare":
                 _showcase(show_compare)
-            elif key in ("F10", "q", "Q", "ESC"):
-                break
+            # 그리고 외곽 while 이 다시 Live 진입 → 멀미 없음
 
     console.print()
     console.print(f"[{DIM}]bye.[/]")
 
 
 def _showcase(fn) -> None:
-    """현재 raw 모드 그대로 두고 일반 출력 후 키 한 번 대기."""
+    """모달 (모델 테이블/비교 매트릭스) — 일반 화면에 출력 후 키 한 번 대기."""
     console.clear()
     fn()
     console.print(f"[{DIM}]아무 키나 눌러 돌아가기...[/]")
