@@ -416,23 +416,42 @@ def session_header(state: State) -> Group:
 
 def _stream_text(stream, prefix_after_newline: str = "") -> tuple:
     """stream 으로 받은 chunk 들을 stdout 에 그대로 흘린다.
-       \\n 만나면 prefix_after_newline 을 다음 줄 머리에 붙임."""
+       \\n 만나면 prefix_after_newline 을 다음 줄 머리에 붙임.
+
+       한글이 끊겨 보이는 걸 막기 위해 매 chunk 마다 stdout 을 직접
+       flush 한다. rich.console.out 은 내부 버퍼를 가지므로 글자 단위
+       스트리밍에서 뚝뚝 끊기는 인상을 준다."""
     accumulated = ""
     start = time.time()
+    # prefix_after_newline 은 markup 을 포함할 수 있으니, 먼저 ANSI 가 박힌
+    # 평문(string)으로 한 번만 렌더해 둔다. (매 줄마다 markup 파싱 X)
+    if prefix_after_newline:
+        with console.capture() as cap:
+            console.print(Text.from_markup(prefix_after_newline), end="")
+        prefix_rendered = cap.get()
+    else:
+        prefix_rendered = ""
+
+    out = sys.stdout
+    write = out.write
+    flush = out.flush
+
     for chunk in stream:
         if not chunk:
             continue
-        # ANSI escape 안 섞이도록 console.out 사용 (markup/highlight 끔)
+        # markup 처럼 보이는 토큰이 섞여도 그대로 출력 (rich 파싱 회피)
         parts = chunk.split('\n')
         for i, part in enumerate(parts):
             if part:
-                console.out(part, end="", highlight=False)
+                write(part)
             if i < len(parts) - 1:
-                console.print()
-                if prefix_after_newline:
-                    console.print(Text.from_markup(prefix_after_newline), end="")
+                write('\n')
+                if prefix_rendered:
+                    write(prefix_rendered)
+        flush()
         accumulated += chunk
-    console.print()  # 마지막 줄 종료
+    write('\n')
+    flush()
     elapsed = max(time.time() - start, 0.001)
     return accumulated, elapsed
 
@@ -598,10 +617,17 @@ def pick_mock(prompt: str) -> str:
 
 def stream_mock(prompt: str) -> Iterator[str]:
     text = pick_mock(prompt)
-    # 한글 음절 단위로 나눠서 스트리밍 흉내
+    # 한글 음절 단위로 흘리되, 글자 간격은 짧게.
+    # 줄바꿈/구두점에서만 살짝 호흡을 줘서 '뚝뚝 끊기는' 인상 대신
+    # 자연스럽게 타이핑되는 느낌을 낸다.
     for ch in text:
         yield ch
-        time.sleep(0.012)
+        if ch == '\n':
+            time.sleep(0.06)
+        elif ch in '.!?。,:;':
+            time.sleep(0.025)
+        else:
+            time.sleep(0.006)
 
 
 def _stream_one(url: str, api_model: str, token: Optional[str], state: State, prompt: str) -> Iterator[str]:
