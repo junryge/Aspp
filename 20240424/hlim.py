@@ -382,132 +382,152 @@ def show_compare() -> None:
 # ─────────────────────────────────────────────
 #  RENDERERS — wireframe 2A / 2B / 2C
 # ─────────────────────────────────────────────
-def session_header(state: State) -> Text:
+def session_header(state: State) -> Group:
+    """모델 탭 바 (7개 다 보이고 현재 모델 하이라이트) + 메트릭 라인."""
+    sorted_models = models_sorted(state.config)
+
+    # 1) 탭 바 — 짧은 라벨로 7개 모두 표시
+    tabs = Text()
+    for i, (mid, m) in enumerate(sorted_models, start=1):
+        is_cur = (mid == state.model_id)
+        # 짧은 라벨: name 에서 ' (...)' 부분 떼고 사용
+        label = m.get("name", mid).split(" (")[0]
+        if is_cur:
+            tabs.append(f" {i}·{label} ", style=f"bold {FG} on {ACCENT}")
+        else:
+            tabs.append(f" {i}·{label} ", style=f"{FADED}")
+        if i < len(sorted_models):
+            tabs.append("│", style=LOW)
+
+    # 2) 메트릭 라인
     in_tok  = sum(t.metrics.get("in_tokens",  0) for t in state.history)
     out_tok = sum(t.metrics.get("out_tokens", 0) for t in state.history)
     turns   = sum(1 for t in state.history if t.role == "assistant")
     ctx_k   = state.model_meta.get("context_window", 0) // 1000 or "?"
     mode    = "mock" if state.is_mock else "live"
-    left  = f"session: [bold {FG}]{state.model_display}[/] · ctx {ctx_k}k · {mode}"
-    right = f"turns {turns} · in {in_tok:,} · out {out_tok:,} tok"
-    text = Text.from_markup(f"[{DIM}]{left}[/]    [{DIM}]{right}[/]")
-    return text
+    meta = Text.from_markup(
+        f"[{DIM}]ctx {ctx_k}k · {mode} · turns {turns} · "
+        f"in {in_tok:,} · out {out_tok:,} tok[/]    "
+        f"[{FADED}]모델 전환: 숫자키 1~{len(sorted_models)} (또는 /model)[/]"
+    )
+
+    return Group(tabs, meta)
 
 
-def render_inline(turn: Turn, response: str, metrics: dict, streaming: bool) -> Group:
-    """2A: prompt 다음 줄에 응답이 그냥 흐른다."""
-    parts = []
-    parts.append(Text.from_markup(
-        f"[{ACCENT}]❯[/] [{DIM}]you[/] [{LOW}]›[/] [{FG}]{turn.content}[/]"
+def _stream_text(stream, prefix_after_newline: str = "") -> tuple:
+    """stream 으로 받은 chunk 들을 stdout 에 그대로 흘린다.
+       \\n 만나면 prefix_after_newline 을 다음 줄 머리에 붙임."""
+    accumulated = ""
+    start = time.time()
+    for chunk in stream:
+        if not chunk:
+            continue
+        # ANSI escape 안 섞이도록 console.out 사용 (markup/highlight 끔)
+        parts = chunk.split('\n')
+        for i, part in enumerate(parts):
+            if part:
+                console.out(part, end="", highlight=False)
+            if i < len(parts) - 1:
+                console.print()
+                if prefix_after_newline:
+                    console.print(Text.from_markup(prefix_after_newline), end="")
+        accumulated += chunk
+    console.print()  # 마지막 줄 종료
+    elapsed = max(time.time() - start, 0.001)
+    return accumulated, elapsed
+
+
+def render_inline_stream(state: State, user_turn: Turn, stream, in_tokens: int) -> tuple:
+    """2A: input echo 가 그대로 user 라인. 응답은 4-space 들여쓰기로 흘림."""
+    # 응답 시작 — 들여쓰기
+    console.print(Text.from_markup("    "), end="")
+    accumulated, elapsed = _stream_text(stream, prefix_after_newline="    ")
+
+    out_tokens = max(1, len(accumulated) // 2)
+    speed = int(out_tokens / elapsed)
+    cost = out_tokens * 0.0000025
+    console.print(Text.from_markup(
+        f"    [{GREEN}]↳[/] {out_tokens} tok · {elapsed:.1f}s · ${cost:.4f} · {speed} t/s"
     ))
-    body = Text.from_markup(f"[{MID}]{response}[/]" + (f"[{FG} on {LOW}] [/]" if streaming else ""))
-    parts.append(Padding(body, (0, 0, 0, 4)))
-    if not streaming and metrics:
-        m = (
-            f"[{GREEN}]↳[/] {metrics.get('out_tokens', 0)} tok · "
-            f"{metrics.get('time', 0):.1f}s · "
-            f"${metrics.get('cost', 0):.4f} · "
-            f"{metrics.get('speed', 0)} t/s"
-        )
-        parts.append(Padding(Text.from_markup(m), (0, 0, 0, 4)))
-    parts.append(Text(""))
-    return Group(*parts)
+    console.print()
+    return ({"in_tokens": in_tokens, "out_tokens": out_tokens, "time": elapsed,
+             "speed": speed, "cost": cost}, accumulated)
 
 
-def render_block(state: State, turn: Turn, response: str, metrics: dict, streaming: bool) -> Group:
-    """2B: 좌측 컬러바 + 응답 + 푸터 메트릭."""
-    parts: list = []
-    parts.append(Text.from_markup(f"[{ACCENT}]❯[/] [{FG}]{turn.content}[/]"))
-    parts.append(Padding(
-        Text.from_markup(f"[{LOW}]{turn.timestamp} · you · {len(turn.content)} chars[/]"),
-        (0, 0, 0, 2)
+def render_block_stream(state: State, user_turn: Turn, stream, in_tokens: int) -> tuple:
+    """2B: input echo 위에 meta 라인 + 좌측 컬러바 응답 + 푸터."""
+    bar = f"[{GREEN}]│[/] "
+
+    # user meta line
+    console.print(Text.from_markup(
+        f"  [{LOW}]{user_turn.timestamp} · you · {len(user_turn.content)} chars[/]"
     ))
-    parts.append(Text(""))
+    console.print()
 
-    bar  = YELLOW if streaming else GREEN
-    head = f"▼ {state.model_display.upper()} · " + ("streaming..." if streaming else f"response #{state.turn_no}")
-    inner_lines: list = [
-        Text.from_markup(f"[bold {bar}]{head}[/]"),
-        Text(""),
-        Text.from_markup(f"[{MID}]{response}[/]" + (f"[{FG} on {LOW}] [/]" if streaming else "")),
-    ]
-    if not streaming and metrics:
-        inner_lines.append(Text(""))
-        foot = (
-            f"[{bar}]●[/] {metrics.get('out_tokens', 0)} tok   "
-            f"{metrics.get('time', 0):.1f}s   "
-            f"{metrics.get('speed', 0)} t/s   "
-            f"${metrics.get('cost', 0):.4f}    "
-            f"[{FADED}][[/][bold {FG}]c[/][{FADED}]] copy · [/]"
-            f"[{FADED}][[/][bold {FG}]r[/][{FADED}]] regen · [/]"
-            f"[{FADED}][[/][bold {FG}]↳[/][{FADED}]] reply[/]"
-        )
-        inner_lines.append(Text.from_markup(foot))
+    # 응답 헤더 (좌측 바 포함)
+    console.print(Text.from_markup(
+        f"[{GREEN}]│[/] [bold {GREEN}]▼ {state.model_display.upper()} · streaming...[/]"
+    ))
+    console.print(Text.from_markup(f"[{GREEN}]│[/]"))
 
-    block_panel = Panel(
-        Group(*inner_lines),
-        box=LEFT_BAR,
-        border_style=bar,
-        padding=(0, 0, 0, 1),  # 바 우측 1칸 띄움
+    # 본문 — 첫 줄 머리에 바, 줄바꿈마다 바 prefix
+    console.print(Text.from_markup(bar), end="")
+    accumulated, elapsed = _stream_text(stream, prefix_after_newline=bar)
+
+    out_tokens = max(1, len(accumulated) // 2)
+    speed = int(out_tokens / elapsed)
+    cost = out_tokens * 0.0000025
+
+    # 푸터
+    console.print(Text.from_markup(f"[{GREEN}]│[/]"))
+    console.print(Text.from_markup(
+        f"[{GREEN}]│[/] [{GREEN}]●[/] {out_tokens} tok   "
+        f"{elapsed:.1f}s   {speed} t/s   ${cost:.4f}    "
+        f"[{FADED}][[/][bold {FG}]c[/][{FADED}]] copy · [/]"
+        f"[{FADED}][[/][bold {FG}]r[/][{FADED}]] regen · [/]"
+        f"[{FADED}][[/][bold {FG}]↳[/][{FADED}]] reply[/]"
+    ))
+    console.print()
+    return ({"in_tokens": in_tokens, "out_tokens": out_tokens, "time": elapsed,
+             "speed": speed, "cost": cost}, accumulated)
+
+
+def render_card_stream(state: State, user_turn: Turn, stream, in_tokens: int) -> tuple:
+    """2C: 응답 헤더 라인 + 본문 들여쓰기 + 끝에 4분할 메트릭 박스."""
+    console.print(Text.from_markup(
+        f"  [{GREEN}]◆[/] [bold {FG}]{state.model_display.upper()}[/] "
+        f"[{LOW}]· response #{state.turn_no} · {user_turn.timestamp}[/]"
+    ))
+
+    console.print(Text.from_markup("  "), end="")
+    accumulated, elapsed = _stream_text(stream, prefix_after_newline="  ")
+
+    out_tokens = max(1, len(accumulated) // 2)
+    speed = int(out_tokens / elapsed)
+    cost = out_tokens * 0.0000025
+
+    # 4분할 메트릭 박스
+    grid = Table.grid(expand=True, padding=(0, 1))
+    for _ in range(4):
+        grid.add_column(ratio=1)
+    grid.add_row(
+        Text.from_markup(f"[{LOW}]tokens[/]\n[{FG}]{out_tokens}[/] [{DIM}](in {in_tokens})[/]"),
+        Text.from_markup(f"[{LOW}]latency[/]\n[{FG}]{elapsed:.2f}s[/]"),
+        Text.from_markup(f"[{LOW}]throughput[/]\n[{FG}]{speed} t/s[/]"),
+        Text.from_markup(f"[{LOW}]cost[/]\n[{FG}]${cost:.5f}[/]"),
     )
-    parts.append(block_panel)
-    parts.append(Text(""))
-    return Group(*parts)
+    console.print(Panel(grid, box=ROUNDED, border_style=GREEN, padding=(0, 1)))
+    console.print()
+    return ({"in_tokens": in_tokens, "out_tokens": out_tokens, "time": elapsed,
+             "speed": speed, "cost": cost}, accumulated)
 
 
-def render_card(state: State, turn: Turn, response: str, metrics: dict, streaming: bool) -> Group:
-    """2C: 둥근 카드 + 4분할 메트릭 그리드."""
-    user_card = Panel(
-        Text(turn.content, style=FG),
-        title=Text.from_markup(f"[{ACCENT}]❯[/] [{FADED}]you[/]"),
-        title_align="left",
-        subtitle=Text.from_markup(f"[{FADED}]{turn.timestamp} · {len(turn.content)} chars[/]"),
-        subtitle_align="right",
-        box=ROUNDED,
-        border_style=FADED,
-        padding=(0, 1),
-    )
-
-    bar = YELLOW if streaming else GREEN
-    body = Text.from_markup(f"[{MID}]{response}[/]" + (f"[{FG} on {LOW}] [/]" if streaming else ""))
-
-    if not streaming and metrics:
-        grid = Table.grid(expand=True, padding=(0, 1))
-        for _ in range(4):
-            grid.add_column(ratio=1)
-        grid.add_row(
-            Text.from_markup(f"[{LOW}]tokens[/]\n[{FG}]{metrics.get('out_tokens', 0)}[/] [{DIM}](in {metrics.get('in_tokens', 0)})[/]"),
-            Text.from_markup(f"[{LOW}]latency[/]\n[{FG}]{metrics.get('time', 0):.2f}s[/]"),
-            Text.from_markup(f"[{LOW}]throughput[/]\n[{FG}]{metrics.get('speed', 0)} t/s[/]"),
-            Text.from_markup(f"[{LOW}]cost[/]\n[{FG}]${metrics.get('cost', 0):.5f}[/]"),
-        )
-        body_group = Group(body, Rule(style=bar), grid)
-    else:
-        body_group = body
-
-    head_left  = f"[{bar}]◆[/] [bold {FG}]{state.model_display.upper()}[/] [{LOW}]· response #{state.turn_no} · {turn.timestamp}[/]"
-    head_right = f"[{FADED}][[/][bold {FG}]c[/][{FADED}]]opy [[/][bold {FG}]r[/][{FADED}]]egen [[/][bold {FG}]s[/][{FADED}]]ave [[/][bold {FG}]↳[/][{FADED}]]reply[/]"
-
-    resp_card = Panel(
-        body_group,
-        title=Text.from_markup(head_left if not streaming else f"[{bar}]◆[/] [bold {FG}]{state.model_display.upper()}[/] [{DIM}]· generating...[/]"),
-        title_align="left",
-        subtitle=Text.from_markup(head_right) if not streaming else Text.from_markup(f"[{bar}]● {metrics.get('time', 0):.1f}s · {metrics.get('out_tokens', 0)}/?? tok[/]"),
-        subtitle_align="right",
-        box=ROUNDED,
-        border_style=bar if not streaming else f"dim {bar}",
-        padding=(0, 1),
-    )
-
-    return Group(user_card, Text(""), resp_card, Text(""))
-
-
-def render(state: State, turn: Turn, response: str, metrics: dict, streaming: bool):
+def render_stream(state: State, user_turn: Turn, stream, in_tokens: int) -> tuple:
     if state.display == "inline":
-        return render_inline(turn, response, metrics, streaming)
+        return render_inline_stream(state, user_turn, stream, in_tokens)
     if state.display == "card":
-        return render_card(state, turn, response, metrics, streaming)
-    return render_block(state, turn, response, metrics, streaming)
+        return render_card_stream(state, user_turn, stream, in_tokens)
+    return render_block_stream(state, user_turn, stream, in_tokens)
 
 
 # ─────────────────────────────────────────────
@@ -686,9 +706,11 @@ def stream_api(state: State, prompt: str) -> Iterator[str]:
 #  CHAT LOOP
 # ─────────────────────────────────────────────
 HELP_TEXT = (
+    f"  [{FG}]1~7[/] (숫자만)        모델 즉시 전환\n"
     f"  [{FG}]/help[/]              명령어 목록\n"
+    f"  [{FG}]/models[/]            모델 7개 상세 테이블\n"
     f"  [{FG}]/display X[/]         X = inline | block | card\n"
-    f"  [{FG}]/model[/]             모델 다시 선택\n"
+    f"  [{FG}]/model[/]             splash 화면으로 돌아가 모델 선택\n"
     f"  [{FG}]/clear[/]             세션 초기화\n"
     f"  [{FG}]/compare[/]           표시 방식 비교 매트릭스\n"
     f"  [{FG}]/quit[/]              종료  (^D / ^C 도 동일)"
@@ -720,6 +742,27 @@ def chat_loop(state: State) -> None:
         if not user_input:
             continue
 
+        # ── 숫자 한 글자 → 모델 즉시 전환 ──
+        if user_input.isdigit():
+            sorted_models = models_sorted(state.config)
+            idx = int(user_input)
+            if 1 <= idx <= len(sorted_models):
+                new_id, new_meta = sorted_models[idx - 1]
+                if new_id == state.model_id:
+                    console.print(f"[{FADED}]이미 {new_meta.get('name', new_id)} 사용 중입니다.[/]\n")
+                else:
+                    state.model_id = new_id
+                    console.print(
+                        f"[{GREEN}][✓][/] 모델 전환 → "
+                        f"[bold {FG}]{new_meta.get('name', new_id)}[/]  "
+                        f"[{FADED}]{new_meta.get('url', '')}[/]"
+                    )
+                    console.print(session_header(state))
+                    console.print(Rule(style=FADED))
+                    console.print()
+                continue
+            # 1~N 범위 밖이면 일반 메시지로 흘려보냄
+
         # ── slash 명령 ──
         if user_input.startswith("/"):
             cmd, *args = user_input[1:].split()
@@ -738,6 +781,8 @@ def chat_loop(state: State) -> None:
                 continue
             if cmd == "model":
                 show_splash(state); continue
+            if cmd == "models":
+                show_model_info(models_sorted(state.config)); continue
             if cmd == "clear":
                 state.history.clear(); state.turn_no = 0
                 console.clear()
@@ -749,13 +794,8 @@ def chat_loop(state: State) -> None:
             continue
 
         # ── 일반 메시지 ──
-        # console.input() 이 echo 한 prompt 라인을 지운다.
-        # render() 가 user_line 을 다시 그리므로, 안 지우면 prompt 가 두 번 보임.
-        try:
-            sys.stdout.write("\x1b[F\x1b[2K")  # cursor up 1 + erase line
-            sys.stdout.flush()
-        except Exception:
-            pass
+        # input 의 echo 라인이 그대로 user prompt 역할을 한다.
+        # (Live + 추가 user_line 그리기는 일부 터미널에서 누적 출력을 일으켜 제거함)
 
         state.turn_no += 1
         in_tokens = max(1, len(user_input) // 2)  # rough
@@ -765,36 +805,13 @@ def chat_loop(state: State) -> None:
         )
         state.history.append(user_turn)
 
-        start = time.time()
-        accumulated = ""
-
         if state.is_mock:
             stream = stream_mock(user_input)
         else:
             stream = stream_api(state, user_input)
 
         try:
-            with Live(console=console, refresh_per_second=24, transient=False, vertical_overflow="visible") as live:
-                live.update(render(state, user_turn, accumulated, {}, streaming=True))
-                for chunk in stream:
-                    accumulated += chunk
-                    metrics_live = {
-                        "in_tokens": in_tokens,
-                        "out_tokens": max(1, len(accumulated) // 2),
-                        "time": time.time() - start,
-                    }
-                    live.update(render(state, user_turn, accumulated, metrics_live, streaming=True))
-
-                elapsed = max(time.time() - start, 0.001)
-                out_tokens = max(1, len(accumulated) // 2)
-                final_metrics = {
-                    "in_tokens": in_tokens,
-                    "out_tokens": out_tokens,
-                    "time": elapsed,
-                    "speed": int(out_tokens / elapsed),
-                    "cost": out_tokens * 0.0000025,  # mock pricing
-                }
-                live.update(render(state, user_turn, accumulated, final_metrics, streaming=False))
+            final_metrics, accumulated = render_stream(state, user_turn, stream, in_tokens)
         except KeyboardInterrupt:
             console.print(f"\n[{YELLOW}]^c — 중지됨[/]\n")
             continue
