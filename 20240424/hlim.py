@@ -515,6 +515,31 @@ def render(state: State, turn: Turn, response: str, metrics: dict, streaming: bo
 # ─────────────────────────────────────────────
 MOCK_REPLIES = [
     (
+        ["안녕", "hi ", "hello", "헬로", "안뇽", "ㅎㅇ"],
+        "안녕하세요. HLLM_CLI mock 모드입니다.\n"
+        "지금은 TOKEN.TXT 가 없어서 실제 API 호출 대신 정해진 답변을 드리고 있어요.\n"
+        "실제 응답을 받으시려면 작업 디렉토리에 TOKEN.TXT 를 두고 다시 실행해주세요."
+    ),
+    (
+        ["누구", "뭐야", "정체", "who", "what are you"],
+        "저는 HLLM_CLI 의 mock 응답기입니다.\n"
+        "실제 대화는 config.json 의 모델 7개 (Coder-480B, Next-80B, GLM-5 등) 중 하나가 처리합니다.\n"
+        "지금은 토큰이 없어서 시뮬레이션 중입니다."
+    ),
+    (
+        ["테스트", "test", "ping"],
+        "pong. 채팅 루프 / 스트리밍 / 표시 모드 / fallback chain 모두 정상 동작 중입니다."
+    ),
+    (
+        ["help", "명령", "기능"],
+        "주요 명령어:\n"
+        "  /display inline|block|card   응답 표시 방식 변경\n"
+        "  /model                       모델 다시 선택\n"
+        "  /compare                     세 표시 방식 비교\n"
+        "  /clear                       세션 초기화\n"
+        "  /quit                        종료"
+    ),
+    (
         ["csv", "polars", "pandas"],
         "대용량 CSV는 polars 가 가장 빠릅니다. pandas 대비 5~10배 빠르고 메모리도 절반 수준입니다.\n\n"
         "  import polars as pl\n"
@@ -532,6 +557,10 @@ MOCK_REPLIES = [
         ["반도체", "fab", "amhs", "oht"],
         "AMHS 흐름 분석은 보통 (1) 시계열 IDC 데이터 정합 → (2) HID/EDGE 단위 집계 → "
         "(3) surge / deadlock 룰 평가 의 3단계로 나뉩니다. 어떤 부분을 자세히 볼까요?"
+    ),
+    (
+        ["고마워", "감사", "thanks", "thank"],
+        "별말씀을요. 더 필요한 게 있으면 언제든 말씀해주세요."
     ),
 ]
 MOCK_DEFAULT = (
@@ -674,6 +703,11 @@ def chat_loop(state: State) -> None:
         f"[{FADED}]display: [bold {FG}]{state.display}[/] · "
         f"명령어는 [bold {FG}]/help[/][/]"
     )
+    if state.is_mock:
+        console.print(
+            f"[{YELLOW}][!] mock 모드[/] [{FADED}]— TOKEN.TXT 가 없어 정해진 응답이 나옵니다. "
+            f"실제 API 호출은 토큰 추가 후 가능합니다.[/]"
+        )
     console.print()
 
     while True:
@@ -715,6 +749,14 @@ def chat_loop(state: State) -> None:
             continue
 
         # ── 일반 메시지 ──
+        # console.input() 이 echo 한 prompt 라인을 지운다.
+        # render() 가 user_line 을 다시 그리므로, 안 지우면 prompt 가 두 번 보임.
+        try:
+            sys.stdout.write("\x1b[F\x1b[2K")  # cursor up 1 + erase line
+            sys.stdout.flush()
+        except Exception:
+            pass
+
         state.turn_no += 1
         in_tokens = max(1, len(user_input) // 2)  # rough
         user_turn = Turn(
