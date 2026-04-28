@@ -1,534 +1,619 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
-hllm2.py — HLLM_CLI · MDIR-style commander (A형, 풀 패널)
-
-90년대 도스 시절 MDIR 룩앤필을 닮은 풀스크린 커맨더.
-- 좌측: 모델 리스트 (config.json 의 7개)
-- 우측: 선택 모델 메타 + 최근 대화 미리보기
-- 하단: F1~F10 펑션 바
-- Enter 로 챗 진입 (hlim.chat_loop 재사용), 챗에서 빠져나오면 커맨더 복귀
-
-사용:
-    python hllm2.py
-    python hllm2.py --token-file TOKEN.TXT
-    python hllm2.py --display card
+demos_v1/knowledge.py - Domain knowledge search (BM25), triggers, API routes, and exploration page
 """
-
-from __future__ import annotations
-
-import argparse
 import os
-import sys
-from contextlib import contextmanager
-from datetime import datetime
+import re
+import math
+from flask import request, jsonify, send_file
+from demos_v1.utils import BASE_DIR
 
-IS_WINDOWS = os.name == "nt"
+# ============================================
+# 도메인 지식 검색 API (BM25)
+# ============================================
+KNOWLEDGE_DIR = os.path.join(BASE_DIR, "knowledge")
 
-if IS_WINDOWS:
-    import msvcrt
-    termios = None  # type: ignore
-    tty = None      # type: ignore
-else:
-    import termios
-    import tty
-
-# hlim.py / hllm.py 의 도메인 로직 재사용.
-# 스크립트와 같은 폴더를 sys.path 맨 앞에 두고, 파일 이름이 hlim 인지
-# hllm 인지에 상관없이 import 되도록 후보를 차례로 시도한다.
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-if _SCRIPT_DIR not in sys.path:
-    sys.path.insert(0, _SCRIPT_DIR)
-
-_hlim = None
-_import_errors = []
-for _modname in ("hlim", "hllm"):
-    try:
-        _hlim = __import__(_modname)
-        break
-    except ImportError as _e:
-        _import_errors.append(f"{_modname}: {_e}")
-
-if _hlim is None:
-    sys.stderr.write(
-        "[hllm2] hlim.py (또는 hllm.py) 를 찾지 못했습니다.\n"
-        f"        검색 경로: {_SCRIPT_DIR}\n"
-        f"        시도: {' / '.join(_import_errors)}\n"
-        "        hllm2.py 와 같은 폴더에 hlim.py 를 두고 다시 실행하세요.\n"
-    )
-    sys.exit(1)
-
-State            = _hlim.State
-chat_loop        = _hlim.chat_loop
-console          = _hlim.console
-cost_tier_color  = _hlim.cost_tier_color
-cost_tier_label  = _hlim.cost_tier_label
-load_config      = _hlim.load_config
-load_token       = _hlim.load_token
-models_sorted    = _hlim.models_sorted
-show_compare     = _hlim.show_compare
-show_model_info  = _hlim.show_model_info
-
-try:
-    from rich.layout import Layout
-    from rich.live import Live
-    from rich.panel import Panel
-    from rich.text import Text
-    from rich.align import Align
-    from rich.box import DOUBLE, HEAVY
-except ImportError:
-    sys.stderr.write("[hllm2] rich 가 필요합니다.  pip install rich\n")
-    sys.exit(1)
+# ── BM25 인덱스 (서버 시작 시 1회 빌드) ──
+_BM25_INDEX = {}  # {filename: {"tokens": [...], "token_count": int, "content": str}}
+_BM25_AVG_DL = 0  # 전체 문서 평균 토큰 수
+_BM25_N = 0       # 전체 문서 수
+_BM25_DF = {}     # {token: 등장 문서 수}
+_BM25_K1 = 1.5
+_BM25_B = 0.75
 
 
-# ── MDIR 팔레트 ────────────────────────────────────────────
-BG          = "blue"
-TITLE_FG    = "bright_yellow"
-KEY_NUM     = "bright_yellow"
-KEY_LBL     = "white on cyan"
-FG          = "white"
-DIM         = "bright_black"
-SEL         = "black on bright_yellow"     # 선택 항목 반전
-PANEL_BD    = "bright_white"
-ON_BG       = f"{FG} on {BG}"
-TITLE_STYLE = f"bold {TITLE_FG} on {BG}"
+def _tokenize(text):
+    """한국어 2글자+, 영문/숫자 2글자+ 단위로 분리"""
+    return re.findall(r'[\uac00-\ud7af]{2,}|[a-z0-9_]{2,}', text.lower())
 
 
-# ── 키 입력 (POSIX raw) ────────────────────────────────────
-if IS_WINDOWS:
-    # Windows 콘솔에서 ANSI 색상 활성화 (Windows 10 1607+)
-    try:
-        import ctypes
-        kernel32 = ctypes.windll.kernel32
-        # ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
-        kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
-    except Exception:
-        pass
-
-    @contextmanager
-    def raw_tty():
-        # Windows 는 msvcrt.getch 가 직접 raw 라 모드 전환 불필요
-        yield None
-
-    @contextmanager
-    def cooked_tty(_cooked):
-        # cooked 도 기본 상태라 no-op
-        yield
-
-    # Windows 확장키 코드 (msvcrt: prefix 0x00 또는 0xE0 + 다음 1바이트)
-    _WIN_E0 = {
-        b"H": "UP", b"P": "DOWN", b"K": "LEFT", b"M": "RIGHT",
-        b"G": "HOME", b"O": "END", b"I": "PGUP", b"Q": "PGDN",
-        b"\x85": "F11", b"\x86": "F12",
-    }
-    _WIN_00 = {
-        b";": "F1", b"<": "F2", b"=": "F3", b">": "F4", b"?": "F5",
-        b"@": "F6", b"A": "F7", b"B": "F8", b"C": "F9", b"D": "F10",
-    }
-
-    def read_key() -> str:
-        ch = msvcrt.getch()
-        if ch in (b"\x00", b"\xe0"):
-            ch2 = msvcrt.getch()
-            table = _WIN_E0 if ch == b"\xe0" else _WIN_00
-            return table.get(ch2, "UNKNOWN")
-        if ch in (b"\r", b"\n"):
-            return "ENTER"
-        if ch == b"\x08":
-            return "BACKSPACE"
-        if ch == b"\t":
-            return "TAB"
-        if ch == b"\x03":
-            raise KeyboardInterrupt
-        if ch == b"\x04":
-            return "F10"
-        if ch == b"\x1b":
-            return "ESC"
-        try:
-            return ch.decode("utf-8", errors="ignore") or "UNKNOWN"
-        except Exception:
-            return "UNKNOWN"
-
-else:
-    @contextmanager
-    def raw_tty():
-        """cbreak 모드 진입. yield 값은 원래 cooked termios attr (복귀용)."""
-        fd = sys.stdin.fileno()
-        cooked = termios.tcgetattr(fd)
-        try:
-            tty.setcbreak(fd)
-            yield cooked
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, cooked)
-
-    @contextmanager
-    def cooked_tty(cooked):
-        """raw 중간에 잠시 cooked 로 돌렸다가 다시 cbreak 로 복귀."""
-        fd = sys.stdin.fileno()
-        raw = termios.tcgetattr(fd)
-        try:
-            termios.tcsetattr(fd, termios.TCSADRAIN, cooked)
-            yield
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, raw)
-
-    def read_key() -> str:
-        """ESC 시퀀스 / 펑션키 / 일반키를 한 토큰으로 반환.
-        반환값: 'UP', 'DOWN', 'LEFT', 'RIGHT', 'ENTER', 'BACKSPACE',
-                'F1'..'F12', 'ESC', 또는 일반 문자 한 글자."""
-        ch = sys.stdin.read(1)
-        if ch == "\x1b":
-            seq = ""
-            try:
-                import select
-                while True:
-                    r, _, _ = select.select([sys.stdin], [], [], 0.02)
-                    if not r:
-                        break
-                    seq += sys.stdin.read(1)
-            except Exception:
-                pass
-            if not seq:
-                return "ESC"
-            if seq.startswith("[") or seq.startswith("O"):
-                body = seq[1:]
-                mapping = {
-                    "A": "UP", "B": "DOWN", "C": "RIGHT", "D": "LEFT",
-                    "H": "HOME", "F": "END",
-                    "P": "F1", "Q": "F2", "R": "F3", "S": "F4",
-                    "1~": "HOME", "4~": "END", "5~": "PGUP", "6~": "PGDN",
-                    "11~": "F1", "12~": "F2", "13~": "F3", "14~": "F4",
-                    "15~": "F5", "17~": "F6", "18~": "F7", "19~": "F8",
-                    "20~": "F9", "21~": "F10", "23~": "F11", "24~": "F12",
-                }
-                if body in mapping:
-                    return mapping[body]
-            return "ESC"
-        if ch in ("\r", "\n"):
-            return "ENTER"
-        if ch in ("\x7f", "\x08"):
-            return "BACKSPACE"
-        if ch == "\t":
-            return "TAB"
-        if ch == "\x03":
-            raise KeyboardInterrupt
-        if ch == "\x04":
-            return "F10"
-        return ch
-
-
-# ── 화면 빌더 ──────────────────────────────────────────────
-TITLE = "HLLM COMMANDER · MDIR-STYLE"
-
-
-def build_header(state: State) -> Panel:
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    mode = "mock" if state.is_mock else "live"
-    left = Text.from_markup(f" [bold {TITLE_FG}]■ {TITLE}[/]")
-    right = Text.from_markup(
-        f"[{DIM}]{mode}[/]  [{TITLE_FG}]{now}[/] "
-    )
-    line = Text.assemble(left, Text(" " * 200), right, style=f"on {BG}")
-    line.truncate(200, overflow="ellipsis")
-    return Panel(line, box=DOUBLE, border_style=PANEL_BD, style=f"on {BG}", padding=(0, 0))
-
-
-def build_models_panel(state: State, sorted_models, cursor: int) -> Panel:
-    body = Text(style=ON_BG)
-    body.append(f" MODELS [{len(sorted_models)}]\n", style=f"bold {TITLE_FG} on {BG}")
-    body.append("\n")
-    for i, (mid, m) in enumerate(sorted_models, start=1):
-        is_cur = (i - 1 == cursor)
-        prio = m.get("priority", 99)
-        tier = m.get("cost_tier", "?")
-        tier_l = cost_tier_label(tier)
-        name = m.get("name", mid).split(" (")[0]
-        line = f" {i}.{name:<22} {tier_l:>3}  p{prio} "
-        if is_cur:
-            body.append("▶", style=f"bold {TITLE_FG} on {BG}")
-            body.append(line, style=SEL)
-        else:
-            body.append(" ", style=ON_BG)
-            body.append(line, style=ON_BG)
-        body.append("\n", style=ON_BG)
-    body.append("\n")
-    body.append(" ↑↓ 이동 · 1~7 점프 · Enter 접속", style=f"{DIM} on {BG}")
-    return Panel(
-        body,
-        title=f"[{TITLE_FG}]MODELS[/]",
-        title_align="left",
-        border_style=PANEL_BD,
-        style=f"on {BG}",
-        box=HEAVY,
-        padding=(0, 1),
-    )
-
-
-def build_meta_panel(state: State, sorted_models, cursor: int) -> Panel:
-    mid, m = sorted_models[cursor]
-    tier = m.get("cost_tier", "?")
-    tier_c = cost_tier_color(tier)
-    tier_l = cost_tier_label(tier)
-    ctx_k = m.get("context_window", 0) // 1000
-    caps = ", ".join(m.get("capabilities", []))
-    api = m.get("model", mid)
-    url = m.get("url", "")
-
-    body = Text(style=ON_BG)
-    body.append(f"  {m.get('name', mid)}\n", style=f"bold {TITLE_FG} on {BG}")
-    body.append(f"  id      : ", style=f"{DIM} on {BG}"); body.append(f"{mid}\n", style=ON_BG)
-    body.append(f"  api     : ", style=f"{DIM} on {BG}"); body.append(f"{api}\n", style=ON_BG)
-    body.append(f"  url     : ", style=f"{DIM} on {BG}"); body.append(f"{url}\n", style=ON_BG)
-    body.append(f"  ctx     : ", style=f"{DIM} on {BG}"); body.append(f"{ctx_k}k\n", style=ON_BG)
-    body.append(f"  prio    : ", style=f"{DIM} on {BG}"); body.append(f"{m.get('priority','?')}\n", style=ON_BG)
-    body.append(f"  cost    : ", style=f"{DIM} on {BG}"); body.append(f"{tier_l}", style=f"bold {tier_c} on {BG}"); body.append(f"  ({tier})\n", style=ON_BG)
-    body.append(f"  caps    : ", style=f"{DIM} on {BG}"); body.append(f"{caps}\n", style=ON_BG)
-    body.append("\n", style=ON_BG)
-
-    body.append("  HISTORY\n", style=f"bold {TITLE_FG} on {BG}")
-    if not state.history:
-        body.append("    · (비어있음)\n", style=f"{DIM} on {BG}")
-    else:
-        for t in state.history[-6:]:
-            tag = "you" if t.role == "user" else "ai "
-            preview = t.content.replace("\n", " ").strip()
-            if len(preview) > 64:
-                preview = preview[:63] + "…"
-            body.append(f"    [{t.timestamp}] {tag} ", style=f"{DIM} on {BG}")
-            body.append(f"{preview}\n", style=ON_BG)
-    body.append("\n", style=ON_BG)
-
-    body.append(f"  display : ", style=f"{DIM} on {BG}")
-    body.append(f"{state.display}\n", style=ON_BG)
-    body.append(f"  mode    : ", style=f"{DIM} on {BG}")
-    body.append(f"{'mock' if state.is_mock else 'live'}\n", style=ON_BG)
-
-    return Panel(
-        body,
-        title=f"[{TITLE_FG}]META · HISTORY[/]",
-        title_align="left",
-        border_style=PANEL_BD,
-        style=f"on {BG}",
-        box=HEAVY,
-        padding=(0, 1),
-    )
-
-
-FN_KEYS = [
-    ("1",  "Help"),
-    ("2",  "Model"),
-    ("3",  "Display"),
-    ("4",  "Clear"),
-    ("5",  "Compare"),
-    ("7",  "Info"),
-    ("9",  "About"),
-    ("10", "Quit"),
-]
-
-
-def build_footer() -> Panel:
-    bar = Text(style=ON_BG)
-    bar.append(" ", style=ON_BG)
-    for num, lbl in FN_KEYS:
-        bar.append(f"{num}", style=f"bold {KEY_NUM} on {BG}")
-        bar.append(f"{lbl}", style=KEY_LBL)
-        bar.append(" ", style=ON_BG)
-    return Panel(bar, box=DOUBLE, border_style=PANEL_BD, style=f"on {BG}", padding=(0, 0))
-
-
-def build_layout(state: State, sorted_models, cursor: int) -> Layout:
-    root = Layout()
-    root.split_column(
-        Layout(build_header(state), name="head", size=3),
-        Layout(name="body", ratio=1),
-        Layout(build_footer(), name="foot", size=3),
-    )
-    root["body"].split_row(
-        Layout(build_models_panel(state, sorted_models, cursor), name="models", ratio=2),
-        Layout(build_meta_panel(state, sorted_models, cursor), name="meta", ratio=3),
-    )
-    return root
-
-
-# ── 도움말 오버레이 ────────────────────────────────────────
-HELP_LINES = [
-    ("↑/↓",   "모델 커서 이동"),
-    ("1~7",   "모델 인덱스 점프"),
-    ("Enter", "선택 모델로 챗 진입"),
-    ("F1 / ?", "이 도움말 토글"),
-    ("F3",    "display 순환 (inline→block→card)"),
-    ("F4",    "history 비우기"),
-    ("F5",    "화면 다시 그리기"),
-    ("F7",    "모델 상세 테이블"),
-    ("F9",    "표시 방식 비교"),
-    ("F10 / q / ^D", "종료"),
-]
-
-
-def show_help() -> None:
-    console.clear()
-    body = Text(style=ON_BG)
-    body.append("\n  HLLM COMMANDER · 키 도움말\n\n", style=f"bold {TITLE_FG} on {BG}")
-    for k, desc in HELP_LINES:
-        body.append(f"   {k:<14}", style=f"bold {KEY_NUM} on {BG}")
-        body.append(f"{desc}\n", style=ON_BG)
-    body.append("\n  아무 키나 눌러 닫기", style=f"{DIM} on {BG}")
-    console.print(Panel(body, border_style=PANEL_BD, box=HEAVY, style=f"on {BG}",
-                        title=f"[{TITLE_FG}]F1 · HELP[/]", title_align="left"))
-    read_key()
-
-
-# ── 커맨더 루프 ────────────────────────────────────────────
-DISPLAYS = ("inline", "block", "card")
-
-
-def commander(state: State) -> None:
-    sorted_models = models_sorted(state.config)
-    if not sorted_models:
-        console.print("[red]config.models 가 비어있습니다.[/]")
+def _build_bm25_index(search_dir=None):
+    """BM25 인덱스 빌드 (서버 시작 시 또는 갱신 시 호출)"""
+    global _BM25_INDEX, _BM25_AVG_DL, _BM25_N, _BM25_DF
+    target_dir = search_dir or KNOWLEDGE_DIR
+    if not os.path.isdir(target_dir):
         return
 
-    # 시작 모델 = state.model_id 가 있으면 그 인덱스, 아니면 0
-    cursor = 0
-    for i, (mid, _) in enumerate(sorted_models):
-        if mid == state.model_id:
-            cursor = i
-            break
-    state.model_id = sorted_models[cursor][0]
+    index = {}
+    df = {}
+    total_tokens = 0
 
-    # 루프 구조:
-    #   외곽 while  → Live(alternate-screen) 로 진입.
-    #     내부 while → 키를 받고 layout 만 in-place update (clear 안 씀!).
-    #     모달/챗 진입이 필요하면 break 로 Live 빠져나가서 처리하고 재진입.
-    with raw_tty() as cooked:
-        running = True
-        pending = None  # ('chat',) | ('help',) | ('info',) | ('compare',)
-        while running:
-            with Live(
-                build_layout(state, sorted_models, cursor),
-                console=console,
-                screen=True,            # alternate screen — 멀미 방지 핵심
-                auto_refresh=False,     # 키 이벤트 시에만 update
-                redirect_stdout=False,
-                redirect_stderr=False,
-            ) as live:
-                pending = None
-                while True:
-                    try:
-                        key = read_key()
-                    except KeyboardInterrupt:
-                        running = False
-                        break
+    for fname in os.listdir(target_dir):
+        if not fname.endswith('.md'):
+            continue
+        fpath = os.path.join(target_dir, fname)
+        try:
+            with open(fpath, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except Exception:
+            continue
 
-                    dirty = True
-                    if key == "UP":
-                        cursor = (cursor - 1) % len(sorted_models)
-                        state.model_id = sorted_models[cursor][0]
-                    elif key == "DOWN":
-                        cursor = (cursor + 1) % len(sorted_models)
-                        state.model_id = sorted_models[cursor][0]
-                    elif key == "HOME":
-                        cursor = 0
-                        state.model_id = sorted_models[cursor][0]
-                    elif key == "END":
-                        cursor = len(sorted_models) - 1
-                        state.model_id = sorted_models[cursor][0]
-                    elif key.isdigit() and key != "0":
-                        idx = int(key) - 1
-                        if 0 <= idx < len(sorted_models):
-                            cursor = idx
-                            state.model_id = sorted_models[cursor][0]
-                    elif key == "ENTER":
-                        state.model_id = sorted_models[cursor][0]
-                        pending = "chat"; break
-                    elif key in ("F1", "?"):
-                        pending = "help"; break
-                    elif key == "F3":
-                        idx = (DISPLAYS.index(state.display) + 1) % len(DISPLAYS) \
-                              if state.display in DISPLAYS else 0
-                        state.display = DISPLAYS[idx]
-                    elif key == "F4":
-                        state.history.clear()
-                        state.turn_no = 0
-                    elif key == "F5":
-                        pass  # 그냥 다시 update
-                    elif key == "F7":
-                        pending = "info"; break
-                    elif key in ("F9", "F2"):
-                        pending = "compare"; break
-                    elif key in ("F10", "q", "Q", "ESC"):
-                        running = False; break
-                    else:
-                        dirty = False
+        tokens = _tokenize(content)
+        token_count = len(tokens)
+        total_tokens += token_count
 
-                    if dirty:
-                        live.update(build_layout(state, sorted_models, cursor),
-                                    refresh=True)
+        # 문서별 토큰 빈도
+        tf = {}
+        for t in tokens:
+            tf[t] = tf.get(t, 0) + 1
 
-            # ── Live 종료(alternate-screen 복귀) 후 모달/챗 처리 ──
-            if not running:
-                break
-            if pending == "chat":
-                with cooked_tty(cooked):
-                    console.clear()
-                    chat_loop(state)
-            elif pending == "help":
-                show_help()
-            elif pending == "info":
-                _showcase(lambda: show_model_info(sorted_models))
-            elif pending == "compare":
-                _showcase(show_compare)
-            # 그리고 외곽 while 이 다시 Live 진입 → 멀미 없음
+        try:
+            mtime = os.path.getmtime(fpath)
+        except OSError:
+            mtime = 0
+        index[fname] = {"tokens": tf, "token_count": token_count, "content": content, "mtime": mtime}
 
-    console.print()
-    console.print(f"[{DIM}]bye.[/]")
+        # DF 계산 (각 토큰이 등장하는 문서 수)
+        for t in set(tokens):
+            df[t] = df.get(t, 0) + 1
+
+    n = len(index)
+    _BM25_INDEX = index
+    _BM25_N = n
+    _BM25_DF = df
+    _BM25_AVG_DL = total_tokens / n if n > 0 else 1
+    print(f"  [BM25] 인덱스 빌드 완료: {n}개 문서, 평균 토큰 {_BM25_AVG_DL:.0f}")
 
 
-def _showcase(fn) -> None:
-    """모달 (모델 테이블/비교 매트릭스) — 일반 화면에 출력 후 키 한 번 대기."""
-    console.clear()
-    fn()
-    console.print(f"[{DIM}]아무 키나 눌러 돌아가기...[/]")
-    read_key()
+def _bm25_score(query_tokens, doc_tf, doc_len):
+    """BM25 스코어 계산"""
+    score = 0
+    for qt in query_tokens:
+        if qt not in _BM25_DF:
+            continue
+        n_qi = _BM25_DF[qt]
+        idf = math.log((_BM25_N - n_qi + 0.5) / (n_qi + 0.5) + 1)
+        tf = doc_tf.get(qt, 0)
+        numerator = tf * (_BM25_K1 + 1)
+        denominator = tf + _BM25_K1 * (1 - _BM25_B + _BM25_B * doc_len / max(_BM25_AVG_DL, 1))
+        score += idf * (numerator / denominator)
+    return score
 
 
-# ── 메인 ───────────────────────────────────────────────────
-def main() -> None:
-    p = argparse.ArgumentParser(
-        prog="hllm2",
-        description="HLLM_CLI — MDIR-style commander (A형)",
-    )
-    p.add_argument("--config", default=None)
-    p.add_argument("--token-file", default=None)
-    p.add_argument("--token", default=None)
-    p.add_argument("--model", default=None)
-    p.add_argument("--display", default="block",
-                   choices=("inline", "block", "card"))
-    p.add_argument("--no-fallback", action="store_true")
-    args = p.parse_args()
-
-    cfg = load_config(args.config)
-    token = args.token or load_token(args.token_file)
-
-    state = State(
-        config=cfg,
-        token=token,
-        display=args.display,
-        use_fallback=not args.no_fallback,
-    )
-
-    if args.model and args.model in cfg.get("models", {}):
-        state.model_id = args.model
-
-    if not sys.stdin.isatty():
-        console.print("[red]hllm2 는 인터랙티브 TTY 가 필요합니다.[/]")
-        sys.exit(2)
-
-    try:
-        commander(state)
-    except KeyboardInterrupt:
-        console.print(f"\n[{DIM}]^C — bye.[/]")
+# ── 서버 시작 시 인덱스 빌드 ──
+_build_bm25_index()
 
 
-if __name__ == "__main__":
-    main()
+def _get_user_knowledge_dir(user_id=None):
+    """사용자별 지식 폴더 경로 반환"""
+    if user_id:
+        udir = os.path.join(KNOWLEDGE_DIR, user_id)
+        os.makedirs(udir, exist_ok=True)
+        return udir
+    return KNOWLEDGE_DIR
+
+
+def _build_knowledge_triggers():
+    """knowledge/ 전체 하위 폴더에서 트리거 키워드 추출"""
+    static_triggers = [
+        "아키텍처", "architecture", "허브룸", "hubroom", "아틀라스", "atlas",
+        "데드락", "deadlock", "급증", "amhs", "산출물", "컬럼", "접속정보",
+        "통신방식", "예측모델", "변경사항", "변경상황", "도메인", "지식",
+    ]
+    dynamic_triggers = set()
+    if os.path.isdir(KNOWLEDGE_DIR):
+        for root, dirs, files in os.walk(KNOWLEDGE_DIR):
+            for fname in files:
+                if not fname.lower().endswith('.md'):
+                    continue
+                name = fname.rsplit('.', 1)[0]
+                parts = re.split(r'[_\-\s]+', name)
+                for p in parts:
+                    p_lower = p.lower()
+                    if re.match(r'^\d{8}$', p_lower):
+                        continue
+                    if p_lower in ('fab', 'md') or len(p_lower) < 2:
+                        continue
+                    dynamic_triggers.add(p_lower)
+    return list(set(static_triggers) | dynamic_triggers)
+
+
+KNOWLEDGE_TRIGGERS = _build_knowledge_triggers()
+
+
+def search_knowledge(query, max_results=5, max_content_chars=8000, user_id=None):
+    """사용자별 knowledge 폴더에서 BM25 + 메타데이터 기반 검색
+
+    BM25 업그레이드 (2026-04-12):
+    - IDF: 희귀 키워드일수록 높은 가중치
+    - 문서 길이 보정: 긴 문서 패널티
+    - k1=1.5, b=0.75
+    """
+    # 사용자별 폴더 검색 (user_id 없으면 전체 검색)
+    search_dir = os.path.join(KNOWLEDGE_DIR, user_id) if user_id else KNOWLEDGE_DIR
+    if not os.path.isdir(search_dir):
+        return []
+
+    # 사용자별 폴더: 인덱스 캐시 (파일 추가/삭제 또는 수정시간 변경 시 재빌드)
+    _current_files = {}
+    for f in os.listdir(search_dir):
+        if f.endswith('.md'):
+            try:
+                _current_files[f] = os.path.getmtime(os.path.join(search_dir, f))
+            except OSError:
+                _current_files[f] = 0
+    _indexed_files = {f: info.get('mtime', 0) for f, info in _BM25_INDEX.items()}
+    if _current_files != _indexed_files:
+        _build_bm25_index(search_dir)
+
+    q_lower = query.lower()
+
+    # ── 1단계: 컬럼명 패턴 감지 ──
+    column_pattern = re.findall(r'([A-Za-z0-9]+(?:\.[A-Za-z0-9_]+){2,})', query)
+    fab_prefixes = set()
+    full_columns = []
+    for col in column_pattern:
+        parts = col.split('.')
+        fab = parts[0].upper()
+        fab_prefixes.add(fab)
+        full_columns.append(col.lower())
+
+    # ── 1.5단계: 자연어 날짜 → YYYYMMDD 변환 ──
+    from datetime import datetime, timedelta
+    today = datetime.now()
+    date_keywords = []
+
+    if "오늘" in q_lower:
+        date_keywords.append(today.strftime("%Y%m%d"))
+    if "어제" in q_lower:
+        date_keywords.append((today - timedelta(days=1)).strftime("%Y%m%d"))
+
+    date_patterns = re.findall(r'(\d{1,2})\s*월\s*(\d{1,2})\s*일', query)
+    for month, day in date_patterns:
+        try:
+            dt = datetime(today.year, int(month), int(day))
+            date_keywords.append(dt.strftime("%Y%m%d"))
+        except ValueError:
+            pass
+
+    # 키워드 추출
+    stopwords = {"은", "는", "이", "가", "을", "를", "의", "에", "와", "과", "도", "로", "으로",
+                 "에서", "부터", "까지", "한", "할", "하는", "된", "되는", "있는", "없는",
+                 "the", "a", "an", "is", "are", "in", "on", "at", "to", "for", "of", "and", "or",
+                 "것", "수", "등", "및", "중", "뭐", "좀", "해", "줘", "알려", "보여", "찾아",
+                 "que", "all", "stk", "lft", "pdt", "sfab"}
+    raw_keywords = [w.strip() for w in re.split(r'[\s,?!·]+', q_lower) if w.strip()]
+    keywords = []
+    for w in raw_keywords:
+        if '.' in w and re.match(r'[a-z0-9]+\.[a-z0-9_.]+', w):
+            continue
+        keywords.append(w)
+    keywords = [w for w in keywords if w not in stopwords and len(w) >= 1]
+    for fab in fab_prefixes:
+        fab_l = fab.lower()
+        if fab_l not in keywords:
+            keywords.append(fab_l)
+    for dk in date_keywords:
+        if dk not in keywords:
+            keywords.append(dk)
+
+    query_nospace = re.sub(r'\s+', '', q_lower)
+    query_tokens = _tokenize(query)
+
+    if not keywords and not full_columns and not query_tokens:
+        return []
+
+    results = []
+    for fname in os.listdir(search_dir):
+        if not fname.endswith('.md'):
+            continue
+        fpath = os.path.join(search_dir, fname)
+        fname_lower = fname.lower()
+        fname_nospace = re.sub(r'[_\-\s.]', '', fname_lower)
+
+        try:
+            with open(fpath, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except Exception:
+            continue
+
+        # ── 프론트매터 파싱 ──
+        fm_tags = []
+        fm_fabs = []
+        fm_category = ""
+        fm_desc = ""
+        fm_text = ""
+        body = content
+        if content.startswith('---'):
+            parts = content.split('---', 2)
+            if len(parts) >= 3:
+                fm_text = parts[1]
+                body = parts[2]
+                for line in fm_text.split('\n'):
+                    line = line.strip()
+                    if line.startswith('tags:'):
+                        fm_tags = [t.strip().lower() for t in re.findall(r'[\w가-힣]+', line.split(':', 1)[1])]
+                    elif line.startswith('fab:'):
+                        fm_fabs = [f.strip().lower() for f in re.findall(r'[\w]+', line.split(':', 1)[1])]
+                    elif line.startswith('category:'):
+                        fm_category = line.split(':', 1)[1].strip().lower()
+                    elif line.startswith('description:'):
+                        fm_desc = line.split(':', 1)[1].strip().strip('"').lower()
+
+        content_lower = content.lower()
+        content_nospace = re.sub(r'\s+', '', content_lower)
+
+        total_score = 0
+
+        # ── 프론트매터 날짜 매칭 ──
+        fm_date = ""
+        if content.startswith('---'):
+            for line in fm_text.split('\n'):
+                line = line.strip()
+                if line.startswith('date:'):
+                    fm_date = line.split(':', 1)[1].strip()
+                    break
+        for dk in date_keywords:
+            dk_dash = f"{dk[:4]}-{dk[4:6]}-{dk[6:8]}" if len(dk) == 8 else dk
+            if dk in fname_lower or dk_dash == fm_date:
+                total_score += 25
+
+        # ── 프론트매터 태그 매칭 ──
+        for kw in keywords:
+            if kw in fm_tags:
+                total_score += 15
+        # ── 프론트매터 FAB 매칭 ──
+        for fab in fab_prefixes:
+            if fab.lower() in fm_fabs:
+                total_score += 20
+        for kw in keywords:
+            if kw in fm_fabs:
+                total_score += 15
+        # ── 카테고리 매칭 ──
+        cat_keywords = {"컬럼": "column_definition", "아키텍처": "architecture", "변경": "changelog",
+                        "산출물": "specification", "계획": "plan", "가이드": "guide"}
+        for kw in keywords:
+            if cat_keywords.get(kw) == fm_category:
+                total_score += 10
+        # ── description 매칭 ──
+        for kw in keywords:
+            if kw in fm_desc:
+                total_score += 10
+
+        # ── 컬럼명 직접 매칭 (최우선) ──
+        for col in full_columns:
+            if col in content_lower:
+                total_score += 30
+
+        # ── FAB 접두사 → 파일명 매칭 ──
+        for fab in fab_prefixes:
+            fab_l = fab.lower()
+            if fab_l in fname_lower or fab_l in fname_nospace:
+                total_score += 20
+
+        # 1. 파일명 매칭 (긴 식별자는 큰 보너스 — FREE_FLOW_SPEED_HID_VALUE 같은 합성어 대응)
+        for kw in keywords:
+            if kw in fname_lower or kw in fname_nospace:
+                # 8자 이상 언더스코어 포함 식별자는 확실한 타겟이므로 +40
+                if len(kw) >= 8 and '_' in kw:
+                    total_score += 40
+                else:
+                    total_score += 10
+
+        # 2. BM25 스코어 (토큰 일치 기반)
+        if fname in _BM25_INDEX:
+            doc_info = _BM25_INDEX[fname]
+            bm25 = _bm25_score(query_tokens, doc_info["tokens"], doc_info["token_count"])
+            total_score += int(bm25 * 10)  # 스케일링
+
+        # 2-b. 부분문자열 TF (BM25 토크나이저가 놓치는 FREE_FLOW_SPEED_HID_VALUE 같은 합성어 대응)
+        # - BM25는 `_`로 연결된 긴 합성 토큰 vs 컨텐츠 내 분리된 짧은 토큰을 매칭 못함
+        # - 그래서 BM25 점수와 별개로 substring count도 항상 합산
+        for kw in keywords:
+            count = content_lower.count(kw)
+            if count > 0:
+                total_score += min(count, 10)
+            else:
+                count_nospace = content_nospace.count(kw)
+                if count_nospace > 0:
+                    total_score += min(count_nospace, 5)
+
+        # 3. 구문 일치 보너스
+        if len(keywords) >= 2:
+            for i in range(len(keywords) - 1):
+                bigram = keywords[i] + keywords[i + 1]
+                if bigram in content_nospace or bigram in fname_nospace:
+                    total_score += 15
+            if query_nospace in content_nospace or query_nospace in fname_nospace:
+                total_score += 20
+
+        # 4. 한글 유사 문자 매칭
+        for kw in keywords:
+            for a, b in [("률", "율"), ("렬", "열"), ("례", "예")]:
+                alt_kw = kw.replace(a, b) if a in kw else kw.replace(b, a) if b in kw else None
+                if alt_kw and alt_kw != kw and alt_kw in content_lower:
+                    total_score += 3
+
+        if total_score > 0:
+            preview_parts = []
+            for kw in keywords:
+                pos = content_lower.find(kw)
+                if pos == -1:
+                    pos_ns = content_nospace.find(kw)
+                    if pos_ns != -1:
+                        pos = min(pos_ns, len(content) - 1)
+                if pos != -1:
+                    start = max(0, pos - 80)
+                    end = min(len(content), pos + len(kw) + 80)
+                    snippet = content[start:end].replace('\n', ' ').strip()
+                    if start > 0:
+                        snippet = '...' + snippet
+                    if end < len(content):
+                        snippet = snippet + '...'
+                    preview_parts.append(snippet)
+
+            results.append({
+                "filename": fname,
+                "score": total_score,
+                "content": content[:max_content_chars],
+                "content_length": len(content),
+                "preview": preview_parts[:3],
+            })
+
+    results.sort(key=lambda x: x["score"], reverse=True)
+    if results:
+        top_score = results[0]["score"]
+        min_score = max(5, top_score * 0.3)
+        results = [r for r in results if r["score"] >= min_score]
+    return results[:max_results]
+
+
+def register_knowledge_routes(app):
+    """Register knowledge API routes."""
+
+    @app.route("/api/knowledge/search", methods=["POST"])
+    def api_knowledge_search():
+        """도메인 지식 BM25 검색 API"""
+        data = request.json or {}
+        query = data.get("query", "").strip()
+        user_id = data.get("user_id", None)
+        if not query:
+            return jsonify({"error": "query 파라미터가 필요합니다."}), 400
+
+        results = search_knowledge(query, user_id=user_id)
+
+        if not results:
+            files = []
+            if os.path.isdir(KNOWLEDGE_DIR):
+                files = [f for f in os.listdir(KNOWLEDGE_DIR) if f.endswith('.md')]
+            return jsonify({
+                "query": query,
+                "results": [],
+                "total": 0,
+                "message": f"'{query}'에 매칭되는 문서가 없습니다.",
+                "available_files": files,
+            })
+
+        return jsonify({
+            "query": query,
+            "results": [{"filename": r["filename"], "score": r["score"], "preview": r["preview"], "content_length": r["content_length"]} for r in results],
+            "total": len(results),
+        })
+
+    @app.route("/api/knowledge/files", methods=["GET"])
+    def api_knowledge_files():
+        """knowledge 폴더 파일 목록 반환 (q, date 필터 지원)"""
+        q = request.args.get("q", "").strip().lower()
+        date_filter = request.args.get("date", "").strip()
+        user_id = request.args.get("user_id", None)
+        target_dir = os.path.join(KNOWLEDGE_DIR, user_id) if user_id else KNOWLEDGE_DIR
+
+        files = []
+        total_size = 0
+        fab_set = set()
+        if os.path.isdir(target_dir):
+            for fname in sorted(os.listdir(target_dir)):
+                if not fname.endswith('.md'):
+                    continue
+                fpath = os.path.join(target_dir, fname)
+                size = os.path.getsize(fpath)
+                total_size += size
+
+                # FAB 카운트
+                if fname.upper().startswith("FAB_"):
+                    fab_name = fname.split("_")[1] if "_" in fname else ""
+                    if fab_name:
+                        fab_set.add(fab_name)
+
+                # 필터
+                if q and q not in fname.lower():
+                    continue
+                if date_filter and date_filter not in fname:
+                    continue
+
+                files.append({"filename": fname, "size": size})
+
+        return jsonify({
+            "files": files,
+            "total": len(files),
+            "total_size": total_size,
+            "fab_count": len(fab_set),
+        })
+
+    @app.route("/api/knowledge/view/<path:filename>", methods=["GET"])
+    def api_knowledge_view(filename):
+        """knowledge 파일 내용 조회"""
+        user_id = request.args.get("user_id", None)
+        target_dir = os.path.join(KNOWLEDGE_DIR, user_id) if user_id else KNOWLEDGE_DIR
+        fpath = os.path.join(target_dir, filename)
+
+        if not os.path.isfile(fpath):
+            return jsonify({"error": f"파일을 찾을 수 없습니다: {filename}"}), 404
+
+        try:
+            with open(fpath, 'r', encoding='utf-8') as f:
+                content = f.read()
+            return jsonify({
+                "filename": filename,
+                "content": content,
+                "size": os.path.getsize(fpath),
+            })
+        except Exception as e:
+            return jsonify({"error": f"파일 읽기 실패: {str(e)}"}), 500
+
+    @app.route("/api/knowledge/download/<path:filename>", methods=["GET"])
+    def api_knowledge_download(filename):
+        """knowledge 파일 다운로드"""
+        user_id = request.args.get("user_id", None)
+        target_dir = os.path.join(KNOWLEDGE_DIR, user_id) if user_id else KNOWLEDGE_DIR
+        fpath = os.path.join(target_dir, filename)
+
+        if not os.path.isfile(fpath):
+            return jsonify({"error": f"파일을 찾을 수 없습니다: {filename}"}), 404
+
+        return send_file(fpath, as_attachment=True, download_name=filename)
+
+    @app.route("/knowledge", methods=["GET"])
+    def knowledge_explorer():
+        """지식 도메인 탐색 페이지"""
+        return """<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>지식 도메인 탐색</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Pretendard","Noto Sans KR",sans-serif;background:#f5f5f5;color:#1a1a2e}
+.header{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;padding:1.5rem 2rem;display:flex;align-items:center;gap:1rem}
+.header h1{font-size:1.5rem}
+.stats{display:flex;gap:1rem;margin-left:auto;font-size:0.85rem}
+.stat{background:rgba(255,255,255,0.15);padding:0.4rem 0.8rem;border-radius:8px}
+.controls{padding:1rem 2rem;background:#fff;border-bottom:1px solid #e2e8f0;display:flex;gap:0.8rem;flex-wrap:wrap}
+.controls input,.controls select{padding:0.5rem 0.8rem;border:1px solid #cbd5e1;border-radius:6px;font-size:0.9rem}
+.controls input{flex:1;min-width:200px}
+.controls button{padding:0.5rem 1rem;background:#6366f1;color:#fff;border:none;border-radius:6px;cursor:pointer}
+.controls button:hover{background:#4f46e5}
+.file-list{padding:1rem 2rem;display:grid;gap:0.6rem}
+.file-item{background:#fff;padding:0.8rem 1.2rem;border-radius:8px;display:flex;align-items:center;gap:1rem;border:1px solid #e2e8f0;cursor:pointer;transition:all 0.15s}
+.file-item:hover{border-color:#6366f1;box-shadow:0 2px 8px rgba(99,102,241,0.15)}
+.file-name{flex:1;font-weight:500;font-size:0.95rem}
+.file-size{color:#64748b;font-size:0.8rem}
+.file-actions{display:flex;gap:0.4rem}
+.file-actions button{padding:0.3rem 0.6rem;font-size:0.75rem;border:1px solid #cbd5e1;background:#fff;border-radius:4px;cursor:pointer}
+.file-actions button:hover{background:#f1f5f9}
+.modal-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center}
+.modal-overlay.active{display:flex}
+.modal{background:#fff;width:80%;max-width:900px;max-height:80vh;border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+.modal-header{padding:1rem 1.5rem;background:#f8fafc;border-bottom:1px solid #e2e8f0;display:flex;align-items:center}
+.modal-header h3{flex:1}
+.modal-header button{background:none;border:none;font-size:1.2rem;cursor:pointer}
+.modal-body{padding:1.5rem;overflow-y:auto;white-space:pre-wrap;font-family:"Fira Code",monospace;font-size:0.85rem;line-height:1.6}
+.empty{text-align:center;padding:3rem;color:#94a3b8}
+</style>
+</head>
+<body>
+<div class="header">
+    <h1>📚 지식 도메인 탐색</h1>
+    <div class="stats">
+        <span class="stat" id="statTotal">문서: -</span>
+        <span class="stat" id="statSize">용량: -</span>
+        <span class="stat" id="statFab">FAB: -</span>
+    </div>
+</div>
+<div class="controls">
+    <input type="text" id="searchInput" placeholder="키워드 검색 (파일명 + 내용)">
+    <select id="catFilter">
+        <option value="">전체 카테고리</option>
+        <option value="FAB_">FAB</option>
+        <option value="산출물">산출물</option>
+        <option value="변경">변경사항</option>
+        <option value="계획">계획</option>
+        <option value="아키텍처">아키텍처</option>
+        <option value="주간">주간보고</option>
+    </select>
+    <button onclick="loadFiles()">🔍 검색</button>
+</div>
+<div class="file-list" id="fileList"><div class="empty">로딩 중...</div></div>
+
+<div class="modal-overlay" id="modal">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 id="modalTitle">파일</h3>
+            <button onclick="closeModal()">✕</button>
+        </div>
+        <div class="modal-body" id="modalBody"></div>
+    </div>
+</div>
+
+<script>
+let allFiles = [];
+
+async function loadFiles() {
+    const q = document.getElementById('searchInput').value.trim();
+    const cat = document.getElementById('catFilter').value;
+    const searchQ = cat ? cat : q;
+    const res = await fetch('/api/knowledge/files?q=' + encodeURIComponent(searchQ));
+    const data = await res.json();
+    allFiles = data.files || [];
+
+    document.getElementById('statTotal').textContent = '문서: ' + data.total;
+    document.getElementById('statSize').textContent = '용량: ' + (data.total_size / 1024).toFixed(1) + ' KB';
+    document.getElementById('statFab').textContent = 'FAB: ' + (data.fab_count || 0);
+
+    let filtered = allFiles;
+    if (q && cat) {
+        filtered = allFiles.filter(f => f.filename.toLowerCase().includes(q.toLowerCase()));
+    }
+
+    const list = document.getElementById('fileList');
+    if (filtered.length === 0) {
+        list.innerHTML = '<div class="empty">검색 결과가 없습니다.</div>';
+        return;
+    }
+    list.innerHTML = filtered.map(f => `
+        <div class="file-item" onclick="viewFile('${f.filename}')">
+            <span>📄</span>
+            <span class="file-name">${f.filename}</span>
+            <span class="file-size">${(f.size/1024).toFixed(1)} KB</span>
+            <div class="file-actions">
+                <button onclick="event.stopPropagation();viewFile('${f.filename}')">보기</button>
+                <button onclick="event.stopPropagation();location.href='/api/knowledge/download/${f.filename}'">다운로드</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function viewFile(filename) {
+    const res = await fetch('/api/knowledge/view/' + encodeURIComponent(filename));
+    const data = await res.json();
+    document.getElementById('modalTitle').textContent = filename;
+    document.getElementById('modalBody').textContent = data.content || '내용 없음';
+    document.getElementById('modal').classList.add('active');
+}
+
+function closeModal() {
+    document.getElementById('modal').classList.remove('active');
+}
+
+document.getElementById('modal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+});
+
+document.getElementById('searchInput').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') loadFiles();
+});
+
+loadFiles();
+</script>
+</body>
+</html>"""
