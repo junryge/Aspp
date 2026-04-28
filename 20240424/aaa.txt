@@ -1,591 +1,478 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-3단계 데드락 룰베이스 사건 단위 추출 스크립트 (CSV 저장 전용 — print 제거 버전)
+hllm2.py — HLLM_CLI · MDIR-style commander (A형, 풀 패널)
 
-룰:
-  R-A'         : 1MIN ≥ 9분이 10분창 1회+
-  ra_sustained : 1MIN ≥ 6분이 5분창 3회+
-  R-B          : M14→M16 +100/30분
-  rb_fast      : M14→M16 +30/10분
-  R-C'         : 리프터 합 감소 + 역증가 2개+
+90년대 도스 시절 MDIR 룩앤필을 닮은 풀스크린 커맨더.
+- 좌측: 모델 리스트 (config.json 의 7개)
+- 우측: 선택 모델 메타 + 최근 대화 미리보기
+- 하단: F1~F10 펑션 바
+- Enter 로 챗 진입 (hlim.chat_loop 재사용), 챗에서 빠져나오면 커맨더 복귀
 
-  S1 = R-A' 2회+ OR ra_sustained
-  S2 = R-B OR rb_fast
-  S3 = R-A' AND R-B AND R-C'
-
-출력 (날짜별 파일 — append 또는 신규 생성):
-    <YYYYMMDD>_발동이벤트.csv   (매 분 1행)
-    <YYYYMMDD>_사건단위.csv     (S3 사건만)
-
-사용법:
-    python3 3단계_룰베이스_사건단위.py STAR.csv
-    python3 3단계_룰베이스_사건단위.py STAR.csv -o ./out
-    python3 3단계_룰베이스_사건단위.py STAR.csv --watch --interval 60 -o ./out
+사용:
+    python hllm2.py
+    python hllm2.py --token-file TOKEN.TXT
+    python hllm2.py --display card
 """
 
-import csv
+from __future__ import annotations
+
+import argparse
 import os
 import sys
-import time
-from collections import deque
-from datetime import datetime, timedelta
+from contextlib import contextmanager
+from datetime import datetime
+
+IS_WINDOWS = os.name == "nt"
+
+if IS_WINDOWS:
+    import msvcrt
+    termios = None  # type: ignore
+    tty = None      # type: ignore
+else:
+    import termios
+    import tty
+
+# hlim.py 의 도메인 로직 전부 재사용
+from hlim import (
+    State,
+    chat_loop,
+    console,
+    cost_tier_color,
+    cost_tier_label,
+    load_config,
+    load_token,
+    models_sorted,
+    show_compare,
+    show_model_info,
+)
+
+try:
+    from rich.layout import Layout
+    from rich.panel import Panel
+    from rich.text import Text
+    from rich.align import Align
+    from rich.box import DOUBLE, HEAVY
+except ImportError:
+    sys.stderr.write("[hllm2] rich 가 필요합니다.  pip install rich\n")
+    sys.exit(1)
 
 
-# ====== 상수 ======
-WINDOW_MIN = 90
-
-LIFTER_IDS = [
-    '6ABL6011', '6ABL6012', '6ABL6021', '6ABL6022',
-    '6ABL6031', '6ABL6032', '6ABL0111', '6ABL0112',
-    '6ABL0121', '6ABL0122',
-]
-
-TH_RA_VALUE = 9.0
-TH_RA_SUSTAINED_VALUE = 6.0
-TH_RA_SUSTAINED_COUNT = 3
-TH_RB_DIFF_30 = 100
-TH_RB_DIFF_10 = 30
-TH_RC_REVERSE = 2
-
-INCIDENT_END_GAP_MIN = 10
-PREDICT_LOOKBACK_MIN = 60
+# ── MDIR 팔레트 ────────────────────────────────────────────
+BG          = "blue"
+TITLE_FG    = "bright_yellow"
+KEY_NUM     = "bright_yellow"
+KEY_LBL     = "white on cyan"
+FG          = "white"
+DIM         = "bright_black"
+SEL         = "black on bright_yellow"     # 선택 항목 반전
+PANEL_BD    = "bright_white"
+ON_BG       = f"{FG} on {BG}"
+TITLE_STYLE = f"bold {TITLE_FG} on {BG}"
 
 
-# ====== 유틸 ======
-def safe_float(v):
+# ── 키 입력 (POSIX raw) ────────────────────────────────────
+if IS_WINDOWS:
+    # Windows 콘솔에서 ANSI 색상 활성화 (Windows 10 1607+)
     try:
-        return float(v) if v not in (None, '', 'null') else None
-    except (ValueError, TypeError):
-        return None
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        # ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+        kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
+    except Exception:
+        pass
 
+    @contextmanager
+    def raw_tty():
+        # Windows 는 msvcrt.getch 가 직접 raw 라 모드 전환 불필요
+        yield None
 
-def safe_int(v):
-    try:
-        return int(float(v)) if v not in (None, '', 'null') else None
-    except (ValueError, TypeError):
-        return None
+    @contextmanager
+    def cooked_tty(_cooked):
+        # cooked 도 기본 상태라 no-op
+        yield
 
-
-def parse_time(s):
-    if not s:
-        return None
-    s = s.strip().strip('"').strip("'")
-    if 'T' in s and '+' in s.split('T')[1]:
-        s = s.split('+')[0]
-    if s.endswith('Z'):
-        s = s[:-1]
-    if '.' in s:
-        s = s.split('.')[0]
-    for fmt in ('%Y-%m-%d %H:%M:%S', '%Y/%m/%d %H:%M:%S',
-                '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M',
-                '%Y%m%d%H%M%S', '%Y%m%d %H%M%S'):
-        try:
-            return datetime.strptime(s, fmt)
-        except ValueError:
-            continue
-    return None
-
-
-def detect_prefix(fieldnames):
-    anchor = '.QUE.ALL.CURRENTQCNT'
-    for col in fieldnames or []:
-        if col and col.endswith(anchor):
-            return col[:-len(anchor)]
-    return None
-
-
-# ====== STAR 로드 ======
-def iter_star_rows(filepath):
-    with open(filepath, 'r', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        prefix = detect_prefix(reader.fieldnames)
-        if not prefix:
-            return
-
-        def C(suffix):
-            return f"{prefix}{suffix}"
-
-        for row in reader:
-            t = parse_time(row.get('CRT_TM', ''))
-            if not t:
-                continue
-            star = {
-                'avgtotal1min': safe_float(row.get(C('.QUE.TIME.AVGTOTALTIME1MIN'))),
-                'm14_to_m16':   safe_int(row.get(C('.QUE.M14TOM16.MESCURRENTQCNT'))),
-                'lft_list': {
-                    lid: safe_int(row.get(C(f'.LFT.{lid}.TOTAL_CURRENTQCNT')))
-                    for lid in LIFTER_IDS
-                },
-            }
-            star['lft_list'] = {k: v for k, v in star['lft_list'].items() if v is not None}
-            yield t, star, prefix
-
-
-# ====== 룰 평가 ======
-def evaluate_rules(t1_window, m14_window, lft_window):
-    t1_list = list(t1_window)
-    m14_list = list(m14_window)
-    lft_list = list(lft_window)
-
-    recent_t1 = t1_list[-10:]
-    ra_count = sum(1 for v in recent_t1 if v is not None and v >= TH_RA_VALUE)
-    ra_value = recent_t1[-1] if recent_t1 else None
-    ra_trig = ra_count >= 1
-
-    ra_sustained = False
-    if len(recent_t1) >= 5:
-        last5 = [v for v in recent_t1[-5:] if v is not None]
-        if len(last5) >= 3:
-            ra_sustained = sum(1 for v in last5 if v >= TH_RA_SUSTAINED_VALUE) >= TH_RA_SUSTAINED_COUNT
-
-    rb_diff = 0
-    rb_trig = False
-    if len(m14_list) >= 31 and m14_list[-1] is not None and m14_list[-31] is not None:
-        rb_diff = m14_list[-1] - m14_list[-31]
-        rb_trig = rb_diff >= TH_RB_DIFF_30
-
-    rb_fast = False
-    rb_diff_10 = 0
-    if len(m14_list) >= 11 and m14_list[-1] is not None and m14_list[-11] is not None:
-        rb_diff_10 = m14_list[-1] - m14_list[-11]
-        rb_fast = rb_diff_10 >= TH_RB_DIFF_10
-
-    rc_trend = 0
-    rev_count = 0
-    rev_lids = []
-    rc_trig = False
-    if len(lft_list) >= 21 and lft_list[-1] and lft_list[-21]:
-        now_l = lft_list[-1]
-        prev_l = lft_list[-21]
-        rc_trend = sum(now_l.values()) - sum(prev_l.values())
-        for lid in now_l:
-            if now_l[lid] > prev_l.get(lid, 0):
-                rev_lids.append(lid)
-                rev_count += 1
-        rc_trig = rc_trend < 0 and rev_count >= TH_RC_REVERSE
-
-    s1 = (ra_count >= 2) or ra_sustained
-    s2 = rb_trig or rb_fast
-    s3 = ra_trig and rb_trig and rc_trig
-
-    ctx = {
-        'ra_count': ra_count,
-        'ra_value': ra_value,
-        'ra_sustained': ra_sustained,
-        'ra_trig': ra_trig,
-        'rb_diff': rb_diff,
-        'rb_diff_10': rb_diff_10,
-        'rb_fast': rb_fast,
-        'rb_trig': rb_trig,
-        'rc_trend': rc_trend,
-        'rc_trig': rc_trig,
-        'rev_count': rev_count,
-        'rev_lids': rev_lids,
+    # Windows 확장키 코드 (msvcrt: prefix 0x00 또는 0xE0 + 다음 1바이트)
+    _WIN_E0 = {
+        b"H": "UP", b"P": "DOWN", b"K": "LEFT", b"M": "RIGHT",
+        b"G": "HOME", b"O": "END", b"I": "PGUP", b"Q": "PGDN",
+        b"\x85": "F11", b"\x86": "F12",
     }
-    return s1, s2, s3, ctx
-
-
-# ====== 사건 추적 FSM ======
-class IncidentTracker:
-    def __init__(self):
-        self.state = 'IDLE'
-        self.current = None
-        self.incidents = []
-        self.early_signals = deque(maxlen=PREDICT_LOOKBACK_MIN)
-        self.events = []
-        self.last_stage = 0
-
-    def _record_event(self, t, stage, ctx):
-        is_transition = stage != self.last_stage
-        if stage == 0:
-            reason = "이벤트 없음"
-        elif stage == 1:
-            if ctx.get('ra_count', 0) >= 2:
-                reason = f"1MIN ≥9분이 {ctx['ra_count']}회"
-            elif ctx.get('ra_sustained'):
-                reason = "1MIN ≥6분 지속"
-            else:
-                reason = "1단계 발동"
-        elif stage == 2:
-            if ctx.get('rb_diff', 0) >= 100:
-                reason = f"M14→M16 +{ctx['rb_diff']} (30분간)"
-            elif ctx.get('rb_fast'):
-                reason = f"M14→M16 +{ctx.get('rb_diff_10', 0)} (10분간 fast)"
-            else:
-                reason = "2단계 발동"
-        elif stage == 3:
-            reason = (f"AND 만족 (1MIN {ctx.get('ra_value') or 0:.2f}, "
-                      f"M14→M16 +{ctx.get('rb_diff', 0)}, "
-                      f"역증가 {ctx.get('rev_count', 0)}개)")
-        else:
-            reason = "이벤트 없음"
-        self.events.append({
-            'time': t,
-            'stage': stage,
-            'prev_stage': self.last_stage,
-            'reason': reason,
-            'is_transition': is_transition,
-            'ra_value': ctx.get('ra_value'),
-            'ra_count': ctx.get('ra_count', 0),
-            'ra_sustained': bool(ctx.get('ra_sustained')),
-            'rb_diff': ctx.get('rb_diff', 0),
-            'rb_diff_10': ctx.get('rb_diff_10', 0),
-            'rc_trend': ctx.get('rc_trend', 0),
-            'rev_count': ctx.get('rev_count', 0),
-        })
-        self.last_stage = stage
-
-    def update(self, t, s1, s2, s3, ctx):
-        if s1 or s2:
-            self.early_signals.append(t)
-
-        cur_stage = 3 if s3 else (2 if s2 else (1 if s1 else 0))
-        self._record_event(t, cur_stage, ctx)
-
-        if self.state == 'IDLE':
-            if s3:
-                self._start_new(t, ctx)
-        else:
-            if s3:
-                last_s3 = self.current['last_s3_time']
-                if (t - last_s3).total_seconds() / 60.0 >= INCIDENT_END_GAP_MIN:
-                    self.current['refire_count'] += 1
-                self._update_current(t, ctx)
-            else:
-                last_s3 = self.current['last_s3_time']
-                if (t - last_s3).total_seconds() / 60.0 >= INCIDENT_END_GAP_MIN:
-                    self._end_current(t)
-
-    def _start_new(self, t, ctx):
-        cutoff = t - timedelta(minutes=PREDICT_LOOKBACK_MIN)
-        early = [x for x in self.early_signals if x >= cutoff]
-        predict_time = min(early) if early else t
-
-        self.current = {
-            'predict_time': predict_time,
-            'start_time': t,
-            'last_s3_time': t,
-            'end_time': t,
-            'refire_count': 0,
-            'max_1min': ctx['ra_value'] or 0,
-            'max_rb_diff': ctx['rb_diff'] or 0,
-            'max_rev': ctx['rev_count'] or 0,
-            'rev_lids_union': set(ctx.get('rev_lids') or []),
-        }
-        self.state = 'IN_INCIDENT'
-
-    def _update_current(self, t, ctx):
-        c = self.current
-        c['last_s3_time'] = t
-        c['end_time'] = t
-        if ctx['ra_value'] and ctx['ra_value'] > c['max_1min']:
-            c['max_1min'] = ctx['ra_value']
-        if ctx['rb_diff'] and ctx['rb_diff'] > c['max_rb_diff']:
-            c['max_rb_diff'] = ctx['rb_diff']
-        if ctx['rev_count'] and ctx['rev_count'] > c['max_rev']:
-            c['max_rev'] = ctx['rev_count']
-        c['rev_lids_union'].update(ctx.get('rev_lids') or [])
-
-    def _end_current(self, t):
-        c = self.current
-        c['end_time'] = c['last_s3_time']
-        self.incidents.append(c)
-        self.current = None
-        self.state = 'IDLE'
-
-    def finalize(self, last_t):
-        if self.state == 'IN_INCIDENT':
-            self.current['end_time'] = self.current['last_s3_time']
-            self.incidents.append(self.current)
-            self.current = None
-            self.state = 'IDLE'
-
-
-# ====== 사건 → CSV 행 변환 ======
-def _classify_severity(refire_count, max_1min):
-    if refire_count >= 4 or max_1min >= 20:
-        return '★★★'
-    elif refire_count >= 2 or max_1min >= 15:
-        return '★★'
-    elif refire_count >= 1 or max_1min >= 10:
-        return '★'
-    return '-'
-
-
-def _build_explanation(max_1min, max_rb_diff, max_rev):
-    ra_val = float(max_1min or 0)
-    rb_val = int(max_rb_diff or 0)
-    rc_val = int(max_rev or 0)
-
-    ra_score = round(100 * (ra_val / 9.0 - 1), 1) if ra_val >= 9.0 else 0
-    rb_score = round(100 * (rb_val / 100.0 - 1), 1) if rb_val >= 100 else 0
-    rc_score = round(100 * (rc_val / 2.0 - 1), 1) if rc_val >= 2 else 0
-
-    contrib = [
-        ("R-A' 반송시간", ra_score, f"{ra_val:.2f}분 (기준 9분)"),
-        ("R-B FAB큐",    rb_score, f"+{rb_val} (기준 +100)"),
-        ("R-C' 리프터",  rc_score, f"{rc_val}개 역증가 (기준 2개)"),
-    ]
-    contrib.sort(key=lambda x: -x[1])
-
-    primary_cause = contrib[0][0] if contrib[0][1] > 0 else '기준 미달'
-    breakdown = ' | '.join(f"{name} {desc}" for name, _, desc in contrib)
-
-    if contrib[0][1] > 50:
-        impact = '매우 강함'
-    elif contrib[0][1] > 20:
-        impact = '강함'
-    elif contrib[0][1] > 0:
-        impact = '보통'
-    else:
-        impact = '약함'
-
-    parts = []
-    if ra_score > 0:
-        parts.append(f"반송시간 {ra_val:.1f}분")
-    if rb_score > 0:
-        parts.append(f"FAB간 큐 +{rb_val}")
-    if rc_score > 0:
-        parts.append(f"리프터 역증가 {rc_val}개")
-
-    if not parts:
-        explanation = '3단계 조건 일부만 부분 충족'
-    else:
-        explanation = f"{primary_cause} 주도 ({impact}): " + ", ".join(parts)
-
-    return primary_cause, breakdown, explanation
-
-
-def incident_to_row(c, file_name):
-    duration_min = round((c['end_time'] - c['start_time']).total_seconds() / 60.0, 1)
-    lead_min = round((c['start_time'] - c['predict_time']).total_seconds() / 60.0)
-    primary_cause, breakdown, explanation = _build_explanation(
-        c['max_1min'], c['max_rb_diff'], c['max_rev']
-    )
-    early_warning = (
-        f"{c['predict_time'].strftime('%H:%M')} 1·2단계 발동 → "
-        f"{c['start_time'].strftime('%H:%M')} 3단계 확정 ({lead_min}분 먼저 인지)"
-    )
-    return {
-        'file': file_name,
-        'date': c['start_time'].strftime('%Y-%m-%d'),
-        'predict_time': c['predict_time'].strftime('%H:%M'),
-        'start_time': c['start_time'].strftime('%H:%M'),
-        'end_time': c['end_time'].strftime('%H:%M'),
-        'lead_min': lead_min,
-        'duration_min': duration_min,
-        'refire_count': c['refire_count'],
-        'max_1min': round(c['max_1min'], 2),
-        'max_m14_diff': c['max_rb_diff'],
-        'max_reverse_lifters': c['max_rev'],
-        'primary_cause': primary_cause,
-        'contrib_breakdown': breakdown,
-        'anomaly_explanation': explanation,
-        'early_warning': early_warning,
+    _WIN_00 = {
+        b";": "F1", b"<": "F2", b"=": "F3", b">": "F4", b"?": "F5",
+        b"@": "F6", b"A": "F7", b"B": "F8", b"C": "F9", b"D": "F10",
     }
 
-
-# ====== 발동이벤트 CSV 헬퍼 ======
-STAGE_LABEL = {0: '이벤트없음', 1: '1단계 조기경보', 2: '2단계 주의보', 3: '3단계 ⭐확정'}
-
-EVENT_FIELDS = [
-    'file', 'datetime', 'date', 'time',
-    'stage', 'stage_name', 'prev_stage', 'transition', 'reason',
-]
-
-INCIDENT_FIELDS = [
-    'file', 'date', 'predict_time', 'start_time', 'end_time',
-    'lead_min', 'duration_min', 'refire_count',
-    'max_1min', 'max_m14_diff', 'max_reverse_lifters',
-    'primary_cause', 'contrib_breakdown', 'anomaly_explanation', 'early_warning',
-]
-
-
-def event_to_row(ev, file_name):
-    t_str = ev['time'].strftime('%Y-%m-%d %H:%M')
-    d_str = ev['time'].strftime('%Y-%m-%d')
-    hm = ev['time'].strftime('%H:%M')
-    stage_name = STAGE_LABEL.get(ev['stage'], '')
-    if ev['stage'] == 0:
-        return [file_name, t_str, d_str, hm, '', stage_name, '', '', '']
-    transition = f"{ev['prev_stage']}→{ev['stage']}" if ev.get('is_transition') else ''
-    return [
-        file_name, t_str, d_str, hm,
-        ev['stage'], stage_name, ev['prev_stage'], transition, ev['reason'],
-    ]
-
-
-def append_rows_csv(path, fields, rows):
-    new_file = not os.path.exists(path) or os.path.getsize(path) == 0
-    with open(path, 'a', encoding='utf-8-sig', newline='') as f:
-        w = csv.writer(f)
-        if new_file:
-            w.writerow(fields)
-        for r in rows:
-            w.writerow(r)
-
-
-def write_events_by_date(out_dir, events, file_name):
-    by_date = {}
-    for ev in events:
-        key = ev['time'].strftime('%Y%m%d')
-        by_date.setdefault(key, []).append(event_to_row(ev, file_name))
-    paths = []
-    for ymd in sorted(by_date):
-        path = os.path.join(out_dir, f'{ymd}_발동이벤트.csv')
-        append_rows_csv(path, EVENT_FIELDS, by_date[ymd])
-        paths.append(path)
-    return paths
-
-
-def write_incidents_by_date(out_dir, incidents, file_name):
-    by_date = {}
-    for c in incidents:
-        ymd = c['start_time'].strftime('%Y%m%d')
-        row = incident_to_row(c, file_name)
-        by_date.setdefault(ymd, []).append([row[k] for k in INCIDENT_FIELDS])
-    paths = []
-    for ymd in sorted(by_date):
-        path = os.path.join(out_dir, f'{ymd}_사건단위.csv')
-        append_rows_csv(path, INCIDENT_FIELDS, by_date[ymd])
-        paths.append(path)
-    return paths
-
-
-def append_event_row(out_dir, ev, file_name):
-    ymd = ev['time'].strftime('%Y%m%d')
-    path = os.path.join(out_dir, f'{ymd}_발동이벤트.csv')
-    append_rows_csv(path, EVENT_FIELDS, [event_to_row(ev, file_name)])
-    return path
-
-
-def append_incident_row(out_dir, incident, file_name):
-    ymd = incident['start_time'].strftime('%Y%m%d')
-    path = os.path.join(out_dir, f'{ymd}_사건단위.csv')
-    row = incident_to_row(incident, file_name)
-    append_rows_csv(path, INCIDENT_FIELDS, [[row[k] for k in INCIDENT_FIELDS]])
-    return path
-
-
-# ====== 메인 (일괄 처리) ======
-def process(input_csv, out_dir='.'):
-    os.makedirs(out_dir, exist_ok=True)
-
-    t1_window = deque(maxlen=WINDOW_MIN)
-    m14_window = deque(maxlen=WINDOW_MIN)
-    lft_window = deque(maxlen=WINDOW_MIN)
-
-    tracker = IncidentTracker()
-    last_t = None
-    file_name = os.path.basename(input_csv)
-
-    for t, star, prefix in iter_star_rows(input_csv):
-        t1_window.append(star.get('avgtotal1min'))
-        m14_window.append(star.get('m14_to_m16'))
-        lft_window.append(star.get('lft_list') or {})
-        last_t = t
-
-        if len(t1_window) < 31:
-            continue
-
-        s1, s2, s3, ctx = evaluate_rules(t1_window, m14_window, lft_window)
-        tracker.update(t, s1, s2, s3, ctx)
-
-    tracker.finalize(last_t)
-
-    write_events_by_date(out_dir, tracker.events, file_name)
-    write_incidents_by_date(out_dir, tracker.incidents, file_name)
-
-
-# ====== 실시간 감시 모드 ======
-def watch(input_csv, out_dir='.', interval=60):
-    os.makedirs(out_dir, exist_ok=True)
-
-    t1_window = deque(maxlen=WINDOW_MIN)
-    m14_window = deque(maxlen=WINDOW_MIN)
-    lft_window = deque(maxlen=WINDOW_MIN)
-    tracker = IncidentTracker()
-    file_name = os.path.basename(input_csv)
-
-    last_size = 0
-    last_event_count = 0
-    last_incident_count = 0
-    last_t = None
-
-    while True:
+    def read_key() -> str:
+        ch = msvcrt.getch()
+        if ch in (b"\x00", b"\xe0"):
+            ch2 = msvcrt.getch()
+            table = _WIN_E0 if ch == b"\xe0" else _WIN_00
+            return table.get(ch2, "UNKNOWN")
+        if ch in (b"\r", b"\n"):
+            return "ENTER"
+        if ch == b"\x08":
+            return "BACKSPACE"
+        if ch == b"\t":
+            return "TAB"
+        if ch == b"\x03":
+            raise KeyboardInterrupt
+        if ch == b"\x04":
+            return "F10"
+        if ch == b"\x1b":
+            return "ESC"
         try:
-            if os.path.exists(input_csv):
-                cur_size = os.path.getsize(input_csv)
-                if cur_size != last_size:
-                    for t, star, _ in iter_star_rows(input_csv):
-                        if last_t is not None and t <= last_t:
-                            continue
-                        t1_window.append(star.get('avgtotal1min'))
-                        m14_window.append(star.get('m14_to_m16'))
-                        lft_window.append(star.get('lft_list') or {})
-                        last_t = t
+            return ch.decode("utf-8", errors="ignore") or "UNKNOWN"
+        except Exception:
+            return "UNKNOWN"
 
-                        if len(t1_window) < 31:
-                            continue
+else:
+    @contextmanager
+    def raw_tty():
+        """cbreak 모드 진입. yield 값은 원래 cooked termios attr (복귀용)."""
+        fd = sys.stdin.fileno()
+        cooked = termios.tcgetattr(fd)
+        try:
+            tty.setcbreak(fd)
+            yield cooked
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, cooked)
 
-                        s1, s2, s3, ctx = evaluate_rules(t1_window, m14_window, lft_window)
-                        tracker.update(t, s1, s2, s3, ctx)
+    @contextmanager
+    def cooked_tty(cooked):
+        """raw 중간에 잠시 cooked 로 돌렸다가 다시 cbreak 로 복귀."""
+        fd = sys.stdin.fileno()
+        raw = termios.tcgetattr(fd)
+        try:
+            termios.tcsetattr(fd, termios.TCSADRAIN, cooked)
+            yield
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, raw)
 
-                        if len(tracker.events) > last_event_count:
-                            for ev in tracker.events[last_event_count:]:
-                                append_event_row(out_dir, ev, file_name)
-                            last_event_count = len(tracker.events)
+    def read_key() -> str:
+        """ESC 시퀀스 / 펑션키 / 일반키를 한 토큰으로 반환.
+        반환값: 'UP', 'DOWN', 'LEFT', 'RIGHT', 'ENTER', 'BACKSPACE',
+                'F1'..'F12', 'ESC', 또는 일반 문자 한 글자."""
+        ch = sys.stdin.read(1)
+        if ch == "\x1b":
+            seq = ""
+            try:
+                import select
+                while True:
+                    r, _, _ = select.select([sys.stdin], [], [], 0.02)
+                    if not r:
+                        break
+                    seq += sys.stdin.read(1)
+            except Exception:
+                pass
+            if not seq:
+                return "ESC"
+            if seq.startswith("[") or seq.startswith("O"):
+                body = seq[1:]
+                mapping = {
+                    "A": "UP", "B": "DOWN", "C": "RIGHT", "D": "LEFT",
+                    "H": "HOME", "F": "END",
+                    "P": "F1", "Q": "F2", "R": "F3", "S": "F4",
+                    "1~": "HOME", "4~": "END", "5~": "PGUP", "6~": "PGDN",
+                    "11~": "F1", "12~": "F2", "13~": "F3", "14~": "F4",
+                    "15~": "F5", "17~": "F6", "18~": "F7", "19~": "F8",
+                    "20~": "F9", "21~": "F10", "23~": "F11", "24~": "F12",
+                }
+                if body in mapping:
+                    return mapping[body]
+            return "ESC"
+        if ch in ("\r", "\n"):
+            return "ENTER"
+        if ch in ("\x7f", "\x08"):
+            return "BACKSPACE"
+        if ch == "\t":
+            return "TAB"
+        if ch == "\x03":
+            raise KeyboardInterrupt
+        if ch == "\x04":
+            return "F10"
+        return ch
 
-                        if len(tracker.incidents) > last_incident_count:
-                            for c in tracker.incidents[last_incident_count:]:
-                                append_incident_row(out_dir, c, file_name)
-                            last_incident_count = len(tracker.incidents)
 
-                    last_size = cur_size
+# ── 화면 빌더 ──────────────────────────────────────────────
+TITLE = "HLLM COMMANDER · MDIR-STYLE"
 
-            time.sleep(interval)
-        except KeyboardInterrupt:
-            tracker.finalize(last_t)
-            if len(tracker.incidents) > last_incident_count:
-                for c in tracker.incidents[last_incident_count:]:
-                    append_incident_row(out_dir, c, file_name)
+
+def build_header(state: State) -> Panel:
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    mode = "mock" if state.is_mock else "live"
+    left = Text.from_markup(f" [bold {TITLE_FG}]■ {TITLE}[/]")
+    right = Text.from_markup(
+        f"[{DIM}]{mode}[/]  [{TITLE_FG}]{now}[/] "
+    )
+    line = Text.assemble(left, Text(" " * 200), right, style=f"on {BG}")
+    line.truncate(200, overflow="ellipsis")
+    return Panel(line, box=DOUBLE, border_style=PANEL_BD, style=f"on {BG}", padding=(0, 0))
+
+
+def build_models_panel(state: State, sorted_models, cursor: int) -> Panel:
+    body = Text(style=ON_BG)
+    body.append(f" MODELS [{len(sorted_models)}]\n", style=f"bold {TITLE_FG} on {BG}")
+    body.append("\n")
+    for i, (mid, m) in enumerate(sorted_models, start=1):
+        is_cur = (i - 1 == cursor)
+        prio = m.get("priority", 99)
+        tier = m.get("cost_tier", "?")
+        tier_l = cost_tier_label(tier)
+        name = m.get("name", mid).split(" (")[0]
+        line = f" {i}.{name:<22} {tier_l:>3}  p{prio} "
+        if is_cur:
+            body.append("▶", style=f"bold {TITLE_FG} on {BG}")
+            body.append(line, style=SEL)
+        else:
+            body.append(" ", style=ON_BG)
+            body.append(line, style=ON_BG)
+        body.append("\n", style=ON_BG)
+    body.append("\n")
+    body.append(" ↑↓ 이동 · 1~7 점프 · Enter 접속", style=f"{DIM} on {BG}")
+    return Panel(
+        body,
+        title=f"[{TITLE_FG}]MODELS[/]",
+        title_align="left",
+        border_style=PANEL_BD,
+        style=f"on {BG}",
+        box=HEAVY,
+        padding=(0, 1),
+    )
+
+
+def build_meta_panel(state: State, sorted_models, cursor: int) -> Panel:
+    mid, m = sorted_models[cursor]
+    tier = m.get("cost_tier", "?")
+    tier_c = cost_tier_color(tier)
+    tier_l = cost_tier_label(tier)
+    ctx_k = m.get("context_window", 0) // 1000
+    caps = ", ".join(m.get("capabilities", []))
+    api = m.get("model", mid)
+    url = m.get("url", "")
+
+    body = Text(style=ON_BG)
+    body.append(f"  {m.get('name', mid)}\n", style=f"bold {TITLE_FG} on {BG}")
+    body.append(f"  id      : ", style=f"{DIM} on {BG}"); body.append(f"{mid}\n", style=ON_BG)
+    body.append(f"  api     : ", style=f"{DIM} on {BG}"); body.append(f"{api}\n", style=ON_BG)
+    body.append(f"  url     : ", style=f"{DIM} on {BG}"); body.append(f"{url}\n", style=ON_BG)
+    body.append(f"  ctx     : ", style=f"{DIM} on {BG}"); body.append(f"{ctx_k}k\n", style=ON_BG)
+    body.append(f"  prio    : ", style=f"{DIM} on {BG}"); body.append(f"{m.get('priority','?')}\n", style=ON_BG)
+    body.append(f"  cost    : ", style=f"{DIM} on {BG}"); body.append(f"{tier_l}", style=f"bold {tier_c} on {BG}"); body.append(f"  ({tier})\n", style=ON_BG)
+    body.append(f"  caps    : ", style=f"{DIM} on {BG}"); body.append(f"{caps}\n", style=ON_BG)
+    body.append("\n", style=ON_BG)
+
+    body.append("  HISTORY\n", style=f"bold {TITLE_FG} on {BG}")
+    if not state.history:
+        body.append("    · (비어있음)\n", style=f"{DIM} on {BG}")
+    else:
+        for t in state.history[-6:]:
+            tag = "you" if t.role == "user" else "ai "
+            preview = t.content.replace("\n", " ").strip()
+            if len(preview) > 64:
+                preview = preview[:63] + "…"
+            body.append(f"    [{t.timestamp}] {tag} ", style=f"{DIM} on {BG}")
+            body.append(f"{preview}\n", style=ON_BG)
+    body.append("\n", style=ON_BG)
+
+    body.append(f"  display : ", style=f"{DIM} on {BG}")
+    body.append(f"{state.display}\n", style=ON_BG)
+    body.append(f"  mode    : ", style=f"{DIM} on {BG}")
+    body.append(f"{'mock' if state.is_mock else 'live'}\n", style=ON_BG)
+
+    return Panel(
+        body,
+        title=f"[{TITLE_FG}]META · HISTORY[/]",
+        title_align="left",
+        border_style=PANEL_BD,
+        style=f"on {BG}",
+        box=HEAVY,
+        padding=(0, 1),
+    )
+
+
+FN_KEYS = [
+    ("1",  "Help"),
+    ("2",  "Model"),
+    ("3",  "Display"),
+    ("4",  "Clear"),
+    ("5",  "Compare"),
+    ("7",  "Info"),
+    ("9",  "About"),
+    ("10", "Quit"),
+]
+
+
+def build_footer() -> Panel:
+    bar = Text(style=ON_BG)
+    bar.append(" ", style=ON_BG)
+    for num, lbl in FN_KEYS:
+        bar.append(f"{num}", style=f"bold {KEY_NUM} on {BG}")
+        bar.append(f"{lbl}", style=KEY_LBL)
+        bar.append(" ", style=ON_BG)
+    return Panel(bar, box=DOUBLE, border_style=PANEL_BD, style=f"on {BG}", padding=(0, 0))
+
+
+def build_layout(state: State, sorted_models, cursor: int) -> Layout:
+    root = Layout()
+    root.split_column(
+        Layout(build_header(state), name="head", size=3),
+        Layout(name="body", ratio=1),
+        Layout(build_footer(), name="foot", size=3),
+    )
+    root["body"].split_row(
+        Layout(build_models_panel(state, sorted_models, cursor), name="models", ratio=2),
+        Layout(build_meta_panel(state, sorted_models, cursor), name="meta", ratio=3),
+    )
+    return root
+
+
+# ── 도움말 오버레이 ────────────────────────────────────────
+HELP_LINES = [
+    ("↑/↓",   "모델 커서 이동"),
+    ("1~7",   "모델 인덱스 점프"),
+    ("Enter", "선택 모델로 챗 진입"),
+    ("F1 / ?", "이 도움말 토글"),
+    ("F3",    "display 순환 (inline→block→card)"),
+    ("F4",    "history 비우기"),
+    ("F5",    "화면 다시 그리기"),
+    ("F7",    "모델 상세 테이블"),
+    ("F9",    "표시 방식 비교"),
+    ("F10 / q / ^D", "종료"),
+]
+
+
+def show_help() -> None:
+    console.clear()
+    body = Text(style=ON_BG)
+    body.append("\n  HLLM COMMANDER · 키 도움말\n\n", style=f"bold {TITLE_FG} on {BG}")
+    for k, desc in HELP_LINES:
+        body.append(f"   {k:<14}", style=f"bold {KEY_NUM} on {BG}")
+        body.append(f"{desc}\n", style=ON_BG)
+    body.append("\n  아무 키나 눌러 닫기", style=f"{DIM} on {BG}")
+    console.print(Panel(body, border_style=PANEL_BD, box=HEAVY, style=f"on {BG}",
+                        title=f"[{TITLE_FG}]F1 · HELP[/]", title_align="left"))
+    read_key()
+
+
+# ── 커맨더 루프 ────────────────────────────────────────────
+DISPLAYS = ("inline", "block", "card")
+
+
+def commander(state: State) -> None:
+    sorted_models = models_sorted(state.config)
+    if not sorted_models:
+        console.print("[red]config.models 가 비어있습니다.[/]")
+        return
+
+    # 시작 모델 = state.model_id 가 있으면 그 인덱스, 아니면 0
+    cursor = 0
+    for i, (mid, _) in enumerate(sorted_models):
+        if mid == state.model_id:
+            cursor = i
             break
+    state.model_id = sorted_models[cursor][0]
+
+    with raw_tty() as cooked:
+        while True:
+            console.clear()
+            console.print(build_layout(state, sorted_models, cursor))
+
+            try:
+                key = read_key()
+            except KeyboardInterrupt:
+                break
+
+            if key == "UP":
+                cursor = (cursor - 1) % len(sorted_models)
+                state.model_id = sorted_models[cursor][0]
+            elif key == "DOWN":
+                cursor = (cursor + 1) % len(sorted_models)
+                state.model_id = sorted_models[cursor][0]
+            elif key == "HOME":
+                cursor = 0
+                state.model_id = sorted_models[cursor][0]
+            elif key == "END":
+                cursor = len(sorted_models) - 1
+                state.model_id = sorted_models[cursor][0]
+            elif key.isdigit() and key != "0":
+                idx = int(key) - 1
+                if 0 <= idx < len(sorted_models):
+                    cursor = idx
+                    state.model_id = sorted_models[cursor][0]
+            elif key == "ENTER":
+                state.model_id = sorted_models[cursor][0]
+                # cooked 로 잠시 돌리고 chat_loop 진입
+                with cooked_tty(cooked):
+                    console.clear()
+                    chat_loop(state)
+                continue
+            elif key in ("F1", "?"):
+                show_help()
+            elif key == "F3":
+                idx = (DISPLAYS.index(state.display) + 1) % len(DISPLAYS) if state.display in DISPLAYS else 0
+                state.display = DISPLAYS[idx]
+            elif key == "F4":
+                state.history.clear()
+                state.turn_no = 0
+            elif key == "F5":
+                pass  # 루프 상단에서 다시 그림
+            elif key == "F7":
+                _showcase(lambda: show_model_info(sorted_models))
+            elif key in ("F9", "F2"):
+                _showcase(show_compare)
+            elif key in ("F10", "q", "Q", "ESC"):
+                break
+
+    console.print()
+    console.print(f"[{DIM}]bye.[/]")
 
 
-def main():
-    if len(sys.argv) < 2:
-        sys.exit(1)
-
-    input_csv = sys.argv[1]
-    out_dir = '.'
-    watch_mode = False
-    interval = 60
-
-    args = sys.argv[2:]
-    i = 0
-    while i < len(args):
-        a = args[i]
-        if a == '-o' and i + 1 < len(args):
-            out_dir = args[i + 1]
-            i += 2
-        elif a == '--watch':
-            watch_mode = True
-            i += 1
-        elif a == '--interval' and i + 1 < len(args):
-            interval = int(args[i + 1])
-            i += 2
-        else:
-            i += 1
-
-    if not os.path.exists(input_csv) and not watch_mode:
-        sys.exit(1)
-
-    if watch_mode:
-        watch(input_csv, out_dir, interval)
-    else:
-        process(input_csv, out_dir)
+def _showcase(fn) -> None:
+    """현재 raw 모드 그대로 두고 일반 출력 후 키 한 번 대기."""
+    console.clear()
+    fn()
+    console.print(f"[{DIM}]아무 키나 눌러 돌아가기...[/]")
+    read_key()
 
 
-if __name__ == '__main__':
+# ── 메인 ───────────────────────────────────────────────────
+def main() -> None:
+    p = argparse.ArgumentParser(
+        prog="hllm2",
+        description="HLLM_CLI — MDIR-style commander (A형)",
+    )
+    p.add_argument("--config", default=None)
+    p.add_argument("--token-file", default=None)
+    p.add_argument("--token", default=None)
+    p.add_argument("--model", default=None)
+    p.add_argument("--display", default="block",
+                   choices=("inline", "block", "card"))
+    p.add_argument("--no-fallback", action="store_true")
+    args = p.parse_args()
+
+    cfg = load_config(args.config)
+    token = args.token or load_token(args.token_file)
+
+    state = State(
+        config=cfg,
+        token=token,
+        display=args.display,
+        use_fallback=not args.no_fallback,
+    )
+
+    if args.model and args.model in cfg.get("models", {}):
+        state.model_id = args.model
+
+    if not sys.stdin.isatty():
+        console.print("[red]hllm2 는 인터랙티브 TTY 가 필요합니다.[/]")
+        sys.exit(2)
+
+    try:
+        commander(state)
+    except KeyboardInterrupt:
+        console.print(f"\n[{DIM}]^C — bye.[/]")
+
+
+if __name__ == "__main__":
     main()
