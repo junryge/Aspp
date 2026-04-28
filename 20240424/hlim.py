@@ -1,766 +1,418 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-hllm2 — MDIR/Norton Commander 스타일 CLI (Windows)
+hllm2.py — HLLM_CLI · MDIR-style commander (A형, 풀 패널)
 
-화면 구성:
-  ┌─[ hllm Commander ]──────────────────────┐
-  │ 좌 패널: 모델 목록    │ 우 패널: 정보   │
-  │                       │                 │
-  │ [작업 로그 영역]                        │
-  └─────────────────────────────────────────┘
-   F1 도움  F2 모델  F3 스킬  F4 컨텍스트  F5 작업  F10 종료
+90년대 도스 시절 MDIR 룩앤필을 닮은 풀스크린 커맨더.
+- 좌측: 모델 리스트 (config.json 의 7개)
+- 우측: 선택 모델 메타 + 최근 대화 미리보기
+- 하단: F1~F10 펑션 바
+- Enter 로 챗 진입 (hlim.chat_loop 재사용), 챗에서 빠져나오면 커맨더 복귀
 
-전제:
-  hllm.py 와 같은 폴더에 두기. config.json, token.txt 사용.
-  pip install httpx rich readchar
+사용:
+    python hllm2.py
+    python hllm2.py --token-file TOKEN.TXT
+    python hllm2.py --display card
 """
+
 from __future__ import annotations
 
-import json
+import argparse
 import os
 import sys
-from pathlib import Path
+import termios
+import tty
+from contextlib import contextmanager
+from datetime import datetime
 
-# Windows UTF-8
-if sys.platform == "win32":
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-        sys.stderr.reconfigure(encoding="utf-8")
-    except Exception:
-        pass
+# hlim.py 의 도메인 로직 전부 재사용
+from hlim import (
+    State,
+    chat_loop,
+    console,
+    cost_tier_color,
+    cost_tier_label,
+    load_config,
+    load_token,
+    models_sorted,
+    show_compare,
+    show_model_info,
+)
 
-# hllm 모듈 import (같은 폴더의 hllm.py)
-sys.path.insert(0, str(Path(__file__).parent))
 try:
-    import hllm  # type: ignore
+    from rich.layout import Layout
+    from rich.panel import Panel
+    from rich.text import Text
+    from rich.align import Align
+    from rich.box import DOUBLE, HEAVY
 except ImportError:
-    print("[ERROR] hllm.py가 같은 폴더에 있어야 합니다.")
+    sys.stderr.write("[hllm2] rich 가 필요합니다.  pip install rich\n")
     sys.exit(1)
 
-from rich.console import Console, Group
-from rich.layout import Layout
-from rich.live import Live
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
-from rich.align import Align
 
-try:
-    import readchar
-    HAS_READCHAR = True
-except ImportError:
-    HAS_READCHAR = False
-
-console = Console()
-
-
-# ─────────────────────────────────────────────
-# DOS 컬러 테마 (MDIR 스타일)
-# ─────────────────────────────────────────────
-THEME = {
-    "bg":       "blue",          # 배경 (파란색)
-    "panel_bg": "on blue",
-    "border":   "yellow on blue",
-    "title":    "bold yellow on blue",
-    "text":     "white on blue",
-    "selected": "black on cyan",
-    "func_bg":  "white on cyan",
-    "func_num": "black on cyan",
-    "func_lbl": "black on cyan",
-    "active":   "bold yellow",
-    "dim":      "bright_black on blue",
-}
-
-
-# ─────────────────────────────────────────────
-# 상태
-# ─────────────────────────────────────────────
-class State:
-    def __init__(self):
-        self.cursor_left = 0          # 좌 패널 선택 인덱스
-        self.cursor_right = 0
-        self.focus = "left"           # 'left' or 'right'
-        self.view = "models"          # 'models', 'skills', 'context', 'sessions'
-        self.active_skills: list[str] = []
-        self.log_lines: list[str] = []
-        self.max_log = 8
-
-    def add_log(self, msg: str):
-        self.log_lines.append(msg)
-        if len(self.log_lines) > self.max_log:
-            self.log_lines = self.log_lines[-self.max_log:]
-
-
-STATE = State()
-
-
-# ─────────────────────────────────────────────
-# 좌 패널 - 컨텐츠 종류별
-# ─────────────────────────────────────────────
-def render_left_panel() -> Panel:
-    if STATE.view == "models":
-        return _render_models_panel()
-    elif STATE.view == "skills":
-        return _render_skills_panel()
-    elif STATE.view == "context":
-        return _render_context_panel()
-    elif STATE.view == "sessions":
-        return _render_sessions_panel()
-    return Panel("(empty)", style=THEME["text"])
-
-
-def _render_models_panel() -> Panel:
-    items = sorted(hllm.MODELS.items(),
-                   key=lambda kv: kv[1].get("priority", 99))
-    lines = []
-    for i, (mid, mcfg) in enumerate(items):
-        active = "★" if mid == hllm.CURRENT_MODEL else " "
-        cursor = "▶" if (i == STATE.cursor_left and STATE.focus == "left") else " "
-        tier = mcfg.get("cost_tier", "")
-        line_text = f"{cursor} {active} {mid:25s} [{tier}]"
-        if i == STATE.cursor_left and STATE.focus == "left":
-            lines.append(Text(line_text, style=THEME["selected"]))
-        elif mid == hllm.CURRENT_MODEL:
-            lines.append(Text(line_text, style="bold yellow on blue"))
-        else:
-            lines.append(Text(line_text, style=THEME["text"]))
-
-    return Panel(
-        Group(*lines) if lines else Text("(no models)", style=THEME["text"]),
-        title="[bold yellow]MODELS[/]",
-        title_align="left",
-        border_style=THEME["border"],
-        style=THEME["panel_bg"],
-    )
-
-
-def _render_skills_panel() -> Panel:
-    skills = hllm.list_skills()
-    lines = []
-    if not skills:
-        lines.append(Text("(스킬 없음)", style=THEME["dim"]))
-        lines.append(Text(f"  {hllm.SKILLS_DIR}", style=THEME["dim"]))
-        lines.append(Text("  에 SKILL.md 만드세요", style=THEME["dim"]))
-    else:
-        for i, s in enumerate(skills):
-            active = "★" if s["name"] in STATE.active_skills else " "
-            cursor = "▶" if (i == STATE.cursor_left and STATE.focus == "left") else " "
-            line_text = f"{cursor} {active} {s['name']}"
-            if i == STATE.cursor_left and STATE.focus == "left":
-                lines.append(Text(line_text, style=THEME["selected"]))
-            elif s["name"] in STATE.active_skills:
-                lines.append(Text(line_text, style="bold yellow on blue"))
-            else:
-                lines.append(Text(line_text, style=THEME["text"]))
-
-    return Panel(
-        Group(*lines) if lines else Text("(empty)", style=THEME["text"]),
-        title="[bold yellow]SKILLS[/]",
-        title_align="left",
-        border_style=THEME["border"],
-        style=THEME["panel_bg"],
-    )
-
-
-def _render_context_panel() -> Panel:
-    lines = []
-
-    # 글로벌 컨텍스트
-    if hllm.CONTEXT_FILE.exists():
-        sz = hllm.CONTEXT_FILE.stat().st_size
-        lines.append(Text(f"✓ global  ({sz:,} bytes)",
-                          style="bold green on blue"))
-        lines.append(Text(f"  {hllm.CONTEXT_FILE}", style=THEME["dim"]))
-    else:
-        lines.append(Text("· global  (없음)", style=THEME["dim"]))
-        lines.append(Text(f"  {hllm.CONTEXT_FILE}", style=THEME["dim"]))
-
-    lines.append(Text("", style=THEME["text"]))
-
-    # 프로젝트 컨텍스트
-    local = Path(hllm.LOCAL_CONTEXT_FILE)
-    if local.exists():
-        lines.append(Text(f"✓ project ({local.stat().st_size:,} bytes)",
-                          style="bold green on blue"))
-        lines.append(Text(f"  ./{hllm.LOCAL_CONTEXT_FILE}", style=THEME["dim"]))
-    else:
-        lines.append(Text("· project (없음)", style=THEME["dim"]))
-        lines.append(Text(f"  ./{hllm.LOCAL_CONTEXT_FILE}", style=THEME["dim"]))
-
-    lines.append(Text("", style=THEME["text"]))
-
-    # 활성 스킬
-    if STATE.active_skills:
-        lines.append(Text("활성 스킬:", style="bold cyan on blue"))
-        for s in STATE.active_skills:
-            lines.append(Text(f"  ★ {s}", style="bold yellow on blue"))
-    else:
-        lines.append(Text("활성 스킬: (없음)", style=THEME["dim"]))
-
-    return Panel(
-        Group(*lines),
-        title="[bold yellow]CONTEXT[/]",
-        title_align="left",
-        border_style=THEME["border"],
-        style=THEME["panel_bg"],
-    )
-
-
-def _render_sessions_panel() -> Panel:
-    lines = []
-    if hllm.SESSION_FILE.exists():
-        sz = hllm.SESSION_FILE.stat().st_size
-        try:
-            data = json.loads(hllm.SESSION_FILE.read_text(encoding="utf-8"))
-            n_msg = len(data)
-            n_user = sum(1 for m in data if m.get("role") == "user")
-            lines.append(Text(f"✓ last_session", style="bold green on blue"))
-            lines.append(Text(f"  메시지: {n_msg}, 턴: {n_user}",
-                              style=THEME["text"]))
-            lines.append(Text(f"  크기: {sz:,} bytes", style=THEME["dim"]))
-            lines.append(Text(f"  {hllm.SESSION_FILE}", style=THEME["dim"]))
-        except Exception:
-            lines.append(Text("✗ 세션 파싱 실패", style="red on blue"))
-    else:
-        lines.append(Text("· 저장된 세션 없음", style=THEME["dim"]))
-        lines.append(Text(f"  {hllm.SESSION_FILE}", style=THEME["dim"]))
-
-    lines.append(Text("", style=THEME["text"]))
-    if hllm.LOG_FILE.exists():
-        sz = hllm.LOG_FILE.stat().st_size
-        lines.append(Text(f"✓ actions.log ({sz:,} bytes)",
-                          style="bold green on blue"))
-    else:
-        lines.append(Text("· actions.log (없음)", style=THEME["dim"]))
-
-    return Panel(
-        Group(*lines),
-        title="[bold yellow]SESSIONS[/]",
-        title_align="left",
-        border_style=THEME["border"],
-        style=THEME["panel_bg"],
-    )
-
-
-# ─────────────────────────────────────────────
-# 우 패널 - 선택된 항목의 상세 정보
-# ─────────────────────────────────────────────
-def render_right_panel() -> Panel:
-    if STATE.view == "models":
-        return _render_model_detail()
-    elif STATE.view == "skills":
-        return _render_skill_detail()
-    elif STATE.view == "context":
-        return _render_context_detail()
-    elif STATE.view == "sessions":
-        return _render_session_detail()
-    return Panel("(empty)", style=THEME["panel_bg"])
-
-
-def _render_model_detail() -> Panel:
-    items = sorted(hllm.MODELS.items(),
-                   key=lambda kv: kv[1].get("priority", 99))
-    if not items or STATE.cursor_left >= len(items):
-        return Panel(Text("(no model)", style=THEME["text"]),
-                     border_style=THEME["border"], style=THEME["panel_bg"])
-
-    mid, mcfg = items[STATE.cursor_left]
-    lines = []
-    lines.append(Text(f"ID:       {mid}", style="bold cyan on blue"))
-    lines.append(Text(f"이름:     {mcfg.get('name', '')}", style=THEME["text"]))
-    lines.append(Text(f"모델:     {mcfg.get('model', '')}", style=THEME["text"]))
-    lines.append(Text(f"Tier:     {mcfg.get('cost_tier', '')}", style=THEME["text"]))
-    lines.append(Text(f"우선순위: {mcfg.get('priority', '')}", style=THEME["text"]))
-    lines.append(Text(f"Context:  {mcfg.get('context_window', 0):,}",
-                      style=THEME["text"]))
-    lines.append(Text("", style=THEME["text"]))
-
-    caps = mcfg.get("capabilities", [])
-    if caps:
-        lines.append(Text("기능:", style="bold cyan on blue"))
-        for c in caps:
-            lines.append(Text(f"  • {c}", style=THEME["text"]))
-    lines.append(Text("", style=THEME["text"]))
-
-    url = mcfg.get("url", "")
-    if url:
-        lines.append(Text("URL:", style="bold cyan on blue"))
-        lines.append(Text(f"  {url}", style=THEME["dim"]))
-    lines.append(Text("", style=THEME["text"]))
-
-    chain = hllm.FALLBACKS.get(mid, [])
-    if chain:
-        lines.append(Text("Fallback:", style="bold cyan on blue"))
-        for c in chain[:5]:
-            lines.append(Text(f"  → {c}", style=THEME["text"]))
-
-    if mid == hllm.CURRENT_MODEL:
-        lines.append(Text("", style=THEME["text"]))
-        lines.append(Text("  ★ 현재 사용 중", style="bold yellow on blue"))
-    else:
-        lines.append(Text("", style=THEME["text"]))
-        lines.append(Text("  Enter 또는 F2 → 활성화",
-                          style="bold green on blue"))
-
-    return Panel(
-        Group(*lines),
-        title=f"[bold yellow]MODEL: {mid}[/]",
-        title_align="left",
-        border_style=THEME["border"],
-        style=THEME["panel_bg"],
-    )
-
-
-def _render_skill_detail() -> Panel:
-    skills = hllm.list_skills()
-    if not skills or STATE.cursor_left >= len(skills):
-        return Panel(
-            Text("스킬을 추가하려면:\n\n  /skill new <이름>\n\n또는 직접 폴더 생성:\n  ~/.hllm/skills/<이름>/SKILL.md",
-                 style=THEME["text"]),
-            title="[bold yellow]SKILL[/]",
-            title_align="left",
-            border_style=THEME["border"],
-            style=THEME["panel_bg"],
-        )
-
-    s = skills[STATE.cursor_left]
-    lines = []
-    lines.append(Text(f"이름: {s['name']}", style="bold cyan on blue"))
-    lines.append(Text(f"경로: {s['path']}", style=THEME["dim"]))
-    if s["name"] in STATE.active_skills:
-        lines.append(Text("상태: ★ 활성", style="bold yellow on blue"))
-    else:
-        lines.append(Text("상태: 비활성", style=THEME["text"]))
-    lines.append(Text("", style=THEME["text"]))
-
-    # SKILL.md 내용 미리보기
-    text = hllm.load_skill(s["name"]) or ""
-    preview = text.splitlines()[:15]
-    for ln in preview:
-        if len(ln) > 50:
-            ln = ln[:50] + "…"
-        lines.append(Text(ln, style=THEME["text"]))
-    if len(text.splitlines()) > 15:
-        lines.append(Text("…", style=THEME["dim"]))
-
-    lines.append(Text("", style=THEME["text"]))
-    if s["name"] in STATE.active_skills:
-        lines.append(Text("  Enter → 비활성화", style="bold green on blue"))
-    else:
-        lines.append(Text("  Enter → 활성화", style="bold green on blue"))
-
-    return Panel(
-        Group(*lines),
-        title=f"[bold yellow]SKILL: {s['name']}[/]",
-        title_align="left",
-        border_style=THEME["border"],
-        style=THEME["panel_bg"],
-    )
-
-
-def _render_context_detail() -> Panel:
-    lines = []
-    lines.append(Text("Context는 hllm 시작 시", style=THEME["text"]))
-    lines.append(Text("자동으로 system 프롬프트에", style=THEME["text"]))
-    lines.append(Text("주입됩니다.", style=THEME["text"]))
-    lines.append(Text("", style=THEME["text"]))
-    lines.append(Text("편집 방법:", style="bold cyan on blue"))
-    lines.append(Text(f"  notepad {hllm.CONTEXT_FILE}",
-                      style=THEME["dim"]))
-    lines.append(Text("", style=THEME["text"]))
-    lines.append(Text("프로젝트별 (현재 폴더):", style="bold cyan on blue"))
-    lines.append(Text(f"  notepad {hllm.LOCAL_CONTEXT_FILE}",
-                      style=THEME["dim"]))
-
-    # context.md 미리보기
-    if hllm.CONTEXT_FILE.exists():
-        lines.append(Text("", style=THEME["text"]))
-        lines.append(Text("─ context.md 미리보기 ─",
-                          style="bold yellow on blue"))
-        try:
-            text = hllm.CONTEXT_FILE.read_text(encoding="utf-8")
-            for ln in text.splitlines()[:10]:
-                if len(ln) > 50:
-                    ln = ln[:50] + "…"
-                lines.append(Text(ln, style=THEME["text"]))
-        except Exception:
-            pass
-
-    return Panel(
-        Group(*lines),
-        title="[bold yellow]CONTEXT INFO[/]",
-        title_align="left",
-        border_style=THEME["border"],
-        style=THEME["panel_bg"],
-    )
-
-
-def _render_session_detail() -> Panel:
-    lines = []
-    lines.append(Text("세션 관리", style="bold cyan on blue"))
-    lines.append(Text("", style=THEME["text"]))
-    lines.append(Text("  Enter → 세션 불러오기", style=THEME["text"]))
-    lines.append(Text("  Del   → 세션 삭제", style=THEME["text"]))
-    lines.append(Text("", style=THEME["text"]))
-
-    if hllm.LOG_FILE.exists():
-        lines.append(Text("─ 최근 액션 로그 ─",
-                          style="bold yellow on blue"))
-        try:
-            log_text = hllm.LOG_FILE.read_text(encoding="utf-8")
-            recent = log_text.strip().splitlines()[-10:]
-            for ln in recent:
-                if len(ln) > 50:
-                    ln = ln[:50] + "…"
-                lines.append(Text(ln, style=THEME["text"]))
-        except Exception:
-            pass
-
-    return Panel(
-        Group(*lines),
-        title="[bold yellow]SESSION[/]",
-        title_align="left",
-        border_style=THEME["border"],
-        style=THEME["panel_bg"],
-    )
-
-
-# ─────────────────────────────────────────────
-# 로그 패널
-# ─────────────────────────────────────────────
-def render_log_panel() -> Panel:
-    if not STATE.log_lines:
-        content = Text("F5 또는 Enter로 작업 모드 진입",
-                       style=THEME["dim"])
-    else:
-        content = Group(*[
-            Text(ln, style=THEME["text"]) for ln in STATE.log_lines
-        ])
-    return Panel(
-        content,
-        title="[bold yellow]LOG[/]",
-        title_align="left",
-        border_style=THEME["border"],
-        style=THEME["panel_bg"],
-        height=10,
-    )
-
-
-# ─────────────────────────────────────────────
-# 펑션 키 바
-# ─────────────────────────────────────────────
-def render_function_bar() -> Text:
-    keys = [
-        ("1", "Help"),
-        ("2", "Models"),
-        ("3", "Skills"),
-        ("4", "Context"),
-        ("5", "Run"),
-        ("6", "Sessions"),
-        ("7", "Reload"),
-        ("8", "Edit"),
-        ("9", "Yolo"),
-        ("10", "Exit"),
-    ]
-    text = Text()
-    for num, lbl in keys:
-        text.append(f" F{num} ", style="black on cyan")
-        text.append(f"{lbl:<8}", style="black on cyan")
-    return text
-
-
-# ─────────────────────────────────────────────
-# 헤더
-# ─────────────────────────────────────────────
-def render_header() -> Panel:
-    cfg = hllm.MODELS.get(hllm.CURRENT_MODEL, {})
-    text = Text()
-    text.append("hllm Commander ", style="bold yellow on blue")
-    text.append(f"  Model: ", style=THEME["text"])
-    text.append(hllm.CURRENT_MODEL, style="bold cyan on blue")
-    text.append(f"  ", style=THEME["text"])
-    if STATE.active_skills:
-        text.append(f"Skills: ", style=THEME["text"])
-        text.append(", ".join(STATE.active_skills), style="bold yellow on blue")
-    text.append(f"  CWD: ", style=THEME["text"])
-    text.append(os.getcwd()[:60], style=THEME["dim"])
-    return Panel(
-        text,
-        border_style=THEME["border"],
-        style=THEME["panel_bg"],
-    )
-
-
-# ─────────────────────────────────────────────
-# 전체 레이아웃
-# ─────────────────────────────────────────────
-def make_layout() -> Layout:
-    layout = Layout()
-    layout.split_column(
-        Layout(name="header", size=3),
-        Layout(name="main", ratio=1),
-        Layout(name="log", size=10),
-        Layout(name="func", size=1),
-    )
-    layout["main"].split_row(
-        Layout(name="left", ratio=1),
-        Layout(name="right", ratio=1),
-    )
-    return layout
-
-
-def update_layout(layout: Layout):
-    layout["header"].update(render_header())
-    layout["left"].update(render_left_panel())
-    layout["right"].update(render_right_panel())
-    layout["log"].update(render_log_panel())
-    layout["func"].update(render_function_bar())
-
-
-# ─────────────────────────────────────────────
-# 액션
-# ─────────────────────────────────────────────
-def action_select_model():
-    items = sorted(hllm.MODELS.items(),
-                   key=lambda kv: kv[1].get("priority", 99))
-    if STATE.cursor_left < len(items):
-        mid = items[STATE.cursor_left][0]
-        hllm.CURRENT_MODEL = mid
-        STATE.add_log(f"[모델 변경] → {mid}")
-
-
-def action_toggle_skill():
-    skills = hllm.list_skills()
-    if STATE.cursor_left < len(skills):
-        name = skills[STATE.cursor_left]["name"]
-        if name in STATE.active_skills:
-            STATE.active_skills.remove(name)
-            STATE.add_log(f"[스킬 비활성] {name}")
-        else:
-            STATE.active_skills.append(name)
-            STATE.add_log(f"[스킬 활성] ★ {name}")
-
-
-def action_enter():
-    """Enter 키 - 현재 view에 따라 다르게 동작"""
-    if STATE.view == "models":
-        action_select_model()
-    elif STATE.view == "skills":
-        action_toggle_skill()
-
-
-def action_move_cursor(delta: int):
-    if STATE.view == "models":
-        items = list(hllm.MODELS.keys())
-    elif STATE.view == "skills":
-        items = hllm.list_skills()
-    else:
-        return
-    n = len(items)
-    if n == 0:
-        return
-    STATE.cursor_left = max(0, min(n - 1, STATE.cursor_left + delta))
-
-
-# ─────────────────────────────────────────────
-# 작업 모드 진입 (REPL)
-# ─────────────────────────────────────────────
-def enter_work_mode(live: Live):
-    """Live 정지 → 일반 hllm REPL로 진입 → 끝나면 복귀"""
-    live.stop()
-    console.clear()
-    console.print(Panel(
-        f"[bold yellow]작업 모드[/]\n"
-        f"모델: [cyan]{hllm.CURRENT_MODEL}[/]\n"
-        f"스킬: {', '.join(STATE.active_skills) if STATE.active_skills else '(없음)'}\n\n"
-        f"[dim]/exit 입력하면 Commander로 복귀[/]",
-        border_style="yellow",
-    ))
-
-    # hllm REPL 호출
-    cwd = os.getcwd()
-    system = hllm.build_system_prompt(cwd, STATE.active_skills)
-    messages: list[dict] = [{"role": "system", "content": system}]
-
+# ── MDIR 팔레트 ────────────────────────────────────────────
+BG          = "blue"
+TITLE_FG    = "bright_yellow"
+KEY_NUM     = "bright_yellow"
+KEY_LBL     = "white on cyan"
+FG          = "white"
+DIM         = "bright_black"
+SEL         = "black on bright_yellow"     # 선택 항목 반전
+PANEL_BD    = "bright_white"
+ON_BG       = f"{FG} on {BG}"
+TITLE_STYLE = f"bold {TITLE_FG} on {BG}"
+
+
+# ── 키 입력 (POSIX raw) ────────────────────────────────────
+@contextmanager
+def raw_tty():
+    """cbreak 모드 진입. yield 값은 원래 cooked termios attr (복귀용)."""
+    fd = sys.stdin.fileno()
+    cooked = termios.tcgetattr(fd)
     try:
-        hllm.repl(messages, STATE.active_skills, cwd, auto_confirm=False)
-    except KeyboardInterrupt:
-        pass
-    except Exception as e:
-        console.print(f"[red]작업 모드 오류: {e}[/]")
+        tty.setcbreak(fd)
+        yield cooked
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, cooked)
 
-    STATE.add_log("[작업 모드 종료] Commander로 복귀")
+
+@contextmanager
+def cooked_tty(cooked):
+    """raw 중간에 잠시 cooked 로 돌렸다가 다시 cbreak 로 복귀."""
+    fd = sys.stdin.fileno()
+    raw = termios.tcgetattr(fd)
+    try:
+        termios.tcsetattr(fd, termios.TCSADRAIN, cooked)
+        yield
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, raw)
+
+
+def read_key() -> str:
+    """ESC 시퀀스 / 펑션키 / 일반키를 한 토큰으로 반환.
+    반환값: 'UP', 'DOWN', 'LEFT', 'RIGHT', 'ENTER', 'BACKSPACE',
+            'F1'..'F12', 'ESC', 또는 일반 문자 한 글자."""
+    ch = sys.stdin.read(1)
+    if ch == "\x1b":
+        # ESC + 짧은 시퀀스 더 읽기 (non-blocking 흉내)
+        seq = ""
+        try:
+            import select
+            while True:
+                r, _, _ = select.select([sys.stdin], [], [], 0.02)
+                if not r:
+                    break
+                seq += sys.stdin.read(1)
+        except Exception:
+            pass
+        if not seq:
+            return "ESC"
+        # CSI: ESC [ ...
+        if seq.startswith("[") or seq.startswith("O"):
+            body = seq[1:]
+            mapping = {
+                "A": "UP", "B": "DOWN", "C": "RIGHT", "D": "LEFT",
+                "H": "HOME", "F": "END",
+                "P": "F1", "Q": "F2", "R": "F3", "S": "F4",
+                "1~": "HOME", "4~": "END", "5~": "PGUP", "6~": "PGDN",
+                "11~": "F1", "12~": "F2", "13~": "F3", "14~": "F4",
+                "15~": "F5", "17~": "F6", "18~": "F7", "19~": "F8",
+                "20~": "F9", "21~": "F10", "23~": "F11", "24~": "F12",
+            }
+            if body in mapping:
+                return mapping[body]
+        return "ESC"
+    if ch in ("\r", "\n"):
+        return "ENTER"
+    if ch in ("\x7f", "\x08"):
+        return "BACKSPACE"
+    if ch == "\t":
+        return "TAB"
+    if ch == "\x03":  # ^C
+        raise KeyboardInterrupt
+    if ch == "\x04":  # ^D
+        return "F10"
+    return ch
+
+
+# ── 화면 빌더 ──────────────────────────────────────────────
+TITLE = "HLLM COMMANDER · MDIR-STYLE"
+
+
+def build_header(state: State) -> Panel:
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    mode = "mock" if state.is_mock else "live"
+    left = Text.from_markup(f" [bold {TITLE_FG}]■ {TITLE}[/]")
+    right = Text.from_markup(
+        f"[{DIM}]{mode}[/]  [{TITLE_FG}]{now}[/] "
+    )
+    line = Text.assemble(left, Text(" " * 200), right, style=f"on {BG}")
+    line.truncate(200, overflow="ellipsis")
+    return Panel(line, box=DOUBLE, border_style=PANEL_BD, style=f"on {BG}", padding=(0, 0))
+
+
+def build_models_panel(state: State, sorted_models, cursor: int) -> Panel:
+    body = Text(style=ON_BG)
+    body.append(f" MODELS [{len(sorted_models)}]\n", style=f"bold {TITLE_FG} on {BG}")
+    body.append("\n")
+    for i, (mid, m) in enumerate(sorted_models, start=1):
+        is_cur = (i - 1 == cursor)
+        prio = m.get("priority", 99)
+        tier = m.get("cost_tier", "?")
+        tier_l = cost_tier_label(tier)
+        name = m.get("name", mid).split(" (")[0]
+        line = f" {i}.{name:<22} {tier_l:>3}  p{prio} "
+        if is_cur:
+            body.append("▶", style=f"bold {TITLE_FG} on {BG}")
+            body.append(line, style=SEL)
+        else:
+            body.append(" ", style=ON_BG)
+            body.append(line, style=ON_BG)
+        body.append("\n", style=ON_BG)
+    body.append("\n")
+    body.append(" ↑↓ 이동 · 1~7 점프 · Enter 접속", style=f"{DIM} on {BG}")
+    return Panel(
+        body,
+        title=f"[{TITLE_FG}]MODELS[/]",
+        title_align="left",
+        border_style=PANEL_BD,
+        style=f"on {BG}",
+        box=HEAVY,
+        padding=(0, 1),
+    )
+
+
+def build_meta_panel(state: State, sorted_models, cursor: int) -> Panel:
+    mid, m = sorted_models[cursor]
+    tier = m.get("cost_tier", "?")
+    tier_c = cost_tier_color(tier)
+    tier_l = cost_tier_label(tier)
+    ctx_k = m.get("context_window", 0) // 1000
+    caps = ", ".join(m.get("capabilities", []))
+    api = m.get("model", mid)
+    url = m.get("url", "")
+
+    body = Text(style=ON_BG)
+    body.append(f"  {m.get('name', mid)}\n", style=f"bold {TITLE_FG} on {BG}")
+    body.append(f"  id      : ", style=f"{DIM} on {BG}"); body.append(f"{mid}\n", style=ON_BG)
+    body.append(f"  api     : ", style=f"{DIM} on {BG}"); body.append(f"{api}\n", style=ON_BG)
+    body.append(f"  url     : ", style=f"{DIM} on {BG}"); body.append(f"{url}\n", style=ON_BG)
+    body.append(f"  ctx     : ", style=f"{DIM} on {BG}"); body.append(f"{ctx_k}k\n", style=ON_BG)
+    body.append(f"  prio    : ", style=f"{DIM} on {BG}"); body.append(f"{m.get('priority','?')}\n", style=ON_BG)
+    body.append(f"  cost    : ", style=f"{DIM} on {BG}"); body.append(f"{tier_l}", style=f"bold {tier_c} on {BG}"); body.append(f"  ({tier})\n", style=ON_BG)
+    body.append(f"  caps    : ", style=f"{DIM} on {BG}"); body.append(f"{caps}\n", style=ON_BG)
+    body.append("\n", style=ON_BG)
+
+    body.append("  HISTORY\n", style=f"bold {TITLE_FG} on {BG}")
+    if not state.history:
+        body.append("    · (비어있음)\n", style=f"{DIM} on {BG}")
+    else:
+        for t in state.history[-6:]:
+            tag = "you" if t.role == "user" else "ai "
+            preview = t.content.replace("\n", " ").strip()
+            if len(preview) > 64:
+                preview = preview[:63] + "…"
+            body.append(f"    [{t.timestamp}] {tag} ", style=f"{DIM} on {BG}")
+            body.append(f"{preview}\n", style=ON_BG)
+    body.append("\n", style=ON_BG)
+
+    body.append(f"  display : ", style=f"{DIM} on {BG}")
+    body.append(f"{state.display}\n", style=ON_BG)
+    body.append(f"  mode    : ", style=f"{DIM} on {BG}")
+    body.append(f"{'mock' if state.is_mock else 'live'}\n", style=ON_BG)
+
+    return Panel(
+        body,
+        title=f"[{TITLE_FG}]META · HISTORY[/]",
+        title_align="left",
+        border_style=PANEL_BD,
+        style=f"on {BG}",
+        box=HEAVY,
+        padding=(0, 1),
+    )
+
+
+FN_KEYS = [
+    ("1",  "Help"),
+    ("2",  "Model"),
+    ("3",  "Display"),
+    ("4",  "Clear"),
+    ("5",  "Compare"),
+    ("7",  "Info"),
+    ("9",  "About"),
+    ("10", "Quit"),
+]
+
+
+def build_footer() -> Panel:
+    bar = Text(style=ON_BG)
+    bar.append(" ", style=ON_BG)
+    for num, lbl in FN_KEYS:
+        bar.append(f"{num}", style=f"bold {KEY_NUM} on {BG}")
+        bar.append(f"{lbl}", style=KEY_LBL)
+        bar.append(" ", style=ON_BG)
+    return Panel(bar, box=DOUBLE, border_style=PANEL_BD, style=f"on {BG}", padding=(0, 0))
+
+
+def build_layout(state: State, sorted_models, cursor: int) -> Layout:
+    root = Layout()
+    root.split_column(
+        Layout(build_header(state), name="head", size=3),
+        Layout(name="body", ratio=1),
+        Layout(build_footer(), name="foot", size=3),
+    )
+    root["body"].split_row(
+        Layout(build_models_panel(state, sorted_models, cursor), name="models", ratio=2),
+        Layout(build_meta_panel(state, sorted_models, cursor), name="meta", ratio=3),
+    )
+    return root
+
+
+# ── 도움말 오버레이 ────────────────────────────────────────
+HELP_LINES = [
+    ("↑/↓",   "모델 커서 이동"),
+    ("1~7",   "모델 인덱스 점프"),
+    ("Enter", "선택 모델로 챗 진입"),
+    ("F1 / ?", "이 도움말 토글"),
+    ("F3",    "display 순환 (inline→block→card)"),
+    ("F4",    "history 비우기"),
+    ("F5",    "화면 다시 그리기"),
+    ("F7",    "모델 상세 테이블"),
+    ("F9",    "표시 방식 비교"),
+    ("F10 / q / ^D", "종료"),
+]
+
+
+def show_help() -> None:
     console.clear()
-    live.start()
+    body = Text(style=ON_BG)
+    body.append("\n  HLLM COMMANDER · 키 도움말\n\n", style=f"bold {TITLE_FG} on {BG}")
+    for k, desc in HELP_LINES:
+        body.append(f"   {k:<14}", style=f"bold {KEY_NUM} on {BG}")
+        body.append(f"{desc}\n", style=ON_BG)
+    body.append("\n  아무 키나 눌러 닫기", style=f"{DIM} on {BG}")
+    console.print(Panel(body, border_style=PANEL_BD, box=HEAVY, style=f"on {BG}",
+                        title=f"[{TITLE_FG}]F1 · HELP[/]", title_align="left"))
+    read_key()
 
 
-# ─────────────────────────────────────────────
-# 키 처리
-# ─────────────────────────────────────────────
-def handle_key(key: str, live: Live) -> bool:
-    """True 반환하면 종료"""
-    # 펑션 키
-    if key == "f1":
-        STATE.view = "models"
-        STATE.add_log("[F1] 도움말 - F1~F10 펑션바 사용")
-    elif key == "f2":
-        STATE.view = "models"
-        STATE.cursor_left = 0
-        STATE.add_log("[F2] 모델 view")
-    elif key == "f3":
-        STATE.view = "skills"
-        STATE.cursor_left = 0
-        STATE.add_log("[F3] 스킬 view")
-    elif key == "f4":
-        STATE.view = "context"
-        STATE.cursor_left = 0
-        STATE.add_log("[F4] 컨텍스트 view")
-    elif key == "f5":
-        STATE.add_log("[F5] 작업 모드 진입…")
-        enter_work_mode(live)
-    elif key == "f6":
-        STATE.view = "sessions"
-        STATE.cursor_left = 0
-        STATE.add_log("[F6] 세션 view")
-    elif key == "f7":
-        STATE.add_log("[F7] system 프롬프트 재구성됨")
-    elif key == "f8":
-        # 컨텍스트/스킬 편집 (notepad 호출)
-        if STATE.view == "context":
-            os.system(f'notepad "{hllm.CONTEXT_FILE}"')
-            STATE.add_log("[F8] context.md 편집 종료")
-        elif STATE.view == "skills":
-            skills = hllm.list_skills()
-            if skills and STATE.cursor_left < len(skills):
-                path = skills[STATE.cursor_left]["path"]
-                os.system(f'notepad "{path}"')
-                STATE.add_log("[F8] SKILL.md 편집 종료")
-    elif key == "f9":
-        STATE.add_log("[F9] (yolo 모드는 작업 시 /yolo로 토글)")
-    elif key == "f10" or key == "esc":
-        return True
-
-    # 방향키
-    elif key == "up":
-        action_move_cursor(-1)
-    elif key == "down":
-        action_move_cursor(1)
-    elif key == "page_up":
-        action_move_cursor(-5)
-    elif key == "page_down":
-        action_move_cursor(5)
-    elif key == "home":
-        STATE.cursor_left = 0
-    elif key == "end":
-        if STATE.view == "models":
-            STATE.cursor_left = len(hllm.MODELS) - 1
-        elif STATE.view == "skills":
-            STATE.cursor_left = max(0, len(hllm.list_skills()) - 1)
-
-    # 엔터
-    elif key == "enter":
-        action_enter()
-
-    # 빠른 메뉴 키
-    elif key == "m":
-        STATE.view = "models"
-        STATE.cursor_left = 0
-    elif key == "s":
-        STATE.view = "skills"
-        STATE.cursor_left = 0
-    elif key == "c":
-        STATE.view = "context"
-    elif key == "q":
-        return True
-
-    return False
+# ── 커맨더 루프 ────────────────────────────────────────────
+DISPLAYS = ("inline", "block", "card")
 
 
-# ─────────────────────────────────────────────
-# 키 입력 (readchar)
-# ─────────────────────────────────────────────
-def get_key() -> str:
-    if not HAS_READCHAR:
-        return input(">> ").strip().lower()
+def commander(state: State) -> None:
+    sorted_models = models_sorted(state.config)
+    if not sorted_models:
+        console.print("[red]config.models 가 비어있습니다.[/]")
+        return
 
-    k = readchar.readkey()
-    # readchar.key 상수 매핑
-    keymap = {
-        readchar.key.UP: "up",
-        readchar.key.DOWN: "down",
-        readchar.key.LEFT: "left",
-        readchar.key.RIGHT: "right",
-        readchar.key.ENTER: "enter",
-        readchar.key.ESC: "esc",
-        readchar.key.PAGE_UP: "page_up",
-        readchar.key.PAGE_DOWN: "page_down",
-        readchar.key.HOME: "home",
-        readchar.key.END: "end",
-        readchar.key.F1: "f1",
-        readchar.key.F2: "f2",
-        readchar.key.F3: "f3",
-        readchar.key.F4: "f4",
-        readchar.key.F5: "f5",
-        readchar.key.F6: "f6",
-        readchar.key.F7: "f7",
-        readchar.key.F8: "f8",
-        readchar.key.F9: "f9",
-        readchar.key.F10: "f10",
-    }
-    if k in keymap:
-        return keymap[k]
-    if isinstance(k, str) and len(k) == 1:
-        return k.lower()
-    return ""
+    # 시작 모델 = state.model_id 가 있으면 그 인덱스, 아니면 0
+    cursor = 0
+    for i, (mid, _) in enumerate(sorted_models):
+        if mid == state.model_id:
+            cursor = i
+            break
+    state.model_id = sorted_models[cursor][0]
 
-
-# ─────────────────────────────────────────────
-# 메인 루프
-# ─────────────────────────────────────────────
-def main():
-    if not HAS_READCHAR:
-        console.print("[red]readchar 패키지가 필요합니다.[/]")
-        console.print("[dim]설치: pip install readchar[/]")
-        sys.exit(1)
-
-    # 초기 화면 클리어
-    console.clear()
-
-    layout = make_layout()
-    update_layout(layout)
-
-    with Live(layout, console=console, screen=True,
-              refresh_per_second=10, auto_refresh=False) as live:
-
-        STATE.add_log("hllm Commander 시작")
-        STATE.add_log(f"모델: {hllm.CURRENT_MODEL}")
-        STATE.add_log("F1 도움  F2 모델  F5 작업 시작  F10 종료")
-
+    with raw_tty() as cooked:
         while True:
-            update_layout(layout)
-            live.refresh()
+            console.clear()
+            console.print(build_layout(state, sorted_models, cursor))
 
             try:
-                key = get_key()
+                key = read_key()
             except KeyboardInterrupt:
                 break
-            except Exception:
-                continue
 
-            if not key:
+            if key == "UP":
+                cursor = (cursor - 1) % len(sorted_models)
+                state.model_id = sorted_models[cursor][0]
+            elif key == "DOWN":
+                cursor = (cursor + 1) % len(sorted_models)
+                state.model_id = sorted_models[cursor][0]
+            elif key == "HOME":
+                cursor = 0
+                state.model_id = sorted_models[cursor][0]
+            elif key == "END":
+                cursor = len(sorted_models) - 1
+                state.model_id = sorted_models[cursor][0]
+            elif key.isdigit() and key != "0":
+                idx = int(key) - 1
+                if 0 <= idx < len(sorted_models):
+                    cursor = idx
+                    state.model_id = sorted_models[cursor][0]
+            elif key == "ENTER":
+                state.model_id = sorted_models[cursor][0]
+                # cooked 로 잠시 돌리고 chat_loop 진입
+                with cooked_tty(cooked):
+                    console.clear()
+                    chat_loop(state)
                 continue
-
-            try:
-                should_exit = handle_key(key, live)
-            except Exception as e:
-                STATE.add_log(f"[ERROR] {e}")
-                continue
-
-            if should_exit:
+            elif key in ("F1", "?"):
+                show_help()
+            elif key == "F3":
+                idx = (DISPLAYS.index(state.display) + 1) % len(DISPLAYS) if state.display in DISPLAYS else 0
+                state.display = DISPLAYS[idx]
+            elif key == "F4":
+                state.history.clear()
+                state.turn_no = 0
+            elif key == "F5":
+                pass  # 루프 상단에서 다시 그림
+            elif key == "F7":
+                _showcase(lambda: show_model_info(sorted_models))
+            elif key in ("F9", "F2"):
+                _showcase(show_compare)
+            elif key in ("F10", "q", "Q", "ESC"):
                 break
 
+    console.print()
+    console.print(f"[{DIM}]bye.[/]")
+
+
+def _showcase(fn) -> None:
+    """현재 raw 모드 그대로 두고 일반 출력 후 키 한 번 대기."""
     console.clear()
-    console.print("[bold yellow]hllm Commander 종료[/]")
+    fn()
+    console.print(f"[{DIM}]아무 키나 눌러 돌아가기...[/]")
+    read_key()
+
+
+# ── 메인 ───────────────────────────────────────────────────
+def main() -> None:
+    p = argparse.ArgumentParser(
+        prog="hllm2",
+        description="HLLM_CLI — MDIR-style commander (A형)",
+    )
+    p.add_argument("--config", default=None)
+    p.add_argument("--token-file", default=None)
+    p.add_argument("--token", default=None)
+    p.add_argument("--model", default=None)
+    p.add_argument("--display", default="block",
+                   choices=("inline", "block", "card"))
+    p.add_argument("--no-fallback", action="store_true")
+    args = p.parse_args()
+
+    cfg = load_config(args.config)
+    token = args.token or load_token(args.token_file)
+
+    state = State(
+        config=cfg,
+        token=token,
+        display=args.display,
+        use_fallback=not args.no_fallback,
+    )
+
+    if args.model and args.model in cfg.get("models", {}):
+        state.model_id = args.model
+
+    if not sys.stdin.isatty():
+        console.print("[red]hllm2 는 인터랙티브 TTY 가 필요합니다.[/]")
+        sys.exit(2)
+
+    try:
+        commander(state)
+    except KeyboardInterrupt:
+        console.print(f"\n[{DIM}]^C — bye.[/]")
 
 
 if __name__ == "__main__":
