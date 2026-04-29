@@ -1,33 +1,149 @@
-import requests, json
+{
+  "_doc": "Demos V1.0 API/모델/인프라 설정. app.py 수정 없이 이 파일만 편집하면 됩니다.",
+  "_updated": "2026-04-29 - HCP 신규 3 모델은 드롭다운에만 노출 (HTTP 400 원인 파악 전까지 fallback/tier 에서 제외)",
 
-with open("token.txt", "r") as f:
-    token = f.read().strip()
+  "token_settings": {
+    "agent_max_tokens": 8192,
+    "synth_max_tokens": 16384,
+    "default_n_ctx": 4096,
+    "gguf_reply_cap": 4096,
+    "gguf_ctx_reserve": 1536
+  },
 
-BASE = "http://dev.hcp.llm.skhynix.com"
-headers = {
-    "Authorization": f"Bearer {token}",
-    "Content-Type": "application/json"
+  "gguf": {
+    "max_pool_size": 4,
+    "vram_budget_gb": 14
+  },
+
+  "logpresso": {
+    "host": "10.40.42.27",
+    "port": 8888,
+    "api_key": "db1d2335-49cf-e859-3519-1ca132922e38",
+    "page_size": 50,
+    "cache_ttl": 600,
+    "cache_max": 20
+  },
+
+  "models": {
+    "glm-5": {
+      "env_id": "dev",
+      "model": "GLM-5",
+      "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
+      "name": "GLM-5 (HCP)",
+      "capabilities": ["text", "code", "analysis", "fast"],
+      "context_window": 128000,
+      "priority": 2,
+      "cost_tier": "medium"
+    },
+    "qwen3-coder-480b": {
+      "env_id": "coder-480b",
+      "model": "Qwen3-Coder-480B-A35B-Instruct",
+      "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
+      "name": "Coder-480B (HCP)",
+      "capabilities": ["text", "code", "analysis", "large"],
+      "context_window": 128000,
+      "priority": 1,
+      "cost_tier": "high"
+    },
+    "qwen3-coder-next": {
+      "env_id": "coder-next",
+      "model": "Qwen3-Coder-Next",
+      "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
+      "name": "Coder-Next (HCP)",
+      "capabilities": ["text", "code", "medium"],
+      "context_window": 128000,
+      "priority": 2,
+      "cost_tier": "medium"
+    },
+    "qwen3-vl-30b": {
+      "env_id": "vl-fast",
+      "model": "Qwen3-VL-30B-A3B-Instruct",
+      "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
+      "name": "VL-30B-A3B (Vision/HCP)",
+      "capabilities": ["text", "vision", "fast"],
+      "context_window": 128000,
+      "priority": 2,
+      "cost_tier": "low"
+    },
+    "qwen25-vl-72b": {
+      "env_id": "vl-72b",
+      "model": "Qwen2.5-VL-72B-Instruct",
+      "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
+      "name": "VL-72B (Vision/HCP, 시조새)",
+      "capabilities": ["text", "vision", "large", "analysis"],
+      "context_window": 128000,
+      "priority": 1,
+      "cost_tier": "high"
+    },
+    "qwen35-397b-fp8": {
+      "env_id": "qwen35-397b-fp8",
+      "model": "Qwen3.5-397B-A17B-FP8",
+      "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
+      "name": "Qwen3.5-397B FP8 (HCP, 매머드)",
+      "capabilities": ["text", "code", "analysis", "large"],
+      "context_window": 128000,
+      "priority": 1,
+      "cost_tier": "high"
+    },
+    "qwen35-397b": {
+      "env_id": "qwen35-397b",
+      "model": "Qwen3.5-397B-A17B",
+      "url": "http://dev.hcp.llm.skhynix.com/v1/chat/completions",
+      "name": "Qwen3.5-397B (HCP, 시조새)",
+      "capabilities": ["text", "code", "analysis", "large"],
+      "context_window": 128000,
+      "priority": 1,
+      "cost_tier": "high"
+    },
+
+    "gpt-oss-20b": {
+      "env_id": "common",
+      "model": "gpt-oss-20b",
+      "url": "http://common.llm.skhynix.com/v1/chat/completions",
+      "name": "GPT-OSS (20B/Common)",
+      "capabilities": ["text", "code", "fast"],
+      "context_window": 128000,
+      "priority": 3,
+      "cost_tier": "low"
+    },
+    "qwen3-next-80b": {
+      "env_id": "summary",
+      "model": "Qwen3-Next-80B-A3B-Instruct",
+      "url": "http://common.llm.skhynix.com/v1/chat/completions",
+      "name": "Next-80B (Common)",
+      "capabilities": ["text", "analysis", "medium"],
+      "context_window": 128000,
+      "priority": 2,
+      "cost_tier": "medium"
+    },
+    "qwen3-coder-30b": {
+      "env_id": "coder-common",
+      "model": "Qwen3-Coder-30B-A3B-Instruct",
+      "url": "http://common.llm.skhynix.com/v1/chat/completions",
+      "name": "Coder-30B-A3B (Common)",
+      "capabilities": ["text", "code", "medium"],
+      "context_window": 128000,
+      "priority": 3,
+      "cost_tier": "low"
+    }
+  },
+
+  "api_model_tiers": {
+    "large":  ["qwen3-coder-480b", "qwen3-next-80b"],
+    "medium": ["qwen3-coder-next", "qwen3-coder-30b", "glm-5"],
+    "small":  ["gpt-oss-20b"]
+  },
+
+  "fallback_chains": {
+    "qwen35-397b-fp8":   [],
+    "qwen35-397b":       [],
+    "qwen25-vl-72b":     [],
+    "qwen3-coder-480b":  ["qwen3-next-80b", "qwen3-coder-next", "glm-5", "qwen3-coder-30b", "gpt-oss-20b"],
+    "qwen3-next-80b":    ["qwen3-coder-480b", "qwen3-coder-next", "glm-5", "qwen3-coder-30b", "gpt-oss-20b"],
+    "qwen3-coder-next":  ["qwen3-coder-480b", "qwen3-next-80b", "glm-5", "qwen3-coder-30b", "gpt-oss-20b"],
+    "glm-5":             ["qwen3-coder-next", "qwen3-coder-480b", "qwen3-next-80b", "qwen3-coder-30b", "gpt-oss-20b"],
+    "gpt-oss-20b":       ["qwen3-coder-30b", "glm-5", "qwen3-coder-next", "qwen3-coder-480b", "qwen3-next-80b"],
+    "qwen3-coder-30b":   ["qwen3-coder-next", "glm-5", "gpt-oss-20b", "qwen3-coder-480b", "qwen3-next-80b"],
+    "qwen3-vl-30b":      ["glm-5", "qwen3-coder-next", "qwen3-coder-480b"]
+  }
 }
-
-# 모델 목록 조회
-resp = requests.get(f"{BASE}/v1/models", headers=headers, verify=False)
-print("Status:", resp.status_code)
-
-models = resp.json()
-if isinstance(models, dict):
-    models = models.get("data", [models])
-
-print(f"\n총 {len(models)}개 모델:")
-for m in models:
-    if isinstance(m, dict):
-        mid = m.get("id") or m.get("model") or m.get("name") or "?"
-        print(f"  - {mid}")
-    else:
-        print(f"  - {m}")
-
-# 397B 만 필터
-print("\n397B/72B 관련:")
-for m in models:
-    s = json.dumps(m, ensure_ascii=False) if isinstance(m, dict) else str(m)
-    if "397B" in s or "72B" in s:
-        print(f"  ★ {s}")
