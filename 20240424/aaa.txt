@@ -373,6 +373,11 @@ def search_knowledge(query, max_results=5, max_content_chars=8000, user_id=None)
     if results:
         top_score = results[0]["score"]
         min_score = max(5, top_score * 0.3)
+        # ── DEBUG: 모든 후보 점수 출력 (필요 시 주석 처리) ──
+        print(f"[KNOWLEDGE DEBUG] query={query!r}, top={top_score}, min_cut={min_score:.1f}")
+        for r in results:
+            mark = "✓" if r["score"] >= min_score else "✗ CUT"
+            print(f"  [{mark}] {r['filename']}: {r['score']}")
         results = [r for r in results if r["score"] >= min_score]
     return results[:max_results]
 
