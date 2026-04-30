@@ -5122,7 +5122,24 @@ async function runCodeAssistant(){
     // 버튼 비활성화
     const runBtn = document.getElementById('rpRunBtn');
     runBtn.disabled = true;
-    runBtn.textContent = '\u23f3 분석 중...';
+    const _rpModelLabels = {
+      'kimi-k25':'🔥 Kimi-K2.5',
+      'coder-480b':'🚀 Coder-480B',
+      'qwen35-397b':'🦕 Qwen3.5-397B',
+      'qwen35-397b-fp8':'🦕 397B FP8',
+      'glm-5-1':'💎 GLM-5.1'
+    };
+    const _rpModelLabel = _rpModelLabels[selRpModel] || selRpModel;
+    const _rpStartTime = Date.now();
+    runBtn.textContent = '\u23f3 ' + _rpModelLabel + ' 분석 중... (0초)';
+    const _rpTimerInterval = setInterval(()=>{
+      const elapsed = Math.floor((Date.now() - _rpStartTime)/1000);
+      const min = Math.floor(elapsed/60);
+      const sec = elapsed % 60;
+      const timeStr = min > 0 ? (min+'분 '+sec+'초') : (sec+'초');
+      const note = elapsed > 60 ? ' — 대형 모델은 1~5분 소요' : '';
+      runBtn.textContent = '\u23f3 ' + _rpModelLabel + ' 분석 중... ('+timeStr+')'+note;
+    }, 1000);
 
     try{
       const resp = await fetch('/api/chat',{
@@ -5139,6 +5156,7 @@ async function runCodeAssistant(){
           system_prompt: document.getElementById('systemPromptInput').value.trim(),
           max_tokens: maxTokens,
           think_mode: document.getElementById('thinkToggle').checked,
+          disable_fallback: true,  // Code Assistant: 사용자가 선택한 대형 모델 고정, 폴백 금지
         })
       });
       const data = await resp.json();
@@ -5174,6 +5192,7 @@ async function runCodeAssistant(){
         addMsg('assistant','\u274c 서버 연결 실패: '+e.message);
       }
     }
+    clearInterval(_rpTimerInterval);
     isSending = false;
     chatAbort = null;
     btn.textContent = '\u25b6';
