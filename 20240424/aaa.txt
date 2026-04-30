@@ -2147,7 +2147,10 @@ async function send(){
     _ssBox.innerHTML = '<div class="msg-label">Demos <span style="font-size:10px;color:#6366f1;">\u23f5 스트리밍</span></div><div class="streaming-content" style="white-space:pre-wrap;word-break:break-word;"></div>';
     _ssMsgs.appendChild(_ssBox);
     const _ssContent = _ssBox.querySelector('.streaming-content');
+    const _ssTextNode = document.createTextNode('');
+    _ssContent.appendChild(_ssTextNode);
     const _ssScroller = document.querySelector('.content');
+    let _ssLastScroll = 0;
     if(_ssScroller) _ssScroller.scrollTop = _ssScroller.scrollHeight;
 
     let _ssFullText = '';
@@ -2192,8 +2195,13 @@ async function send(){
                   _ssError = ev.error;
                 } else if(typeof ev.delta === 'string'){
                   _ssFullText += ev.delta;
-                  _ssContent.textContent = _ssFullText;
-                  if(_ssScroller) _ssScroller.scrollTop = _ssScroller.scrollHeight;
+                  _ssTextNode.appendData(ev.delta);
+                  // 스크롤은 100ms 마다만 (reflow 절약)
+                  const _now = Date.now();
+                  if(_ssScroller && _now - _ssLastScroll > 100){
+                    _ssScroller.scrollTop = _ssScroller.scrollHeight;
+                    _ssLastScroll = _now;
+                  }
                 } else if(ev.done){
                   _ssMeta = ev;
                 }
@@ -5272,7 +5280,10 @@ async function runCodeAssistant(){
     _ssBox.innerHTML = '<div class="msg-label">Demos <span style="font-size:10px;color:#6366f1;">\u23f5 스트리밍</span></div><div class="streaming-content" style="white-space:pre-wrap;word-break:break-word;"></div>';
     _ssMsgs.appendChild(_ssBox);
     const _ssContent = _ssBox.querySelector('.streaming-content');
+    const _ssTextNode = document.createTextNode('');
+    _ssContent.appendChild(_ssTextNode);
     const _ssScroller = document.querySelector('.content');
+    let _ssLastScroll = 0;
     if(_ssScroller) _ssScroller.scrollTop = _ssScroller.scrollHeight;
 
     let _ssFullText = '';
@@ -5319,8 +5330,13 @@ async function runCodeAssistant(){
                   _ssError = ev.error;
                 } else if(typeof ev.delta === 'string'){
                   _ssFullText += ev.delta;
-                  _ssContent.textContent = _ssFullText;
-                  if(_ssScroller) _ssScroller.scrollTop = _ssScroller.scrollHeight;
+                  _ssTextNode.appendData(ev.delta);
+                  // 스크롤은 100ms 마다만 (reflow 절약)
+                  const _now = Date.now();
+                  if(_ssScroller && _now - _ssLastScroll > 100){
+                    _ssScroller.scrollTop = _ssScroller.scrollHeight;
+                    _ssLastScroll = _now;
+                  }
                 } else if(ev.done){
                   _ssMeta = ev;
                 }
