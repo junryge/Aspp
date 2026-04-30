@@ -4824,7 +4824,9 @@ function handleRpFolderSelect(files){
     totalSize += f.size;
     const reader = new FileReader();
     reader.onload = function(e){
+      const newIdx = rpFiles.length;
       rpFiles.push({name:f.name, path:path, content:e.target.result, ext:ext, size:f.size});
+      rpCheckedFiles.add(newIdx);  // 업로드 즉시 자동 체크
       pending--;
       if(pending === 0){
         buildRpTree();
@@ -5014,7 +5016,9 @@ function handleRpFileSelect(files){
     if(!codeExts.includes(ext)){ alert(f.name+': 지원하지 않는 파일 형식입니다.'); continue; }
     const reader = new FileReader();
     reader.onload = function(e){
+      const newIdx = rpFiles.length;
       rpFiles.push({name:f.name, content:e.target.result, ext:ext, size:f.size});
+      rpCheckedFiles.add(newIdx);  // 업로드 즉시 자동 체크
       renderRpFiles();
       updateRpRunBtn();
       detectRpLanguages();
@@ -5251,7 +5255,9 @@ function readEntriesRecursive(entries){
         if(f.size > 500000){ pending--; return; }
         const reader = new FileReader();
         reader.onload = function(e){
+          const newIdx = rpFiles.length;
           rpFiles.push({name:f.name, path:path+f.name, content:e.target.result, ext:ext, size:f.size});
+          rpCheckedFiles.add(newIdx);  // 업로드 즉시 자동 체크
           pending--;
           if(pending===0){ buildRpTree(); renderRpTree(); updateRpRunBtn(); detectRpLanguages(); }
         };
