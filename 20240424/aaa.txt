@@ -232,6 +232,17 @@ def register_chat_routes(app):
                 model = data.get("model", "")
         api_key = API_TOKEN or data.get("api_key", "")
         messages = data.get("messages", [])
+        # ── 히스토리 자동 트림: 최근 6턴(12 메시지)만 유지 ──
+        # 응답 잘림·느림 방지: 입력 토큰 폭증 차단
+        # system 메시지는 보존, 그 외 user/assistant 만 최근 12개로 컷
+        MAX_HISTORY_MESSAGES = 12
+        _orig_msg_count = len(messages)
+        if _orig_msg_count > MAX_HISTORY_MESSAGES:
+            _sys_msgs = [m for m in messages if m.get("role") == "system"]
+            _non_sys = [m for m in messages if m.get("role") != "system"]
+            _recent = _non_sys[-MAX_HISTORY_MESSAGES:]
+            messages = _sys_msgs + _recent
+            print(f"  [HISTORY TRIM] {_orig_msg_count} → {len(messages)} 메시지 (최근 {MAX_HISTORY_MESSAGES} 턴 유지)")
         skill_ids = data.get("skills", [])
         effort = data.get("effort", 2)
         output_format = data.get("format", "code")
@@ -252,9 +263,9 @@ def register_chat_routes(app):
 
         # ── 토큰 자동 결정 (API/GGUF 모두) ──
         if is_gguf:
-            # GGUF: 고정값 (로컬 GPU 최적화)
-            max_tokens = 4096
-            user_n_ctx = user_n_ctx if user_n_ctx > 0 else 4096
+            # GGUF: 응답 캡은 위에서 받은 값(또는 TOKEN_SETTINGS) 그대로 — gguf_reply_cap/safe_max에서 추가로 캡됨
+            # n_ctx는 32768 기본 (RTX 3090 24GB에서 충분). 프론트가 넘기면 그 값 사용.
+            user_n_ctx = user_n_ctx if user_n_ctx > 0 else 32768
         else:
             # API: 모델 크기별 자동 설정
             _reg_key = ENV_TO_REGISTRY.get(env_id)
@@ -1385,11 +1396,28 @@ def register_chat_routes(app):
                     return int(total_chars * 1.1) + 512
 
             prompt_tokens_est = _estimate_gguf_prompt_tokens(api_messages)
+
+            # 컨텍스트 초과 시 자동 트림 — 시스템 메시지는 유지하고 오래된 user/assistant 페어부터 제거
+            budget = gguf_ctx - gguf_ctx_reserve - 256  # 최소 응답 256토큰 보장
+            trimmed = 0
+            while prompt_tokens_est > budget and len(api_messages) > 1:
+                removed_idx = -1
+                for i, m in enumerate(api_messages):
+                    if m.get("role") in ("user", "assistant"):
+                        removed_idx = i
+                        break
+                if removed_idx < 0:
+                    break
+                api_messages.pop(removed_idx)
+                trimmed += 1
+                prompt_tokens_est = _estimate_gguf_prompt_tokens(api_messages)
+
+            if trimmed > 0:
+                print(f"[gguf] 컨텍스트 초과 → 오래된 메시지 {trimmed}개 자동 제거 (현재 ~{prompt_tokens_est}토큰)")
+
             safe_max = max(256, gguf_ctx - prompt_tokens_est - gguf_ctx_reserve)
             actual_max_tokens = min(max_tokens, safe_max, gguf_reply_cap)
-
-            if prompt_tokens_est > gguf_ctx - gguf_ctx_reserve:
-                return jsonify({"error": f"프롬프트가 너무 깁니다 (~{prompt_tokens_est}토큰). 스킬 수를 줄이거나 히스토리를 초기화해주세요. (GGUF ctx: {gguf_ctx})"}), 400
+            # 차단 가드 제거 — 트림 후에도 길면 그대로 진행 (llama.cpp가 처리)
 
             answer, err = gguf_chat(
                 api_messages,
