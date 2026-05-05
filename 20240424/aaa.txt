@@ -103,31 +103,78 @@ def aggregate_oht_csv(spec, max_rows=None):
     with open_csv_stream(spec) as fh:
         reader = csv.DictReader(fh)
         cols = reader.fieldnames or []
-        # 컬럼명이 raw / 파싱 두 가지 — 둘 다 지원
+        # 3가지 포맷 자동 감지
+        #  A) 파싱본 oht_data_m??? : ADDRESS / NEXT_ADDRESS / STATUS / VEHICLE / DESTINATION 컬럼
+        #  B) raw LOGPRESSO_OHT_DATA : 'line' 한 컬럼에 21개 필드 콤마 구분
+        #  C) UDP capture           : 'line' 만 있는 변형 (B와 동일 처리)
         col_addr = 'ADDRESS'        if 'ADDRESS'        in cols else None
         col_next = 'NEXT_ADDRESS'   if 'NEXT_ADDRESS'   in cols else None
         col_stat = 'STATUS'         if 'STATUS'         in cols else None
         col_vhl  = 'VEHICLE'        if 'VEHICLE'        in cols else None
         col_dest = 'DESTINATION'    if 'DESTINATION'    in cols else None
         col_time = '_time'          if '_time'          in cols else None
-        if not (col_addr and col_next and col_stat):
-            raise RuntimeError(f"필수 컬럼 누락. 발견: {cols}")
+        col_line = 'line'           if 'line'           in cols else None
+
+        format_kind = None
+        if col_addr and col_next and col_stat:
+            format_kind = 'parsed'
+        elif col_line:
+            format_kind = 'raw_line'
+        else:
+            raise RuntimeError(
+                f"인식 가능한 포맷이 아님. 발견 컬럼: {cols}\n"
+                f"  - 파싱본이면 ADDRESS/NEXT_ADDRESS/STATUS 필요\n"
+                f"  - raw UDP면 'line' 컬럼 필요"
+            )
+        print(f"      [포맷] {format_kind}  (cols={cols})")
+
+        # raw line 21필드 인덱스 매핑 (M14_UDP_메세지_분석_20260421.md 기준)
+        IDX_VEHICLE     = 2
+        IDX_STATUS      = 3
+        IDX_ADDRESS     = 7
+        IDX_NEXT_ADDR   = 9
+        IDX_DESTINATION = 13
 
         for row in reader:
             rows += 1
             if max_rows and rows > max_rows:
                 break
-            try:
-                a = int(row[col_addr])
-                n = int(row[col_next])
-            except (ValueError, TypeError):
-                skipped += 1
-                continue
+
+            if format_kind == 'parsed':
+                try:
+                    a = int(row[col_addr])
+                    n = int(row[col_next])
+                except (ValueError, TypeError):
+                    skipped += 1
+                    continue
+                st = (row.get(col_stat) or '').strip()
+                vid = row.get(col_vhl) if col_vhl else None
+                dest = (row.get(col_dest) or '').strip() if col_dest else ''
+                t = row.get(col_time) if col_time else None
+            else:  # raw_line
+                line = (row.get(col_line) or '').strip().strip('"')
+                if not line:
+                    skipped += 1
+                    continue
+                parts = line.split(',')
+                if len(parts) < 14:
+                    skipped += 1
+                    continue
+                try:
+                    a = int(parts[IDX_ADDRESS])
+                    n = int(parts[IDX_NEXT_ADDR])
+                except (ValueError, IndexError):
+                    skipped += 1
+                    continue
+                st = parts[IDX_STATUS].strip()
+                vid = parts[IDX_VEHICLE].strip()
+                dest = parts[IDX_DESTINATION].strip() if len(parts) > IDX_DESTINATION else ''
+                t = row.get(col_time) if col_time else None
+
             if a == 0 or n == 0 or a == n:
                 skipped += 1
                 continue
 
-            st = (row.get(col_stat) or '').strip()
             status_hist[st] += 1
             if st == '0':
                 idle[(a, n)] += 1
@@ -135,16 +182,11 @@ def aggregate_oht_csv(spec, max_rows=None):
                 busy[(a, n)] += 1
 
             addrs.add(a); addrs.add(n)
-            if col_vhl:
-                vehicles.add(row[col_vhl])
-            if col_dest and col_vhl:
-                vid = row[col_vhl]
-                d = (row.get(col_dest) or '').strip()
-                t = row.get(col_time) if col_time else None
-                # 차량별 첫 출현(=가장 위 행) 기준 OD 한 건만 저장
-                if d and vid not in last_dest_by_v:
-                    last_dest_by_v[vid] = d
-                    od_pairs.append((vid, a, d, t))
+            if vid:
+                vehicles.add(vid)
+                if dest and vid not in last_dest_by_v:
+                    last_dest_by_v[vid] = dest
+                    od_pairs.append((vid, a, dest, t))
 
     stats = {
         'rows_scanned': rows,
