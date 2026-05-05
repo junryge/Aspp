@@ -1,3 +1,1 @@
-python3 dijkstra_analyzer.py \
-  --layout ../OHT_MAP/cache/M16A_BR_layout_cache.json \
-  --oht    "/home/user/data.zip:LOGPRESSO_oht_data_m16BR_20260421.csv"
+python dijkstra_analyzer.py --layout WORD_MODEL\OHT_MAP\cache\M16A_BR_layout_cache.json --oht C:\경로\ASAS\DES\20260429_UDP.CSV
