@@ -1,1 +1,1 @@
-python dijkstra_analyzer.py --layout WORD_MODEL\OHT_MAP\cache\M16A_BR_layout_cache.json --oht C:\경로\ASAS\DES\20260429_UDP.CSV
+python dijkstra_formula_check.py --layout cache\M16A_BR_layout_cache.json --oht DES\20260429_UDP.CSV --all
