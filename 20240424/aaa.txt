@@ -124,10 +124,12 @@ def main():
     ap.add_argument('--max-rows', type=int, default=None)
     ap.add_argument('--w-idle', type=float, default=LINECOST_IDLE_VHL_PENALTY)
     ap.add_argument('--w-busy', type=float, default=LINECOST_WORK_VHL_PENALTY)
-    ap.add_argument('--src',   type=int, required=True)
-    ap.add_argument('--dst',   type=int, required=True)
+    ap.add_argument('--src',   type=int, default=None)
+    ap.add_argument('--dst',   type=int, default=None)
     ap.add_argument('--trace', type=int, default=30,
                     help='매 단계 로그 출력 개수 (기본 30)')
+    ap.add_argument('--all', action='store_true',
+                    help='V² 전체 OD 쌍에 대해 수식(Σw == d[t]) 일치성 검증')
     args = ap.parse_args()
 
     print(_formula_banner())
@@ -176,6 +178,72 @@ def main():
         print("    ❌ 음수 가중치 존재 → Dijkstra 부적합 (Bellman-Ford 필요)")
         return 1
     print("    ✅ 모든 가중치 ≥ 0 → Dijkstra 정확성 정리 적용 가능")
+
+    # ----- 전체 모드: V² 전수 일치 검증 -----
+    if args.all:
+        import heapq, time
+        nodes = sorted(adj.keys())
+        V = len(nodes)
+        print(f"\n[6] 전수 검증: V×V = {V*V:,} 쌍에 대해 'Σw == d[t]' 확인")
+        total_pairs = 0
+        reach_pairs = 0
+        ok = 0
+        mismatch = 0
+        max_diff = 0.0
+        worst = None
+        t0 = time.perf_counter()
+        for i, src in enumerate(nodes):
+            # 1회 SSSP로 모든 dst의 d, π를 한 번에 구함
+            dd = {src: 0.0}; pp = {}
+            pq = [(0.0, src)]
+            while pq:
+                cu, u = heapq.heappop(pq)
+                if cu > dd.get(u, math.inf):
+                    continue
+                for v, w in adj.get(u, []):
+                    nd = cu + w
+                    if nd < dd.get(v, math.inf):
+                        dd[v] = nd; pp[v] = u
+                        heapq.heappush(pq, (nd, v))
+            for t, dval in dd.items():
+                if t == src: continue
+                total_pairs += 1
+                reach_pairs += 1
+                # 경로 복원 + 재합산
+                path = [t]
+                while path[-1] in pp:
+                    path.append(pp[path[-1]])
+                path.reverse()
+                s = 0.0
+                for k in range(len(path)-1):
+                    s += edge_weight((path[k], path[k+1]))
+                diff = abs(s - dval)
+                if diff < 1e-6:
+                    ok += 1
+                else:
+                    mismatch += 1
+                    if diff > max_diff:
+                        max_diff = diff; worst = (src, t, dval, s)
+            if (i+1) % 200 == 0:
+                el = time.perf_counter() - t0
+                eta = el/(i+1)*(V-i-1)
+                print(f"    ... {i+1}/{V} src 처리 ({el:.1f}s, ETA {eta:.0f}s) "
+                      f"누적 OK={ok:,} 불일치={mismatch}")
+        el = time.perf_counter() - t0
+        print(f"\n  결과 ({el:.1f}s):")
+        print(f"    조사한 OD 쌍       = {total_pairs:,} (도달 가능)")
+        print(f"    공식 일치 (OK)     = {ok:,}")
+        print(f"    공식 불일치        = {mismatch}")
+        if mismatch == 0:
+            print(f"    ✅ 모든 OD에서 Σ w(u,v) = d[t] — 구현이 수식과 100% 일치")
+        else:
+            print(f"    ❌ 최대 오차 {max_diff:.6f}, worst case: {worst}")
+        return 0
+
+    # ----- 단일 OD 트레이스 모드 -----
+    if args.src is None or args.dst is None:
+        print("\n[!] --src/--dst 가 없으면 --all 을 사용하세요.")
+        return 1
 
     # 6. 트레이스 실행
     print(f"\n[6] Dijkstra 실행 — src={args.src} → dst={args.dst}")
