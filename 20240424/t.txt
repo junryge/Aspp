@@ -124,7 +124,6 @@ def iter_star_rows(filepath):
         reader = csv.DictReader(f)
         prefix = detect_prefix(reader.fieldnames)
         if not prefix:
-            print(f"❌ {filepath}: prefix 감지 실패")
             return
 
         def C(suffix):
@@ -623,10 +622,6 @@ def process(input_csv, out_dir='.'):
     rows_processed = 0
     rules_evaluated = 0
 
-    print(f'📥 입력: {input_csv}')
-    print(f'   출력 폴더: {os.path.abspath(out_dir)}')
-    print(f'   윈도우: 과거 {WINDOW_MIN}분')
-
     for t, star, prefix in iter_star_rows(input_csv):
         t1_window.append(star.get('avgtotal1min'))
         m14_window.append(star.get('m14_to_m16'))
@@ -645,25 +640,8 @@ def process(input_csv, out_dir='.'):
     tracker.finalize(last_t)
 
     # ── 날짜별 CSV append ──
-    event_paths = write_events_by_date(out_dir, tracker.events, file_name)
-    incident_paths = write_incidents_by_date(out_dir, tracker.incidents, file_name)
-
-    print()
-    print(f'📊 처리 결과')
-    print(f'   행 처리:    {rows_processed:,} 행')
-    print(f'   룰 평가:    {rules_evaluated:,} 회 (90분 채워진 후)')
-    print(f'   사건 추출:  {len(tracker.incidents)} 건 (S3 — 진짜 위험)')
-    print(f'   발동 기록:  {len(tracker.events)} 분 (1분당 1행)')
-    print()
-    print(f'💾 발동이벤트 CSV ({len(event_paths)}개 날짜):')
-    for p in event_paths:
-        print(f'   · {p}')
-    if incident_paths:
-        print(f'💾 사건단위 CSV ({len(incident_paths)}개 날짜):')
-        for p in incident_paths:
-            print(f'   · {p}')
-    else:
-        print(f'💾 사건단위 CSV: 진짜 위험 사건 0건 (생성 없음)')
+    write_events_by_date(out_dir, tracker.events, file_name)
+    write_incidents_by_date(out_dir, tracker.incidents, file_name)
 
 
 # ====== 실시간 감시 모드 ======
@@ -685,21 +663,13 @@ def watch(input_csv, out_dir='.', interval=60):
     last_incident_count = 0
     last_t = None
 
-    print(f'👁  실시간 감시 시작')
-    print(f'   입력: {input_csv}')
-    print(f'   출력 폴더: {os.path.abspath(out_dir)}')
-    print(f'   폴링 간격: {interval}초 (Ctrl+C로 종료)')
-    print()
-
     while True:
         try:
             if os.path.exists(input_csv):
                 cur_size = os.path.getsize(input_csv)
                 if cur_size != last_size:
                     # 파일 변화 감지 — 처음부터 다시 읽되 이미 본 행은 윈도우 상태로 흘려보냄
-                    seen = 0
                     for t, star, _ in iter_star_rows(input_csv):
-                        seen += 1
                         # 같은 시각이거나 이전 시각이면 스킵 (이미 처리)
                         if last_t is not None and t <= last_t:
                             continue
@@ -717,37 +687,29 @@ def watch(input_csv, out_dir='.', interval=60):
                         # 매 분 발동이벤트 1행 append
                         if len(tracker.events) > last_event_count:
                             for ev in tracker.events[last_event_count:]:
-                                p = append_event_row(out_dir, ev, file_name)
-                                stage_disp = STAGE_LABEL.get(ev['stage'], '')
-                                print(f'   [{ev["time"].strftime("%H:%M")}] {stage_disp} '
-                                      f'— {ev["reason"]} → {os.path.basename(p)}')
+                                append_event_row(out_dir, ev, file_name)
                             last_event_count = len(tracker.events)
 
                         # 신규 종료된 사건이 있으면 사건단위 append
                         if len(tracker.incidents) > last_incident_count:
                             for c in tracker.incidents[last_incident_count:]:
-                                p = append_incident_row(out_dir, c, file_name)
-                                print(f'   ⭐ 사건 확정 → {os.path.basename(p)}')
+                                append_incident_row(out_dir, c, file_name)
                             last_incident_count = len(tracker.incidents)
 
                     last_size = cur_size
 
             time.sleep(interval)
         except KeyboardInterrupt:
-            print('\n👋 감시 종료')
-            # 미해소 사건 강제 종료
             tracker.finalize(last_t)
             if len(tracker.incidents) > last_incident_count:
                 for c in tracker.incidents[last_incident_count:]:
-                    p = append_incident_row(out_dir, c, file_name)
-                    print(f'   ⭐ 사건 확정 (종료 시) → {os.path.basename(p)}')
+                    append_incident_row(out_dir, c, file_name)
             break
 
 
 def main():
     if len(sys.argv) < 2:
-        print(__doc__)
-        sys.exit(1)
+        sys.exit(__doc__)
 
     input_csv = sys.argv[1]
     out_dir = '.'
@@ -771,8 +733,7 @@ def main():
             i += 1
 
     if not os.path.exists(input_csv) and not watch_mode:
-        print(f'❌ 파일 없음: {input_csv}')
-        sys.exit(1)
+        sys.exit(f'파일 없음: {input_csv}')
 
     if watch_mode:
         watch(input_csv, out_dir, interval)
