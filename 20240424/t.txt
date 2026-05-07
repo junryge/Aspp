@@ -1,172 +1,492 @@
-"""
-code_assist_v1/routes_sessions.py - 자체 세션 저장/로드 라우트
+/* code_assist_v1/static/app.css — 다크/라이트 테마 */
 
-채팅 세션을 code_assist_v1/sessions/ 에 JSON 으로 저장한다.
-harness_bridge 가용 여부와 무관하게 항상 동작한다.
+:root,
+html[data-theme="dark"] {
+  --bg-1: #0f1419;
+  --bg-2: #161b22;
+  --bg-3: #1c2128;
+  --panel: #1c2128;
+  --card: #21262d;
+  --border: #30363d;
+  --border-strong: #444c56;
+  --text: #e6edf3;
+  --text-2: #c9d1d9;
+  --muted: #8b949e;
+  --accent: #58a6ff;
+  --accent-2: #3fb950;
+  --warn: #d29922;
+  --error: #f85149;
+  --code-bg: #0d1117;
+  --inline-bg: #1f242c;
+  --selected-bg: #1f2937;
+  --avatar-user-bg: #1c3a4d;
+  --avatar-assistant-bg: #1c3322;
+  --chip-bg: #1c3a4d;
+  --chip-border: #2d5872;
+  --chip-kb-bg: #1c3322;
+  --chip-kb-border: #2d5832;
+  --chip-file-bg: #2a2030;
+  --chip-file-border: #3d2d4a;
+  --shadow: 0 1px 3px rgba(0,0,0,.4);
+  --radius: 6px;
+  --radius-lg: 10px;
+  --mono: "Cascadia Code", "JetBrains Mono", "Consolas", "Courier New", monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", "맑은 고딕", sans-serif;
+}
 
-엔드포인트:
-    POST   /api/harness/session/save              (body: {session_id?, messages, skills_used?, metadata?, uploaded_files?})
-    GET    /api/harness/session/load/<sid>
-    GET    /api/harness/session/list
-    DELETE /api/harness/session/delete/<sid>
-"""
-from __future__ import annotations
-import json
-import os
-import time
-from uuid import uuid4
+html[data-theme="light"] {
+  --bg-1: #ffffff;
+  --bg-2: #f6f8fa;
+  --bg-3: #ffffff;
+  --panel: #ffffff;
+  --card: #f6f8fa;
+  --border: #d0d7de;
+  --border-strong: #8c959f;
+  --text: #1f2328;
+  --text-2: #424a53;
+  --muted: #656d76;
+  --accent: #0969da;
+  --accent-2: #1a7f37;
+  --warn: #9a6700;
+  --error: #cf222e;
+  --code-bg: #f6f8fa;
+  --inline-bg: #eaeef2;
+  --selected-bg: #ddf4ff;
+  --avatar-user-bg: #ddf4ff;
+  --avatar-assistant-bg: #dafbe1;
+  --chip-bg: #ddf4ff;
+  --chip-border: #54aeff;
+  --chip-kb-bg: #dafbe1;
+  --chip-kb-border: #4ac26b;
+  --chip-file-bg: #fbefff;
+  --chip-file-border: #c297ff;
+  --shadow: 0 1px 3px rgba(0,0,0,.08);
+}
 
-from flask import request, jsonify
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg-1);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  height: 100%;
+  overflow: hidden;
+}
+button, input, textarea, select {
+  font-family: inherit; font-size: inherit; color: inherit;
+  background: transparent; border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  outline: none;
+}
+button {
+  cursor: pointer;
+  background: var(--card);
+  transition: background .15s, border-color .15s;
+}
+button:hover { background: var(--card); border-color: var(--border-strong); filter: brightness(1.05); }
+button.primary {
+  background: var(--accent); color: #0d1117; border-color: var(--accent);
+  font-weight: 600;
+}
+button.primary:hover { background: #79b8ff; }
+button.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+button.ghost:hover { color: var(--text); background: var(--card); }
+button.danger { color: var(--error); }
+button.danger:hover { background: #2d1517; border-color: var(--error); }
+input, textarea, select {
+  background: var(--bg-3);
+}
+input:focus, textarea:focus, select:focus { border-color: var(--accent); }
 
-from code_assist_v1.config import SESSIONS_DIR
+/* ── 레이아웃 ── */
+.app-root {
+  display: grid;
+  grid-template-columns: 260px 1fr 360px;
+  grid-template-rows: 44px 1fr;
+  height: 100vh;
+  width: 100vw;
+}
+.topbar {
+  grid-column: 1 / 4;
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 16px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+}
+.topbar .brand {
+  font-weight: 700; letter-spacing: .3px;
+  display: flex; align-items: center; gap: 8px;
+}
+.topbar .brand .dot {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--accent-2);
+  box-shadow: 0 0 8px var(--accent-2);
+}
+.topbar .spacer { flex: 1; }
+.topbar select.model-select {
+  background: var(--bg-3); padding: 4px 8px; min-width: 220px;
+}
+.topbar .effort {
+  display: inline-flex; gap: 4px; align-items: center;
+}
+.topbar .effort label { color: var(--muted); font-size: 12px; }
+.topbar button.icon { padding: 4px 8px; }
 
+/* ── 좌 사이드바 ── */
+.sidebar {
+  background: var(--bg-2);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.sidebar .tabs {
+  display: flex; border-bottom: 1px solid var(--border);
+  padding: 0 6px;
+}
+.sidebar .tabs button {
+  flex: 1; border: 0; background: transparent; color: var(--muted);
+  padding: 10px 4px; border-radius: 0;
+  font-size: 12px; letter-spacing: .3px;
+  border-bottom: 2px solid transparent;
+}
+.sidebar .tabs button.active {
+  color: var(--text); border-bottom-color: var(--accent);
+}
+.sidebar .panel-body {
+  flex: 1; overflow-y: auto; padding: 8px 6px;
+}
+.sidebar .section-title {
+  font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px;
+  padding: 8px 8px 4px;
+}
+.sidebar .item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; border-radius: var(--radius);
+  cursor: pointer; user-select: none;
+  border-left: 2px solid transparent;
+}
+.sidebar .item:hover { background: var(--card); }
+.sidebar .item.selected {
+  background: var(--selected-bg); border-left-color: var(--accent);
+}
+.sidebar .item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar .item .badge {
+  font-size: 10px; padding: 1px 6px; border-radius: 10px;
+  background: var(--bg-3); color: var(--muted);
+}
+.sidebar .item .badge.user { background: var(--avatar-user-bg); color: var(--accent); }
+.sidebar .toolbar {
+  display: flex; gap: 6px; padding: 6px 8px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-2);
+}
+.sidebar .toolbar input { flex: 1; }
 
-def _safe_sid(sid: str) -> str:
-    sid = (sid or "").strip()
-    if not sid or "/" in sid or "\\" in sid or ".." in sid:
-        return ""
-    return sid
+/* ── 중앙 채팅 ── */
+.chat {
+  display: flex; flex-direction: column;
+  background: var(--bg-1);
+  overflow: hidden;
+}
+.chat .messages {
+  flex: 1; overflow-y: auto;
+  padding: 24px 32px;
+}
+.msg {
+  display: flex; gap: 12px;
+  margin-bottom: 22px;
+}
+.msg .avatar {
+  width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
+  background: var(--card);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 600;
+}
+.msg.user .avatar { background: var(--avatar-user-bg); color: var(--accent); }
+.msg.assistant .avatar { background: var(--avatar-assistant-bg); color: var(--accent-2); }
+.msg .body { flex: 1; min-width: 0; }
+.msg .role {
+  font-size: 11px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .8px;
+  margin-bottom: 4px;
+}
+.msg .content {
+  line-height: 1.65;
+  word-wrap: break-word;
+}
+.msg .content p { margin: 0 0 12px; }
+.msg .content h1, .msg .content h2, .msg .content h3 {
+  margin: 18px 0 8px; font-weight: 600;
+}
+.msg .content h1 { font-size: 1.4em; }
+.msg .content h2 { font-size: 1.2em; }
+.msg .content h3 { font-size: 1.05em; }
+.msg .content ul, .msg .content ol { padding-left: 22px; margin: 8px 0; }
+.msg .content li { margin-bottom: 4px; }
+.msg .content code {
+  background: var(--inline-bg);
+  padding: 1px 6px; border-radius: 4px;
+  font-family: var(--mono); font-size: .9em;
+}
+.msg .content pre {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  overflow-x: auto;
+  margin: 10px 0;
+  font-family: var(--mono); font-size: 13px;
+  line-height: 1.55;
+  position: relative;
+}
+.msg .content pre code { background: transparent; padding: 0; }
+.msg .content pre .copy-btn {
+  position: absolute; top: 6px; right: 6px;
+  font-size: 11px; padding: 3px 8px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 4px; cursor: pointer;
+  opacity: 0; transition: opacity .15s;
+}
+.msg .content pre:hover .copy-btn { opacity: 1; }
+.msg .content blockquote {
+  border-left: 3px solid var(--border-strong);
+  padding-left: 12px; color: var(--muted);
+  margin: 8px 0;
+}
+.msg .content table {
+  border-collapse: collapse; margin: 10px 0;
+}
+.msg .content th, .msg .content td {
+  border: 1px solid var(--border); padding: 6px 10px;
+}
+.msg .content th { background: var(--card); }
+.msg.assistant .content .cursor {
+  display: inline-block; width: 8px; height: 16px;
+  background: var(--accent); animation: blink 1s infinite;
+  vertical-align: text-bottom;
+}
+@keyframes blink { 50% { opacity: 0; } }
 
+.chat .meta-bar {
+  font-size: 11px; color: var(--muted);
+  padding: 4px 32px; border-top: 1px solid var(--border);
+  background: var(--bg-2);
+  display: flex; gap: 14px; align-items: center;
+}
+.chat .meta-bar .pill {
+  background: var(--card); padding: 1px 8px; border-radius: 10px;
+}
 
-def _session_path(sid: str) -> str:
-    return os.path.join(SESSIONS_DIR, f"{sid}.json")
+/* ── 입력 박스 ── */
+.composer {
+  border-top: 1px solid var(--border);
+  background: var(--bg-2);
+  padding: 12px 24px 16px;
+}
+.composer .chips {
+  display: flex; flex-wrap: nowrap; gap: 6px;
+  margin-bottom: 8px;
+  height: 32px; min-height: 32px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  align-items: center;
+  scrollbar-width: thin;
+}
+.composer .chips::-webkit-scrollbar { height: 4px; }
+.composer .chips::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 2px; }
+.composer .chip {
+  background: var(--chip-bg); color: var(--accent);
+  border: 1px solid var(--chip-border);
+  font-size: 11px; padding: 2px 8px; border-radius: 12px;
+  display: inline-flex; gap: 4px; align-items: center;
+  flex-shrink: 0;
+  max-width: 220px;
+}
+.composer .chip > span:not(.x):not(.chip-thumb):not(.thumb-label) {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.composer .chip .x { cursor: pointer; opacity: .7; }
+.composer .chip .x:hover { opacity: 1; }
+.composer .chip.kb { background: var(--chip-kb-bg); color: var(--accent-2); border-color: var(--chip-kb-border); }
+.composer .chip.file { background: var(--chip-file-bg); border-color: var(--chip-file-border); }
+.composer .chip.image { padding: 2px 8px 2px 2px; }
+.composer .chip .chip-thumb {
+  width: 28px; height: 28px; object-fit: cover;
+  border-radius: 6px; cursor: zoom-in; display: block;
+}
+.composer .chip .thumb-label { font-size: 10.5px; opacity: .85; }
 
+/* 메시지 안 이미지 갤러리 */
+.msg-image-gallery {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;
+}
+.msg-image-gallery img {
+  max-width: 220px; max-height: 220px;
+  border-radius: 8px; border: 1px solid var(--border);
+  cursor: zoom-in; display: block;
+}
 
-def _save(payload: dict) -> str:
-    sid = _safe_sid(payload.get("session_id") or "") or uuid4().hex
-    os.makedirs(SESSIONS_DIR, exist_ok=True)
+.composer .input-wrap {
+  display: flex; gap: 8px; align-items: flex-end;
+  background: var(--bg-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  padding: 10px 12px;
+}
+.composer .input-wrap:focus-within { border-color: var(--accent); }
+.composer textarea {
+  flex: 1; resize: none;
+  border: 0; background: transparent;
+  min-height: 22px; max-height: 200px;
+  padding: 0;
+}
+.composer .actions {
+  display: flex; gap: 6px; align-items: center;
+}
+.composer .actions .icon-btn {
+  background: transparent; border: 0;
+  padding: 4px 8px; color: var(--muted);
+  font-size: 14px;
+}
+.composer .actions .icon-btn:hover { color: var(--text); background: var(--card); }
+.composer .actions .icon-btn.active { color: var(--accent-2); background: var(--chip-kb-bg); }
+.composer .send-btn {
+  background: var(--accent); color: #0d1117;
+  border: 0; padding: 6px 14px; font-weight: 600;
+  border-radius: var(--radius);
+}
+.composer .send-btn:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
+.composer .send-btn.stop { background: var(--error); color: #fff; }
 
-    msgs = payload.get("messages") or []
-    first_msg = ""
-    for m in msgs:
-        if m.get("role") == "user":
-            c = m.get("content", "")
-            if isinstance(c, str) and c.strip():
-                first_msg = c.strip()[:80]
-                break
-            if isinstance(c, list):
-                txt = "\n".join(p.get("text", "") for p in c if isinstance(p, dict) and p.get("type") == "text").strip()
-                if txt:
-                    first_msg = txt[:80]
-                    break
+/* ── 우측 워크스페이스 패널 ── */
+.workspace {
+  background: var(--bg-2);
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.workspace .ws-head {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px;
+}
+.workspace .ws-head .title { font-weight: 600; flex: 1; }
+.workspace .ws-tree {
+  flex: 1; overflow-y: auto; padding: 8px 6px;
+}
+.workspace .ws-file,
+.workspace .ws-dir {
+  display: flex; gap: 6px; padding: 4px 8px;
+  border-radius: var(--radius); cursor: pointer;
+  font-family: var(--mono); font-size: 12px;
+  align-items: center;
+}
+.workspace .ws-file:hover,
+.workspace .ws-dir:hover { background: var(--card); }
+.workspace .ws-file .size { color: var(--muted); margin-left: auto; font-size: 11px; }
+.workspace .ws-dir .count { color: var(--muted); margin-left: auto; font-size: 11px; }
+.workspace .ws-dir .caret {
+  display: inline-block; width: 10px; text-align: center;
+  transition: transform .12s ease;
+  color: var(--muted);
+}
+.workspace .ws-dir.open .caret { transform: rotate(90deg); }
+.workspace .ws-children { display: none; }
+.workspace .ws-children.open { display: block; }
+.workspace .ws-node[data-depth="1"] { padding-left: 14px; }
+.workspace .ws-node[data-depth="2"] { padding-left: 28px; }
+.workspace .ws-node[data-depth="3"] { padding-left: 42px; }
+.workspace .ws-node[data-depth="4"] { padding-left: 56px; }
+.workspace .ws-node[data-depth="5"] { padding-left: 70px; }
+.workspace .ws-node[data-depth="6"] { padding-left: 84px; }
 
-    data = {
-        "session_id": sid,
-        "timestamp": time.time(),
-        "first_message": first_msg,
-        "message_count": len(msgs),
-        "messages": msgs,
-        "skills_used": payload.get("skills_used") or [],
-        "uploaded_files": [
-            {k: v for k, v in f.items() if k != "content_full"}
-            for f in (payload.get("uploaded_files") or [])
-        ],
-        "metadata": payload.get("metadata") or {},
-    }
-    with open(_session_path(sid), "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    return sid
+.workspace .ws-del {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  visibility: hidden;
+  margin-left: 4px;
+}
+.workspace .ws-node:hover .ws-del { visibility: visible; }
+.workspace .ws-del:hover {
+  background: var(--error, #c44);
+  color: #fff;
+  border-color: var(--error, #c44);
+}
+.workspace .ws-preview {
+  border-top: 1px solid var(--border);
+  background: var(--code-bg);
+  height: 45%;
+  overflow: auto;
+  padding: 10px 14px;
+  font-family: var(--mono); font-size: 12px;
+  white-space: pre;
+  display: none;
+}
+.workspace.preview-on .ws-preview { display: block; }
+.workspace.preview-on .ws-tree { height: 50%; flex: none; }
 
+/* ── 모달 ── */
+.modal-bg {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.6);
+  display: none; align-items: center; justify-content: center;
+  z-index: 100;
+}
+.modal-bg.show { display: flex; }
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  width: min(720px, 92vw); max-height: 85vh;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0,0,0,.6);
+}
+.modal .head {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+}
+.modal .head .title { font-weight: 600; flex: 1; }
+.modal .body { padding: 16px 18px; overflow-y: auto; }
+.modal .body label {
+  display: block; font-size: 12px; color: var(--muted);
+  margin: 10px 0 4px;
+}
+.modal .body input[type=text], .modal .body textarea {
+  width: 100%;
+}
+.modal .body textarea { min-height: 200px; font-family: var(--mono); font-size: 13px; }
+.modal .foot {
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  display: flex; gap: 8px; justify-content: flex-end;
+}
 
-def _load(sid: str) -> dict | None:
-    sid = _safe_sid(sid)
-    if not sid:
-        return None
-    p = _session_path(sid)
-    if not os.path.isfile(p):
-        return None
-    try:
-        with open(p, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return None
+/* ── 토스트 ── */
+.toast-wrap {
+  position: fixed; bottom: 16px; right: 16px;
+  display: flex; flex-direction: column; gap: 8px; z-index: 200;
+}
+.toast {
+  background: var(--card); border: 1px solid var(--border-strong);
+  border-radius: var(--radius); padding: 8px 14px;
+  font-size: 13px; box-shadow: var(--shadow);
+  animation: slidein .2s;
+}
+.toast.error { border-color: var(--error); color: var(--error); }
+.toast.ok { border-color: var(--accent-2); color: var(--accent-2); }
+@keyframes slidein { from { transform: translateY(8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
-
-def _list() -> list[dict]:
-    if not os.path.isdir(SESSIONS_DIR):
-        return []
-    out: list[dict] = []
-    for name in os.listdir(SESSIONS_DIR):
-        if not name.endswith(".json"):
-            continue
-        p = os.path.join(SESSIONS_DIR, name)
-        try:
-            with open(p, "r", encoding="utf-8") as f:
-                d = json.load(f)
-            out.append({
-                "session_id": d.get("session_id", name[:-5]),
-                "timestamp": d.get("timestamp", os.path.getmtime(p)),
-                "first_message": d.get("first_message", ""),
-                "message_count": d.get("message_count") or len(d.get("messages") or []),
-                "skills_used": d.get("skills_used") or [],
-            })
-        except Exception:
-            continue
-    out.sort(key=lambda s: s["timestamp"], reverse=True)
-    return out
-
-
-def _delete(sid: str) -> bool:
-    sid = _safe_sid(sid)
-    if not sid:
-        return False
-    p = _session_path(sid)
-    if not os.path.isfile(p):
-        return False
-    try:
-        os.remove(p)
-        return True
-    except Exception:
-        return False
-
-
-def _route_exists(app, rule: str, method: str) -> bool:
-    for r in app.url_map.iter_rules():
-        if str(r) == rule and method in (r.methods or set()):
-            return True
-    return False
-
-
-def register_session_routes(app) -> int:
-    """세션 라우트 등록. 이미 동일 URL+메서드가 있으면 건너뛴다.
-
-    Returns: 새로 등록된 라우트 수.
-    """
-    registered = 0
-
-    if not _route_exists(app, "/api/harness/session/save", "POST"):
-        @app.route("/api/harness/session/save", methods=["POST"], endpoint="ca_session_save")
-        def _ca_session_save():
-            data = request.get_json(force=True, silent=True) or {}
-            try:
-                sid = _save(data)
-            except Exception as e:
-                return jsonify({"error": f"저장 실패: {e}"}), 500
-            return jsonify({"session_id": sid, "status": "saved"})
-        registered += 1
-
-    if not _route_exists(app, "/api/harness/session/load/<session_id>", "GET"):
-        @app.route("/api/harness/session/load/<session_id>", endpoint="ca_session_load")
-        def _ca_session_load(session_id):
-            d = _load(session_id)
-            if d is None:
-                return jsonify({"error": "세션 없음"}), 404
-            return jsonify(d)
-        registered += 1
-
-    if not _route_exists(app, "/api/harness/session/list", "GET"):
-        @app.route("/api/harness/session/list", endpoint="ca_session_list")
-        def _ca_session_list():
-            return jsonify({"sessions": _list()})
-        registered += 1
-
-    if not _route_exists(app, "/api/harness/session/delete/<session_id>", "DELETE"):
-        @app.route("/api/harness/session/delete/<session_id>", methods=["DELETE"], endpoint="ca_session_delete")
-        def _ca_session_delete(session_id):
-            ok = _delete(session_id)
-            if not ok:
-                return jsonify({"error": "삭제 실패 또는 세션 없음"}), 404
-            return jsonify({"status": "deleted", "session_id": session_id})
-        registered += 1
-
-    return registered
+/* 스크롤바 (다크 톤) */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg-1); }
+::-webkit-scrollbar-thumb { background: #30363d; border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #444c56; }
