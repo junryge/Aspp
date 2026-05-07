@@ -1,507 +1,253 @@
-/* code_assist_v1/static/app.css — 다크/라이트 테마 */
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>{{FAB}} 송신 제어</title>
+<style>
+  :root { --c-accent: {{COLOR}}; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+         margin: 0; padding: 24px; background:#0b1220; color:#e5e7eb; }
+  h1 { margin: 0 0 16px; font-size: 22px; }
+  h1 .badge { display:inline-block; padding: 4px 12px; border-radius:6px;
+              background: var(--c-accent); color:#fff; font-size:14px; margin-right:8px; }
+  .grid { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+  .card { background:#111827; border:1px solid #1f2937; border-radius:8px; padding:16px; }
+  .card h2 { margin:0 0 12px; font-size:14px; color:#9ca3af; text-transform:uppercase;
+             letter-spacing: 0.05em; }
+  .row { display:flex; justify-content:space-between; padding:6px 0; font-size:14px;
+         border-bottom:1px solid #1f2937; }
+  .row:last-child { border-bottom:0; }
+  .row b { color:#f3f4f6; font-weight:600; }
+  .row span { color:#9ca3af; }
+  .controls { display:flex; gap:8px; flex-wrap:wrap; }
+  button { background:#374151; color:#fff; border:0; padding:10px 16px;
+           border-radius:6px; cursor:pointer; font-size:14px; }
+  button:hover { background:#4b5563; }
+  button.primary { background: var(--c-accent); }
+  button.primary:hover { filter: brightness(1.1); }
+  button.danger { background:#dc2626; }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  .speed-preset { background:#1e40af; color:#fff; border:0; padding:5px 10px;
+                  border-radius:4px; cursor:pointer; font-size:12px; min-width:42px; }
+  .speed-preset:hover { background:#2563eb; }
+  .speed-preset.active { background:#f59e0b; color:#000; }
+  input[type=range] { width: 100%; }
+  input[type=number] { width: 80px; padding:6px; background:#1f2937; color:#fff;
+                       border:1px solid #374151; border-radius:4px; }
+  .status-pill { display:inline-block; padding:2px 10px; border-radius:10px;
+                 font-size:12px; margin-left:8px; }
+  .pill-on  { background:#15803d; color:#fff; }
+  .pill-off { background:#6b7280; color:#fff; }
+  .pill-pause { background:#d97706; color:#fff; }
+  .progress { height:8px; background:#1f2937; border-radius:4px; overflow:hidden; }
+  .progress > div { height:100%; background: var(--c-accent); width:0%; transition:width .3s; }
+  .stat-num { font-size:24px; font-weight:700; color:#f3f4f6; }
+  .stat-sub { font-size:12px; color:#6b7280; }
+  .err { color:#fca5a5; font-size:12px; margin-top:8px; }
+  code { background:#1f2937; padding:2px 6px; border-radius:3px; color:#fbbf24;
+         font-size:12px; }
+</style>
+</head>
+<body>
 
-:root,
-html[data-theme="dark"] {
-  --bg-1: #0f1419;
-  --bg-2: #161b22;
-  --bg-3: #1c2128;
-  --panel: #1c2128;
-  --card: #21262d;
-  --border: #30363d;
-  --border-strong: #444c56;
-  --text: #e6edf3;
-  --text-2: #c9d1d9;
-  --muted: #8b949e;
-  --accent: #58a6ff;
-  --accent-2: #3fb950;
-  --warn: #d29922;
-  --error: #f85149;
-  --code-bg: #0d1117;
-  --inline-bg: #1f242c;
-  --selected-bg: #1f2937;
-  --avatar-user-bg: #1c3a4d;
-  --avatar-assistant-bg: #1c3322;
-  --chip-bg: #1c3a4d;
-  --chip-border: #2d5872;
-  --chip-kb-bg: #1c3322;
-  --chip-kb-border: #2d5832;
-  --chip-file-bg: #2a2030;
-  --chip-file-border: #3d2d4a;
-  --shadow: 0 1px 3px rgba(0,0,0,.4);
-  --radius: 6px;
-  --radius-lg: 10px;
-  --mono: "Cascadia Code", "JetBrains Mono", "Consolas", "Courier New", monospace;
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", "맑은 고딕", sans-serif;
-}
+<h1>
+  <span class="badge">{{FAB}}</span>
+  OHT 송신 제어
+  <span id="state" class="status-pill pill-off">대기</span>
+</h1>
 
-html[data-theme="light"] {
-  --bg-1: #ffffff;
-  --bg-2: #f6f8fa;
-  --bg-3: #ffffff;
-  --panel: #ffffff;
-  --card: #f6f8fa;
-  --border: #d0d7de;
-  --border-strong: #8c959f;
-  --text: #1f2328;
-  --text-2: #424a53;
-  --muted: #656d76;
-  --accent: #0969da;
-  --accent-2: #1a7f37;
-  --warn: #9a6700;
-  --error: #cf222e;
-  --code-bg: #f6f8fa;
-  --inline-bg: #eaeef2;
-  --selected-bg: #ddf4ff;
-  --avatar-user-bg: #ddf4ff;
-  --avatar-assistant-bg: #dafbe1;
-  --chip-bg: #ddf4ff;
-  --chip-border: #54aeff;
-  --chip-kb-bg: #dafbe1;
-  --chip-kb-border: #4ac26b;
-  --chip-file-bg: #fbefff;
-  --chip-file-border: #c297ff;
-  --shadow: 0 1px 3px rgba(0,0,0,.08);
-}
+<div class="grid">
 
-* { box-sizing: border-box; }
-html, body {
-  margin: 0; padding: 0;
-  background: var(--bg-1);
-  color: var(--text);
-  font-family: var(--sans);
-  font-size: 14px;
-  height: 100%;
-  overflow: hidden;
-}
-button, input, textarea, select {
-  font-family: inherit; font-size: inherit; color: inherit;
-  background: transparent; border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 6px 10px;
-  outline: none;
-}
-button {
-  cursor: pointer;
-  background: var(--card);
-  transition: background .15s, border-color .15s;
-}
-button:hover { background: var(--card); border-color: var(--border-strong); filter: brightness(1.05); }
-button.primary {
-  background: var(--accent); color: #0d1117; border-color: var(--accent);
-  font-weight: 600;
-}
-button.primary:hover { background: #79b8ff; }
-button.ghost { background: transparent; border-color: transparent; color: var(--muted); }
-button.ghost:hover { color: var(--text); background: var(--card); }
-button.danger { color: var(--error); }
-button.danger:hover { background: #2d1517; border-color: var(--error); }
-input, textarea, select {
-  background: var(--bg-3);
-}
-input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+  <!-- 1. 데이터 정보 -->
+  <div class="card">
+    <h2>데이터 정보</h2>
+    <div class="row"><span>CSV 경로</span><b id="csv-path" style="font-size:11px; word-break:break-all;">—</b></div>
+    <div class="row"><span>파일 존재</span><b id="csv-exists">—</b></div>
+    <div class="row"><span>파일 크기</span><b id="file-size">—</b></div>
+    <div class="row"><span>시간 컬럼</span><b id="time-col">—</b></div>
+    <div class="row"><span>첫 row ts</span><b id="first-ts" style="font-size:11px;">—</b></div>
+    <div class="row"><span>UDP 포트</span><b>{{UDP_PORT}}</b></div>
+  </div>
 
-/* ── 레이아웃 ── */
-.app-root {
-  display: grid;
-  grid-template-columns: 260px 1fr 360px;
-  grid-template-rows: 44px 1fr;
-  height: 100vh;
-  width: 100vw;
-}
-.topbar {
-  grid-column: 1 / 4;
-  display: flex; align-items: center; gap: 12px;
-  padding: 0 16px;
-  background: var(--bg-2);
-  border-bottom: 1px solid var(--border);
-}
-.topbar .brand {
-  font-weight: 700; letter-spacing: .3px;
-  display: flex; align-items: center; gap: 8px;
-}
-.topbar .brand .dot {
-  width: 8px; height: 8px; border-radius: 50%; background: var(--accent-2);
-  box-shadow: 0 0 8px var(--accent-2);
-}
-.topbar .spacer { flex: 1; }
-.topbar select.model-select {
-  background: var(--bg-3); padding: 4px 8px; min-width: 220px;
-}
-.topbar .effort {
-  display: inline-flex; gap: 4px; align-items: center;
-}
-.topbar .effort label { color: var(--muted); font-size: 12px; }
-.topbar button.icon { padding: 4px 8px; }
+  <!-- 2. 송신 통계 -->
+  <div class="card">
+    <h2>송신 통계</h2>
+    <div class="row"><span>전송 패킷</span><b><span id="tx-packets" class="stat-num">0</span></b></div>
+    <div class="row"><span>전송 row</span><b id="tx-rows">0</b></div>
+    <div class="row"><span>전송 byte</span><b id="tx-bytes">0</b></div>
+    <div class="row"><span>현재 ts</span><b id="cur-ts" style="font-size:11px;">—</b></div>
+    <div class="row"><span>cycle</span><b id="cycle">0</b></div>
+    <div class="row"><span>실시간 경과</span><b id="elapsed">0초</b></div>
+  </div>
 
-/* ── 좌 사이드바 ── */
-.sidebar {
-  background: var(--bg-2);
-  border-right: 1px solid var(--border);
-  display: flex; flex-direction: column;
-  overflow: hidden;
-}
-.sidebar .tabs {
-  display: flex; border-bottom: 1px solid var(--border);
-  padding: 0 6px;
-}
-.sidebar .tabs button {
-  flex: 1; border: 0; background: transparent; color: var(--muted);
-  padding: 10px 4px; border-radius: 0;
-  font-size: 12px; letter-spacing: .3px;
-  border-bottom: 2px solid transparent;
-}
-.sidebar .tabs button.active {
-  color: var(--text); border-bottom-color: var(--accent);
-}
-.sidebar .panel-body {
-  flex: 1; overflow-y: auto; padding: 8px 6px;
-}
-.sidebar .section-title {
-  font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px;
-  padding: 8px 8px 4px;
-}
-.sidebar .item {
-  display: flex; align-items: center; gap: 8px;
-  padding: 7px 10px; border-radius: var(--radius);
-  cursor: pointer; user-select: none;
-  border-left: 2px solid transparent;
-}
-.sidebar .item:hover { background: var(--card); }
-.sidebar .item.selected {
-  background: var(--selected-bg); border-left-color: var(--accent);
-}
-.sidebar .item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sidebar .item .badge {
-  font-size: 10px; padding: 1px 6px; border-radius: 10px;
-  background: var(--bg-3); color: var(--muted);
-}
-.sidebar .item .badge.user { background: var(--avatar-user-bg); color: var(--accent); }
-.sidebar .toolbar {
-  display: flex; gap: 6px; padding: 6px 8px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-2);
-}
-.sidebar .toolbar input { flex: 1; }
+  <!-- 3. 진행도 -->
+  <div class="card" style="grid-column: span 2;">
+    <h2>진행도</h2>
+    <div class="progress"><div id="bar"></div></div>
+    <div style="display:flex; justify-content:space-between; font-size:12px; margin-top:6px; color:#6b7280;">
+      <span id="pos-cur">0</span>
+      <span id="pos-pct">0%</span>
+      <span id="pos-tot">0</span>
+    </div>
+  </div>
 
-/* ── 중앙 채팅 ── */
-.chat {
-  display: flex; flex-direction: column;
-  background: var(--bg-1);
-  overflow: hidden;
-}
-.chat .messages {
-  flex: 1; overflow-y: auto;
-  padding: 24px 32px;
-}
-.msg {
-  display: flex; gap: 12px;
-  margin-bottom: 22px;
-}
-.msg .avatar {
-  width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
-  background: var(--card);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 13px; font-weight: 600;
-}
-.msg.user .avatar { background: var(--avatar-user-bg); color: var(--accent); }
-.msg.assistant .avatar { background: var(--avatar-assistant-bg); color: var(--accent-2); }
-.msg .body { flex: 1; min-width: 0; }
-.msg .role {
-  font-size: 11px; color: var(--muted);
-  text-transform: uppercase; letter-spacing: .8px;
-  margin-bottom: 4px;
-}
-.msg .content {
-  line-height: 1.65;
-  word-wrap: break-word;
-}
-.msg .content p { margin: 0 0 12px; }
-.msg .content h1, .msg .content h2, .msg .content h3 {
-  margin: 18px 0 8px; font-weight: 600;
-}
-.msg .content h1 { font-size: 1.4em; }
-.msg .content h2 { font-size: 1.2em; }
-.msg .content h3 { font-size: 1.05em; }
-.msg .content ul, .msg .content ol { padding-left: 22px; margin: 8px 0; }
-.msg .content li { margin-bottom: 4px; }
-.msg .content code {
-  background: var(--inline-bg);
-  padding: 1px 6px; border-radius: 4px;
-  font-family: var(--mono); font-size: .9em;
-}
-.msg .content pre {
-  background: var(--code-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 12px 14px;
-  overflow-x: auto;
-  margin: 10px 0;
-  font-family: var(--mono); font-size: 13px;
-  line-height: 1.55;
-  position: relative;
-}
-.msg .content pre code { background: transparent; padding: 0; }
-.msg .content pre .copy-btn {
-  position: absolute; top: 6px; right: 6px;
-  font-size: 11px; padding: 3px 8px;
-  background: var(--card); border: 1px solid var(--border);
-  border-radius: 4px; cursor: pointer;
-  opacity: 0; transition: opacity .15s;
-}
-.msg .content pre:hover .copy-btn { opacity: 1; }
-.msg .content blockquote {
-  border-left: 3px solid var(--border-strong);
-  padding-left: 12px; color: var(--muted);
-  margin: 8px 0;
-}
-.msg .content table {
-  border-collapse: collapse; margin: 10px 0;
-}
-.msg .content th, .msg .content td {
-  border: 1px solid var(--border); padding: 6px 10px;
-}
-.msg .content th { background: var(--card); }
-.msg.assistant .content .cursor {
-  display: inline-block; width: 8px; height: 16px;
-  background: var(--accent); animation: blink 1s infinite;
-  vertical-align: text-bottom;
-}
-@keyframes blink { 50% { opacity: 0; } }
+  <!-- 4. 제어 -->
+  <div class="card" style="grid-column: span 2;">
+    <h2>제어</h2>
+    <div class="controls" style="margin-bottom: 12px;">
+      <button id="btn-start"  class="primary">▶ 시작</button>
+      <button id="btn-pause">  ⏸ 일시정지</button>
+      <button id="btn-resume"> ▶ 재개</button>
+      <button id="btn-stop" class="danger">■ 정지</button>
+      <button id="btn-test" style="background:#7c3aed;">🧪 테스트 송신 (1패킷)</button>
+    </div>
+    <div id="test-result" style="font-size:11px;color:#86efac;margin-bottom:8px;"></div>
+    <div class="row">
+      <span>수신 IP (송신 대상)</span>
+      <span style="display:flex; gap:8px; align-items:center;">
+        <input type="text" id="host-input" placeholder="예: 127.0.0.1 또는 192.168.0.10"
+               style="width:180px;padding:6px;background:#1f2937;color:#fff;border:1px solid #374151;border-radius:4px;">
+        <button id="btn-host">적용</button>
+      </span>
+    </div>
+    <div class="row">
+      <span>UDP 포트</span>
+      <span><b style="color:#cbd5e1">{{UDP_PORT}}</b></span>
+    </div>
+    <div class="row">
+      <span>속도 (× 실시간)</span>
+      <span style="display:flex; gap:8px; align-items:center;">
+        <input type="number" id="speed-num" min="0.1" max="3600" step="0.1" value="1">
+        <button id="btn-speed">적용</button>
+      </span>
+    </div>
+    <div class="row">
+      <span>빠른 속도</span>
+      <span style="display:flex; gap:4px; flex-wrap:wrap;">
+        <button class="speed-preset" data-s="1">x1</button>
+        <button class="speed-preset" data-s="2">x2</button>
+        <button class="speed-preset" data-s="4">x4</button>
+        <button class="speed-preset" data-s="6">x6</button>
+        <button class="speed-preset" data-s="10">x10</button>
+        <button class="speed-preset" data-s="60">x60</button>
+        <button class="speed-preset" data-s="3600">MAX</button>
+      </span>
+    </div>
+    <div class="row">
+      <span>루프 (CSV 끝나면 처음부터)</span>
+      <span><label><input type="checkbox" id="loop-cb" checked> ON</label></span>
+    </div>
+    <div class="row">
+      <span>위치 점프</span>
+      <span style="display:flex; gap:8px; align-items:center; width:60%;">
+        <input type="range" id="seek-range" min="0" max="100" value="0">
+        <button id="btn-seek">이동</button>
+      </span>
+    </div>
+    <p class="err" id="err"></p>
+    <div style="margin-top:12px; font-size:12px; color:#6b7280;">
+      수신확인: <code>nc -ul {{UDP_PORT}}</code>
+      &nbsp;|&nbsp; 메인 UI: <code>http://127.0.0.1:11000</code>
+    </div>
+  </div>
 
-.chat .meta-bar {
-  font-size: 11px; color: var(--muted);
-  padding: 4px 32px; border-top: 1px solid var(--border);
-  background: var(--bg-2);
-  display: flex; gap: 14px; align-items: center;
-}
-.chat .meta-bar .pill {
-  background: var(--card); padding: 1px 8px; border-radius: 10px;
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+async function api(path, opts) {
+  const r = await fetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, opts||{}));
+  if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+  return r.json();
 }
 
-/* ── 입력 박스 ── */
-.composer {
-  border-top: 1px solid var(--border);
-  background: var(--bg-2);
-  padding: 12px 24px 16px;
+function fmtNum(n){ return (n||0).toLocaleString(); }
+function fmtBytes(b){
+  if (b < 1024) return b + ' B';
+  if (b < 1024*1024) return (b/1024).toFixed(1) + ' KB';
+  return (b/1024/1024).toFixed(2) + ' MB';
 }
-.composer .chips {
-  display: flex; flex-wrap: nowrap; gap: 6px;
-  margin-bottom: 8px;
-  height: 32px; min-height: 32px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  white-space: nowrap;
-  align-items: center;
-  scrollbar-width: thin;
-}
-.composer .chips::-webkit-scrollbar { height: 4px; }
-.composer .chips::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 2px; }
-.composer .chip {
-  background: var(--chip-bg); color: var(--accent);
-  border: 1px solid var(--chip-border);
-  font-size: 11px; padding: 2px 8px; border-radius: 12px;
-  display: inline-flex; gap: 4px; align-items: center;
-  flex-shrink: 0;
-  max-width: 220px;
-}
-.composer .chip > span:not(.x):not(.chip-thumb):not(.thumb-label) {
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.composer .chip .x { cursor: pointer; opacity: .7; }
-.composer .chip .x:hover { opacity: 1; }
-.composer .chip.kb { background: var(--chip-kb-bg); color: var(--accent-2); border-color: var(--chip-kb-border); }
-.composer .chip.file { background: var(--chip-file-bg); border-color: var(--chip-file-border); }
-.composer .chip.image { padding: 2px 8px 2px 2px; }
-.composer .chip .chip-thumb {
-  width: 28px; height: 28px; object-fit: cover;
-  border-radius: 6px; cursor: zoom-in; display: block;
-}
-.composer .chip .thumb-label { font-size: 10.5px; opacity: .85; }
-
-/* 메시지 안 이미지 갤러리 */
-.msg-image-gallery {
-  display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;
-}
-.msg-image-gallery img {
-  max-width: 220px; max-height: 220px;
-  border-radius: 8px; border: 1px solid var(--border);
-  cursor: zoom-in; display: block;
+function fmtSec(s){
+  s = Math.floor(s||0);
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), x = s%60;
+  return (h?h+'시간 ':'') + (m?m+'분 ':'') + x + '초';
 }
 
-.composer .input-wrap {
-  display: flex; gap: 8px; align-items: flex-end;
-  background: var(--bg-3);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-lg);
-  padding: 10px 12px;
-}
-.composer .input-wrap:focus-within { border-color: var(--accent); }
-.composer textarea {
-  flex: 1; resize: none;
-  border: 0; background: transparent;
-  min-height: 22px; max-height: 200px;
-  padding: 0;
-}
-.composer .actions {
-  display: flex; gap: 6px; align-items: center;
-}
-.composer .actions .icon-btn {
-  background: transparent; border: 0;
-  padding: 4px 8px; color: var(--muted);
-  font-size: 14px;
-}
-.composer .actions .icon-btn:hover { color: var(--text); background: var(--card); }
-.composer .actions .icon-btn.active { color: var(--accent-2); background: var(--chip-kb-bg); }
-.composer .send-btn {
-  background: var(--accent); color: #0d1117;
-  border: 0; padding: 6px 14px; font-weight: 600;
-  border-radius: var(--radius);
-}
-.composer .send-btn:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
-.composer .send-btn.stop { background: var(--error); color: #fff; }
+async function refresh() {
+  try {
+    const s = await api('/api/status');
+    if (!$('host-input').dataset.touched && s.udp_host) {
+      $('host-input').value = s.udp_host;
+      $('host-input').dataset.touched = '1';
+    }
+    document.querySelectorAll('.speed-preset').forEach(b => {
+      b.classList.toggle('active', parseFloat(b.dataset.s) === s.speed);
+    });
+    $('csv-path').textContent   = s.csv;
+    $('csv-exists').textContent = s.csv_exists ? '있음' : '없음 ⚠️';
+    $('csv-exists').style.color = s.csv_exists ? '#86efac' : '#fca5a5';
+    $('file-size').textContent  = fmtBytes(s.file_bytes||0);
+    $('time-col').textContent   = s.time_col || '⚠ 미감지';
+    $('time-col').style.color   = s.time_col ? '#cbd5e1' : '#fca5a5';
+    $('first-ts').textContent   = s.rows_first_ts || '—';
 
-/* ── 우측 워크스페이스 패널 ── */
-.workspace {
-  background: var(--bg-2);
-  border-left: 1px solid var(--border);
-  display: flex; flex-direction: column;
-  overflow: hidden;
-  min-width: 0;        /* grid track 밀림 방지 */
-  width: 100%;
-}
-.workspace .ws-head {
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; gap: 6px;
-  flex-wrap: nowrap;
-  overflow: hidden;
-  flex-shrink: 0;
-  min-width: 0;
-}
-.workspace .ws-head .title { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workspace .ws-head button { flex-shrink: 0; }
-.workspace .ws-tree {
-  flex: 1; overflow-y: auto; overflow-x: hidden;
-  padding: 8px 6px;
-  min-width: 0;
-}
-.workspace .ws-children { min-width: 0; }
-.workspace .ws-name {
-  flex: 1; min-width: 0;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.workspace .ws-file,
-.workspace .ws-dir {
-  display: flex; gap: 6px; padding: 4px 8px;
-  border-radius: var(--radius); cursor: pointer;
-  font-family: var(--mono); font-size: 12px;
-  align-items: center;
-  min-width: 0;        /* 자식 ellipsis 동작 위해 */
-}
-.workspace .ws-file:hover,
-.workspace .ws-dir:hover { background: var(--card); }
-.workspace .ws-file .size { color: var(--muted); margin-left: auto; font-size: 11px; }
-.workspace .ws-dir .count { color: var(--muted); margin-left: auto; font-size: 11px; }
-.workspace .ws-dir .caret {
-  display: inline-block; width: 10px; text-align: center;
-  transition: transform .12s ease;
-  color: var(--muted);
-}
-.workspace .ws-dir.open .caret { transform: rotate(90deg); }
-.workspace .ws-children { display: none; }
-.workspace .ws-children.open { display: block; }
-.workspace .ws-node[data-depth="1"] { padding-left: 14px; }
-.workspace .ws-node[data-depth="2"] { padding-left: 28px; }
-.workspace .ws-node[data-depth="3"] { padding-left: 42px; }
-.workspace .ws-node[data-depth="4"] { padding-left: 56px; }
-.workspace .ws-node[data-depth="5"] { padding-left: 70px; }
-.workspace .ws-node[data-depth="6"] { padding-left: 84px; }
+    $('tx-packets').textContent = fmtNum(s.tx_packets);
+    $('tx-rows').textContent    = fmtNum(s.tx_rows);
+    $('tx-bytes').textContent   = fmtBytes(s.tx_bytes);
+    $('cur-ts').textContent     = s.cur_ts || '—';
+    $('cycle').textContent      = s.cycle;
+    $('elapsed').textContent    = fmtSec(s.elapsed_real_sec);
 
-.workspace .ws-del {
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--muted);
-  font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 6px;
-  cursor: pointer;
-  visibility: hidden;
-  margin-left: 4px;
-}
-.workspace .ws-node:hover .ws-del { visibility: visible; }
-.workspace .ws-del:hover {
-  background: var(--error, #c44);
-  color: #fff;
-  border-color: var(--error, #c44);
-}
-.workspace .ws-preview {
-  border-top: 1px solid var(--border);
-  background: var(--code-bg);
-  height: 45%;
-  overflow: auto;
-  padding: 10px 14px;
-  font-family: var(--mono); font-size: 12px;
-  white-space: pre;
-  display: none;
-}
-.workspace.preview-on .ws-preview { display: block; }
-.workspace.preview-on .ws-tree { height: 50%; flex: none; }
+    const tot = s.file_bytes || 1, cur = s.cur_byte || 0;
+    const pct = Math.min(100, (cur/tot*100));
+    $('bar').style.width = pct + '%';
+    $('pos-cur').textContent = fmtBytes(cur);
+    $('pos-tot').textContent = fmtBytes(tot);
+    $('pos-pct').textContent = pct.toFixed(1) + '%';
 
-/* ── 모달 ── */
-.modal-bg {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,.6);
-  display: none; align-items: center; justify-content: center;
-  z-index: 100;
-}
-.modal-bg.show { display: flex; }
-.modal {
-  background: var(--panel);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-lg);
-  width: min(720px, 92vw); max-height: 85vh;
-  overflow: hidden;
-  display: flex; flex-direction: column;
-  box-shadow: 0 8px 32px rgba(0,0,0,.6);
-}
-.modal .head {
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; gap: 10px;
-}
-.modal .head .title { font-weight: 600; flex: 1; }
-.modal .body { padding: 16px 18px; overflow-y: auto; }
-.modal .body label {
-  display: block; font-size: 12px; color: var(--muted);
-  margin: 10px 0 4px;
-}
-.modal .body input[type=text], .modal .body textarea {
-  width: 100%;
-}
-.modal .body textarea { min-height: 200px; font-family: var(--mono); font-size: 13px; }
-.modal .foot {
-  padding: 12px 18px;
-  border-top: 1px solid var(--border);
-  display: flex; gap: 8px; justify-content: flex-end;
+    const pill = $('state');
+    if (s.running && !s.paused) { pill.className='status-pill pill-on'; pill.textContent='송신 중'; }
+    else if (s.running && s.paused) { pill.className='status-pill pill-pause'; pill.textContent='일시정지'; }
+    else { pill.className='status-pill pill-off'; pill.textContent='대기'; }
+
+    $('err').textContent = s.last_error ? ('⚠ ' + s.last_error) : '';
+  } catch (e) {
+    $('err').textContent = '⚠ ' + e.message;
+  }
 }
 
-/* ── 토스트 ── */
-.toast-wrap {
-  position: fixed; bottom: 16px; right: 16px;
-  display: flex; flex-direction: column; gap: 8px; z-index: 200;
-}
-.toast {
-  background: var(--card); border: 1px solid var(--border-strong);
-  border-radius: var(--radius); padding: 8px 14px;
-  font-size: 13px; box-shadow: var(--shadow);
-  animation: slidein .2s;
-}
-.toast.error { border-color: var(--error); color: var(--error); }
-.toast.ok { border-color: var(--accent-2); color: var(--accent-2); }
-@keyframes slidein { from { transform: translateY(8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+$('btn-start').onclick  = () => api('/api/start',  {method:'POST'}).then(refresh);
+$('btn-pause').onclick  = () => api('/api/pause',  {method:'POST'}).then(refresh);
+$('btn-resume').onclick = () => api('/api/resume', {method:'POST'}).then(refresh);
+$('btn-stop').onclick   = () => api('/api/stop',   {method:'POST'}).then(refresh);
+$('btn-speed').onclick  = () => api('/api/speed',  {method:'POST', body: JSON.stringify({speed:parseFloat($('speed-num').value)})}).then(refresh);
+$('btn-host').onclick   = () => api('/api/host',   {method:'POST', body: JSON.stringify({host:$('host-input').value.trim()})}).then(refresh);
+document.querySelectorAll('.speed-preset').forEach(b => {
+  b.onclick = async () => {
+    const s = parseFloat(b.dataset.s);
+    $('speed-num').value = s;
+    await api('/api/speed', {method:'POST', body: JSON.stringify({speed:s})});
+    refresh();
+  };
+});
+$('loop-cb').onchange   = () => api('/api/loop',   {method:'POST', body: JSON.stringify({loop:$('loop-cb').checked})});
+$('btn-seek').onclick   = () => api('/api/seek',   {method:'POST', body: JSON.stringify({ratio:parseInt($('seek-range').value)/100})}).then(refresh);
+$('btn-test').onclick   = async () => {
+  $('test-result').textContent = '...';
+  try {
+    const r = await api('/api/test', {method:'POST', body:'{}'});
+    $('test-result').textContent = r.ok
+      ? `✅ 테스트 패킷 송신 (${r.bytes} byte → ${r.to}). 수신측에서 확인.`
+      : `⚠ ${r.error || 'fail'}`;
+    $('test-result').style.color = r.ok ? '#86efac' : '#fca5a5';
+  } catch(e) { $('test-result').textContent = '⚠ ' + e.message; }
+  refresh();
+};
 
-/* 스크롤바 (다크 톤) */
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-track { background: var(--bg-1); }
-::-webkit-scrollbar-thumb { background: #30363d; border-radius: 5px; }
-::-webkit-scrollbar-thumb:hover { background: #444c56; }
+refresh();
+setInterval(refresh, 1000);
+</script>
+</body>
+</html>
