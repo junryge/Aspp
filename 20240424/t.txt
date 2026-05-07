@@ -68,9 +68,14 @@ TH_RB_DIFF_30 = 100   # R-B 30분 +100
 TH_RB_DIFF_10 = 30    # R-B FAST 10분 +30
 TH_RC_REVERSE = 2     # R-C' 역증가 2개+
 
-# R-D (M14B 정체 보조 룰) — v3 컬럼 있을 때만 적용
-TH_RD_M14B_AOTRANSDELAY = 10   # M14B.QUE.ABN.AOTRANSDELAY (정상 0~3, 5/7 7시 정체 14~32)
-TH_RD_M14B_4ABLD122 = 18       # M14B.LFT.4ABLD122 큐 (정상 7~10, 5/7 7시 정체 17~28)
+# R-D (FAB 저장률 정체 보조 룰) — 기존 32컬럼만으로도 작동
+# 5/7 7시 정체 분석 결과: M14B.AOTRANSDELAY는 종일 0, 진짜 신호는 FABSTORAGERATIO
+# FABSTORAGERATIO 정상 0~5, 5/7 7시 정체 10~32 (강한 차이)
+TH_RD_FABSTORAGE = 25.0         # M16HUB.STRATE.ALL.FABSTORAGERATIO 임계 (%)
+                                 # 5/7 7시 정체 24~32, 5/8 정상 <1
+                                 # 5/6 9시도 25~35인데 그 시점은 진짜 정체 (1MIN 11분+)
+# (옵션) v3 컬럼 보조 — M14B 7F→HUB JOB_ALT (정상 0~10, 5/7 7시 7~58)
+TH_RD_7F_HUB_ALT = 20
 
 # 사건 종료 판단: S3 신규/재발동 사이 간격
 INCIDENT_END_GAP_MIN = 10
@@ -144,12 +149,15 @@ def iter_star_rows(filepath):
                     lid: safe_int(row.get(C(f'.LFT.{lid}.TOTAL_CURRENTQCNT')))
                     for lid in LIFTER_IDS
                 },
-                # v3 신규 컬럼 — 없으면 None (기존 32컬럼 CSV와 호환)
+                # ★ R-D 핵심: FAB 저장률 (기존 32컬럼에 이미 있음)
+                'fabstorage_ratio':  safe_float(row.get(C('.STRATE.ALL.FABSTORAGERATIO'))),
+                # v3 신규 컬럼 (옵션, 없으면 None)
                 'm14b_aotransdelay': safe_float(row.get('M14B.QUE.ABN.AOTRANSDELAY')),
                 'm14b_oht_util':     safe_float(row.get('M14B.QUE.OHT.OHTUTIL')),
                 'm14b_4abld122':     safe_int(row.get('M14B.LFT.4ABLD122.TOTAL_CURRENTQCNT')),
                 'm14b_avgtotal1min': safe_float(row.get('M14B.QUE.TIME.AVGTOTALTIME1MIN')),
                 'm14b_7f_to_hub':    safe_int(row.get('M14B.QUE.ALL.7F_TO_HUB_JOB')),
+                'm14b_7f_to_hub_alt': safe_int(row.get('M14B.QUE.ALL.7F_TO_HUB_JOB_ALT')),
                 'm14_htstop':        safe_int(row.get('M14.OHT.STATECNT.HTSTOP')),
                 'm14_congested':     safe_int(row.get('M14.OHT.STATECNT.CONGESTED')),
                 'm14_abnormal':      safe_int(row.get('M14.OHT.STATECNT.ABNORMAL')),
@@ -213,26 +221,27 @@ def evaluate_rules(t1_window, m14_window, lft_window, v3_window=None):
                 rev_count += 1
         rc_trig = rc_trend < 0 and rev_count >= TH_RC_REVERSE
 
-    # ── R-D (M14B 정체 보조 룰) ── v3 컬럼 있을 때만
-    # 5/7 7시 SFA 정체처럼 M16HUB 측 R-B는 미달이지만 M14B 측 정체가 분명한 케이스 잡기
-    rd_aotransdelay = 0
-    rd_4abld122 = 0
+    # ── R-D (FAB 저장률 정체 보조 룰) ── 기존 32컬럼 사용
+    # 5/7 7시 SFA 정체 분석: FABSTORAGERATIO 정상 0~5 → 7시 정체 10~32
+    # 이 신호는 M16HUB.STRATE.ALL.FABSTORAGERATIO (이미 32컬럼에 존재)
+    rd_fabstorage = 0
+    rd_7f_alt = 0
     rd_trig = False
     if v3_window:
         latest = v3_window[-1] if v3_window else {}
         if latest:
-            rd_aotransdelay = latest.get('m14b_aotransdelay') or 0
-            rd_4abld122 = latest.get('m14b_4abld122') or 0
-            # M14B AO Port 5분+ 대기 FOUP 임계 초과 + 리프터 4ABLD122 큐 임계 초과
-            rd_trig = (rd_aotransdelay >= TH_RD_M14B_AOTRANSDELAY
-                       and rd_4abld122 >= TH_RD_M14B_4ABLD122)
+            rd_fabstorage = latest.get('fabstorage_ratio') or 0
+            rd_7f_alt = latest.get('m14b_7f_to_hub_alt') or 0
+            # FABSTORAGERATIO 임계 초과 시 R-D 발동
+            rd_trig = rd_fabstorage >= TH_RD_FABSTORAGE
 
     # ── Stage ──
     s1 = (ra_count >= 2) or ra_sustained
     s2 = rb_trig or rb_fast
-    # S3: 기존 (R-A' AND R-B AND R-C') OR 신규 R-D (R-A' 보호 하에)
-    # R-D 는 v3 컬럼 있을 때만 활성. 4/21·5/6 검증 케이스는 기존 경로로 그대로 잡힘.
-    s3 = (ra_trig and rb_trig and rc_trig) or (rd_trig and ra_trig)
+    # S3: 기존 (R-A' AND R-B AND R-C') OR 신규 R-D (R-A' AND R-C' 보호 하에)
+    # R-D 는 FABSTORAGE 기반. R-A'+R-C' 둘 다 만족할 때만 R-B 대신 R-D 사용.
+    # 이렇게 해야 R-C' 미충족 (단순 트래픽 변동) 위양성 제거됨.
+    s3 = ra_trig and rc_trig and (rb_trig or rd_trig)
 
     ctx = {
         'ra_count': ra_count,
@@ -247,8 +256,8 @@ def evaluate_rules(t1_window, m14_window, lft_window, v3_window=None):
         'rc_trig': rc_trig,
         'rev_count': rev_count,
         'rev_lids': rev_lids,
-        'rd_aotransdelay': rd_aotransdelay,
-        'rd_4abld122': rd_4abld122,
+        'rd_fabstorage': rd_fabstorage,
+        'rd_7f_alt': rd_7f_alt,
         'rd_trig': rd_trig,
     }
     return s1, s2, s3, ctx
@@ -297,8 +306,7 @@ class IncidentTracker:
         elif stage == 3:
             # R-D 경로로 들어왔는지 표시
             if ctx.get('rd_trig') and not (ctx.get('rb_trig') and ctx.get('rc_trig')):
-                reason = (f"R-D M14B 정체 (AOTRANSDELAY={ctx.get('rd_aotransdelay', 0)}, "
-                          f"4ABLD122={ctx.get('rd_4abld122', 0)}, "
+                reason = (f"R-D FAB저장률 정체 (FABSTORAGE={ctx.get('rd_fabstorage', 0):.1f}%, "
                           f"1MIN {ctx.get('ra_value') or 0:.2f})")
             else:
                 reason = (f"AND 만족 (1MIN {ctx.get('ra_value') or 0:.2f}, "
@@ -322,8 +330,8 @@ class IncidentTracker:
             'rc_trend': ctx.get('rc_trend', 0),
             'rev_count': ctx.get('rev_count', 0),
             'rev_lids': list(ctx.get('rev_lids') or []),
-            'rd_aotransdelay': ctx.get('rd_aotransdelay', 0),
-            'rd_4abld122': ctx.get('rd_4abld122', 0),
+            'rd_fabstorage': ctx.get('rd_fabstorage', 0),
+            'rd_7f_alt': ctx.get('rd_7f_alt', 0),
             'rd_trig': bool(ctx.get('rd_trig')),
         })
         self.last_stage = stage
@@ -365,8 +373,8 @@ class IncidentTracker:
             'max_rb_diff': ctx['rb_diff'] or 0,
             'max_rev': ctx['rev_count'] or 0,
             'rev_lids_union': set(ctx.get('rev_lids') or []),
-            'max_rd_aotransdelay': ctx.get('rd_aotransdelay', 0) or 0,
-            'max_rd_4abld122': ctx.get('rd_4abld122', 0) or 0,
+            'max_rd_fabstorage': ctx.get('rd_fabstorage', 0) or 0,
+            'max_rd_7f_alt': ctx.get('rd_7f_alt', 0) or 0,
             'rd_triggered': bool(ctx.get('rd_trig')),
         }
         self.state = 'IN_INCIDENT'
@@ -382,12 +390,12 @@ class IncidentTracker:
         if ctx['rev_count'] and ctx['rev_count'] > c['max_rev']:
             c['max_rev'] = ctx['rev_count']
         c['rev_lids_union'].update(ctx.get('rev_lids') or [])
-        rd_a = ctx.get('rd_aotransdelay', 0) or 0
-        rd_l = ctx.get('rd_4abld122', 0) or 0
-        if rd_a > c.get('max_rd_aotransdelay', 0):
-            c['max_rd_aotransdelay'] = rd_a
-        if rd_l > c.get('max_rd_4abld122', 0):
-            c['max_rd_4abld122'] = rd_l
+        rd_f = ctx.get('rd_fabstorage', 0) or 0
+        rd_a = ctx.get('rd_7f_alt', 0) or 0
+        if rd_f > c.get('max_rd_fabstorage', 0):
+            c['max_rd_fabstorage'] = rd_f
+        if rd_a > c.get('max_rd_7f_alt', 0):
+            c['max_rd_7f_alt'] = rd_a
         if ctx.get('rd_trig'):
             c['rd_triggered'] = True
 
@@ -674,8 +682,9 @@ def process(input_csv, out_dir='.'):
         m14_window.append(star.get('m14_to_m16'))
         lft_window.append(star.get('lft_list') or {})
         v3_window.append({k: star.get(k) for k in (
+            'fabstorage_ratio',
             'm14b_aotransdelay', 'm14b_oht_util', 'm14b_4abld122',
-            'm14b_avgtotal1min', 'm14b_7f_to_hub',
+            'm14b_avgtotal1min', 'm14b_7f_to_hub', 'm14b_7f_to_hub_alt',
             'm14_htstop', 'm14_congested', 'm14_abnormal',
             'm16pkt_aotransdelay', 'm16wt_aotransdelay',
         )})
