@@ -1,0 +1,23 @@
+미완료
+Node.js 24 + Corepack (winget install OpenJS.NodeJS.LTS → corepack enable)
+미완료
+pnpm install (프로젝트 디렉터리에서)
+미완료
+환경 변수 설정 (PowerShell 세션마다):
+$env:OD_HOST = "0.0.0.0"
+$env:OD_ALLOWED_ORIGINS = "http://<회사_LAN_IP>:10012"
+미완료
+방화벽 규칙 (관리자 PowerShell, 한 번만):
+New-NetFirewallRule -DisplayName "Open Design dev (web)" -Direction Inbound -LocalPort 10012 -Protocol TCP -Action Allow -Profile Private,Domain
+미완료
+dev server 실행:
+pnpm tools-dev run web --daemon-port 10011 --web-port 10012
+
+
+node --version
+v24.13.1
+
+corepack enable
+corepack prepare pnpm@10.33.2 --activate
+pnpm --version
+pnpm install
