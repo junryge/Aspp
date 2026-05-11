@@ -21,3 +21,17 @@ corepack enable
 corepack prepare pnpm@10.33.2 --activate
 pnpm --version
 pnpm install
+
+
+
+
+# 회사 LAN IP 먼저 확인
+ipconfig
+# 활성 어댑터 IPv4 메모 (예: 10.x.x.x 또는 192.168.x.x)
+
+# 환경 변수 (지금 PowerShell 세션에)
+$env:OD_HOST = "0.0.0.0"
+$env:OD_ALLOWED_ORIGINS = "http://<회사_IP>:10012"
+
+# 실행
+pnpm tools-dev run web --daemon-port 10011 --web-port 10012
