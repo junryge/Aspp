@@ -1,0 +1,49 @@
+@echo off
+setlocal
+
+REM Change to this script's directory (so it works regardless of where you run it from)
+cd /d "%~dp0"
+
+REM Sanity check: must be at project root
+if not exist "package.json" (
+    echo [ERROR] package.json not found in "%CD%".
+    echo Place start-dev.cmd at the project root next to package.json.
+    pause
+    exit /b 1
+)
+
+REM Auto-detect LAN IPv4 (skip loopback, virtual adapters, link-local)
+powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notmatch 'Loopback|vEthernet|VMware|VirtualBox|WSL|Hyper-V' -and $_.IPAddress -notmatch '^169\.254\.' } | Select-Object -First 1).IPAddress" > "%TEMP%\__od_lan_ip.txt"
+set /p LAN_IP=<"%TEMP%\__od_lan_ip.txt"
+del "%TEMP%\__od_lan_ip.txt" >nul 2>&1
+
+if "%LAN_IP%"=="" (
+    echo.
+    echo [ERROR] LAN IP auto-detect failed.
+    echo Edit this file and replace the auto-detect block with:
+    echo     set LAN_IP=192.168.x.x
+    echo.
+    pause
+    exit /b 1
+)
+
+set OD_HOST=0.0.0.0
+set OD_ALLOWED_ORIGINS=http://%LAN_IP%:10012
+
+echo.
+echo ============================================================
+echo  Open Design dev (LAN exposed)
+echo ============================================================
+echo   Web URL:    http://%LAN_IP%:10012/
+echo   Daemon:     http://127.0.0.1:10011/  (loopback only)
+echo.
+echo   OD_HOST            = %OD_HOST%
+echo   OD_ALLOWED_ORIGINS = %OD_ALLOWED_ORIGINS%
+echo ============================================================
+echo.
+echo  Press Ctrl+C to stop the server.
+echo.
+
+call pnpm tools-dev run web --daemon-port 10011 --web-port 10012
+
+endlocal
