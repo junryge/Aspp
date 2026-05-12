@@ -5,7 +5,7 @@ AWS_IDC_DATA_HIS — M16HUB + M14B 실시간 수집기 (Python / Linux)
 - 1분마다 오라클 쿼리 실행 → 동일 파일명으로 CSV 저장 (덮어쓰기)
 - 윈도우: SYSDATE 기준 과거 WINDOW_MIN 분
 - 컬럼: 42개 (M16HUB 32 + M14B 10)
-- 저장 경로: /data/idc/M16A_HUBROOM_PR.csv (고정 파일명)
+- 저장 경로: ./predict/M16A_HUBROOM_PR.csv (스크립트 실행 폴더 기준)
 
 실행: python3 aws_idc_realtime_collector.py
 백그라운드: nohup python3 aws_idc_realtime_collector.py > /dev/null 2>&1 &
@@ -30,7 +30,7 @@ ORACLE_DSN      = os.getenv("ORA_DSN",  "10.40.41.103:1521/ICASTARPP")
 
 WINDOW_MIN      = 90                                    # 과거 윈도우 (분)
 INTERVAL_SEC    = 60                                    # 호출 주기 (1분)
-OUTPUT_DIR      = Path(os.getenv("OUTPUT_DIR", "/data/idc"))
+OUTPUT_DIR      = Path(__file__).resolve().parent / "predict"
 OUTPUT_FILE     = OUTPUT_DIR / "M16A_HUBROOM_PR.csv"
 TMP_FILE        = OUTPUT_DIR / "M16A_HUBROOM_PR.csv.tmp"
 
