@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+python3 hubroom_predictor.py --watch
 """
 M16A HUBROOM 정체 예측기
 ========================
