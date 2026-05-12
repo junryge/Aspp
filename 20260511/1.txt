@@ -1,225 +1,712 @@
 # -*- coding: utf-8 -*-
 """
-AWS_IDC_DATA_HIS — M16HUB + M14B 실시간 수집기 (Python / Linux)
-================================================================
-- 1분마다 오라클 쿼리 실행 → 동일 파일명으로 CSV 저장 (덮어쓰기)
-- 윈도우: SYSDATE 기준 과거 WINDOW_MIN 분
-- 컬럼: 42개 (M16HUB 32 + M14B 10)
-- 저장 경로: ./predict/M16A_HUBROOM_PR.csv (스크립트 실행 폴더 기준)
+M16A HUBROOM 정체 예측기
+========================
+- 입력 : ./predict/M16A_HUBROOM_PR.csv (수집기가 1분마다 덮어쓰는 파일)
+- 출력 : ./predict_tobe/<YYYYMMDD>_발동이벤트.csv
+         ./predict_tobe/<YYYYMMDD>_사건단위.csv
 
-실행: python3 aws_idc_realtime_collector.py
-백그라운드: nohup python3 aws_idc_realtime_collector.py > /dev/null 2>&1 &
+사용:
+  # 일괄 처리 (기존 CSV 한 번 분석)
+  python3 hubroom_predictor.py
+
+  # 실시간 감시 (수집기와 함께 상시 돌리기)
+  python3 hubroom_predictor.py --watch
+
+  # 입력/출력 경로 명시
+  python3 hubroom_predictor.py /path/to/input.csv -o /path/to/out --watch --interval 60
 """
 
+import csv
 import os
 import sys
 import time
-import csv
-import logging
-from datetime import datetime
+from collections import deque
+from datetime import datetime, timedelta
 from pathlib import Path
 
-import oracledb  # python-oracledb (구 cx_Oracle 후속)
 
-# ==========================================================
-# 설정
-# ==========================================================
-ORACLE_USER     = os.getenv("ORA_USER", "STAREAD")
-ORACLE_PASSWORD = os.getenv("ORA_PASS", "Stareadadmin123!")
-ORACLE_DSN      = os.getenv("ORA_DSN",  "10.40.41.103:1521/ICASTARPP")
+# ====== 기본 경로 ======
+BASE_DIR = Path(__file__).resolve().parent
+DEFAULT_INPUT  = BASE_DIR / "predict" / "M16A_HUBROOM_PR.csv"
+DEFAULT_OUTDIR = BASE_DIR / "predict_tobe"
 
-WINDOW_MIN      = 90                                    # 과거 윈도우 (분)
-INTERVAL_SEC    = 60                                    # 호출 주기 (1분)
-OUTPUT_DIR      = Path(__file__).resolve().parent / "predict"
-OUTPUT_FILE     = OUTPUT_DIR / "M16A_HUBROOM_PR.csv"
-TMP_FILE        = OUTPUT_DIR / "M16A_HUBROOM_PR.csv.tmp"
 
-# ==========================================================
-# 로깅
-# ==========================================================
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+# ====== 상수 ======
+WINDOW_MIN = 90  # 슬라이딩 윈도우 길이 (분)
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(OUTPUT_DIR / "collector.log", encoding="utf-8"),
-    ]
-)
-log = logging.getLogger("idc_collector")
-
-# ==========================================================
-# 컬럼 정의 (42개 - 원본 쿼리 순서 그대로)
-# ==========================================================
-IDC_COLUMNS = [
-    # ===== M16HUB (32) =====
-    "M16HUB.QUE.ALL.CURRENTQCNT",
-    "M16HUB.QUE.ALL.CURRENTQCOMPLETED",
-    "M16HUB.QUE.OHT.CURRENTOHTQCNT",
-    "M16HUB.QUE.OHT.OHTUTIL",
-    "M16HUB.QUE.LOAD.AVGLOADTIME",
-    "M16HUB.QUE.ALL.TRANSPORT4MINOVERCNT",
-    "M16HUB.QUE.ALL.TRANSPORT4MINOVERRATIO",
-    "M16HUB.QUE.ALL.TRANSPORT4MINOVERTIMEAVG",
-    "M16HUB.QUE.TIME.AVGTOTALTIME",
-    "M16HUB.QUE.TIME.AVGTOTALTIME1MIN",
-    "M16HUB.OHT.ALERT.OHTMCPALARMCNT",
-    "M16HUB.QUE.M14TOM16.MESCURRENTQCNT",
-    "M16HUB.QUE.M16TOM14.MESCURRENTQCNT",
-    "M16HUB.QUE.M16TOM14A.MESCURRENTQCNT",
-    "M16HUB.QUE.M16TOM14B.MESCURRENTQCNT",
-    "M16HUB.QUE.ALL.FABTRANSJOBCNT",
-    "M16HUB.QUE.M14ATOM16.MESCURRENTQCNT",
-    "M16HUB.QUE.M14BTOM16.MESCURRENTQCNT",
-    "M16HUB.LFT.6ABL6011.TOTAL_CURRENTQCNT",
-    "M16HUB.LFT.6ABL6012.TOTAL_CURRENTQCNT",
-    "M16HUB.LFT.6ABL6021.TOTAL_CURRENTQCNT",
-    "M16HUB.LFT.6ABL6022.TOTAL_CURRENTQCNT",
-    "M16HUB.LFT.6ABL6031.TOTAL_CURRENTQCNT",
-    "M16HUB.LFT.6ABL6032.TOTAL_CURRENTQCNT",
-    "M16HUB.LFT.6ABL0111.TOTAL_CURRENTQCNT",
-    "M16HUB.LFT.6ABL0112.TOTAL_CURRENTQCNT",
-    "M16HUB.LFT.6ABL0121.TOTAL_CURRENTQCNT",
-    "M16HUB.LFT.6ABL0122.TOTAL_CURRENTQCNT",
-    "M16HUB.QUE.ALL.M16HUBTOM14MANUAL_CURRENTQCNT",
-    "M16HUB.STRATE.STK.STORAGERATIO",
-    "M16HUB.STRATE.ALL.FABSTORAGERATIO",
-    # ===== ★ M14B 신규 (10) =====
-    "M14B.QUE.OHT.OHTUTIL",
-    "M14B.QUE.ALL.7F_TO_HUB_JOB",
-    "M14B.QUE.ALL.7F_TO_HUB_JOB_ALT",
-    "M14B.LFT.SENDFAB.TO_M16HUB_CURRENTQCNT",
-    "M14B.LFT.4ABLD111.TOTAL_CURRENTQCNT",
-    "M14B.LFT.4ABLD112.TOTAL_CURRENTQCNT",
-    "M14B.LFT.4ABLD121.TOTAL_CURRENTQCNT",
-    "M14B.LFT.4ABLD122.TOTAL_CURRENTQCNT",
-    "M14B.LFT.4ABLD131.TOTAL_CURRENTQCNT",
-    "M14B.LFT.4ABLD132.TOTAL_CURRENTQCNT",
+LIFTER_IDS = [
+    '6ABL6011', '6ABL6012', '6ABL6021', '6ABL6022',
+    '6ABL6031', '6ABL6032', '6ABL0111', '6ABL0112',
+    '6ABL0121', '6ABL0122',
 ]
 
-# CSV 헤더 컬럼명 (M16HUB.QUE.ALL.CURRENTQCNT 형태 그대로 사용 - 원본 쿼리와 동일)
-CSV_HEADER = ["CRT_TM"] + IDC_COLUMNS
+# 룰 임계치 (검증된 값)
+TH_RA_VALUE = 9.0
+TH_RA_SUSTAINED_VALUE = 6.0
+TH_RA_SUSTAINED_COUNT = 3
+TH_RB_DIFF_30 = 100
+TH_RB_DIFF_10 = 30
+TH_RC_REVERSE = 2
 
-# ==========================================================
-# SQL — PIVOT 방식 (원본 쿼리와 동일 로직)
-# ==========================================================
-def build_sql() -> str:
-    """원본 쿼리와 100% 동일한 MAX(CASE WHEN ...) 피벗 쿼리 생성"""
-    pivot_cols = ",\n  ".join(
-        f"MAX(CASE WHEN IDC_NM='{nm}' THEN IDC_VAL END) AS \"{nm}\""
-        for nm in IDC_COLUMNS
-    )
-    in_list = ",\n    ".join(f"'{nm}'" for nm in IDC_COLUMNS)
+# R-D (FAB 저장률 정체 보조 룰)
+TH_RD_FABSTORAGE = 25.0
+TH_RD_7F_HUB_ALT = 20
 
-    sql = f"""
-SELECT
-  TO_CHAR(CRT_TM, 'YYYY-MM-DD HH24:MI:SS') AS CRT_TM,
-  {pivot_cols}
-FROM AWS_IDC_DATA_HIS
-WHERE CRT_TM BETWEEN SYSDATE - :window_min/1440 AND SYSDATE
-  AND IDC_NM IN (
-    {in_list}
-  )
-GROUP BY CRT_TM
-ORDER BY CRT_TM
-""".strip()
-    return sql
+INCIDENT_END_GAP_MIN = 10
+PREDICT_LOOKBACK_MIN = 60
 
 
-SQL_QUERY = build_sql()
+# ====== 유틸 ======
+def safe_float(v):
+    try:
+        return float(v) if v not in (None, '', 'null') else None
+    except (ValueError, TypeError):
+        return None
 
 
-# ==========================================================
-# 핵심 수집 함수
-# ==========================================================
-def fetch_and_save(conn) -> int:
-    """
-    1회 조회 → CSV 덮어쓰기.
-    반환: 저장된 행 수
-    """
-    # 임시 파일에 먼저 쓰고 → rename (원자적 교체, 읽기 중 충돌 방지)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-    with conn.cursor() as cur:
-        cur.execute(SQL_QUERY, window_min=WINDOW_MIN)
-        rows = cur.fetchall()
-
-    with open(TMP_FILE, "w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.writer(f, quoting=csv.QUOTE_MINIMAL)
-        writer.writerow(CSV_HEADER)
-        for r in rows:
-            # None → 빈 문자열
-            writer.writerow(["" if v is None else v for v in r])
-
-    # 원자적 교체 (Windows에서도 동작: 기존 파일 있으면 os.replace 사용)
-    os.replace(TMP_FILE, OUTPUT_FILE)
-    return len(rows)
+def safe_int(v):
+    try:
+        return int(float(v)) if v not in (None, '', 'null') else None
+    except (ValueError, TypeError):
+        return None
 
 
-# ==========================================================
-# 메인 루프
-# ==========================================================
-def main():
-    log.info("=" * 60)
-    log.info("AWS_IDC_DATA_HIS 실시간 수집기 시작")
-    log.info(f"  DSN          : {ORACLE_DSN}")
-    log.info(f"  USER         : {ORACLE_USER}")
-    log.info(f"  WINDOW       : 과거 {WINDOW_MIN}분")
-    log.info(f"  INTERVAL     : {INTERVAL_SEC}초")
-    log.info(f"  OUTPUT       : {OUTPUT_FILE}")
-    log.info(f"  COLUMNS      : {len(IDC_COLUMNS)}개 IDC + CRT_TM")
-    log.info("=" * 60)
-
-    # 연결 (재연결 로직 포함)
-    conn = None
-    while True:
-        cycle_start = time.time()
+def parse_time(s):
+    if not s:
+        return None
+    s = s.strip().strip('"').strip("'")
+    if 'T' in s and '+' in s.split('T')[1]:
+        s = s.split('+')[0]
+    if s.endswith('Z'):
+        s = s[:-1]
+    if '.' in s:
+        s = s.split('.')[0]
+    for fmt in ('%Y-%m-%d %H:%M:%S', '%Y/%m/%d %H:%M:%S',
+                '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M',
+                '%Y%m%d%H%M%S', '%Y%m%d %H%M%S'):
         try:
-            if conn is None:
-                log.info("Oracle 연결 시도...")
-                conn = oracledb.connect(
-                    user=ORACLE_USER,
-                    password=ORACLE_PASSWORD,
-                    dsn=ORACLE_DSN,
-                )
-                log.info("Oracle 연결 성공")
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    return None
 
-            n = fetch_and_save(conn)
-            elapsed = time.time() - cycle_start
-            log.info(f"저장 완료: {n}행, {elapsed:.2f}s → {OUTPUT_FILE.name}")
 
-        except oracledb.DatabaseError as e:
-            log.error(f"DB 오류: {e}")
-            try:
-                if conn:
-                    conn.close()
-            except Exception:
-                pass
-            conn = None
-            time.sleep(5)  # 재연결 전 짧은 백오프
+def detect_prefix(fieldnames):
+    anchor = '.QUE.ALL.CURRENTQCNT'
+    for col in fieldnames or []:
+        if col and col.endswith(anchor):
+            return col[:-len(anchor)]
+    return None
+
+
+# ====== STAR 로드 ======
+def iter_star_rows(filepath):
+    """STAR CSV → (datetime, star_dict, prefix) 제너레이터"""
+    with open(filepath, 'r', encoding='utf-8-sig') as f:
+        reader = csv.DictReader(f)
+        prefix = detect_prefix(reader.fieldnames)
+        if not prefix:
+            return
+
+        def C(suffix):
+            return f"{prefix}{suffix}"
+
+        for row in reader:
+            t = parse_time(row.get('CRT_TM', ''))
+            if not t:
+                continue
+            star = {
+                'avgtotal1min': safe_float(row.get(C('.QUE.TIME.AVGTOTALTIME1MIN'))),
+                'm14_to_m16':   safe_int(row.get(C('.QUE.M14TOM16.MESCURRENTQCNT'))),
+                'lft_list': {
+                    lid: safe_int(row.get(C(f'.LFT.{lid}.TOTAL_CURRENTQCNT')))
+                    for lid in LIFTER_IDS
+                },
+                'fabstorage_ratio':  safe_float(row.get(C('.STRATE.ALL.FABSTORAGERATIO'))),
+                'm14b_aotransdelay': safe_float(row.get('M14B.QUE.ABN.AOTRANSDELAY')),
+                'm14b_oht_util':     safe_float(row.get('M14B.QUE.OHT.OHTUTIL')),
+                'm14b_4abld122':     safe_int(row.get('M14B.LFT.4ABLD122.TOTAL_CURRENTQCNT')),
+                'm14b_avgtotal1min': safe_float(row.get('M14B.QUE.TIME.AVGTOTALTIME1MIN')),
+                'm14b_7f_to_hub':    safe_int(row.get('M14B.QUE.ALL.7F_TO_HUB_JOB')),
+                'm14b_7f_to_hub_alt': safe_int(row.get('M14B.QUE.ALL.7F_TO_HUB_JOB_ALT')),
+                'm14_htstop':        safe_int(row.get('M14.OHT.STATECNT.HTSTOP')),
+                'm14_congested':     safe_int(row.get('M14.OHT.STATECNT.CONGESTED')),
+                'm14_abnormal':      safe_int(row.get('M14.OHT.STATECNT.ABNORMAL')),
+                'm16pkt_aotransdelay': safe_float(row.get('M16_PKT.QUE.ABN.AOTRANSDELAY')),
+                'm16wt_aotransdelay':  safe_float(row.get('M16_WT.QUE.ABN.AOTRANSDELAY')),
+            }
+            star['lft_list'] = {k: v for k, v in star['lft_list'].items() if v is not None}
+            yield t, star, prefix
+
+
+# ====== 룰 평가 ======
+def evaluate_rules(t1_window, m14_window, lft_window, v3_window=None):
+    t1_list = list(t1_window)
+    m14_list = list(m14_window)
+    lft_list = list(lft_window)
+
+    # R-A'
+    recent_t1 = t1_list[-10:]
+    ra_count = sum(1 for v in recent_t1 if v is not None and v >= TH_RA_VALUE)
+    ra_value = recent_t1[-1] if recent_t1 else None
+    ra_trig = ra_count >= 1
+
+    ra_sustained = False
+    if len(recent_t1) >= 5:
+        last5 = [v for v in recent_t1[-5:] if v is not None]
+        if len(last5) >= 3:
+            ra_sustained = sum(1 for v in last5 if v >= TH_RA_SUSTAINED_VALUE) >= TH_RA_SUSTAINED_COUNT
+
+    # R-B
+    rb_diff = 0
+    rb_trig = False
+    if len(m14_list) >= 31 and m14_list[-1] is not None and m14_list[-31] is not None:
+        rb_diff = m14_list[-1] - m14_list[-31]
+        rb_trig = rb_diff >= TH_RB_DIFF_30
+
+    rb_fast = False
+    rb_diff_10 = 0
+    if len(m14_list) >= 11 and m14_list[-1] is not None and m14_list[-11] is not None:
+        rb_diff_10 = m14_list[-1] - m14_list[-11]
+        rb_fast = rb_diff_10 >= TH_RB_DIFF_10
+
+    # R-C'
+    rc_trend = 0
+    rev_count = 0
+    rev_lids = []
+    rc_trig = False
+    if len(lft_list) >= 21 and lft_list[-1] and lft_list[-21]:
+        now_l = lft_list[-1]
+        prev_l = lft_list[-21]
+        rc_trend = sum(now_l.values()) - sum(prev_l.values())
+        for lid in now_l:
+            if now_l[lid] > prev_l.get(lid, 0):
+                rev_lids.append(lid)
+                rev_count += 1
+        rc_trig = rc_trend < 0 and rev_count >= TH_RC_REVERSE
+
+    # R-D
+    rd_fabstorage = 0
+    rd_7f_alt = 0
+    rd_trig = False
+    if v3_window:
+        latest = v3_window[-1] if v3_window else {}
+        if latest:
+            rd_fabstorage = latest.get('fabstorage_ratio') or 0
+            rd_7f_alt = latest.get('m14b_7f_to_hub_alt') or 0
+            rd_trig = rd_fabstorage >= TH_RD_FABSTORAGE
+
+    s1 = (ra_count >= 2) or ra_sustained
+    s2 = rb_trig or rb_fast
+    s3 = ra_trig and rc_trig and (rb_trig or rd_trig)
+
+    ctx = {
+        'ra_count': ra_count, 'ra_value': ra_value, 'ra_sustained': ra_sustained, 'ra_trig': ra_trig,
+        'rb_diff': rb_diff, 'rb_diff_10': rb_diff_10, 'rb_fast': rb_fast, 'rb_trig': rb_trig,
+        'rc_trend': rc_trend, 'rc_trig': rc_trig, 'rev_count': rev_count, 'rev_lids': rev_lids,
+        'rd_fabstorage': rd_fabstorage, 'rd_7f_alt': rd_7f_alt, 'rd_trig': rd_trig,
+    }
+    return s1, s2, s3, ctx
+
+
+# ====== 사건 추적 FSM ======
+class IncidentTracker:
+    def __init__(self):
+        self.state = 'IDLE'
+        self.current = None
+        self.incidents = []
+        self.early_signals = deque(maxlen=PREDICT_LOOKBACK_MIN)
+        self.events = []
+        self.last_stage = 0
+
+    def _record_event(self, t, stage, ctx):
+        is_transition = stage != self.last_stage
+        if stage == 0:
+            reason = "이벤트 없음"
+        elif stage == 1:
+            if ctx.get('ra_count', 0) >= 2:
+                reason = f"1MIN ≥9분이 {ctx['ra_count']}회"
+            elif ctx.get('ra_sustained'):
+                reason = "1MIN ≥6분 지속"
+            else:
+                reason = "1단계 발동"
+        elif stage == 2:
+            if ctx.get('rb_diff', 0) >= 100:
+                reason = f"M14→M16 +{ctx['rb_diff']} (30분간)"
+            elif ctx.get('rb_fast'):
+                reason = f"M14→M16 +{ctx.get('rb_diff_10', 0)} (10분간 fast)"
+            else:
+                reason = "2단계 발동"
+        elif stage == 3:
+            if ctx.get('rd_trig') and not (ctx.get('rb_trig') and ctx.get('rc_trig')):
+                reason = (f"R-D FAB저장률 정체 (FABSTORAGE={ctx.get('rd_fabstorage', 0):.1f}%, "
+                          f"1MIN {ctx.get('ra_value') or 0:.2f})")
+            else:
+                reason = (f"AND 만족 (1MIN {ctx.get('ra_value') or 0:.2f}, "
+                          f"M14→M16 +{ctx.get('rb_diff', 0)}, "
+                          f"역증가 {ctx.get('rev_count', 0)}개)")
+        else:
+            reason = "이벤트 없음"
+        self.events.append({
+            'time': t, 'stage': stage, 'prev_stage': self.last_stage,
+            'reason': reason, 'is_transition': is_transition,
+            'ra_value': ctx.get('ra_value'), 'ra_count': ctx.get('ra_count', 0),
+            'ra_sustained': bool(ctx.get('ra_sustained')),
+            'rb_diff': ctx.get('rb_diff', 0), 'rb_diff_10': ctx.get('rb_diff_10', 0),
+            'rb_fast': bool(ctx.get('rb_fast')), 'rb_trig': bool(ctx.get('rb_trig')),
+            'rc_trend': ctx.get('rc_trend', 0), 'rev_count': ctx.get('rev_count', 0),
+            'rev_lids': list(ctx.get('rev_lids') or []),
+            'rd_fabstorage': ctx.get('rd_fabstorage', 0), 'rd_7f_alt': ctx.get('rd_7f_alt', 0),
+            'rd_trig': bool(ctx.get('rd_trig')),
+        })
+        self.last_stage = stage
+
+    def update(self, t, s1, s2, s3, ctx):
+        if s1 or s2:
+            self.early_signals.append(t)
+
+        cur_stage = 3 if s3 else (2 if s2 else (1 if s1 else 0))
+        self._record_event(t, cur_stage, ctx)
+
+        if self.state == 'IDLE':
+            if s3:
+                self._start_new(t, ctx)
+        else:
+            if s3:
+                last_s3 = self.current['last_s3_time']
+                if (t - last_s3).total_seconds() / 60.0 >= INCIDENT_END_GAP_MIN:
+                    self.current['refire_count'] += 1
+                self._update_current(t, ctx)
+            else:
+                last_s3 = self.current['last_s3_time']
+                if (t - last_s3).total_seconds() / 60.0 >= INCIDENT_END_GAP_MIN:
+                    self._end_current(t)
+
+    def _start_new(self, t, ctx):
+        cutoff = t - timedelta(minutes=PREDICT_LOOKBACK_MIN)
+        early = [x for x in self.early_signals if x >= cutoff]
+        predict_time = min(early) if early else t
+
+        self.current = {
+            'predict_time': predict_time, 'start_time': t, 'last_s3_time': t,
+            'end_time': t, 'refire_count': 0,
+            'max_1min': ctx['ra_value'] or 0, 'max_rb_diff': ctx['rb_diff'] or 0,
+            'max_rev': ctx['rev_count'] or 0,
+            'rev_lids_union': set(ctx.get('rev_lids') or []),
+            'max_rd_fabstorage': ctx.get('rd_fabstorage', 0) or 0,
+            'max_rd_7f_alt': ctx.get('rd_7f_alt', 0) or 0,
+            'rd_triggered': bool(ctx.get('rd_trig')),
+        }
+        self.state = 'IN_INCIDENT'
+
+    def _update_current(self, t, ctx):
+        c = self.current
+        c['last_s3_time'] = t
+        c['end_time'] = t
+        if ctx['ra_value'] and ctx['ra_value'] > c['max_1min']:
+            c['max_1min'] = ctx['ra_value']
+        if ctx['rb_diff'] and ctx['rb_diff'] > c['max_rb_diff']:
+            c['max_rb_diff'] = ctx['rb_diff']
+        if ctx['rev_count'] and ctx['rev_count'] > c['max_rev']:
+            c['max_rev'] = ctx['rev_count']
+        c['rev_lids_union'].update(ctx.get('rev_lids') or [])
+        rd_f = ctx.get('rd_fabstorage', 0) or 0
+        rd_a = ctx.get('rd_7f_alt', 0) or 0
+        if rd_f > c.get('max_rd_fabstorage', 0):
+            c['max_rd_fabstorage'] = rd_f
+        if rd_a > c.get('max_rd_7f_alt', 0):
+            c['max_rd_7f_alt'] = rd_a
+        if ctx.get('rd_trig'):
+            c['rd_triggered'] = True
+
+    def _end_current(self, t):
+        c = self.current
+        c['end_time'] = c['last_s3_time']
+        self.incidents.append(c)
+        self.current = None
+        self.state = 'IDLE'
+
+    def finalize(self, last_t):
+        if self.state == 'IN_INCIDENT':
+            self.current['end_time'] = self.current['last_s3_time']
+            self.incidents.append(self.current)
+            self.current = None
+            self.state = 'IDLE'
+
+
+# ====== 사건 → CSV 행 변환 ======
+def _classify_severity(refire_count, max_1min):
+    if refire_count >= 4 or max_1min >= 20:
+        return '★★★'
+    elif refire_count >= 2 or max_1min >= 15:
+        return '★★'
+    elif refire_count >= 1 or max_1min >= 10:
+        return '★'
+    return '-'
+
+
+def _build_explanation(max_1min, max_rb_diff, max_rev):
+    ra_val = float(max_1min or 0)
+    rb_val = int(max_rb_diff or 0)
+    rc_val = int(max_rev or 0)
+
+    ra_score = round(100 * (ra_val / 9.0 - 1), 1) if ra_val >= 9.0 else 0
+    rb_score = round(100 * (rb_val / 100.0 - 1), 1) if rb_val >= 100 else 0
+    rc_score = round(100 * (rc_val / 2.0 - 1), 1) if rc_val >= 2 else 0
+
+    contrib = [
+        ("R-A' 반송시간", ra_score, f"{ra_val:.2f}분 (기준 9분)"),
+        ("R-B FAB큐",    rb_score, f"+{rb_val} (기준 +100)"),
+        ("R-C' 리프터",  rc_score, f"{rc_val}개 역증가 (기준 2개)"),
+    ]
+    contrib.sort(key=lambda x: -x[1])
+
+    primary_cause = contrib[0][0] if contrib[0][1] > 0 else '기준 미달'
+    breakdown = ' | '.join(f"{name} {desc}" for name, _, desc in contrib)
+
+    if contrib[0][1] > 50:
+        impact = '매우 강함'
+    elif contrib[0][1] > 20:
+        impact = '강함'
+    elif contrib[0][1] > 0:
+        impact = '보통'
+    else:
+        impact = '약함'
+
+    parts = []
+    if ra_score > 0: parts.append(f"반송시간 {ra_val:.1f}분")
+    if rb_score > 0: parts.append(f"FAB간 큐 +{rb_val}")
+    if rc_score > 0: parts.append(f"리프터 역증가 {rc_val}개")
+
+    if not parts:
+        explanation = '3단계 조건 일부만 부분 충족'
+    else:
+        explanation = f"{primary_cause} 주도 ({impact}): " + ", ".join(parts)
+
+    return primary_cause, breakdown, explanation
+
+
+def incident_to_row(c, file_name):
+    duration_min = round((c['end_time'] - c['start_time']).total_seconds() / 60.0, 1)
+    lead_min = round((c['start_time'] - c['predict_time']).total_seconds() / 60.0)
+    primary_cause, breakdown, explanation = _build_explanation(
+        c['max_1min'], c['max_rb_diff'], c['max_rev']
+    )
+    early_warning = (
+        f"{c['predict_time'].strftime('%H:%M')} 1·2단계 발동 → "
+        f"{c['start_time'].strftime('%H:%M')} 3단계 확정 ({lead_min}분 먼저 인지)"
+    )
+    severity = '확정' if (c['max_rb_diff'] or 0) >= 100 else '주의'
+    return {
+        'file': file_name,
+        'date': c['start_time'].strftime('%Y-%m-%d'),
+        'severity': severity,
+        'predict_time': c['predict_time'].strftime('%H:%M'),
+        'start_time': c['start_time'].strftime('%H:%M'),
+        'end_time': c['end_time'].strftime('%H:%M'),
+        'lead_min': lead_min,
+        'duration_min': duration_min,
+        'refire_count': c['refire_count'],
+        'max_1min': round(c['max_1min'], 2),
+        'max_m14_diff': c['max_rb_diff'],
+        'max_reverse_lifters': c['max_rev'],
+        'primary_cause': primary_cause,
+        'contrib_breakdown': breakdown,
+        'anomaly_explanation': explanation,
+        'early_warning': early_warning,
+        'relation': build_incident_relation(c),
+    }
+
+
+# ====== CSV 헬퍼 ======
+STAGE_LABEL = {0: '이벤트없음', 1: '1단계 조기경보', 2: '2단계 주의보', 3: '3단계 ⭐확정'}
+
+SRC_COL_RA = 'QUE.TIME.AVGTOTALTIME1MIN'
+SRC_COL_RB = 'QUE.M14TOM16.MESCURRENTQCNT'
+SRC_COL_RC_TPL = 'LFT.{lid}.TOTAL_CURRENTQCNT'
+
+EVENT_FIELDS = [
+    'file', 'datetime', 'date', 'time',
+    'stage', 'stage_name', 'prev_stage', 'transition', 'reason',
+    'relation',
+]
+
+INCIDENT_FIELDS = [
+    'file', 'date', 'severity', 'predict_time', 'start_time', 'end_time',
+    'lead_min', 'duration_min', 'refire_count',
+    'max_1min', 'max_m14_diff', 'max_reverse_lifters',
+    'primary_cause', 'contrib_breakdown', 'anomaly_explanation', 'early_warning',
+    'relation',
+]
+
+
+def build_event_relation(ev):
+    if ev['stage'] == 0:
+        return ''
+    ra_val = ev.get('ra_value')
+    ra_cnt = ev.get('ra_count', 0) or 0
+    ra_sus = bool(ev.get('ra_sustained'))
+    ra_trig = ra_cnt >= 1 or ra_sus
+    rb_trig = bool(ev.get('rb_trig'))
+    rb_fast = bool(ev.get('rb_fast'))
+    rb_any = rb_trig or rb_fast
+    rev_lids = ev.get('rev_lids') or []
+    rev_n = ev.get('rev_count', 0) or 0
+    rc_trend = ev.get('rc_trend', 0) or 0
+    rc_trig = (rc_trend < 0) and (rev_n >= 2)
+
+    ra_flag = 'Y' if ra_trig else 'N'
+    ra_val_s = f"{ra_val:.2f}분" if ra_val is not None else 'N/A'
+    ra_part = f"[R-A' {ra_flag}] {SRC_COL_RA}={ra_val_s} (≥9분 10분창 {ra_cnt}회"
+    ra_part += f", 지속Y" if ra_sus else ", 지속N"
+    ra_part += ")"
+
+    rb_flag = 'Y' if rb_any else 'N'
+    rb_part = (f"[R-B {rb_flag}] {SRC_COL_RB} 30분Δ={ev.get('rb_diff', 0)} (≥100), "
+               f"10분Δ={ev.get('rb_diff_10', 0)} (≥30 fast)")
+
+    rc_flag = 'Y' if rc_trig else 'N'
+    if rev_lids:
+        lid_cols = ', '.join(SRC_COL_RC_TPL.format(lid=l) for l in rev_lids)
+        rc_part = f"[R-C' {rc_flag}] 역증가 {rev_n}개 (≥2): {lid_cols}; trend={rc_trend}"
+    else:
+        rc_part = f"[R-C' {rc_flag}] 역증가 0개 (≥2 필요); trend={rc_trend}"
+
+    return f"{ra_part} | {rb_part} | {rc_part}"
+
+
+def build_incident_relation(c):
+    parts = []
+    if c.get('max_1min'):
+        parts.append(f"{SRC_COL_RA} max={float(c['max_1min']):.2f}분 (기준 9.0분)")
+    if c.get('max_rb_diff'):
+        parts.append(f"{SRC_COL_RB} 최대증가 +{c['max_rb_diff']} (기준 +100)")
+    rev = sorted(c.get('rev_lids_union') or [])
+    if rev:
+        lid_cols = ', '.join(SRC_COL_RC_TPL.format(lid=l) for l in rev)
+        parts.append(f"역증가 LFT({len(rev)}): {lid_cols}")
+    return ' | '.join(parts) if parts else ''
+
+
+def event_to_row(ev, file_name):
+    t_str = ev['time'].strftime('%Y-%m-%d %H:%M')
+    d_str = ev['time'].strftime('%Y-%m-%d')
+    hm = ev['time'].strftime('%H:%M')
+    stage_name = STAGE_LABEL.get(ev['stage'], '')
+    if ev['stage'] == 0:
+        return [file_name, t_str, d_str, hm, '', stage_name, '', '', '', '']
+    transition = f"{ev['prev_stage']}→{ev['stage']}" if ev.get('is_transition') else ''
+    relation = build_event_relation(ev)
+    return [
+        file_name, t_str, d_str, hm,
+        ev['stage'], stage_name, ev['prev_stage'], transition, ev['reason'],
+        relation,
+    ]
+
+
+def append_rows_csv(path, fields, rows):
+    new_file = not os.path.exists(path) or os.path.getsize(path) == 0
+    with open(path, 'a', encoding='utf-8-sig', newline='') as f:
+        w = csv.writer(f)
+        if new_file:
+            w.writerow(fields)
+        for r in rows:
+            w.writerow(r)
+
+
+def write_events_by_date(out_dir, events, file_name):
+    by_date = {}
+    for ev in events:
+        key = ev['time'].strftime('%Y%m%d')
+        by_date.setdefault(key, []).append(event_to_row(ev, file_name))
+    paths = []
+    for ymd in sorted(by_date):
+        path = os.path.join(out_dir, f'{ymd}_발동이벤트.csv')
+        append_rows_csv(path, EVENT_FIELDS, by_date[ymd])
+        paths.append(path)
+    return paths
+
+
+def write_incidents_by_date(out_dir, incidents, file_name):
+    by_date = {}
+    for c in incidents:
+        ymd = c['start_time'].strftime('%Y%m%d')
+        row = incident_to_row(c, file_name)
+        by_date.setdefault(ymd, []).append([row[k] for k in INCIDENT_FIELDS])
+    paths = []
+    for ymd in sorted(by_date):
+        path = os.path.join(out_dir, f'{ymd}_사건단위.csv')
+        append_rows_csv(path, INCIDENT_FIELDS, by_date[ymd])
+        paths.append(path)
+    return paths
+
+
+def append_event_row(out_dir, ev, file_name):
+    ymd = ev['time'].strftime('%Y%m%d')
+    path = os.path.join(out_dir, f'{ymd}_발동이벤트.csv')
+    append_rows_csv(path, EVENT_FIELDS, [event_to_row(ev, file_name)])
+    return path
+
+
+def append_incident_row(out_dir, incident, file_name):
+    ymd = incident['start_time'].strftime('%Y%m%d')
+    path = os.path.join(out_dir, f'{ymd}_사건단위.csv')
+    row = incident_to_row(incident, file_name)
+    append_rows_csv(path, INCIDENT_FIELDS, [[row[k] for k in INCIDENT_FIELDS]])
+    return path
+
+
+# ====== v3 키 추출 (process / watch 공통) ======
+V3_KEYS = (
+    'fabstorage_ratio',
+    'm14b_aotransdelay', 'm14b_oht_util', 'm14b_4abld122',
+    'm14b_avgtotal1min', 'm14b_7f_to_hub', 'm14b_7f_to_hub_alt',
+    'm14_htstop', 'm14_congested', 'm14_abnormal',
+    'm16pkt_aotransdelay', 'm16wt_aotransdelay',
+)
+
+
+# ====== 일괄 처리 ======
+def process(input_csv, out_dir):
+    os.makedirs(out_dir, exist_ok=True)
+
+    t1_window = deque(maxlen=WINDOW_MIN)
+    m14_window = deque(maxlen=WINDOW_MIN)
+    lft_window = deque(maxlen=WINDOW_MIN)
+    v3_window = deque(maxlen=WINDOW_MIN)
+
+    tracker = IncidentTracker()
+    last_t = None
+    file_name = os.path.basename(input_csv)
+    rows_processed = 0
+
+    for t, star, _ in iter_star_rows(input_csv):
+        t1_window.append(star.get('avgtotal1min'))
+        m14_window.append(star.get('m14_to_m16'))
+        lft_window.append(star.get('lft_list') or {})
+        v3_window.append({k: star.get(k) for k in V3_KEYS})
+        rows_processed += 1
+        last_t = t
+
+        if len(t1_window) < 31:
             continue
 
-        except KeyboardInterrupt:
-            log.info("사용자 중단 (Ctrl+C)")
-            break
+        s1, s2, s3, ctx = evaluate_rules(t1_window, m14_window, lft_window, v3_window)
+        tracker.update(t, s1, s2, s3, ctx)
 
-        except Exception as e:
-            log.exception(f"예상치 못한 오류: {e}")
-            # 연결은 유지하고 다음 사이클로
+    tracker.finalize(last_t)
 
-        # 다음 사이클까지 대기 (정확히 INTERVAL_SEC 간격 유지)
-        elapsed = time.time() - cycle_start
-        sleep_sec = max(0, INTERVAL_SEC - elapsed)
-        time.sleep(sleep_sec)
+    write_events_by_date(out_dir, tracker.events, file_name)
+    write_incidents_by_date(out_dir, tracker.incidents, file_name)
 
-    if conn:
+    print(f"[OK] 처리 {rows_processed}행, 이벤트 {len(tracker.events)}건, 사건 {len(tracker.incidents)}건")
+    print(f"     → {out_dir}")
+
+
+# ====== 실시간 감시 ======
+def watch(input_csv, out_dir, interval=60):
+    """
+    파일 mtime 변화를 감지해서 매번 전체를 다시 읽고, last_t 이후 신규 행만 처리.
+    수집기가 1분마다 같은 파일을 덮어쓰는 구조에 맞춰 동작.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+
+    t1_window = deque(maxlen=WINDOW_MIN)
+    m14_window = deque(maxlen=WINDOW_MIN)
+    lft_window = deque(maxlen=WINDOW_MIN)
+    v3_window = deque(maxlen=WINDOW_MIN)
+    tracker = IncidentTracker()
+    file_name = os.path.basename(input_csv)
+
+    last_mtime = 0
+    last_event_count = 0
+    last_incident_count = 0
+    last_t = None
+
+    print(f"[WATCH] {input_csv} → {out_dir} (interval={interval}s)")
+
+    while True:
         try:
-            conn.close()
-        except Exception:
-            pass
-    log.info("종료")
+            if os.path.exists(input_csv):
+                cur_mtime = os.path.getmtime(input_csv)
+                if cur_mtime != last_mtime:
+                    new_rows = 0
+                    for t, star, _ in iter_star_rows(input_csv):
+                        if last_t is not None and t <= last_t:
+                            continue
+                        t1_window.append(star.get('avgtotal1min'))
+                        m14_window.append(star.get('m14_to_m16'))
+                        lft_window.append(star.get('lft_list') or {})
+                        v3_window.append({k: star.get(k) for k in V3_KEYS})
+                        last_t = t
+                        new_rows += 1
+
+                        if len(t1_window) < 31:
+                            continue
+
+                        s1, s2, s3, ctx = evaluate_rules(t1_window, m14_window, lft_window, v3_window)
+                        tracker.update(t, s1, s2, s3, ctx)
+
+                        if len(tracker.events) > last_event_count:
+                            for ev in tracker.events[last_event_count:]:
+                                append_event_row(out_dir, ev, file_name)
+                            last_event_count = len(tracker.events)
+
+                        if len(tracker.incidents) > last_incident_count:
+                            for c in tracker.incidents[last_incident_count:]:
+                                append_incident_row(out_dir, c, file_name)
+                            last_incident_count = len(tracker.incidents)
+
+                    last_mtime = cur_mtime
+                    if new_rows > 0:
+                        ts = datetime.now().strftime('%H:%M:%S')
+                        print(f"[{ts}] 신규 {new_rows}행 처리, 이벤트 누적 {last_event_count}, 사건 누적 {last_incident_count}")
+
+            time.sleep(interval)
+        except KeyboardInterrupt:
+            tracker.finalize(last_t)
+            if len(tracker.incidents) > last_incident_count:
+                for c in tracker.incidents[last_incident_count:]:
+                    append_incident_row(out_dir, c, file_name)
+            print("\n[STOP] 종료")
+            break
+        except Exception as e:
+            print(f"[ERROR] {e}")
+            time.sleep(interval)
 
 
-if __name__ == "__main__":
+def main():
+    input_csv = str(DEFAULT_INPUT)
+    out_dir = str(DEFAULT_OUTDIR)
+    watch_mode = False
+    interval = 60
+
+    args = sys.argv[1:]
+    i = 0
+    positional_seen = False
+    while i < len(args):
+        a = args[i]
+        if a == '-o' and i + 1 < len(args):
+            out_dir = args[i + 1]; i += 2
+        elif a == '--watch':
+            watch_mode = True; i += 1
+        elif a == '--interval' and i + 1 < len(args):
+            interval = int(args[i + 1]); i += 2
+        elif a in ('-h', '--help'):
+            print(__doc__); sys.exit(0)
+        elif not positional_seen and not a.startswith('-'):
+            input_csv = a; positional_seen = True; i += 1
+        else:
+            i += 1
+
+    if watch_mode:
+        watch(input_csv, out_dir, interval)
+    else:
+        if not os.path.exists(input_csv):
+            sys.exit(f'파일 없음: {input_csv}')
+        process(input_csv, out_dir)
+
+
+if __name__ == '__main__':
     main()
