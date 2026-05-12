@@ -603,6 +603,13 @@ def process(input_csv, out_dir):
     print(f"[OK] 처리 {rows_processed}행, 이벤트 {len(tracker.events)}건, 사건 {len(tracker.incidents)}건")
     print(f"     → {out_dir}")
 
+    # 예측 끝났으니 입력 CSV 삭제 (다음 1분 뒤 수집기가 새로 만들어줌)
+    try:
+        os.remove(input_csv)
+        print(f"     입력 삭제: {input_csv}")
+    except OSError as e:
+        print(f"     [WARN] 입력 삭제 실패: {e}")
+
 
 # ====== 실시간 감시 ======
 def watch(input_csv, out_dir, interval=60):
