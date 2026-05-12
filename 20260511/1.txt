@@ -1,0 +1,225 @@
+# -*- coding: utf-8 -*-
+"""
+AWS_IDC_DATA_HIS — M16HUB + M14B 실시간 수집기 (Python / Linux)
+================================================================
+- 1분마다 오라클 쿼리 실행 → 동일 파일명으로 CSV 저장 (덮어쓰기)
+- 윈도우: SYSDATE 기준 과거 WINDOW_MIN 분
+- 컬럼: 42개 (M16HUB 32 + M14B 10)
+- 저장 경로: /data/idc/M16A_HUBROOM_PR.csv (고정 파일명)
+
+실행: python3 aws_idc_realtime_collector.py
+백그라운드: nohup python3 aws_idc_realtime_collector.py > /dev/null 2>&1 &
+"""
+
+import os
+import sys
+import time
+import csv
+import logging
+from datetime import datetime
+from pathlib import Path
+
+import oracledb  # python-oracledb (구 cx_Oracle 후속)
+
+# ==========================================================
+# 설정
+# ==========================================================
+ORACLE_USER     = os.getenv("ORA_USER", "STAREAD")
+ORACLE_PASSWORD = os.getenv("ORA_PASS", "Stareadadmin123!")
+ORACLE_DSN      = os.getenv("ORA_DSN",  "10.40.41.103:1521/ICASTARPP")
+
+WINDOW_MIN      = 90                                    # 과거 윈도우 (분)
+INTERVAL_SEC    = 60                                    # 호출 주기 (1분)
+OUTPUT_DIR      = Path(os.getenv("OUTPUT_DIR", "/data/idc"))
+OUTPUT_FILE     = OUTPUT_DIR / "M16A_HUBROOM_PR.csv"
+TMP_FILE        = OUTPUT_DIR / "M16A_HUBROOM_PR.csv.tmp"
+
+# ==========================================================
+# 로깅
+# ==========================================================
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(OUTPUT_DIR / "collector.log", encoding="utf-8"),
+    ]
+)
+log = logging.getLogger("idc_collector")
+
+# ==========================================================
+# 컬럼 정의 (42개 - 원본 쿼리 순서 그대로)
+# ==========================================================
+IDC_COLUMNS = [
+    # ===== M16HUB (32) =====
+    "M16HUB.QUE.ALL.CURRENTQCNT",
+    "M16HUB.QUE.ALL.CURRENTQCOMPLETED",
+    "M16HUB.QUE.OHT.CURRENTOHTQCNT",
+    "M16HUB.QUE.OHT.OHTUTIL",
+    "M16HUB.QUE.LOAD.AVGLOADTIME",
+    "M16HUB.QUE.ALL.TRANSPORT4MINOVERCNT",
+    "M16HUB.QUE.ALL.TRANSPORT4MINOVERRATIO",
+    "M16HUB.QUE.ALL.TRANSPORT4MINOVERTIMEAVG",
+    "M16HUB.QUE.TIME.AVGTOTALTIME",
+    "M16HUB.QUE.TIME.AVGTOTALTIME1MIN",
+    "M16HUB.OHT.ALERT.OHTMCPALARMCNT",
+    "M16HUB.QUE.M14TOM16.MESCURRENTQCNT",
+    "M16HUB.QUE.M16TOM14.MESCURRENTQCNT",
+    "M16HUB.QUE.M16TOM14A.MESCURRENTQCNT",
+    "M16HUB.QUE.M16TOM14B.MESCURRENTQCNT",
+    "M16HUB.QUE.ALL.FABTRANSJOBCNT",
+    "M16HUB.QUE.M14ATOM16.MESCURRENTQCNT",
+    "M16HUB.QUE.M14BTOM16.MESCURRENTQCNT",
+    "M16HUB.LFT.6ABL6011.TOTAL_CURRENTQCNT",
+    "M16HUB.LFT.6ABL6012.TOTAL_CURRENTQCNT",
+    "M16HUB.LFT.6ABL6021.TOTAL_CURRENTQCNT",
+    "M16HUB.LFT.6ABL6022.TOTAL_CURRENTQCNT",
+    "M16HUB.LFT.6ABL6031.TOTAL_CURRENTQCNT",
+    "M16HUB.LFT.6ABL6032.TOTAL_CURRENTQCNT",
+    "M16HUB.LFT.6ABL0111.TOTAL_CURRENTQCNT",
+    "M16HUB.LFT.6ABL0112.TOTAL_CURRENTQCNT",
+    "M16HUB.LFT.6ABL0121.TOTAL_CURRENTQCNT",
+    "M16HUB.LFT.6ABL0122.TOTAL_CURRENTQCNT",
+    "M16HUB.QUE.ALL.M16HUBTOM14MANUAL_CURRENTQCNT",
+    "M16HUB.STRATE.STK.STORAGERATIO",
+    "M16HUB.STRATE.ALL.FABSTORAGERATIO",
+    # ===== ★ M14B 신규 (10) =====
+    "M14B.QUE.OHT.OHTUTIL",
+    "M14B.QUE.ALL.7F_TO_HUB_JOB",
+    "M14B.QUE.ALL.7F_TO_HUB_JOB_ALT",
+    "M14B.LFT.SENDFAB.TO_M16HUB_CURRENTQCNT",
+    "M14B.LFT.4ABLD111.TOTAL_CURRENTQCNT",
+    "M14B.LFT.4ABLD112.TOTAL_CURRENTQCNT",
+    "M14B.LFT.4ABLD121.TOTAL_CURRENTQCNT",
+    "M14B.LFT.4ABLD122.TOTAL_CURRENTQCNT",
+    "M14B.LFT.4ABLD131.TOTAL_CURRENTQCNT",
+    "M14B.LFT.4ABLD132.TOTAL_CURRENTQCNT",
+]
+
+# CSV 헤더 컬럼명 (M16HUB.QUE.ALL.CURRENTQCNT 형태 그대로 사용 - 원본 쿼리와 동일)
+CSV_HEADER = ["CRT_TM"] + IDC_COLUMNS
+
+# ==========================================================
+# SQL — PIVOT 방식 (원본 쿼리와 동일 로직)
+# ==========================================================
+def build_sql() -> str:
+    """원본 쿼리와 100% 동일한 MAX(CASE WHEN ...) 피벗 쿼리 생성"""
+    pivot_cols = ",\n  ".join(
+        f"MAX(CASE WHEN IDC_NM='{nm}' THEN IDC_VAL END) AS \"{nm}\""
+        for nm in IDC_COLUMNS
+    )
+    in_list = ",\n    ".join(f"'{nm}'" for nm in IDC_COLUMNS)
+
+    sql = f"""
+SELECT
+  TO_CHAR(CRT_TM, 'YYYY-MM-DD HH24:MI:SS') AS CRT_TM,
+  {pivot_cols}
+FROM AWS_IDC_DATA_HIS
+WHERE CRT_TM BETWEEN SYSDATE - :window_min/1440 AND SYSDATE
+  AND IDC_NM IN (
+    {in_list}
+  )
+GROUP BY CRT_TM
+ORDER BY CRT_TM
+""".strip()
+    return sql
+
+
+SQL_QUERY = build_sql()
+
+
+# ==========================================================
+# 핵심 수집 함수
+# ==========================================================
+def fetch_and_save(conn) -> int:
+    """
+    1회 조회 → CSV 덮어쓰기.
+    반환: 저장된 행 수
+    """
+    # 임시 파일에 먼저 쓰고 → rename (원자적 교체, 읽기 중 충돌 방지)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    with conn.cursor() as cur:
+        cur.execute(SQL_QUERY, window_min=WINDOW_MIN)
+        rows = cur.fetchall()
+
+    with open(TMP_FILE, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f, quoting=csv.QUOTE_MINIMAL)
+        writer.writerow(CSV_HEADER)
+        for r in rows:
+            # None → 빈 문자열
+            writer.writerow(["" if v is None else v for v in r])
+
+    # 원자적 교체 (Windows에서도 동작: 기존 파일 있으면 os.replace 사용)
+    os.replace(TMP_FILE, OUTPUT_FILE)
+    return len(rows)
+
+
+# ==========================================================
+# 메인 루프
+# ==========================================================
+def main():
+    log.info("=" * 60)
+    log.info("AWS_IDC_DATA_HIS 실시간 수집기 시작")
+    log.info(f"  DSN          : {ORACLE_DSN}")
+    log.info(f"  USER         : {ORACLE_USER}")
+    log.info(f"  WINDOW       : 과거 {WINDOW_MIN}분")
+    log.info(f"  INTERVAL     : {INTERVAL_SEC}초")
+    log.info(f"  OUTPUT       : {OUTPUT_FILE}")
+    log.info(f"  COLUMNS      : {len(IDC_COLUMNS)}개 IDC + CRT_TM")
+    log.info("=" * 60)
+
+    # 연결 (재연결 로직 포함)
+    conn = None
+    while True:
+        cycle_start = time.time()
+        try:
+            if conn is None:
+                log.info("Oracle 연결 시도...")
+                conn = oracledb.connect(
+                    user=ORACLE_USER,
+                    password=ORACLE_PASSWORD,
+                    dsn=ORACLE_DSN,
+                )
+                log.info("Oracle 연결 성공")
+
+            n = fetch_and_save(conn)
+            elapsed = time.time() - cycle_start
+            log.info(f"저장 완료: {n}행, {elapsed:.2f}s → {OUTPUT_FILE.name}")
+
+        except oracledb.DatabaseError as e:
+            log.error(f"DB 오류: {e}")
+            try:
+                if conn:
+                    conn.close()
+            except Exception:
+                pass
+            conn = None
+            time.sleep(5)  # 재연결 전 짧은 백오프
+            continue
+
+        except KeyboardInterrupt:
+            log.info("사용자 중단 (Ctrl+C)")
+            break
+
+        except Exception as e:
+            log.exception(f"예상치 못한 오류: {e}")
+            # 연결은 유지하고 다음 사이클로
+
+        # 다음 사이클까지 대기 (정확히 INTERVAL_SEC 간격 유지)
+        elapsed = time.time() - cycle_start
+        sleep_sec = max(0, INTERVAL_SEC - elapsed)
+        time.sleep(sleep_sec)
+
+    if conn:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    log.info("종료")
+
+
+if __name__ == "__main__":
+    main()
