@@ -1,8 +1,8 @@
 """
-입력용 엔드포인트 탐색
-httpexport는 조회 전용일 수 있으므로 다른 경로들 시도
+405 받은 경로들을 GET으로 재시도
++ httpexport에 다른 파라미터 형식 시도
 """
-import requests, urllib.parse, urllib3, json
+import requests, urllib.parse, urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 HOST = "10.40.42.27"
@@ -11,93 +11,67 @@ API_KEY = "db1d2335-49cf-e859-3519-1ca132922e38"
 BASE = f"http://{HOST}:{PORT}"
 
 
-def check(method, path, params=None, data=None, headers=None, label=""):
+def get(path, params=None, label=""):
     url = f"{BASE}{path}"
     if params:
         url += "?" + urllib.parse.urlencode(params)
     try:
-        if method == "GET":
-            r = requests.get(url, verify=False, timeout=10)
-        else:
-            r = requests.post(url, data=data, headers=headers or {},
-                              verify=False, timeout=10)
-        body = r.text[:150].replace('\n', ' ')
-        if body.strip().startswith("<"):
+        r = requests.get(url, verify=False, timeout=10)
+        body = r.text[:200].replace('\n', ' ').strip()
+        if body.startswith("<"):
             body = "[HTML 페이지]"
-        marker = "✅" if r.status_code < 400 else ("⚠️" if r.status_code == 404 else "❌")
-        print(f"{marker} [{label}] {method} {path}")
-        print(f"   → HTTP {r.status_code} | {body[:100]}\n")
-        return r.status_code
+        marker = "✅" if 200 <= r.status_code < 300 else ("⚠️" if r.status_code in (401, 403) else "❌")
+        print(f"{marker} [{label}] HTTP {r.status_code}")
+        print(f"   URL : {url[:120]}")
+        print(f"   응답: {body[:150]}\n")
     except Exception as e:
-        print(f"❌ [{label}] {method} {path}")
-        print(f"   → 예외: {e}\n")
-        return None
+        print(f"❌ [{label}] {e}\n")
 
 
 print("="*70)
-print("  입력용 엔드포인트 후보 탐색")
+print("  405 받은 경로들 → GET 재시도")
 print("="*70)
 print()
 
-# 1) httpexport 다른 경로
-check("GET", "/logpresso/httpexport/insert",
-      params={"_apikey": API_KEY, "table": "test_table"},
-      label="httpexport/insert (GET)")
+# 데이터를 query string으로 넣어서 GET
+get("/logpresso/httpexport/insert",
+    params={"_apikey": API_KEY, "table": "test_table",
+            "data": '{"FIELD1":"a","FIELD2":"b"}'},
+    label="insert + data param")
 
-check("POST", "/logpresso/httpexport/insert",
-      params={"_apikey": API_KEY, "table": "test_table"},
-      data='{"FIELD1":"a","FIELD2":"b"}',
-      headers={"Content-Type": "application/json"},
-      label="httpexport/insert (POST JSON)")
+get("/logpresso/httpexport/insert",
+    params={"_apikey": API_KEY, "_table": "test_table",
+            "_data": '{"FIELD1":"a","FIELD2":"b"}'},
+    label="insert + _data param")
 
-# 2) Logpresso 공식 input API
-check("POST", "/api/input",
-      params={"apikey": API_KEY, "table": "test_table"},
-      data='{"FIELD1":"a","FIELD2":"b"}',
-      headers={"Content-Type": "application/json"},
-      label="api/input")
+# httpexport/insert에 _q (쿼리) 파라미터 시도
+get("/logpresso/httpexport/insert",
+    params={"_apikey": API_KEY,
+            "_q": "json \"{FIELD1='a',FIELD2='b'}\" | import test_table"},
+    label="insert + _q (query)")
 
-# 3) logger 경로
-check("POST", "/logger/test_table",
-      params={"_apikey": API_KEY},
-      data='{"FIELD1":"a","FIELD2":"b"}',
-      headers={"Content-Type": "application/json"},
-      label="logger/<table>")
+# httpexport/insert 파라미터 없이 (정확한 사용법 힌트 보기)
+get("/logpresso/httpexport/insert", label="insert (no params)")
+get("/logpresso/httpexport/insert",
+    params={"_apikey": API_KEY},
+    label="insert + apikey only")
 
-# 4) httpinput 경로 (HTTP Logger 디폴트)
-check("POST", "/httpinput",
-      params={"_apikey": API_KEY},
-      data='{"FIELD1":"a","FIELD2":"b"}',
-      headers={"Content-Type": "application/json"},
-      label="httpinput")
+# logger, httpinput도 GET
+get("/logger/test_table",
+    params={"_apikey": API_KEY, "FIELD1": "a", "FIELD2": "b"},
+    label="logger/test_table + params")
 
-check("POST", "/httpinput/test_table",
-      params={"_apikey": API_KEY},
-      data='{"FIELD1":"a","FIELD2":"b"}',
-      headers={"Content-Type": "application/json"},
-      label="httpinput/<table>")
+get("/httpinput/test_table",
+    params={"_apikey": API_KEY, "FIELD1": "a", "FIELD2": "b"},
+    label="httpinput/test_table + params")
 
-# 5) write 경로
-check("POST", "/logpresso/httpexport/write",
-      params={"_apikey": API_KEY, "table": "test_table"},
-      data='{"FIELD1":"a","FIELD2":"b"}',
-      label="httpexport/write")
-
-# 6) 다른 포트도 시도? (입력기는 다른 포트에 열린 경우 많음)
-print("="*70)
-print("  관리 페이지 접근 가능 여부")
-print("="*70)
-print()
-check("GET", "/dashboard/", label="dashboard")
-check("GET", "/api/version", label="api/version")
-
+# write도 GET
+get("/logpresso/httpexport/write",
+    params={"_apikey": API_KEY, "table": "test_table",
+            "data": '{"FIELD1":"a","FIELD2":"b"}'},
+    label="httpexport/write")
 
 print("="*70)
-print("  해석")
+print("  중요: insert (no params) / insert + apikey only 응답을 잘 보세요")
+print("  → 에러 메시지에 '필수 파라미터' 안내가 있을 수 있음")
 print("="*70)
-print("""
-- 200/201 → 그 경로가 입력용. URL/방식 그대로 클라이언트 작성
-- 404    → 그 경로는 없음. 다른 경로 시도
-- 401/403 → 경로는 있는데 권한 없음
-- 500    → 경로는 있는데 다른 문제
-""")
