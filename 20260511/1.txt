@@ -1,16 +1,40 @@
-"""존님 형식 그대로"""
-import requests, urllib.parse, urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+"""URL 분해해서 확인"""
+import urllib.parse
 
 API_KEY = "db1d2335-49cf-e859-3519-1ca132922e38"
 
-# 존님이 말한 그대로
 q = r"""json "{FIELD1 = 'hello', FIELD2 = 'world'}" | import test_table"""
 
-print(f"쿼리: {q}\n")
+print("="*70)
+print("  쿼리 → URL 변환 단계별 확인")
+print("="*70)
 
-url = f"http://10.40.42.27:8888/logpresso/httpexport/query.csv?_apikey={API_KEY}&_q={urllib.parse.quote(q, safe='')}"
-resp = requests.get(url, verify=False, timeout=30)
+print(f"\n[1] 원본 쿼리:")
+print(f"    {q}")
 
-print(f"HTTP {resp.status_code}")
-print(f"응답: {resp.text[:300]}")
+print(f"\n[2] URL encoded 쿼리:")
+encoded = urllib.parse.quote(q, safe='')
+print(f"    {encoded}")
+
+print(f"\n[3] 최종 URL:")
+url = f"http://10.40.42.27:8888/logpresso/httpexport/query.csv?_apikey={API_KEY}&_q={encoded}"
+print(f"    {url}")
+
+print(f"\n[4] 길이: {len(url)} bytes")
+
+print("\n" + "="*70)
+print("  비교 - 기존 조회 URL (작동 확인된 것)")
+print("="*70)
+q2 = 'table test_table | limit 1'
+url2 = f"http://10.40.42.27:8888/logpresso/httpexport/query.csv?_apikey={API_KEY}&_q={urllib.parse.quote(q2, safe='')}"
+print(f"\n작동 URL: {url2}")
+
+print("\n→ 두 URL 모두 같은 엔드포인트 사용")
+print("→ 차이는 _q= 뒤의 쿼리 내용뿐")
+
+print("\n" + "="*70)
+print("  브라우저에서 직접 테스트하려면")
+print("="*70)
+print(f"\n위 [3]번 URL을 브라우저 주소창에 그대로 붙여넣어 보세요.")
+print("→ 브라우저에서도 500이면 → 서버측 문제 확정")
+print("→ 브라우저에서 200이면 → Python 코드 문제")
