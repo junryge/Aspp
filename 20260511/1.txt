@@ -1,77 +1,57 @@
 """
-405 받은 경로들을 GET으로 재시도
-+ httpexport에 다른 파라미터 형식 시도
+공식 문서 패턴 따라하기
+import 명령의 정석은 'json 문자열' 입력이 아니라
+파이프로 받은 레코드를 적재하는 것.
+
+핵심 단서:
+- 문서 [33]: table raw_web_log | parse | eval | import web_log
+- 문서 [37]: ... | import create=t widget_example
+
+→ json 명령 빼고 다른 방법으로 레코드 만들기
 """
 import requests, urllib.parse, urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-HOST = "10.40.42.27"
-PORT = 8888
 API_KEY = "db1d2335-49cf-e859-3519-1ca132922e38"
-BASE = f"http://{HOST}:{PORT}"
+BASE = "http://10.40.42.27:8888/logpresso/httpexport/query.csv"
 
 
-def get(path, params=None, label=""):
-    url = f"{BASE}{path}"
-    if params:
-        url += "?" + urllib.parse.urlencode(params)
+def run(label, q):
+    url = f"{BASE}?_apikey={API_KEY}&_q={urllib.parse.quote(q, safe='')}"
     try:
-        r = requests.get(url, verify=False, timeout=10)
+        r = requests.get(url, verify=False, timeout=15)
+        ok = "✅" if r.status_code == 200 else "❌"
         body = r.text[:200].replace('\n', ' ').strip()
         if body.startswith("<"):
-            body = "[HTML 페이지]"
-        marker = "✅" if 200 <= r.status_code < 300 else ("⚠️" if r.status_code in (401, 403) else "❌")
-        print(f"{marker} [{label}] HTTP {r.status_code}")
-        print(f"   URL : {url[:120]}")
-        print(f"   응답: {body[:150]}\n")
+            body = "[HTML 에러]"
+        print(f"{ok} [{label}] HTTP {r.status_code}")
+        print(f"   쿼리: {q}")
+        print(f"   응답: {body}\n")
     except Exception as e:
         print(f"❌ [{label}] {e}\n")
 
 
 print("="*70)
-print("  405 받은 경로들 → GET 재시도")
+print("  공식 문서 정석 패턴 시도")
 print("="*70)
 print()
 
-# 데이터를 query string으로 넣어서 GET
-get("/logpresso/httpexport/insert",
-    params={"_apikey": API_KEY, "table": "test_table",
-            "data": '{"FIELD1":"a","FIELD2":"b"}'},
-    label="insert + data param")
+# R. eval만 사용 (json 명령 없이) - 가장 단순
+run("R. eval만 사용",
+    'eval FIELD1 = "hello", FIELD2 = "world" | import test_table')
 
-get("/logpresso/httpexport/insert",
-    params={"_apikey": API_KEY, "_table": "test_table",
-            "_data": '{"FIELD1":"a","FIELD2":"b"}'},
-    label="insert + _data param")
+# S. 시스템 테이블에서 1건 추출 → 필드 덮어쓰기 → import
+run("S. system tables 1건 → eval → import",
+    'system tables | limit 1 | eval FIELD1 = "hello", FIELD2 = "world" | fields FIELD1, FIELD2 | import test_table')
 
-# httpexport/insert에 _q (쿼리) 파라미터 시도
-get("/logpresso/httpexport/insert",
-    params={"_apikey": API_KEY,
-            "_q": "json \"{FIELD1='a',FIELD2='b'}\" | import test_table"},
-    label="insert + _q (query)")
+# T. import에 create=t 옵션 (문서 [37] 패턴)
+run("T. import create=t",
+    'eval FIELD1 = "hello", FIELD2 = "world" | import create=t test_table')
 
-# httpexport/insert 파라미터 없이 (정확한 사용법 힌트 보기)
-get("/logpresso/httpexport/insert", label="insert (no params)")
-get("/logpresso/httpexport/insert",
-    params={"_apikey": API_KEY},
-    label="insert + apikey only")
+# U. 자신의 테이블에서 가져와서 다시 넣기 (가장 안전)
+run("U. table → eval → import (self)",
+    'table test_table | limit 1 | eval FIELD1 = "modified", FIELD2 = "v2" | import test_table')
 
-# logger, httpinput도 GET
-get("/logger/test_table",
-    params={"_apikey": API_KEY, "FIELD1": "a", "FIELD2": "b"},
-    label="logger/test_table + params")
-
-get("/httpinput/test_table",
-    params={"_apikey": API_KEY, "FIELD1": "a", "FIELD2": "b"},
-    label="httpinput/test_table + params")
-
-# write도 GET
-get("/logpresso/httpexport/write",
-    params={"_apikey": API_KEY, "table": "test_table",
-            "data": '{"FIELD1":"a","FIELD2":"b"}'},
-    label="httpexport/write")
-
-print("="*70)
-print("  중요: insert (no params) / insert + apikey only 응답을 잘 보세요")
-print("  → 에러 메시지에 '필수 파라미터' 안내가 있을 수 있음")
-print("="*70)
+# V. txt 명령으로 텍스트 생성 후 파싱
+run("V. txt + parse + import",
+    'txt "hello,world" | rex "^(?<FIELD1>[^,]+),(?<FIELD2>.+)$" | import test_table')
