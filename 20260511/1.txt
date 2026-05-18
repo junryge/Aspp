@@ -1,70 +1,14 @@
-"""
-INSERT 실패 진단
-어디서 막히는지 단계별 확인
-"""
-import requests
-import urllib.parse
-import urllib3
-
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-HOST    = "10.40.42.27"
-PORT    = 8888
-API_KEY = "db1d2335-49cf-e859-3519-1ca132922e38"
-BASE    = f"http://{HOST}:{PORT}/logpresso/httpexport/query.csv"
-
-
-def run(label, q):
-    print(f"\n{'='*60}")
-    print(f"  [{label}]")
-    print(f"  쿼리: {q}")
-    print('='*60)
-
-    encoded = urllib.parse.quote(q, safe='')
-    url = f"{BASE}?_apikey={API_KEY}&_q={encoded}"
-    print(f"  URL 길이: {len(url)} bytes")
-
-    try:
-        resp = requests.get(url, verify=False, timeout=30)
-        print(f"  HTTP: {resp.status_code}")
-        body = resp.text[:300]
-        if body.strip().startswith("<"):
-            print(f"  응답: [HTML 페이지] {body[:150]}...")
-        else:
-            print(f"  응답: {body}")
-        return resp.status_code, resp.text
-    except Exception as e:
-        print(f"  예외: {e}")
-        return None, None
-
-
-# ─── 1. 기본 조회 (기존에 되던 거) ─────────────────
-run("1. 단순 조회 (sanity check)",
-    'json "{}" | eval msg = "hello"')
-
-# ─── 2. 가장 단순한 INSERT ────────────────────────
-run("2. 최소 INSERT — 필드 1개",
-    'json "{\\"a\\":1}" | import test_table')
-
-# ─── 3. _time 포함 INSERT ──────────────────────────
-run("3. _time 포함 INSERT",
-    'json "{\\"a\\":1}" | eval _time = now() | import test_table')
-
-# ─── 4. 테이블 존재 확인 ───────────────────────────
-run("4. test_table 존재 확인",
-    'table test_table | limit 1')
-
-# ─── 5. system tables 로 테이블 목록 확인 ──────────
-run("5. test_table 메타 확인",
-    'system tables | search table == "test_table"')
-
-
-print(f"\n\n{'='*60}")
-print("  진단 가이드")
-print('='*60)
-print("""
-[1] 성공 + [2] 실패 → httpexport에서 import 차단됨 (관리자 설정 변경 필요)
-[1] 성공 + [4] 빈 결과 → test_table 미생성 (UI에서 생성 필요)
-[1] 성공 + [4] 정상 + [2] 실패 → API_KEY 쓰기 권한 부족
-[1] 실패 → 기존 조회도 안 되는 상황 (호스트/포트/키 점검)
-""")
+"""스키마(FIELD1, FIELD2) 맞춰서 INSERT 확인"""
+from logpresso_client import insert_logpresso
+ 
+# test_table 스키마: FIELD1, FIELD2 만 존재
+record = {"FIELD1": "hello", "FIELD2": "world"}
+ 
+inserted, err = insert_logpresso("test_table", record)
+ 
+if err:
+    print(f"❌ 실패: {err['reason']}")
+    print(f"응답: {str(err.get('response_preview', ''))[:300]}")
+else:
+    print(f"✅ {inserted}건 들어감 → 스키마 문제 확정")
+ 
