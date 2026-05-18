@@ -1,6 +1,5 @@
 """
-작은따옴표(') 사용 변형 진단
-Logpresso 쿼리 안에서 문자열은 작은따옴표를 쓰는 규칙일 가능성
+json/record 리터럴 + 작은따옴표 변형 종합 진단 v4
 """
 import requests
 import urllib.parse
@@ -31,25 +30,29 @@ def run(label, q):
 
 
 # ═══════════════════════════════════════════════════════════════
-#  작은따옴표 변형들
+#  존님 제안 형식 + 변형
 # ═══════════════════════════════════════════════════════════════
 
-# G. json 명령을 작은따옴표로 감싸기 (안에 큰따옴표는 그대로)
-run("G. json '...' 작은따옴표",
+# L. 존님 제안: 큰따옴표 + = + 작은따옴표
+run("L. {FIELD1='hello'} 형식 (json+큰따옴표)",
+    "json \"{FIELD1 = 'hello', FIELD2 = 'world'}\" | import test_table")
+
+# M. 큰따옴표 없이 record 리터럴
+run("M. record 리터럴 (따옴표 없음)",
+    "json {FIELD1 = 'hello', FIELD2 = 'world'} | import test_table")
+
+# N. json 명령 빼고 바로 import
+run("N. json 명령 빼고 바로",
+    "{FIELD1 = 'hello', FIELD2 = 'world'} | import test_table")
+
+# O. 콜론(:) + 작은따옴표
+run("O. {FIELD1:'hello'} 콜론 + 작은따옴표",
+    "json \"{FIELD1: 'hello', FIELD2: 'world'}\" | import test_table")
+
+# P. 작은따옴표 키 + 콜론
+run("P. {'FIELD1':'hello'} 모두 작은따옴표",
+    "json \"{'FIELD1': 'hello', 'FIELD2': 'world'}\" | import test_table")
+
+# Q. 매뉴얼 일반 패턴: json + 표준JSON을 작은따옴표로 감싸기
+run("Q. json '...' (외부 따옴표 작은)",
     "json '{\"FIELD1\":\"hello\",\"FIELD2\":\"world\"}' | import test_table")
-
-# H. 빈 객체 + eval (eval 값을 작은따옴표로)
-run("H. eval 값 작은따옴표",
-    "json '{}' | eval FIELD1 = 'hello', FIELD2 = 'world' | import test_table")
-
-# I. eval 분리 + 작은따옴표
-run("I. eval 분리 + 작은따옴표",
-    "json '{}' | eval FIELD1 = 'hello' | eval FIELD2 = 'world' | import test_table")
-
-# J. import만 단독으로 (json 없이)
-run("J. eval만 사용",
-    "json '{}' | eval FIELD1 = 'hello', FIELD2 = 'world' | fields FIELD1, FIELD2 | import test_table")
-
-# K. 비교: 처음 작동했던 [1]번을 작은따옴표 버전으로 + import 붙이기
-run("K. [1]번 패턴 + import",
-    "json '{}' | eval msg = 'hello' | import test_table")
