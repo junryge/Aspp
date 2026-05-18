@@ -1,8 +1,12 @@
-"""두 가지 쿼리 비교 - 어느 게 통과하나"""
+"""
+새 API_KEY로 INSERT 테스트
+이전 키는 read-only 의심, 이번 키는 쓰기 권한 가능성
+"""
 import requests, urllib.parse, urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-API_KEY = "db1d2335-49cf-e859-3519-1ca132922e38"
+# 새 API_KEY
+API_KEY = "10f12ae0-5a80-55cd-7b15-e5554f0612f3"
 BASE = "http://10.40.42.27:8888/logpresso/httpexport/query.csv"
 
 
@@ -14,23 +18,31 @@ def run(label, q):
     print('='*70)
     resp = requests.get(url, verify=False, timeout=30)
     print(f"HTTP {resp.status_code}")
-    print(f"응답:\n{resp.text[:500]}")
+    body = resp.text[:500]
+    if body.strip().startswith("<"):
+        body = "[HTML 에러 페이지]"
+    print(f"응답: {body}")
+    return resp
 
 
-# A: eval로 필드 세팅 후 import
-run("A. eval+import",
-    'json "{}" | eval FIELD1 = "hello", FIELD2 = "world" | import test_table')
+# ─── 1. 조회 - 새 키로 인증 통과하는지 ───
+run("1. 조회 (인증 확인)",
+    'table test_table | limit 1')
 
-# B: json 안에 직접 (프로시저랑 같은 형식)
-run("B. json리터럴+import",
-    'json "{FIELD1 = \'hello\', FIELD2 = \'world\'}" | import test_table')
+# ─── 2. 직접 INSERT - 가장 단순 ───
+run("2. INSERT (json + import)",
+    "json \"{FIELD1 = 'newkey_test1', FIELD2 = 'newkey_val1'}\" | import test_table")
 
+# ─── 3. eval 방식 INSERT ───
+run("3. INSERT (eval 방식)",
+    'json "{}" | eval FIELD1 = "newkey_test2", FIELD2 = "newkey_val2" | import test_table')
 
-# 검증
-print(f"\n{'='*70}")
-print("  [검증] test_table 최근 5건")
-print('='*70)
-q = 'table test_table | sort -_time | limit 0 5'
-url = f"{BASE}?_apikey={API_KEY}&_q={urllib.parse.quote(q, safe='')}"
-resp = requests.get(url, verify=False, timeout=30)
-print(resp.text)
+# ─── 4. 프로시저 방식 (기존에 되던 것) ───
+run("4. INSERT (프로시저)",
+    "proc insert_data(\"{FIELD1 = 'newkey_proc', FIELD2 = 'newkey_proc_val'}\")")
+
+# ─── 5. 검증 ───
+import time
+time.sleep(2)
+run("5. 검증 (최근 10건)",
+    'table test_table | sort -_time | limit 10')
