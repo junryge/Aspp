@@ -1,58 +1,16 @@
-"""
-json/record 리터럴 + 작은따옴표 변형 종합 진단 v4
-"""
-import requests
-import urllib.parse
-import urllib3
-
+"""존님 형식 그대로"""
+import requests, urllib.parse, urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-HOST    = "10.40.42.27"
-PORT    = 8888
 API_KEY = "db1d2335-49cf-e859-3519-1ca132922e38"
-BASE    = f"http://{HOST}:{PORT}/logpresso/httpexport/query.csv"
 
+# 존님이 말한 그대로
+q = r"""json "{FIELD1 = 'hello', FIELD2 = 'world'}" | import test_table"""
 
-def run(label, q):
-    encoded = urllib.parse.quote(q, safe='')
-    url = f"{BASE}?_apikey={API_KEY}&_q={encoded}"
-    try:
-        resp = requests.get(url, verify=False, timeout=30)
-        ok = "✅" if resp.status_code == 200 else "❌"
-        body = resp.text[:200].replace('\n', ' ')
-        if body.strip().startswith("<"):
-            body = "[HTML 에러 페이지]"
-        print(f"{ok} [{label}] HTTP {resp.status_code}")
-        print(f"   쿼리: {q}")
-        print(f"   응답: {body}\n")
-    except Exception as e:
-        print(f"❌ [{label}] 예외: {e}\n")
+print(f"쿼리: {q}\n")
 
+url = f"http://10.40.42.27:8888/logpresso/httpexport/query.csv?_apikey={API_KEY}&_q={urllib.parse.quote(q, safe='')}"
+resp = requests.get(url, verify=False, timeout=30)
 
-# ═══════════════════════════════════════════════════════════════
-#  존님 제안 형식 + 변형
-# ═══════════════════════════════════════════════════════════════
-
-# L. 존님 제안: 큰따옴표 + = + 작은따옴표
-run("L. {FIELD1='hello'} 형식 (json+큰따옴표)",
-    "json \"{FIELD1 = 'hello', FIELD2 = 'world'}\" | import test_table")
-
-# M. 큰따옴표 없이 record 리터럴
-run("M. record 리터럴 (따옴표 없음)",
-    "json {FIELD1 = 'hello', FIELD2 = 'world'} | import test_table")
-
-# N. json 명령 빼고 바로 import
-run("N. json 명령 빼고 바로",
-    "{FIELD1 = 'hello', FIELD2 = 'world'} | import test_table")
-
-# O. 콜론(:) + 작은따옴표
-run("O. {FIELD1:'hello'} 콜론 + 작은따옴표",
-    "json \"{FIELD1: 'hello', FIELD2: 'world'}\" | import test_table")
-
-# P. 작은따옴표 키 + 콜론
-run("P. {'FIELD1':'hello'} 모두 작은따옴표",
-    "json \"{'FIELD1': 'hello', 'FIELD2': 'world'}\" | import test_table")
-
-# Q. 매뉴얼 일반 패턴: json + 표준JSON을 작은따옴표로 감싸기
-run("Q. json '...' (외부 따옴표 작은)",
-    "json '{\"FIELD1\":\"hello\",\"FIELD2\":\"world\"}' | import test_table")
+print(f"HTTP {resp.status_code}")
+print(f"응답: {resp.text[:300]}")
