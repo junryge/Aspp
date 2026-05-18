@@ -1,8 +1,6 @@
 """
-같은 API_KEY 그대로 사용하면서
-httpexport 이외의 경로에서 import 가능한지 확인
-
-조회는 되니까 인증은 통과 → 경로만 바꿔서 시도
+정답 경로 발견: GET /api/query + Authorization: Bearer
+이제 정확한 쿼리 파라미터 이름 찾아서 import 실행
 """
 import requests, urllib.parse, urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -12,110 +10,60 @@ PORT = 8888
 API_KEY = "db1d2335-49cf-e859-3519-1ca132922e38"
 BASE = f"http://{HOST}:{PORT}"
 
+HEADERS = {"Authorization": f"Bearer {API_KEY}"}
+
 Q = "json \"{FIELD1 = 'hello', FIELD2 = 'world'}\" | import test_table"
 
 
-def show(label, resp):
-    ok = "✅" if 200 <= resp.status_code < 300 else "❌"
-    body = resp.text[:200].replace('\n', ' ').strip()
-    if body.startswith("<"):
-        body = "[HTML]"
-    print(f"{ok} [{label}] HTTP {resp.status_code}")
-    print(f"   {body[:150]}\n")
+def run(label, path, **kwargs):
+    url = f"{BASE}{path}"
+    if kwargs.get("params"):
+        url += "?" + urllib.parse.urlencode(kwargs["params"])
+    try:
+        r = requests.get(f"{BASE}{path}",
+                         headers=HEADERS,
+                         params=kwargs.get("params"),
+                         verify=False, timeout=30)
+        ok = "✅" if 200 <= r.status_code < 300 else "❌"
+        body = r.text[:300].replace('\n', ' ').strip()
+        if body.startswith("<"):
+            body = "[HTML]"
+        print(f"{ok} [{label}] HTTP {r.status_code}")
+        print(f"   URL: {r.url[:150]}")
+        print(f"   응답: {body[:200]}\n")
+        return r
+    except Exception as e:
+        print(f"❌ [{label}] {e}\n")
+        return None
 
 
+# ─────────────────────────────────────────────
+#  1. 파라미터 이름 탐색
+# ─────────────────────────────────────────────
 print("="*70)
-print(f"  API_KEY 그대로, 경로/인증방식만 변경")
+print("  /api/query GET - 쿼리 파라미터 이름 찾기")
 print("="*70)
 print()
 
+# 우선 파라미터 없이 → 어떤 파라미터를 요구하는지 힌트
+run("파라미터 없음",         "/api/query")
+run("query=",                "/api/query", params={"query": Q})
+run("q=",                    "/api/query", params={"q": Q})
+run("_q=",                   "/api/query", params={"_q": Q})
+run("queryString=",          "/api/query", params={"queryString": Q})
+run("query_string=",         "/api/query", params={"query_string": Q})
 
-# ─────────────────────────────────────────────────────────────
-#  A. URL 파라미터 인증 (기존 방식) + 다른 경로
-# ─────────────────────────────────────────────────────────────
-print("[A] URL 파라미터 (?_apikey=) + 다른 경로 GET")
-print("-" * 60)
-
-for path in [
-    "/logpresso/query",
-    "/logpresso/api/query",
-    "/api/query",
-    "/api/queries",
-    "/api/sonar/queries",
-    "/api/enterprise/queries",
-    "/logdb/query",
-    "/query",
-]:
-    url = f"{BASE}{path}?_apikey={API_KEY}&_q={urllib.parse.quote(Q, safe='')}"
-    try:
-        r = requests.get(url, verify=False, timeout=10)
-        show(f"GET {path}", r)
-    except Exception as e:
-        print(f"❌ GET {path}: {e}\n")
-
-
-# ─────────────────────────────────────────────────────────────
-#  B. Bearer 헤더 인증 + 동일 경로들
-# ─────────────────────────────────────────────────────────────
-print("\n[B] Authorization: Bearer 헤더 + 다른 경로")
-print("-" * 60)
-
-headers = {"Authorization": f"Bearer {API_KEY}",
-           "Accept": "application/json"}
-
-for path in [
-    "/api/query",
-    "/api/queries",
-    "/api/sonar/queries",
-]:
-    # GET
-    url = f"{BASE}{path}?query={urllib.parse.quote(Q, safe='')}"
-    try:
-        r = requests.get(url, headers=headers, verify=False, timeout=10)
-        show(f"GET {path} (Bearer)", r)
-    except Exception as e:
-        print(f"❌ {e}\n")
-
-    # POST JSON
-    try:
-        r = requests.post(f"{BASE}{path}",
-                          headers={**headers, "Content-Type": "application/json"},
-                          json={"query": Q}, verify=False, timeout=10)
-        show(f"POST {path} JSON", r)
-    except Exception as e:
-        print(f"❌ {e}\n")
-
-    # POST form
-    try:
-        r = requests.post(f"{BASE}{path}",
-                          headers=headers,
-                          data={"query": Q}, verify=False, timeout=10)
-        show(f"POST {path} form", r)
-    except Exception as e:
-        print(f"❌ {e}\n")
-
-
-# ─────────────────────────────────────────────────────────────
-#  C. X-Api-Key 헤더 방식
-# ─────────────────────────────────────────────────────────────
-print("\n[C] X-Api-Key 헤더")
-print("-" * 60)
-
-headers = {"X-Api-Key": API_KEY, "Accept": "application/json"}
-for path in ["/api/query", "/api/queries"]:
-    try:
-        r = requests.post(f"{BASE}{path}",
-                          headers={**headers, "Content-Type": "application/json"},
-                          json={"query": Q}, verify=False, timeout=10)
-        show(f"POST {path} X-Api-Key", r)
-    except Exception as e:
-        print(f"❌ {e}\n")
-
-
+# 단순 조회로도 확인 (확실히 통과할 거)
+print("\n" + "="*70)
+print("  /api/queries 도 확인")
 print("="*70)
-print("  ✅ 200/201 → 그 경로/방식이 정답")
-print("  ❌ 404    → 경로 없음")
-print("  ❌ 401    → 그 경로는 다른 인증 방식 필요")
-print("  ❌ 500    → 경로는 맞는데 다른 문제")
-print("  ❌ 405    → 경로 있음, 메서드만 바꾸면 될 수도")
+print()
+run("queries query=",        "/api/queries", params={"query": Q})
+
+# 조회로도 같은 형식 확인 (어떤 형식이 응답 정상으로 오는지)
+print("\n" + "="*70)
+print("  단순 조회 - 응답 포맷 확인용")
 print("="*70)
+print()
+run("table 조회 query=",     "/api/query", params={"query": "table test_table | limit 1"})
+run("table 조회 q=",         "/api/query", params={"q": "table test_table | limit 1"})
