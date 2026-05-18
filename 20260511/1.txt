@@ -1,19 +1,36 @@
-"""프로시저 호출 방식 - 담당자가 만들어준 insert_data 프로시저 사용"""
+"""두 가지 쿼리 비교 - 어느 게 통과하나"""
 import requests, urllib.parse, urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 API_KEY = "db1d2335-49cf-e859-3519-1ca132922e38"
 BASE = "http://10.40.42.27:8888/logpresso/httpexport/query.csv"
 
-# 담당자가 알려준 형식
-q = "proc insert_data(\"{FIELD1 = 'hello2', FIELD2 = 'world'}\")"
 
+def run(label, q):
+    url = f"{BASE}?_apikey={API_KEY}&_q={urllib.parse.quote(q, safe='')}"
+    print(f"\n{'='*70}")
+    print(f"  [{label}]")
+    print(f"  쿼리: {q}")
+    print('='*70)
+    resp = requests.get(url, verify=False, timeout=30)
+    print(f"HTTP {resp.status_code}")
+    print(f"응답:\n{resp.text[:500]}")
+
+
+# A: eval로 필드 세팅 후 import
+run("A. eval+import",
+    'json "{}" | eval FIELD1 = "hello", FIELD2 = "world" | import test_table')
+
+# B: json 안에 직접 (프로시저랑 같은 형식)
+run("B. json리터럴+import",
+    'json "{FIELD1 = \'hello\', FIELD2 = \'world\'}" | import test_table')
+
+
+# 검증
+print(f"\n{'='*70}")
+print("  [검증] test_table 최근 5건")
+print('='*70)
+q = 'table test_table | sort -_time | limit 0 5'
 url = f"{BASE}?_apikey={API_KEY}&_q={urllib.parse.quote(q, safe='')}"
-
-print(f"쿼리: {q}")
-print(f"URL : {url}\n")
-
 resp = requests.get(url, verify=False, timeout=30)
-
-print(f"HTTP {resp.status_code}")
-print(f"응답:\n{resp.text[:1000]}")
+print(resp.text)
