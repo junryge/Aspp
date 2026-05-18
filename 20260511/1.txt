@@ -1,15 +1,62 @@
 """
-새 API_KEY로 INSERT 테스트
-이전 키는 read-only 의심, 이번 키는 쓰기 권한 가능성
+api_key.txt에서 API_KEY 읽어서 INSERT 테스트
+
+사용법:
+  1. 같은 폴더에 api_key.txt 만들기
+  2. 파일 안에 API_KEY 한 줄만 적기
+     예시: 10f12ae0-5a80-55cd-7b15-e5554f0612f3
+  3. python newkey_test.py
 """
-import requests, urllib.parse, urllib3
+import os
+import sys
+import time
+import requests
+import urllib.parse
+import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# 새 API_KEY
-API_KEY = "10f12ae0-5a80-55cd-7b15-e5554f0612f3"
+
+# ─────────────────────────────────────────────
+#  API_KEY 로드 (api_key.txt → 환경변수 → 에러)
+# ─────────────────────────────────────────────
+def load_api_key() -> str:
+    # 1) 스크립트와 같은 폴더의 api_key.txt
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(here, "api_key.txt"),
+        os.path.join(os.getcwd(), "api_key.txt"),       # 현재 작업 폴더
+        os.path.expanduser("~/.logpresso/api_key.txt"), # 홈 폴더
+    ]
+
+    for path in candidates:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                key = f.read().strip().splitlines()[0].strip()
+            if key:
+                print(f"✅ API_KEY 로드: {path}")
+                return key
+
+    # 2) 환경변수 fallback
+    env_key = os.environ.get("LOGPRESSO_API_KEY")
+    if env_key:
+        print(f"✅ API_KEY 로드: 환경변수 LOGPRESSO_API_KEY")
+        return env_key.strip()
+
+    # 3) 둘 다 없으면 에러
+    print("❌ API_KEY를 찾을 수 없습니다.")
+    print("   다음 중 하나로 설정하세요:")
+    print(f"   1) {candidates[0]} 파일 생성 (한 줄에 키만 적기)")
+    print(f"   2) 환경변수 LOGPRESSO_API_KEY 설정")
+    sys.exit(1)
+
+
+API_KEY = load_api_key()
 BASE = "http://10.40.42.27:8888/logpresso/httpexport/query.csv"
 
 
+# ─────────────────────────────────────────────
+#  실행
+# ─────────────────────────────────────────────
 def run(label, q):
     url = f"{BASE}?_apikey={API_KEY}&_q={urllib.parse.quote(q, safe='')}"
     print(f"\n{'='*70}")
@@ -29,20 +76,11 @@ def run(label, q):
 run("1. 조회 (인증 확인)",
     'table test_table | limit 1')
 
-# ─── 2. 직접 INSERT - 가장 단순 ───
-run("2. INSERT (json + import)",
-    "json \"{FIELD1 = 'newkey_test1', FIELD2 = 'newkey_val1'}\" | import test_table")
-
 # ─── 3. eval 방식 INSERT ───
 run("3. INSERT (eval 방식)",
     'json "{}" | eval FIELD1 = "newkey_test2", FIELD2 = "newkey_val2" | import test_table')
 
-# ─── 4. 프로시저 방식 (기존에 되던 것) ───
-run("4. INSERT (프로시저)",
-    "proc insert_data(\"{FIELD1 = 'newkey_proc', FIELD2 = 'newkey_proc_val'}\")")
-
 # ─── 5. 검증 ───
-import time
-time.sleep(2)
+time.sleep(1)
 run("5. 검증 (최근 10건)",
     'table test_table | sort -_time | limit 10')
