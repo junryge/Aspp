@@ -1,14 +1,22 @@
-"""스키마(FIELD1, FIELD2) 맞춰서 INSERT 확인"""
+"""
+test_table 스키마(FIELD1, FIELD2)에 맞춰서 HUBROOM 데이터 1건 INSERT
+
+test_table 컬럼: FIELD1, FIELD2 만 존재
+→ FIELD1 = 식별자 (file + datetime)
+→ FIELD2 = 위험 요약 (stage_name + risk_score + risk_level)
+"""
 from logpresso_client import insert_logpresso
- 
-# test_table 스키마: FIELD1, FIELD2 만 존재
-record = {"FIELD1": "hello", "FIELD2": "world"}
- 
+
+# 원본 데이터에서 핵심만 추려서 FIELD1, FIELD2에 매핑
+record = {
+    "FIELD1": "M16A_HUBROOM_PR.csv | 2026-05-18 00:00",
+    "FIELD2": "1단계 조기경보 | risk_score=80 | 매우위험",
+}
+
 inserted, err = insert_logpresso("test_table", record)
- 
+
 if err:
     print(f"❌ 실패: {err['reason']}")
     print(f"응답: {str(err.get('response_preview', ''))[:300]}")
 else:
-    print(f"✅ {inserted}건 들어감 → 스키마 문제 확정")
- 
+    print(f"✅ {inserted}건 들어감")
