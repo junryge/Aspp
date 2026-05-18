@@ -1,66 +1,53 @@
 """
-응답에서 발견한 진짜 REST API 경로 탐색
-/api/database — Manage account, table, privileges
-/api/user     — Manage user, ACL, password policy
+/api/database 응답에서 전체 API 함수 목록 추출
+→ insert/import/save 류 함수 찾기
 """
-import requests, urllib3, urllib.parse
+import requests, urllib3, re
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 API_KEY = "db1d2335-49cf-e859-3519-1ca132922e38"
 BASE = "http://10.40.42.27:8888"
 HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
+# ─────────────────────────────────────────────
+#  1. /api/database 전체 텍스트 받기
+# ─────────────────────────────────────────────
+r = requests.get(f"{BASE}/api/database", headers=HEADERS, verify=False, timeout=15)
+html = r.text
 
-def fetch(url, **kwargs):
-    """GET해서 HTML이면 본문만 추출해서 보여줌"""
-    method = kwargs.pop("method", "GET")
-    try:
-        r = requests.request(method, url, headers=HEADERS, verify=False, timeout=15, **kwargs)
-        ok = "✅" if 200 <= r.status_code < 300 else "❌"
-        body = r.text
-        # HTML이면 <body> 안만
-        if "<body>" in body:
-            import re
-            m = re.search(r'<body>(.*?)</body>', body, re.DOTALL)
-            if m:
-                body = m.group(1)
-            # 태그 제거
-            body = re.sub(r'<[^>]+>', ' ', body)
-            body = re.sub(r'\s+', ' ', body).strip()
-        print(f"{ok} {method:4s} {url.replace(BASE, '')}")
-        print(f"   HTTP {r.status_code} | {body[:400]}\n")
-        return r
-    except Exception as e:
-        print(f"❌ {url} - {e}\n")
-        return None
-
+# HTML 정리
+body = re.search(r'<body>(.*?)</body>', html, re.DOTALL)
+text = body.group(1) if body else html
+text = re.sub(r'<[^>]+>', '\n', text)
+text = re.sub(r'\n\s*\n', '\n', text)
+text = text.strip()
 
 print("="*70)
-print("  /api/database 하위 탐색")
+print("  /api/database 전체 카탈로그")
 print("="*70)
-print()
+print(text)
 
-# 메인 인덱스
-fetch(f"{BASE}/api/database")
-
-# 흔한 하위 경로들
-for sub in ["/tables", "/table", "/data", "/records", "/insert", "/import",
-            "/query", "/execute", "/exec", "/run", "/operations", "/operation",
-            "/databases", "/accounts", "/privileges"]:
-    fetch(f"{BASE}/api/database{sub}")
-
-
+# ─────────────────────────────────────────────
+#  2. 함수 이름 추출 (insert/import/save/add/put 류)
+# ─────────────────────────────────────────────
 print("\n" + "="*70)
-print("  /api/database/tables/test_table 시도 (RESTful 패턴)")
+print("  ⭐ 데이터 입력 가능한 함수 (insert/import/save/add/put/create)")
 print("="*70)
-print()
-fetch(f"{BASE}/api/database/tables")
-fetch(f"{BASE}/api/database/tables/test_table")
-fetch(f"{BASE}/api/database/test_table")
+
+keywords = ['insert', 'import', 'save', 'add', 'put', 'create', 'write', 'append', 'push', 'log']
+for kw in keywords:
+    # GET/POST /database/...keyword... 형태
+    matches = re.findall(rf'((?:GET|POST|PUT|DELETE)\s+/database/\w*{kw}\w*)', text, re.IGNORECASE)
+    for m in set(matches):
+        print(f"  → {m}")
 
 
+# ─────────────────────────────────────────────
+#  3. 모든 함수 이름 추출
+# ─────────────────────────────────────────────
 print("\n" + "="*70)
-print("  /api/user 도 한 번")
+print("  /api/database 전체 함수 목록")
 print("="*70)
-print()
-fetch(f"{BASE}/api/user")
+all_funcs = re.findall(r'((?:GET|POST|PUT|DELETE)\s+/database/\w+)', text)
+for f in all_funcs:
+    print(f"  {f}")
