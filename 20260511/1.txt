@@ -1,6 +1,6 @@
 """
-전체 오류 응답 확인 (잘림 없음)
-응답 본문 전체 + 헤더까지 다 출력
+json + import 쿼리 형식 6가지 변형 진단
+어떤 형식이 통과하는지 한 번에 확인
 """
 import requests
 import urllib.parse
@@ -11,31 +11,62 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 HOST    = "10.40.42.27"
 PORT    = 8888
 API_KEY = "db1d2335-49cf-e859-3519-1ca132922e38"
+BASE    = f"http://{HOST}:{PORT}/logpresso/httpexport/query.csv"
 
-# test_table 스키마에 맞춘 INSERT 쿼리
-q = 'json "{\\"FIELD1\\":\\"hello\\",\\"FIELD2\\":\\"world\\"}" | import test_table'
 
-encoded = urllib.parse.quote(q, safe='')
-url = f"http://{HOST}:{PORT}/logpresso/httpexport/query.csv?_apikey={API_KEY}&_q={encoded}"
+def run(label, q):
+    encoded = urllib.parse.quote(q, safe='')
+    url = f"{BASE}?_apikey={API_KEY}&_q={encoded}"
+    try:
+        resp = requests.get(url, verify=False, timeout=30)
+        ok = "✅" if resp.status_code == 200 else "❌"
+        body = resp.text[:150].replace('\n', ' ')
+        if body.strip().startswith("<"):
+            body = "[HTML 에러 페이지]"
+        print(f"{ok} [{label}] HTTP {resp.status_code}")
+        print(f"   쿼리: {q}")
+        print(f"   응답: {body}\n")
+    except Exception as e:
+        print(f"❌ [{label}] 예외: {e}\n")
 
-print(f"쿼리: {q}")
-print(f"URL: {url}")
-print(f"URL 길이: {len(url)} bytes\n")
 
-resp = requests.get(url, verify=False, timeout=30)
+# ═══════════════════════════════════════════════════════════════
+#  6가지 변형 — 어느 게 200 OK 받는지 확인
+# ═══════════════════════════════════════════════════════════════
 
-print(f"{'='*70}")
-print(f"  HTTP {resp.status_code}")
-print(f"{'='*70}")
+# A. 표준 JSON + escape (현재 코드 방식)
+run("A. 표준 JSON",
+    'json "{\\"FIELD1\\":\\"hello\\",\\"FIELD2\\":\\"world\\"}" | import test_table')
 
-print(f"\n--- Response Headers ---")
-for k, v in resp.headers.items():
-    print(f"  {k}: {v}")
+# B. 빈 객체 + eval로 필드 세팅 ← [1]번 패턴 활용
+run("B. 빈객체+eval+import",
+    'json "{}" | eval FIELD1 = "hello", FIELD2 = "world" | import test_table')
 
-print(f"\n--- Response Body (length={len(resp.text)}) ---")
-print(resp.text)
+# C. 빈 객체 + eval 한 줄씩
+run("C. 빈객체+eval 분리",
+    'json "{}" | eval FIELD1 = "hello" | eval FIELD2 = "world" | import test_table')
 
-# 파일로도 저장
-with open("error_response.html", "w", encoding="utf-8") as f:
-    f.write(resp.text)
-print(f"\n→ 전체 응답을 error_response.html 로 저장함 (브라우저로 열면 화면 보임)")
+# D. JSON5 스타일 (키에 따옴표 없음)
+run("D. JSON5 스타일",
+    'json "{FIELD1:\\"hello\\",FIELD2:\\"world\\"}" | import test_table')
+
+# E. 공백 포함 표준 JSON
+run("E. 공백 포함 JSON",
+    'json "{ \\"FIELD1\\": \\"hello\\", \\"FIELD2\\": \\"world\\" }" | import test_table')
+
+# F. import 옵션 명시 (table= 키워드)
+run("F. import table= 옵션",
+    'json "{}" | eval FIELD1 = "hello", FIELD2 = "world" | import table=test_table')
+
+
+print("="*60)
+print("  결과 해석")
+print("="*60)
+print("""
+[B] 또는 [C] 가 ✅이면 → 'json 명령에 직접 데이터 넣지 말고
+   빈객체 후 eval로 필드 세팅' 패턴이 정답. 코드 그 방식으로 재작성.
+
+[D] 가 ✅이면 → JSON5 스타일 필요. escape 방식 변경.
+
+전부 ❌이면 → import 명령 자체가 차단된 상태. 관리자 권한 요청 필요.
+""")
