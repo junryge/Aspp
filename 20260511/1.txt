@@ -1,7 +1,8 @@
 """
-마지막 확인 - /api 전체 그룹 + 모든 함수 끝까지
+/logpresso prefix 아래 API 탐색
+힌트: 웹 UI URL이 http://10.40.42.27:8888/#/logpresso/logquery
 """
-import requests, urllib3, re
+import requests, urllib3, re, urllib.parse
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 API_KEY = "db1d2335-49cf-e859-3519-1ca132922e38"
@@ -9,32 +10,54 @@ BASE = "http://10.40.42.27:8888"
 HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
 
-def fetch_full(path):
-    r = requests.get(f"{BASE}{path}", headers=HEADERS, verify=False, timeout=15)
-    html = r.text
-    body = re.search(r'<body>(.*?)</body>', html, re.DOTALL)
-    text = body.group(1) if body else html
-    text = re.sub(r'<[^>]+>', '\n', text)
-    text = re.sub(r'\n\s*\n', '\n', text).strip()
-    return text
+def fetch(label, url, method="GET", **kwargs):
+    try:
+        r = requests.request(method, url, headers=HEADERS, verify=False, timeout=10, **kwargs)
+        ok = "✅" if 200 <= r.status_code < 300 else "❌"
+        body = r.text
+        if "<body>" in body:
+            m = re.search(r'<body>(.*?)</body>', body, re.DOTALL)
+            if m:
+                body = m.group(1)
+            body = re.sub(r'<[^>]+>', ' ', body)
+            body = re.sub(r'\s+', ' ', body).strip()
+        print(f"{ok} {method:4s} {url.replace(BASE, '')}")
+        print(f"   HTTP {r.status_code} | {body[:300]}\n")
+        return r
+    except Exception as e:
+        print(f"❌ {url} - {e}\n")
+        return None
 
 
-# 1. /api 루트
 print("="*70)
-print("  /api 루트 (전체 그룹 목록)")
+print("  /logpresso 카탈로그 탐색")
 print("="*70)
-print(fetch_full("/api"))
+print()
 
-# 2. /api/user 전체
-print("\n" + "="*70)
-print("  /api/user 전체")
-print("="*70)
-print(fetch_full("/api/user"))
+# 카탈로그 페이지
+fetch("logpresso 루트", f"{BASE}/logpresso")
+fetch("api/logpresso", f"{BASE}/api/logpresso")
 
-# 3. /api/database 끝까지 (혹시 잘렸을까)
-print("\n" + "="*70)
-print("  /api/database (전체 길이 확인)")
-print("="*70)
-full = fetch_full("/api/database")
-print(f"전체 길이: {len(full)} 글자")
-print(full)
+# 가장 유력 - logquery, query 관련
+for path in [
+    "/logpresso/logquery",
+    "/logpresso/query",
+    "/logpresso/createQuery",
+    "/logpresso/runQuery",
+    "/logpresso/executeQuery",
+    "/logpresso/startQuery",
+    "/api/logpresso/query",
+    "/api/logpresso/createQuery",
+    "/api/logpresso/logquery",
+]:
+    fetch(path, f"{BASE}{path}")
+
+# 알려진 httpexport 동일 prefix에서 다른 함수
+for path in [
+    "/logpresso/httpexport",
+    "/logpresso/httpquery",   # ← 가능성 큼!
+    "/logpresso/httpimport",
+    "/logpresso/insert",
+    "/logpresso/import",
+]:
+    fetch(path, f"{BASE}{path}")
