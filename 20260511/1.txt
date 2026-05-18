@@ -1,8 +1,8 @@
 """
-/logpresso prefix 아래 API 탐색
-힌트: 웹 UI URL이 http://10.40.42.27:8888/#/logpresso/logquery
+1) /api/logpresso 카탈로그 전체 보기
+2) /logpresso/import POST 시도 (405 = GET만 안 되는 거, POST는 받을 가능성)
 """
-import requests, urllib3, re, urllib.parse
+import requests, urllib3, re, json
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 API_KEY = "db1d2335-49cf-e859-3519-1ca132922e38"
@@ -10,54 +10,90 @@ BASE = "http://10.40.42.27:8888"
 HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
 
-def fetch(label, url, method="GET", **kwargs):
+# ─────────────────────────────────────────────────
+#  1. /api/logpresso 카탈로그 전체
+# ─────────────────────────────────────────────────
+print("="*70)
+print("  /api/logpresso 카탈로그 전체")
+print("="*70)
+r = requests.get(f"{BASE}/api/logpresso", headers=HEADERS, verify=False, timeout=15)
+body = re.search(r'<body>(.*?)</body>', r.text, re.DOTALL)
+text = body.group(1) if body else r.text
+text = re.sub(r'<[^>]+>', '\n', text)
+text = re.sub(r'\n\s*\n', '\n', text).strip()
+print(f"전체 {len(text)} 글자\n")
+print(text)
+
+
+# ─────────────────────────────────────────────────
+#  2. /logpresso/import POST 시도 (405 → 다른 메서드 필요)
+# ─────────────────────────────────────────────────
+print("\n" + "="*70)
+print("  /logpresso/import POST 시도")
+print("="*70)
+
+def post(label, url, **kwargs):
     try:
-        r = requests.request(method, url, headers=HEADERS, verify=False, timeout=10, **kwargs)
+        r = requests.post(url, headers={**HEADERS, **kwargs.pop("headers", {})},
+                         verify=False, timeout=15, **kwargs)
         ok = "✅" if 200 <= r.status_code < 300 else "❌"
-        body = r.text
-        if "<body>" in body:
-            m = re.search(r'<body>(.*?)</body>', body, re.DOTALL)
-            if m:
-                body = m.group(1)
-            body = re.sub(r'<[^>]+>', ' ', body)
-            body = re.sub(r'\s+', ' ', body).strip()
-        print(f"{ok} {method:4s} {url.replace(BASE, '')}")
-        print(f"   HTTP {r.status_code} | {body[:300]}\n")
+        body = r.text[:400].replace('\n', ' ').strip()
+        if body.startswith("<"):
+            body = "[HTML]"
+        print(f"{ok} POST [{label}]")
+        print(f"   HTTP {r.status_code} | {body}\n")
         return r
     except Exception as e:
-        print(f"❌ {url} - {e}\n")
-        return None
+        print(f"❌ POST [{label}] - {e}\n")
 
 
+# 빈 POST (어떤 파라미터 필요한지 힌트)
+post("빈 POST", f"{BASE}/logpresso/import")
+
+# 테이블명만 URL
+post("table 쿼리스트링", f"{BASE}/logpresso/import?table=test_table")
+
+# JSON body
+post("JSON body",
+     f"{BASE}/logpresso/import?table=test_table",
+     headers={"Content-Type": "application/json"},
+     data='{"FIELD1":"hello","FIELD2":"world"}')
+
+# NDJSON (Logpresso input 표준)
+post("NDJSON body",
+     f"{BASE}/logpresso/import?table=test_table",
+     headers={"Content-Type": "application/x-ndjson"},
+     data='{"FIELD1":"hello","FIELD2":"world"}\n')
+
+# form-urlencoded
+post("form data",
+     f"{BASE}/logpresso/import",
+     data={"table": "test_table",
+           "FIELD1": "hello",
+           "FIELD2": "world"})
+
+# text/plain
+post("text/plain",
+     f"{BASE}/logpresso/import?table=test_table",
+     headers={"Content-Type": "text/plain"},
+     data="FIELD1=hello,FIELD2=world")
+
+# PUT 방식도
 print("="*70)
-print("  /logpresso 카탈로그 탐색")
+print("  /logpresso/import PUT 시도")
 print("="*70)
-print()
-
-# 카탈로그 페이지
-fetch("logpresso 루트", f"{BASE}/logpresso")
-fetch("api/logpresso", f"{BASE}/api/logpresso")
-
-# 가장 유력 - logquery, query 관련
-for path in [
-    "/logpresso/logquery",
-    "/logpresso/query",
-    "/logpresso/createQuery",
-    "/logpresso/runQuery",
-    "/logpresso/executeQuery",
-    "/logpresso/startQuery",
-    "/api/logpresso/query",
-    "/api/logpresso/createQuery",
-    "/api/logpresso/logquery",
+for ct, data in [
+    ("application/json", '{"FIELD1":"hello","FIELD2":"world"}'),
+    ("application/x-ndjson", '{"FIELD1":"hello","FIELD2":"world"}\n'),
 ]:
-    fetch(path, f"{BASE}{path}")
-
-# 알려진 httpexport 동일 prefix에서 다른 함수
-for path in [
-    "/logpresso/httpexport",
-    "/logpresso/httpquery",   # ← 가능성 큼!
-    "/logpresso/httpimport",
-    "/logpresso/insert",
-    "/logpresso/import",
-]:
-    fetch(path, f"{BASE}{path}")
+    try:
+        r = requests.put(f"{BASE}/logpresso/import?table=test_table",
+                        headers={**HEADERS, "Content-Type": ct},
+                        data=data, verify=False, timeout=15)
+        ok = "✅" if 200 <= r.status_code < 300 else "❌"
+        body = r.text[:200].replace('\n', ' ').strip()
+        if body.startswith("<"): body = "[HTML]"
+        print(f"{ok} PUT  ({ct})")
+        print(f"   HTTP {r.status_code} | {body}\n")
+    except Exception as e:
+        print(f"❌ PUT - {e}\n")
