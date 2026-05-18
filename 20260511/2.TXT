@@ -1,8 +1,12 @@
-cd C:\연구과제\CODE\데모스_분석툴\
-dir open-design-FULL.zip.*
-rmdir /s /q open-design-open-design-v0.6.0
-"C:\Program Files\7-Zip\7z.exe" x open-design-FULL.zip.001
-cd open-design-open-design-v0.6.0
-dir node_modules
-corepack disable
-.\pnpm-win-x64.exe tools-dev run web --daemon-port 10011 --web-port 10012
+<group name="McpZone1" type="mcpzone.McpZone">
+    <param key="id" value="1"/>              ← HID1 번호
+    <param key="vehicle-max" value="20"/>
+    <group name="Entry1" type="mcpzone.Entry">
+        <param key="start" value="3048"/>    ← 들어오는 곳
+        <param key="end"   value="3023"/>
+    </group>
+    <group name="Exit1" type="mcpzone.Exit">
+        <param key="start" value="3500"/>    ← 나가는 곳
+        <param key="end"   value="3525"/>
+    </group>
+</group>
