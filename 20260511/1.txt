@@ -1,22 +1,41 @@
 """
-test_table 스키마(FIELD1, FIELD2)에 맞춰서 HUBROOM 데이터 1건 INSERT
-
-test_table 컬럼: FIELD1, FIELD2 만 존재
-→ FIELD1 = 식별자 (file + datetime)
-→ FIELD2 = 위험 요약 (stage_name + risk_score + risk_level)
+전체 오류 응답 확인 (잘림 없음)
+응답 본문 전체 + 헤더까지 다 출력
 """
-from logpresso_client import insert_logpresso
+import requests
+import urllib.parse
+import urllib3
 
-# 원본 데이터에서 핵심만 추려서 FIELD1, FIELD2에 매핑
-record = {
-    "FIELD1": "M16A_HUBROOM_PR.csv | 2026-05-18 00:00",
-    "FIELD2": "1단계 조기경보 | risk_score=80 | 매우위험",
-}
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-inserted, err = insert_logpresso("test_table", record)
+HOST    = "10.40.42.27"
+PORT    = 8888
+API_KEY = "db1d2335-49cf-e859-3519-1ca132922e38"
 
-if err:
-    print(f"❌ 실패: {err['reason']}")
-    print(f"응답: {str(err.get('response_preview', ''))[:300]}")
-else:
-    print(f"✅ {inserted}건 들어감")
+# test_table 스키마에 맞춘 INSERT 쿼리
+q = 'json "{\\"FIELD1\\":\\"hello\\",\\"FIELD2\\":\\"world\\"}" | import test_table'
+
+encoded = urllib.parse.quote(q, safe='')
+url = f"http://{HOST}:{PORT}/logpresso/httpexport/query.csv?_apikey={API_KEY}&_q={encoded}"
+
+print(f"쿼리: {q}")
+print(f"URL: {url}")
+print(f"URL 길이: {len(url)} bytes\n")
+
+resp = requests.get(url, verify=False, timeout=30)
+
+print(f"{'='*70}")
+print(f"  HTTP {resp.status_code}")
+print(f"{'='*70}")
+
+print(f"\n--- Response Headers ---")
+for k, v in resp.headers.items():
+    print(f"  {k}: {v}")
+
+print(f"\n--- Response Body (length={len(resp.text)}) ---")
+print(resp.text)
+
+# 파일로도 저장
+with open("error_response.html", "w", encoding="utf-8") as f:
+    f.write(resp.text)
+print(f"\n→ 전체 응답을 error_response.html 로 저장함 (브라우저로 열면 화면 보임)")
