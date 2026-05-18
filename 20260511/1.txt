@@ -1,57 +1,86 @@
 """
-공식 문서 패턴 따라하기
-import 명령의 정석은 'json 문자열' 입력이 아니라
-파이프로 받은 레코드를 적재하는 것.
-
-핵심 단서:
-- 문서 [33]: table raw_web_log | parse | eval | import web_log
-- 문서 [37]: ... | import create=t widget_example
-
-→ json 명령 빼고 다른 방법으로 레코드 만들기
+웹 UI가 쓰는 진짜 쿼리 실행 API 탐색
+httpexport 말고 다른 경로 사용 시도
 """
-import requests, urllib.parse, urllib3
+import requests, urllib.parse, urllib3, json
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+HOST = "10.40.42.27"
+PORT = 8888
 API_KEY = "db1d2335-49cf-e859-3519-1ca132922e38"
-BASE = "http://10.40.42.27:8888/logpresso/httpexport/query.csv"
+BASE = f"http://{HOST}:{PORT}"
+
+# 웹 UI에서 동작하는 쿼리
+Q = "json \"{FIELD1 = 'hello', FIELD2 = 'world'}\" | import test_table"
 
 
-def run(label, q):
-    url = f"{BASE}?_apikey={API_KEY}&_q={urllib.parse.quote(q, safe='')}"
+def try_req(method, path, **kwargs):
+    url = f"{BASE}{path}"
     try:
-        r = requests.get(url, verify=False, timeout=15)
-        ok = "✅" if r.status_code == 200 else "❌"
+        r = requests.request(method, url, verify=False, timeout=15, **kwargs)
         body = r.text[:200].replace('\n', ' ').strip()
         if body.startswith("<"):
-            body = "[HTML 에러]"
-        print(f"{ok} [{label}] HTTP {r.status_code}")
-        print(f"   쿼리: {q}")
-        print(f"   응답: {body}\n")
+            body = "[HTML]"
+        ok = "✅" if 200 <= r.status_code < 300 else "❌"
+        print(f"{ok} {method:4s} {path}")
+        print(f"   HTTP {r.status_code} | {body[:150]}\n")
+        return r
     except Exception as e:
-        print(f"❌ [{label}] {e}\n")
+        print(f"❌ {method:4s} {path} - {e}\n")
+        return None
 
 
 print("="*70)
-print("  공식 문서 정석 패턴 시도")
+print("  웹 UI가 쓰는 쿼리 실행 API 탐색")
 print("="*70)
 print()
 
-# R. eval만 사용 (json 명령 없이) - 가장 단순
-run("R. eval만 사용",
-    'eval FIELD1 = "hello", FIELD2 = "world" | import test_table')
+# 1. /api/query (가장 유력)
+try_req("POST", "/api/query",
+        params={"_apikey": API_KEY},
+        json={"query": Q})
 
-# S. 시스템 테이블에서 1건 추출 → 필드 덮어쓰기 → import
-run("S. system tables 1건 → eval → import",
-    'system tables | limit 1 | eval FIELD1 = "hello", FIELD2 = "world" | fields FIELD1, FIELD2 | import test_table')
+try_req("POST", "/api/query",
+        params={"apikey": API_KEY},
+        data=Q,
+        headers={"Content-Type": "text/plain"})
 
-# T. import에 create=t 옵션 (문서 [37] 패턴)
-run("T. import create=t",
-    'eval FIELD1 = "hello", FIELD2 = "world" | import create=t test_table')
+# 2. /api/queries
+try_req("POST", "/api/queries",
+        params={"_apikey": API_KEY},
+        json={"query": Q})
 
-# U. 자신의 테이블에서 가져와서 다시 넣기 (가장 안전)
-run("U. table → eval → import (self)",
-    'table test_table | limit 1 | eval FIELD1 = "modified", FIELD2 = "v2" | import test_table')
+# 3. /api/v1/query
+try_req("POST", "/api/v1/query",
+        params={"_apikey": API_KEY},
+        json={"query": Q})
 
-# V. txt 명령으로 텍스트 생성 후 파싱
-run("V. txt + parse + import",
-    'txt "hello,world" | rex "^(?<FIELD1>[^,]+),(?<FIELD2>.+)$" | import test_table')
+# 4. /dashboard/api/query
+try_req("POST", "/dashboard/api/query",
+        params={"_apikey": API_KEY},
+        json={"query": Q})
+
+# 5. msgbus 방식 (Logpresso 내부 msgbus 트랜잭션)
+try_req("POST", "/msgbus/request",
+        json={"method": "org.araqne.logdb.msgbus.LogQueryPlugin.createQuery",
+              "params": {"query": Q}})
+
+# 6. Logpresso REST API 표준
+try_req("POST", "/logdb/query",
+        params={"_apikey": API_KEY},
+        json={"query": Q})
+
+try_req("POST", "/api/logdb/query",
+        params={"_apikey": API_KEY},
+        json={"query": Q})
+
+# 7. 단순 형태 - body에 그냥 쿼리
+try_req("POST", "/query",
+        params={"_apikey": API_KEY},
+        data=Q,
+        headers={"Content-Type": "text/plain"})
+
+print("="*70)
+print("  하나라도 200/201이면 그 경로가 정답")
+print("  404 = 경로 없음 / 401,403 = 인증 방식 다름 / 500 = 경로는 맞음")
+print("="*70)
