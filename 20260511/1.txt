@@ -1,40 +1,103 @@
-"""URL 분해해서 확인"""
-import urllib.parse
+"""
+입력용 엔드포인트 탐색
+httpexport는 조회 전용일 수 있으므로 다른 경로들 시도
+"""
+import requests, urllib.parse, urllib3, json
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+HOST = "10.40.42.27"
+PORT = 8888
 API_KEY = "db1d2335-49cf-e859-3519-1ca132922e38"
+BASE = f"http://{HOST}:{PORT}"
 
-q = r"""json "{FIELD1 = 'hello', FIELD2 = 'world'}" | import test_table"""
+
+def check(method, path, params=None, data=None, headers=None, label=""):
+    url = f"{BASE}{path}"
+    if params:
+        url += "?" + urllib.parse.urlencode(params)
+    try:
+        if method == "GET":
+            r = requests.get(url, verify=False, timeout=10)
+        else:
+            r = requests.post(url, data=data, headers=headers or {},
+                              verify=False, timeout=10)
+        body = r.text[:150].replace('\n', ' ')
+        if body.strip().startswith("<"):
+            body = "[HTML 페이지]"
+        marker = "✅" if r.status_code < 400 else ("⚠️" if r.status_code == 404 else "❌")
+        print(f"{marker} [{label}] {method} {path}")
+        print(f"   → HTTP {r.status_code} | {body[:100]}\n")
+        return r.status_code
+    except Exception as e:
+        print(f"❌ [{label}] {method} {path}")
+        print(f"   → 예외: {e}\n")
+        return None
+
 
 print("="*70)
-print("  쿼리 → URL 변환 단계별 확인")
+print("  입력용 엔드포인트 후보 탐색")
 print("="*70)
+print()
 
-print(f"\n[1] 원본 쿼리:")
-print(f"    {q}")
+# 1) httpexport 다른 경로
+check("GET", "/logpresso/httpexport/insert",
+      params={"_apikey": API_KEY, "table": "test_table"},
+      label="httpexport/insert (GET)")
 
-print(f"\n[2] URL encoded 쿼리:")
-encoded = urllib.parse.quote(q, safe='')
-print(f"    {encoded}")
+check("POST", "/logpresso/httpexport/insert",
+      params={"_apikey": API_KEY, "table": "test_table"},
+      data='{"FIELD1":"a","FIELD2":"b"}',
+      headers={"Content-Type": "application/json"},
+      label="httpexport/insert (POST JSON)")
 
-print(f"\n[3] 최종 URL:")
-url = f"http://10.40.42.27:8888/logpresso/httpexport/query.csv?_apikey={API_KEY}&_q={encoded}"
-print(f"    {url}")
+# 2) Logpresso 공식 input API
+check("POST", "/api/input",
+      params={"apikey": API_KEY, "table": "test_table"},
+      data='{"FIELD1":"a","FIELD2":"b"}',
+      headers={"Content-Type": "application/json"},
+      label="api/input")
 
-print(f"\n[4] 길이: {len(url)} bytes")
+# 3) logger 경로
+check("POST", "/logger/test_table",
+      params={"_apikey": API_KEY},
+      data='{"FIELD1":"a","FIELD2":"b"}',
+      headers={"Content-Type": "application/json"},
+      label="logger/<table>")
 
-print("\n" + "="*70)
-print("  비교 - 기존 조회 URL (작동 확인된 것)")
+# 4) httpinput 경로 (HTTP Logger 디폴트)
+check("POST", "/httpinput",
+      params={"_apikey": API_KEY},
+      data='{"FIELD1":"a","FIELD2":"b"}',
+      headers={"Content-Type": "application/json"},
+      label="httpinput")
+
+check("POST", "/httpinput/test_table",
+      params={"_apikey": API_KEY},
+      data='{"FIELD1":"a","FIELD2":"b"}',
+      headers={"Content-Type": "application/json"},
+      label="httpinput/<table>")
+
+# 5) write 경로
+check("POST", "/logpresso/httpexport/write",
+      params={"_apikey": API_KEY, "table": "test_table"},
+      data='{"FIELD1":"a","FIELD2":"b"}',
+      label="httpexport/write")
+
+# 6) 다른 포트도 시도? (입력기는 다른 포트에 열린 경우 많음)
 print("="*70)
-q2 = 'table test_table | limit 1'
-url2 = f"http://10.40.42.27:8888/logpresso/httpexport/query.csv?_apikey={API_KEY}&_q={urllib.parse.quote(q2, safe='')}"
-print(f"\n작동 URL: {url2}")
-
-print("\n→ 두 URL 모두 같은 엔드포인트 사용")
-print("→ 차이는 _q= 뒤의 쿼리 내용뿐")
-
-print("\n" + "="*70)
-print("  브라우저에서 직접 테스트하려면")
+print("  관리 페이지 접근 가능 여부")
 print("="*70)
-print(f"\n위 [3]번 URL을 브라우저 주소창에 그대로 붙여넣어 보세요.")
-print("→ 브라우저에서도 500이면 → 서버측 문제 확정")
-print("→ 브라우저에서 200이면 → Python 코드 문제")
+print()
+check("GET", "/dashboard/", label="dashboard")
+check("GET", "/api/version", label="api/version")
+
+
+print("="*70)
+print("  해석")
+print("="*70)
+print("""
+- 200/201 → 그 경로가 입력용. URL/방식 그대로 클라이언트 작성
+- 404    → 그 경로는 없음. 다른 경로 시도
+- 401/403 → 경로는 있는데 권한 없음
+- 500    → 경로는 있는데 다른 문제
+""")
