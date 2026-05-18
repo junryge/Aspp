@@ -1,9 +1,9 @@
 """
-HTTP 200 + HTML 응답의 실체 확인
-- 진짜 쿼리 실행한 거면 응답에 데이터 또는 쿼리ID 있어야 함
-- 단순히 HTML 페이지 라우트면 React 앱 셸 HTML이 옴
+응답에서 발견한 진짜 REST API 경로 탐색
+/api/database — Manage account, table, privileges
+/api/user     — Manage user, ACL, password policy
 """
-import requests, urllib.parse, urllib3
+import requests, urllib3, urllib.parse
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 API_KEY = "db1d2335-49cf-e859-3519-1ca132922e38"
@@ -11,67 +11,56 @@ BASE = "http://10.40.42.27:8888"
 HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
 
-def hit(label, url, accept=None):
-    h = HEADERS.copy()
-    if accept:
-        h["Accept"] = accept
-    r = requests.get(url, headers=h, verify=False, timeout=30)
-    print(f"\n{'='*70}")
-    print(f"  [{label}] HTTP {r.status_code}  (Accept: {accept or '없음'})")
-    print(f"  Content-Type: {r.headers.get('Content-Type')}")
-    print(f"  Content-Length: {len(r.text)} bytes")
-    print('='*70)
-    print(r.text[:1500])
-    return r
+def fetch(url, **kwargs):
+    """GET해서 HTML이면 본문만 추출해서 보여줌"""
+    method = kwargs.pop("method", "GET")
+    try:
+        r = requests.request(method, url, headers=HEADERS, verify=False, timeout=15, **kwargs)
+        ok = "✅" if 200 <= r.status_code < 300 else "❌"
+        body = r.text
+        # HTML이면 <body> 안만
+        if "<body>" in body:
+            import re
+            m = re.search(r'<body>(.*?)</body>', body, re.DOTALL)
+            if m:
+                body = m.group(1)
+            # 태그 제거
+            body = re.sub(r'<[^>]+>', ' ', body)
+            body = re.sub(r'\s+', ' ', body).strip()
+        print(f"{ok} {method:4s} {url.replace(BASE, '')}")
+        print(f"   HTTP {r.status_code} | {body[:400]}\n")
+        return r
+    except Exception as e:
+        print(f"❌ {url} - {e}\n")
+        return None
 
 
-# ─────────────────────────────────────────────
-#  1. 쿼리 안 보내고 그냥 /api/query GET → HTML 정체 확인
-# ─────────────────────────────────────────────
-hit("1. /api/query 단독 (쿼리 없음)",
-    f"{BASE}/api/query")
+print("="*70)
+print("  /api/database 하위 탐색")
+print("="*70)
+print()
 
-# ─────────────────────────────────────────────
-#  2. 명백히 잘못된 쿼리 → 에러 응답 보이는지
-# ─────────────────────────────────────────────
-hit("2. 잘못된 쿼리 (구문오류)",
-    f"{BASE}/api/query?query=BLAHBLAH_INVALID")
+# 메인 인덱스
+fetch(f"{BASE}/api/database")
 
-# ─────────────────────────────────────────────
-#  3. Accept JSON 명시 - JSON으로 받기
-# ─────────────────────────────────────────────
-hit("3. Accept: application/json",
-    f"{BASE}/api/query?query=table+test_table+%7C+limit+1",
-    accept="application/json")
+# 흔한 하위 경로들
+for sub in ["/tables", "/table", "/data", "/records", "/insert", "/import",
+            "/query", "/execute", "/exec", "/run", "/operations", "/operation",
+            "/databases", "/accounts", "/privileges"]:
+    fetch(f"{BASE}/api/database{sub}")
 
-hit("4. Accept: text/plain",
-    f"{BASE}/api/query?query=table+test_table+%7C+limit+1",
-    accept="text/plain")
 
-# ─────────────────────────────────────────────
-#  5. POST로 시도 (REST API 표준)
-# ─────────────────────────────────────────────
-print(f"\n{'='*70}")
-print("  5. POST /api/query")
-print('='*70)
-r = requests.post(f"{BASE}/api/query",
-                  headers={**HEADERS, "Accept": "application/json",
-                           "Content-Type": "application/x-www-form-urlencoded"},
-                  data={"query": "table test_table | limit 1"},
-                  verify=False, timeout=30)
-print(f"HTTP {r.status_code}")
-print(f"응답: {r.text[:500]}")
+print("\n" + "="*70)
+print("  /api/database/tables/test_table 시도 (RESTful 패턴)")
+print("="*70)
+print()
+fetch(f"{BASE}/api/database/tables")
+fetch(f"{BASE}/api/database/tables/test_table")
+fetch(f"{BASE}/api/database/test_table")
 
-# ─────────────────────────────────────────────
-#  6. 그동안 잘 됐던 httpexport 조회와 비교
-# ─────────────────────────────────────────────
-print(f"\n{'='*70}")
-print("  6. 비교: httpexport (작동 확인된 경로)")
-print('='*70)
-url = (f"{BASE}/logpresso/httpexport/query.csv"
-       f"?_apikey={API_KEY}"
-       f"&_q={urllib.parse.quote('table test_table | limit 1', safe='')}")
-r = requests.get(url, verify=False, timeout=30)
-print(f"HTTP {r.status_code}")
-print(f"Content-Type: {r.headers.get('Content-Type')}")
-print(f"응답: {r.text[:500]}")
+
+print("\n" + "="*70)
+print("  /api/user 도 한 번")
+print("="*70)
+print()
+fetch(f"{BASE}/api/user")
