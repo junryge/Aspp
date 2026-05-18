@@ -1,69 +1,77 @@
 """
-정답 경로 발견: GET /api/query + Authorization: Bearer
-이제 정확한 쿼리 파라미터 이름 찾아서 import 실행
+HTTP 200 + HTML 응답의 실체 확인
+- 진짜 쿼리 실행한 거면 응답에 데이터 또는 쿼리ID 있어야 함
+- 단순히 HTML 페이지 라우트면 React 앱 셸 HTML이 옴
 """
 import requests, urllib.parse, urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-HOST = "10.40.42.27"
-PORT = 8888
 API_KEY = "db1d2335-49cf-e859-3519-1ca132922e38"
-BASE = f"http://{HOST}:{PORT}"
-
+BASE = "http://10.40.42.27:8888"
 HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
-Q = "json \"{FIELD1 = 'hello', FIELD2 = 'world'}\" | import test_table"
 
-
-def run(label, path, **kwargs):
-    url = f"{BASE}{path}"
-    if kwargs.get("params"):
-        url += "?" + urllib.parse.urlencode(kwargs["params"])
-    try:
-        r = requests.get(f"{BASE}{path}",
-                         headers=HEADERS,
-                         params=kwargs.get("params"),
-                         verify=False, timeout=30)
-        ok = "✅" if 200 <= r.status_code < 300 else "❌"
-        body = r.text[:300].replace('\n', ' ').strip()
-        if body.startswith("<"):
-            body = "[HTML]"
-        print(f"{ok} [{label}] HTTP {r.status_code}")
-        print(f"   URL: {r.url[:150]}")
-        print(f"   응답: {body[:200]}\n")
-        return r
-    except Exception as e:
-        print(f"❌ [{label}] {e}\n")
-        return None
+def hit(label, url, accept=None):
+    h = HEADERS.copy()
+    if accept:
+        h["Accept"] = accept
+    r = requests.get(url, headers=h, verify=False, timeout=30)
+    print(f"\n{'='*70}")
+    print(f"  [{label}] HTTP {r.status_code}  (Accept: {accept or '없음'})")
+    print(f"  Content-Type: {r.headers.get('Content-Type')}")
+    print(f"  Content-Length: {len(r.text)} bytes")
+    print('='*70)
+    print(r.text[:1500])
+    return r
 
 
 # ─────────────────────────────────────────────
-#  1. 파라미터 이름 탐색
+#  1. 쿼리 안 보내고 그냥 /api/query GET → HTML 정체 확인
 # ─────────────────────────────────────────────
-print("="*70)
-print("  /api/query GET - 쿼리 파라미터 이름 찾기")
-print("="*70)
-print()
+hit("1. /api/query 단독 (쿼리 없음)",
+    f"{BASE}/api/query")
 
-# 우선 파라미터 없이 → 어떤 파라미터를 요구하는지 힌트
-run("파라미터 없음",         "/api/query")
-run("query=",                "/api/query", params={"query": Q})
-run("q=",                    "/api/query", params={"q": Q})
-run("_q=",                   "/api/query", params={"_q": Q})
-run("queryString=",          "/api/query", params={"queryString": Q})
-run("query_string=",         "/api/query", params={"query_string": Q})
+# ─────────────────────────────────────────────
+#  2. 명백히 잘못된 쿼리 → 에러 응답 보이는지
+# ─────────────────────────────────────────────
+hit("2. 잘못된 쿼리 (구문오류)",
+    f"{BASE}/api/query?query=BLAHBLAH_INVALID")
 
-# 단순 조회로도 확인 (확실히 통과할 거)
-print("\n" + "="*70)
-print("  /api/queries 도 확인")
-print("="*70)
-print()
-run("queries query=",        "/api/queries", params={"query": Q})
+# ─────────────────────────────────────────────
+#  3. Accept JSON 명시 - JSON으로 받기
+# ─────────────────────────────────────────────
+hit("3. Accept: application/json",
+    f"{BASE}/api/query?query=table+test_table+%7C+limit+1",
+    accept="application/json")
 
-# 조회로도 같은 형식 확인 (어떤 형식이 응답 정상으로 오는지)
-print("\n" + "="*70)
-print("  단순 조회 - 응답 포맷 확인용")
-print("="*70)
-print()
-run("table 조회 query=",     "/api/query", params={"query": "table test_table | limit 1"})
-run("table 조회 q=",         "/api/query", params={"q": "table test_table | limit 1"})
+hit("4. Accept: text/plain",
+    f"{BASE}/api/query?query=table+test_table+%7C+limit+1",
+    accept="text/plain")
+
+# ─────────────────────────────────────────────
+#  5. POST로 시도 (REST API 표준)
+# ─────────────────────────────────────────────
+print(f"\n{'='*70}")
+print("  5. POST /api/query")
+print('='*70)
+r = requests.post(f"{BASE}/api/query",
+                  headers={**HEADERS, "Accept": "application/json",
+                           "Content-Type": "application/x-www-form-urlencoded"},
+                  data={"query": "table test_table | limit 1"},
+                  verify=False, timeout=30)
+print(f"HTTP {r.status_code}")
+print(f"응답: {r.text[:500]}")
+
+# ─────────────────────────────────────────────
+#  6. 그동안 잘 됐던 httpexport 조회와 비교
+# ─────────────────────────────────────────────
+print(f"\n{'='*70}")
+print("  6. 비교: httpexport (작동 확인된 경로)")
+print('='*70)
+url = (f"{BASE}/logpresso/httpexport/query.csv"
+       f"?_apikey={API_KEY}"
+       f"&_q={urllib.parse.quote('table test_table | limit 1', safe='')}")
+r = requests.get(url, verify=False, timeout=30)
+print(f"HTTP {r.status_code}")
+print(f"Content-Type: {r.headers.get('Content-Type')}")
+print(f"응답: {r.text[:500]}")
