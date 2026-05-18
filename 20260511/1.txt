@@ -1,6 +1,5 @@
 """
-/api/database 응답에서 전체 API 함수 목록 추출
-→ insert/import/save 류 함수 찾기
+마지막 확인 - /api 전체 그룹 + 모든 함수 끝까지
 """
 import requests, urllib3, re
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -9,45 +8,33 @@ API_KEY = "db1d2335-49cf-e859-3519-1ca132922e38"
 BASE = "http://10.40.42.27:8888"
 HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
-# ─────────────────────────────────────────────
-#  1. /api/database 전체 텍스트 받기
-# ─────────────────────────────────────────────
-r = requests.get(f"{BASE}/api/database", headers=HEADERS, verify=False, timeout=15)
-html = r.text
 
-# HTML 정리
-body = re.search(r'<body>(.*?)</body>', html, re.DOTALL)
-text = body.group(1) if body else html
-text = re.sub(r'<[^>]+>', '\n', text)
-text = re.sub(r'\n\s*\n', '\n', text)
-text = text.strip()
+def fetch_full(path):
+    r = requests.get(f"{BASE}{path}", headers=HEADERS, verify=False, timeout=15)
+    html = r.text
+    body = re.search(r'<body>(.*?)</body>', html, re.DOTALL)
+    text = body.group(1) if body else html
+    text = re.sub(r'<[^>]+>', '\n', text)
+    text = re.sub(r'\n\s*\n', '\n', text).strip()
+    return text
 
+
+# 1. /api 루트
 print("="*70)
-print("  /api/database 전체 카탈로그")
+print("  /api 루트 (전체 그룹 목록)")
 print("="*70)
-print(text)
+print(fetch_full("/api"))
 
-# ─────────────────────────────────────────────
-#  2. 함수 이름 추출 (insert/import/save/add/put 류)
-# ─────────────────────────────────────────────
+# 2. /api/user 전체
 print("\n" + "="*70)
-print("  ⭐ 데이터 입력 가능한 함수 (insert/import/save/add/put/create)")
+print("  /api/user 전체")
 print("="*70)
+print(fetch_full("/api/user"))
 
-keywords = ['insert', 'import', 'save', 'add', 'put', 'create', 'write', 'append', 'push', 'log']
-for kw in keywords:
-    # GET/POST /database/...keyword... 형태
-    matches = re.findall(rf'((?:GET|POST|PUT|DELETE)\s+/database/\w*{kw}\w*)', text, re.IGNORECASE)
-    for m in set(matches):
-        print(f"  → {m}")
-
-
-# ─────────────────────────────────────────────
-#  3. 모든 함수 이름 추출
-# ─────────────────────────────────────────────
+# 3. /api/database 끝까지 (혹시 잘렸을까)
 print("\n" + "="*70)
-print("  /api/database 전체 함수 목록")
+print("  /api/database (전체 길이 확인)")
 print("="*70)
-all_funcs = re.findall(r'((?:GET|POST|PUT|DELETE)\s+/database/\w+)', text)
-for f in all_funcs:
-    print(f"  {f}")
+full = fetch_full("/api/database")
+print(f"전체 길이: {len(full)} 글자")
+print(full)
