@@ -1,281 +1,114 @@
 """
-HUBROOM_PIVOT_DATA 1분 주기 CSV 저장기
+ConnectionError 진단 + 해결
 
-동작:
-  1) 1분마다 HUB_ROOM_INPUT_DATA 쿼리 실행 (now() 기준 최근 30분)
-  2) 결과를 HUBROOM_PIVOT_DATA.csv 로 저장
-  3) Ctrl+C 까지 무한 반복
+원인 가능성:
+  1) URL 너무 김 (쿼리가 너무 길어서)
+  2) 쿼리 실행 시간 초과
+  3) 서버 일시 장애
 
-사용법:
-  1) api_key.txt 같은 폴더에 두기
-  2) python hubroom_collector.py
-  3) 옵션: python hubroom_collector.py --once  (1회만 실행)
+대응:
+  A) 단계별 분해 테스트 (가장 단순한 쿼리부터)
+  B) URL 길이 측정
+  C) 짧은 쿼리는 되는지 확인
 """
 import os
 import sys
-import time
-import argparse
 import requests
 import urllib.parse
 import urllib3
-import pandas as pd
-from io import StringIO
-from datetime import datetime
-
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
-# ═══════════════════════════════════════════════════════════════
-#  설정
-# ═══════════════════════════════════════════════════════════════
-HOST    = "10.40.42.27"
-PORT    = 8888
-BASE    = f"http://{HOST}:{PORT}/logpresso/httpexport/query.csv"
-
-OUTPUT_FILE = "HUBROOM_PIVOT_DATA.csv"
-INTERVAL_SEC = 60  # 1분
-
-
-# ═══════════════════════════════════════════════════════════════
-#  API_KEY 로드
-# ═══════════════════════════════════════════════════════════════
-def load_api_key() -> str:
+# API_KEY 로드
+def load_api_key():
     here = os.path.dirname(os.path.abspath(__file__))
-    candidates = [
-        os.path.join(here, "api_key.txt"),
-        os.path.join(os.getcwd(), "api_key.txt"),
-        os.path.expanduser("~/.logpresso/api_key.txt"),
-    ]
-    for path in candidates:
+    for path in [os.path.join(here, "api_key.txt"),
+                 os.path.join(os.getcwd(), "api_key.txt")]:
         if os.path.exists(path):
             with open(path, "r", encoding="utf-8") as f:
-                key = f.read().strip().splitlines()[0].strip()
-            if key:
-                return key
-    env_key = os.environ.get("LOGPRESSO_API_KEY")
-    if env_key:
-        return env_key.strip()
-    print("❌ api_key.txt 가 필요합니다.")
-    sys.exit(1)
+                return f.read().strip().splitlines()[0].strip()
+    return os.environ.get("LOGPRESSO_API_KEY", "")
 
 
 API_KEY = load_api_key()
+BASE = "http://10.40.42.27:8888/logpresso/httpexport/query.csv"
 
 
-# ═══════════════════════════════════════════════════════════════
-#  HUB_ROOM_INPUT_DATA 쿼리 (CDATA 안의 LPQL)
-# ═══════════════════════════════════════════════════════════════
-HUB_ROOM_QUERY = """
-set TO = now()
-| set FR = dateadd($("TO"), "min", -30)
-| table from=$("FR") to=$("TO") test_bridge_layout
-| search  in (FLOW,
-    "CURRENT_M16A_3F_JOB",
-    "CURRENT_M16A_3F_JOB_2",
-    "M14A_3F_CNV_MAXCAPA",
-    "M14A_3F_TO_HUB_CMD",
-    "M14A_3F_TO_HUB_JOB2",
-    "M14A_3F_TO_HUB_JOB_ALT",
-    "M14B_7F_LFT_MAXCAPA",
-    "M14B_7F_TO_HUB_CMD",
-    "M14B_7F_TO_HUB_JOB2",
-    "M14B_7F_TO_HUB_JOB_ALT",
-    "M14_TO_M16_OFS_CUR",
-    "M16A_2F_LFT_MAXCAPA",
-    "M16A_2F_TO_6F_JOB",
-    "M16A_2F_TO_HUB_CMD",
-    "M16A_2F_TO_HUB_JOB2",
-    "M16A_2F_TO_HUB_JOB_ALT",
-    "M16A_3F_CMD",
-    "M16A_3F_CNV_MAXCAPA",
-    "M16A_3F_LFT_MAXCAPA",
-    "M16A_3F_M14BLFT_MAXCAPA",
-    "M16A_3F_TO_3F_MLUD_JOB",
-    "M16A_3F_TO_M14A_3F_JOB",
-    "M16A_3F_TO_M14A_CNV_AI_CMD",
-    "M16A_3F_TO_M14B_7F_JOB",
-    "M16A_3F_TO_M14B_LFT_AI_CMD",
-    "M16A_3F_TO_M16A_2F_JOB",
-    "M16A_3F_TO_M16A_3F_STB_CMD",
-    "M16A_3F_TO_M16A_6F_JOB",
-    "M16A_3F_TO_M16A_LFT_AI_CMD",
-    "M16A_3F_TO_M16A_MLUD_AI_CMD",
-    "M16A_6F_LFT_MAXCAPA",
-    "M16A_6F_TO_2F_JOB",
-    "M16A_6F_TO_HUB_CMD",
-    "M16A_6F_TO_HUB_JOB",
-    "M16A_6F_TO_HUB_JOB_ALT",
-    "M16B_10F_TO_HUB_JOB",
-    "HUBROOMTOTAL"
-)
-or IDC_NM == "CD_M163FSTORAGEUTIL"
-or FLOW == "M16_TO_M14_OFS"
-or FLOW == "M14_TO_M16_OFS"
-| eval
-    FLOW = case(isnull(FLOW), IDC_NM, FLOW),
-    STAT_DT = case(isnull(STAT_DT), EVENT_DT, STAT_DT),
-    VAL = case(isnull(VAL), CURR_VAL, VAL)
-| eval
-    FLOW = case(FLOW == "M16_TO_M14_OFS", "M16_TO_M14_OFS_CUR", FLOW=="M14_TO_M16_OFS", "M14_TO_M16_OFS_CUR",FLOW)
-| eval
-    FLOW = case(FLOW == "CD_M163FSTORAGEUTIL", "M16A_3F_STORAGE_UTIL", FLOW)
-| rename FLOW as IDC_NM, VAL as IDC_VAL
-| sort STAT_DT, ID
-| fields STAT_DT, IDC_NM, IDC_VAL
-
-| union [
-    table from=$("FR") to=$("TO") test_bridge_layout
-    | search in (IDC_NM,
-        "CD_M163FSTORAGEUSE",
-        "CD_M163FSTORAGETOTAL",
-        "CD_M163FSTORAGEUTIL"
-    )
-    | eval STAT_DT = case(isnull(STAT_DT), EVENT_DT, STAT_DT)
-    | rename CURR_VAL as IDC_VAL
-]
-
-| pivot sum(long(IDC_VAL)) as IDC_VAL by STAT_DT for IDC_NM
-
-| join type=full STAT_DT [
-    table from=$("FR") to=$("TO") star_transport_view
-
-    | union [
-        table from=$("FR") to=$("TO") star_transport_view
-        | search in (IDC_NM, "M16HUB.QUE.TIME.AVGTOTALTIME", "M16A.QUE.OHT.OHTUTIL")
-
-        | eval IDC_NM = if(IDC_NM == "M16HUB.QUE.TIME.AVGTOTALTIME", "M16HUB.QUE.TIME.AVGTOTALTIME1MIN", "M16HUB.QUE.OHT.OHTUTIL")
-    ]
-    | eval STAT_DT = string(CRT_TM, "yyyyMMddHHmm")
-
-    | union [
-        table from=$("FR") to=$("TO") ATLAS_RAIL_TRAFFIC
-        | search HID_ID != ""
-        | eval IDC_NM = concat(fabId, "_", mcpName, "_AVG_VELOCITY"), STAT_DT = string(_time, "yyyyMMddHHmm")
-        | stats avg(velocity) as V by STAT_DT, IDC_NM
-        | eval IDC_VAL = round(V, 1)
-    ]
-    | eval IDC_VAL = case(isnull(IDC_VAL), 0, IDC_VAL)
-    | pivot last(IDC_VAL) as IDC_VAL by STAT_DT for IDC_NM
-
-    | fields
-        STAT_DT,
-        M16HUB.QUE.TIME.AVGTOTALTIME1MIN,
-        M16HUB.QUE.OHT.OHTUTIL,
-        M16HUB.QUE.TIME.AVGTOTALTIME,
-        M16HUB.QUE.OHT.CURRENTOHTQCNT,
-        M16HUB.QUE.ALL.FABTRANSJOBCNT,
-        M16HUB.QUE.ALL.CURRENTQCOMPLETED,
-        M16HUB.QUE.ALL.CURRENTQCNT,
-        M16A.QUE.OHT.OHTUTIL,
-        M16A.QUE.OHT.CURRENTOHTQCNT,
-        M16A.QUE.LOAD.AVGLOADTIME1MIN,
-        M16A.QUE.ALL.TRANSPORT4MINOVERCNT,
-        M16A.QUE.ALL.CURRENTQCREATED,
-        M16A.QUE.ALL.CURRENTQCOMPLETED,
-        M14.QUE.ALL.CURRENTQCREATED,
-        M14.QUE.ALL.CURRENTQCOMPLETED,
-        M14.QUE.OHT.OHTUTIL,
-        M14.QUE.ALL.TRANSPORT4MINOVERCNT,
-        M14B.QUE.SENDFAB.VERTICALQUEUECOUNT,
-        M16HUB.QUE.ALL.CURRENTQCREATED,
-        M16HUB.QUE.ALL.MESCURRENTQCNT,
-        M14A_A_AVG_VELOCITY,
-        M16A_BR_AVG_VELOCITY,
-        M16A.QUE.ABN.QUETIMEDELAY
-]
-"""
-
-
-# ═══════════════════════════════════════════════════════════════
-#  쿼리 실행 → DataFrame
-# ═══════════════════════════════════════════════════════════════
-def query_logpresso(query: str, timeout: int = 180):
-    """LPQL 쿼리 실행 → (DataFrame, None) 또는 (None, error_info)"""
-    clean_q = " ".join(query.split())
+def run(label, q, timeout=60):
+    clean_q = " ".join(q.split())
     encoded = urllib.parse.quote(clean_q, safe="")
     url = f"{BASE}?_apikey={API_KEY}&_q={encoded}"
 
+    print(f"\n{'='*70}")
+    print(f"  [{label}]")
+    print(f"  쿼리 길이: {len(clean_q)} 글자")
+    print(f"  URL 길이: {len(url)} bytes")
+    print('='*70)
+
     try:
         resp = requests.get(url, verify=False, timeout=timeout)
-        if resp.status_code == 200 and resp.text.strip():
-            if resp.text.strip().startswith("<!"):
-                return None, {"reason": "HTML 에러 페이지", "preview": resp.text[:300]}
-            df = pd.read_csv(StringIO(resp.text))
-            return df, None
-        return None, {"reason": f"HTTP {resp.status_code}",
-                     "preview": resp.text[:300]}
+        if resp.status_code == 200:
+            body = resp.text[:200]
+            if body.strip().startswith("<"):
+                print(f"❌ HTML 에러 페이지 ({resp.status_code})")
+            else:
+                print(f"✅ HTTP {resp.status_code}")
+                print(f"   응답: {body[:150]}")
+        else:
+            print(f"❌ HTTP {resp.status_code}")
+            print(f"   {resp.text[:200]}")
+    except requests.exceptions.ConnectionError as e:
+        print(f"❌ ConnectionError: {e}")
+    except requests.exceptions.Timeout as e:
+        print(f"❌ Timeout: {e}")
     except Exception as e:
-        return None, {"reason": f"{type(e).__name__}: {e}"}
+        print(f"❌ {type(e).__name__}: {e}")
 
 
-# ═══════════════════════════════════════════════════════════════
-#  CSV 저장
-# ═══════════════════════════════════════════════════════════════
-def save_csv(df: pd.DataFrame, path: str):
-    """utf-8-sig (엑셀 한글 안 깨짐)으로 덮어쓰기 저장"""
-    df.to_csv(path, encoding="utf-8-sig", index=False)
+# ─────────────────────────────────────────────
+#  단계별 테스트
+# ─────────────────────────────────────────────
 
+# 1) 가장 짧은 쿼리 - 서버 자체 살아있는지
+run("1. 최소 쿼리",
+    'json "{}" | eval msg = "ping"')
 
-# ═══════════════════════════════════════════════════════════════
-#  1회 수집
-# ═══════════════════════════════════════════════════════════════
-def collect_once():
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"\n[{ts}] HUBROOM_INPUT_DATA 쿼리 실행 중...")
+# 2) test_bridge_layout 테이블 자체 1건만
+run("2. test_bridge_layout 1건",
+    'table test_bridge_layout | limit 1')
 
-    df, err = query_logpresso(HUB_ROOM_QUERY)
-    if err:
-        print(f"  ❌ 실패: {err['reason']}")
-        if err.get('preview'):
-            print(f"     {err['preview'][:200]}")
-        return False
+# 3) star_transport_view 1건
+run("3. star_transport_view 1건",
+    'table star_transport_view | limit 1')
 
-    if df is None or df.empty:
-        print(f"  ⚠️  결과 0건")
-        return False
+# 4) ATLAS_RAIL_TRAFFIC 1건
+run("4. ATLAS_RAIL_TRAFFIC 1건",
+    'table ATLAS_RAIL_TRAFFIC | limit 1')
 
-    save_csv(df, OUTPUT_FILE)
-    print(f"  ✅ {len(df)}행 × {len(df.columns)}컬럼 → {OUTPUT_FILE}")
-    return True
+# 5) HUB_ROOM_INPUT_DATA 첫 부분만 (test_bridge_layout + search + eval)
+short_q = """
+set TO = now()
+| set FR = dateadd($("TO"), "min", -10)
+| table from=$("FR") to=$("TO") test_bridge_layout
+| search in (FLOW, "HUBROOMTOTAL", "M16A_3F_CMD")
+| limit 5
+"""
+run("5. HUB_ROOM 짧은 버전 (10분, 항목 2개, limit 5)",
+    short_q)
 
-
-# ═══════════════════════════════════════════════════════════════
-#  메인 - 1분 주기 무한 반복
-# ═══════════════════════════════════════════════════════════════
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--once", action="store_true", help="1회만 실행")
-    parser.add_argument("--interval", type=int, default=INTERVAL_SEC,
-                       help=f"주기(초), 기본 {INTERVAL_SEC}초")
-    args = parser.parse_args()
-
-    print(f"="*70)
-    print(f"  HUBROOM 수집기")
-    print(f"  출력: {os.path.abspath(OUTPUT_FILE)}")
-    print(f"  주기: {args.interval}초")
-    print(f"  중단: Ctrl+C")
-    print(f"="*70)
-
-    if args.once:
-        collect_once()
-        return
-
-    while True:
-        try:
-            t0 = time.time()
-            collect_once()
-            # 정확히 interval초 주기로 (수집 소요시간 제외)
-            elapsed = time.time() - t0
-            sleep_sec = max(1, args.interval - elapsed)
-            time.sleep(sleep_sec)
-        except KeyboardInterrupt:
-            print("\n\n중단됨")
-            break
-        except Exception as e:
-            print(f"\n예외: {e}")
-            print("60초 후 재시도...")
-            time.sleep(60)
-
-
-if __name__ == "__main__":
-    main()
+# 6) 실제 HUB_ROOM_INPUT_DATA URL 길이만 측정 (실행은 안 함)
+from hubroom_collector import HUB_ROOM_QUERY  # 옆 파일에서 가져옴
+clean = " ".join(HUB_ROOM_QUERY.split())
+encoded = urllib.parse.quote(clean, safe="")
+full_url = f"{BASE}?_apikey={API_KEY}&_q={encoded}"
+print(f"\n{'='*70}")
+print(f"  [6. 원본 HUB_ROOM_INPUT_DATA URL 길이 측정]")
+print(f"{'='*70}")
+print(f"  쿼리 길이: {len(clean)} 글자")
+print(f"  URL 인코딩 후: {len(encoded)} bytes")
+print(f"  최종 URL: {len(full_url)} bytes")
+print(f"  → 8000 bytes 넘으면 서버 거부 가능성 큼")
+if len(full_url) > 8000:
+    print(f"  ⚠️  너무 김! POST 방식 또는 쿼리 분할 필요")
+else:
+    print(f"  ✅ URL 길이는 OK - 다른 원인 (쿼리 실행 타임아웃 가능성)")
