@@ -1,11 +1,21 @@
 """
-쿼리가 어느 부분에서 끊기는지 단계별 진단
-범위도 30분 → 5분 → 3분으로 줄여가며 확인
+HUB_ROOM_INPUT_DATA → HUBROOM_PIVOT_DATA.csv
+
+전체 쿼리가 무거워서 끊기는 문제 해결:
+  - PART1: test_bridge_layout 기반 데이터 (IDC + STORAGE)
+  - PART2: star_transport_view + ATLAS_RAIL_TRAFFIC 기반 데이터
+  - Python에서 STAT_DT 기준 outer merge
+
+각각 따로 받으면 서버 부담 적고, join도 Python pandas가 처리.
 """
-import os, sys, requests, urllib.parse, urllib3, time
+import os, sys, time, requests, urllib.parse, urllib3
+import pandas as pd
+from io import StringIO
+from datetime import datetime
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
+# ─── 설정 ──────────────────────────────────────
 def load_api_key():
     here = os.path.dirname(os.path.abspath(__file__))
     for p in [os.path.join(here, "api_key.txt"),
@@ -15,102 +25,140 @@ def load_api_key():
                 return f.read().strip().splitlines()[0].strip()
     sys.exit("❌ api_key.txt 없음")
 
-
 API_KEY = load_api_key()
 BASE = "http://10.40.42.27:8888/logpresso/httpexport/query.csv"
+OUTPUT = "HUBROOM_PIVOT_DATA.csv"
+INTERVAL = 60
+RANGE_MIN = 30  # 분
 
 
-def run(label, query, timeout=180):
-    q = " ".join(query.split())
-    url = f"{BASE}?_apikey={API_KEY}&_q={urllib.parse.quote(q, safe='')}"
-    print(f"\n{'─'*70}")
-    print(f"  [{label}]")
-    print(f"  URL: {len(url)} bytes")
+# ─── PART1: test_bridge_layout 기반 ─────────────
+PART1_QUERY = f"""
+set TO = now()
+| set FR = dateadd($("TO"), "min", -{RANGE_MIN})
+| table from=$("FR") to=$("TO") test_bridge_layout
+| search in (FLOW,
+    "CURRENT_M16A_3F_JOB", "CURRENT_M16A_3F_JOB_2", "M14A_3F_CNV_MAXCAPA",
+    "M14A_3F_TO_HUB_CMD", "M14A_3F_TO_HUB_JOB2", "M14A_3F_TO_HUB_JOB_ALT",
+    "M14B_7F_LFT_MAXCAPA", "M14B_7F_TO_HUB_CMD", "M14B_7F_TO_HUB_JOB2",
+    "M14B_7F_TO_HUB_JOB_ALT", "M14_TO_M16_OFS_CUR", "M16A_2F_LFT_MAXCAPA",
+    "M16A_2F_TO_6F_JOB", "M16A_2F_TO_HUB_CMD", "M16A_2F_TO_HUB_JOB2",
+    "M16A_2F_TO_HUB_JOB_ALT", "M16A_3F_CMD", "M16A_3F_CNV_MAXCAPA",
+    "M16A_3F_LFT_MAXCAPA", "M16A_3F_M14BLFT_MAXCAPA", "M16A_3F_TO_3F_MLUD_JOB",
+    "M16A_3F_TO_M14A_3F_JOB", "M16A_3F_TO_M14A_CNV_AI_CMD", "M16A_3F_TO_M14B_7F_JOB",
+    "M16A_3F_TO_M14B_LFT_AI_CMD", "M16A_3F_TO_M16A_2F_JOB", "M16A_3F_TO_M16A_3F_STB_CMD",
+    "M16A_3F_TO_M16A_6F_JOB", "M16A_3F_TO_M16A_LFT_AI_CMD", "M16A_3F_TO_M16A_MLUD_AI_CMD",
+    "M16A_6F_LFT_MAXCAPA", "M16A_6F_TO_2F_JOB", "M16A_6F_TO_HUB_CMD",
+    "M16A_6F_TO_HUB_JOB", "M16A_6F_TO_HUB_JOB_ALT", "M16B_10F_TO_HUB_JOB",
+    "HUBROOMTOTAL")
+or IDC_NM == "CD_M163FSTORAGEUTIL"
+or FLOW == "M16_TO_M14_OFS"
+or FLOW == "M14_TO_M16_OFS"
+or IDC_NM == "CD_M163FSTORAGEUSE"
+or IDC_NM == "CD_M163FSTORAGETOTAL"
+| eval FLOW = case(isnull(FLOW), IDC_NM, FLOW),
+       STAT_DT = case(isnull(STAT_DT), EVENT_DT, STAT_DT),
+       VAL = case(isnull(VAL), CURR_VAL, VAL)
+| eval FLOW = case(FLOW == "M16_TO_M14_OFS", "M16_TO_M14_OFS_CUR",
+                   FLOW=="M14_TO_M16_OFS", "M14_TO_M16_OFS_CUR", FLOW)
+| eval FLOW = case(FLOW == "CD_M163FSTORAGEUTIL", "M16A_3F_STORAGE_UTIL", FLOW)
+| rename FLOW as IDC_NM, VAL as IDC_VAL
+| fields STAT_DT, IDC_NM, IDC_VAL
+| pivot sum(long(IDC_VAL)) as IDC_VAL by STAT_DT for IDC_NM
+"""
+
+
+# ─── PART2: star_transport_view + ATLAS_RAIL_TRAFFIC ─
+PART2_QUERY = f"""
+set TO = now()
+| set FR = dateadd($("TO"), "min", -{RANGE_MIN})
+| table from=$("FR") to=$("TO") star_transport_view
+| union [
+    table from=$("FR") to=$("TO") star_transport_view
+    | search in (IDC_NM, "M16HUB.QUE.TIME.AVGTOTALTIME", "M16A.QUE.OHT.OHTUTIL")
+    | eval IDC_NM = if(IDC_NM == "M16HUB.QUE.TIME.AVGTOTALTIME",
+                       "M16HUB.QUE.TIME.AVGTOTALTIME1MIN", "M16HUB.QUE.OHT.OHTUTIL")
+]
+| eval STAT_DT = string(CRT_TM, "yyyyMMddHHmm")
+| union [
+    table from=$("FR") to=$("TO") ATLAS_RAIL_TRAFFIC
+    | search HID_ID != ""
+    | eval IDC_NM = concat(fabId, "_", mcpName, "_AVG_VELOCITY"),
+           STAT_DT = string(_time, "yyyyMMddHHmm")
+    | stats avg(velocity) as V by STAT_DT, IDC_NM
+    | eval IDC_VAL = round(V, 1)
+]
+| eval IDC_VAL = case(isnull(IDC_VAL), 0, IDC_VAL)
+| pivot last(IDC_VAL) as IDC_VAL by STAT_DT for IDC_NM
+"""
+
+
+# ─── 쿼리 실행 ─────────────────────────────────
+def query(label, q, timeout=180):
+    qs = " ".join(q.split())
+    url = f"{BASE}?_apikey={API_KEY}&_q={urllib.parse.quote(qs, safe='')}"
     t0 = time.time()
     try:
         r = requests.get(url, verify=False, timeout=timeout)
-        elapsed = time.time() - t0
-        if r.status_code == 200 and not r.text.startswith("<"):
-            lines = r.text.count('\n')
-            print(f"  ✅ {elapsed:.1f}초, {lines}행")
-        else:
-            print(f"  ❌ HTTP {r.status_code} ({elapsed:.1f}초)")
+        el = time.time() - t0
+        if r.status_code != 200 or r.text.strip().startswith("<"):
+            print(f"  ❌ [{label}] HTTP {r.status_code} ({el:.1f}초)")
+            return None
+        df = pd.read_csv(StringIO(r.text))
+        print(f"  ✅ [{label}] {len(df)}행 × {len(df.columns)}컬럼 ({el:.1f}초)")
+        return df
     except Exception as e:
-        elapsed = time.time() - t0
-        print(f"  ❌ {elapsed:.1f}초 후 {type(e).__name__}")
+        el = time.time() - t0
+        print(f"  ❌ [{label}] {el:.1f}초 후 {type(e).__name__}")
+        return None
 
 
-# ─────────────────────────────────────────────
-#  1. test_bridge_layout 단순 조회 - 시간범위 5분
-# ─────────────────────────────────────────────
-run("1. test_bridge_layout 5분 단순",
-    """
-    set TO = now()
-    | set FR = dateadd($("TO"), "min", -5)
-    | table from=$("FR") to=$("TO") test_bridge_layout
-    | stats count
-    """)
+# ─── 수집 1회 ─────────────────────────────────
+def collect():
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"\n[{ts}] 수집 시작")
 
-# ─────────────────────────────────────────────
-#  2. test_bridge_layout 30분 단순
-# ─────────────────────────────────────────────
-run("2. test_bridge_layout 30분 단순",
-    """
-    set TO = now()
-    | set FR = dateadd($("TO"), "min", -30)
-    | table from=$("FR") to=$("TO") test_bridge_layout
-    | stats count
-    """)
+    df1 = query("PART1 (test_bridge_layout)", PART1_QUERY)
+    df2 = query("PART2 (star_transport + rail)", PART2_QUERY)
 
-# ─────────────────────────────────────────────
-#  3. star_transport_view 30분
-# ─────────────────────────────────────────────
-run("3. star_transport_view 30분",
-    """
-    set TO = now()
-    | set FR = dateadd($("TO"), "min", -30)
-    | table from=$("FR") to=$("TO") star_transport_view
-    | stats count
-    """)
+    if df1 is None and df2 is None:
+        print("  ❌ 둘 다 실패")
+        return
 
-# ─────────────────────────────────────────────
-#  4. ATLAS_RAIL_TRAFFIC 30분
-# ─────────────────────────────────────────────
-run("4. ATLAS_RAIL_TRAFFIC 30분",
-    """
-    set TO = now()
-    | set FR = dateadd($("TO"), "min", -30)
-    | table from=$("FR") to=$("TO") ATLAS_RAIL_TRAFFIC
-    | stats count
-    """)
+    if df1 is None:
+        merged = df2
+    elif df2 is None:
+        merged = df1
+    else:
+        # STAT_DT 기준 outer merge (full join 효과)
+        merged = pd.merge(df1, df2, on="STAT_DT", how="outer")
 
-# ─────────────────────────────────────────────
-#  5. 첫 번째 부분만 - pivot까지만 (5분)
-# ─────────────────────────────────────────────
-run("5. HUB_ROOM 1부 (5분 + pivot)",
-    """
-    set TO = now()
-    | set FR = dateadd($("TO"), "min", -5)
-    | table from=$("FR") to=$("TO") test_bridge_layout
-    | search in (FLOW, "HUBROOMTOTAL", "M16A_3F_CMD") or IDC_NM == "CD_M163FSTORAGEUTIL"
-    | eval FLOW = case(isnull(FLOW), IDC_NM, FLOW),
-           STAT_DT = case(isnull(STAT_DT), EVENT_DT, STAT_DT),
-           VAL = case(isnull(VAL), CURR_VAL, VAL)
-    | rename FLOW as IDC_NM, VAL as IDC_VAL
-    | fields STAT_DT, IDC_NM, IDC_VAL
-    | pivot sum(long(IDC_VAL)) as IDC_VAL by STAT_DT for IDC_NM
-    """)
+    if "STAT_DT" in merged.columns:
+        merged = merged.sort_values("STAT_DT")
+
+    merged.to_csv(OUTPUT, encoding="utf-8-sig", index=False)
+    print(f"  ✅ 병합 {len(merged)}행 × {len(merged.columns)}컬럼 → {OUTPUT}")
 
 
-# ─────────────────────────────────────────────
-#  결론 - 어디서 끊기는지에 따라 다른 처방
-# ─────────────────────────────────────────────
-print(f"\n{'='*70}")
-print("  결과 해석")
-print(f"{'='*70}")
-print("""
-1번 ✅, 2번 ❌  → test_bridge_layout 30분치가 무거움 → 범위를 줄여야 함
-3번/4번 ❌     → 해당 테이블이 무거움
-5번 ✅         → 부분 쿼리는 동작, 전체 쿼리에서 join/union이 부담
-모두 ✅        → 원본 쿼리만 특별히 무거움 (범위 줄이기)
-""")
+# ─── 메인 ─────────────────────────────────────
+if __name__ == "__main__":
+    once = "--once" in sys.argv
+
+    print(f"{'='*60}")
+    print(f"  HUBROOM 수집기 (쿼리 분할 방식)")
+    print(f"  출력: {os.path.abspath(OUTPUT)}")
+    print(f"  범위: {RANGE_MIN}분, 주기: {INTERVAL}초")
+    print(f"  중단: Ctrl+C")
+    print(f"{'='*60}")
+
+    if once:
+        collect()
+    else:
+        while True:
+            try:
+                t0 = time.time()
+                collect()
+                time.sleep(max(1, INTERVAL - (time.time() - t0)))
+            except KeyboardInterrupt:
+                print("\n중단")
+                break
