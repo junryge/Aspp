@@ -1,49 +1,174 @@
-@echo off
-setlocal
+# -*- coding: utf-8 -*-
+"""
+M14A_FAB_data_make.py
+Q_TRANSFER_INPUT_DATA 쿼리 → QTRNSFER.csv (1분 주기)
 
-REM Change to this script's directory (so it works regardless of where you run it from)
-cd /d "%~dp0"
+흐름:
+  1) ts_current_job (FAB=M14) → 6가지 transfer 흐름 집계
+  2) star_transport_view → IDC_NM 피벗
+  3) Python에서 CURRTIME merge (서버 부담 줄임)
+"""
+import os, sys, time, requests, urllib.parse, urllib3
+import pandas as pd
+from io import StringIO
+from datetime import datetime
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-REM Sanity check: must be at project root
-if not exist "package.json" (
-    echo [ERROR] package.json not found in "%CD%".
-    echo Place start-dev.cmd at the project root next to package.json.
-    pause
-    exit /b 1
-)
 
-REM Auto-detect LAN IPv4 (skip loopback, virtual adapters, link-local)
-powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notmatch 'Loopback|vEthernet|VMware|VirtualBox|WSL|Hyper-V' -and $_.IPAddress -notmatch '^169\.254\.' } | Select-Object -First 1).IPAddress" > "%TEMP%\__od_lan_ip.txt"
-set /p LAN_IP=<"%TEMP%\__od_lan_ip.txt"
-del "%TEMP%\__od_lan_ip.txt" >nul 2>&1
+# ─── 설정 ──────────────────────────────────────
+def load_api_key():
+    here = os.path.dirname(os.path.abspath(__file__))
+    for p in [os.path.join(here, "api_key.txt"),
+              os.path.join(os.getcwd(), "api_key.txt")]:
+        if os.path.exists(p):
+            with open(p, encoding="utf-8") as f:
+                return f.read().strip().splitlines()[0].strip()
+    sys.exit("❌ api_key.txt 없음")
 
-if "%LAN_IP%"=="" (
-    echo.
-    echo [ERROR] LAN IP auto-detect failed.
-    echo Edit this file and replace the auto-detect block with:
-    echo     set LAN_IP=192.168.x.x
-    echo.
-    pause
-    exit /b 1
-)
+API_KEY = load_api_key()
+BASE = "http://10.40.42.27:8888/logpresso/httpexport/query.csv"
 
-set OD_HOST=0.0.0.0
-set OD_ALLOWED_ORIGINS=http://%LAN_IP%:10012
+# 출력: data 폴더 자동 생성
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+OUTPUT = os.path.join(DATA_DIR, "QTRNSFER.csv")
 
-echo.
-echo ============================================================
-echo  Open Design dev (LAN exposed)
-echo ============================================================
-echo   Web URL:    http://%LAN_IP%:10012/
-echo   Daemon:     http://127.0.0.1:10011/  (loopback only)
-echo.
-echo   OD_HOST            = %OD_HOST%
-echo   OD_ALLOWED_ORIGINS = %OD_ALLOWED_ORIGINS%
-echo ============================================================
-echo.
-echo  Press Ctrl+C to stop the server.
-echo.
+INTERVAL = 60
+RANGE_MIN = 300  # 분 (원본 쿼리 그대로)
 
-call pnpm tools-dev run web --daemon-port 10011 --web-port 10012
 
-endlocal
+# ─── PART1: ts_current_job (transfer 집계) ─────
+PART1_QUERY = f"""
+set TO = now()
+| set FR = dateadd($("TO"), "min", -{RANGE_MIN})
+| table from=$("FR") to=$("TO") ts_current_job
+| search FAB == "M14"
+| eval A = case(trim(DESTMACHINENAME) == "4ABL_M10" ,1,0)
+| eval B = case(substr(trim(SOURCEMACHINENAME),0,7) == "4ABL330" ,1,0)
+| eval C = case(substr(trim(DESTMACHINENAME),0,4) == "4ALF" ,1,0)
+| eval D = case(substr(trim(SOURCEMACHINENAME),0,4) == "4ALF" ,1,0)
+| eval E = case(substr(trim(DESTMACHINENAME),0,4) == "4AFC" ,1,0)
+| eval F = case(substr(trim(SOURCEMACHINENAME),0,4) == "4AFC" ,1,0)
+| stats sum(A), sum(B), sum(C), sum(D), sum(E), sum(F), count by CURRTIME
+| rename count as TOTALCNT,
+         sum(A) as M14AM10A, sum(B) as M10AM14A,
+         sum(C) as M14AM14B, sum(D) as M14BM14A,
+         sum(E) as M14AM16,  sum(F) as M16M14A
+| eval M14AM10ASUM = M10AM14A + M14AM10A,
+       M14AM14BSUM = M14AM14B + M14BM14A,
+       M14AM16SUM  = M14AM16 + M16M14A,
+       TIME        = CURRTIME
+"""
+
+
+# ─── PART2: star_transport_view 피벗 ──────────
+PART2_QUERY = f"""
+set TO = now()
+| set FR = dateadd($("TO"), "min", -{RANGE_MIN})
+| table from=$("FR") to=$("TO") star_transport_view
+| eval CURRTIME = string(CRT_TM, "yyyyMMddHHmm")
+| pivot last(IDC_VAL) for IDC_NM by CURRTIME
+"""
+
+
+# 최종 출력 컬럼 순서 (원본 쿼리 fields 절 그대로)
+FINAL_COLS = [
+    "CURRTIME",
+    "TOTALCNT",
+    "M14AM10A", "M10AM14A", "M14AM10ASUM",
+    "M14AM14B", "M14BM14A", "M14AM14BSUM",
+    "M14AM16",  "M16M14A",  "M14AM16SUM",
+    "M14.QUE.ALL.CURRENTQCREATED",
+    "M14.QUE.ALL.CURRENTQCOMPLETED",
+    "M14.QUE.OHT.OHTUTIL",
+    "M14.QUE.ALL.TRANSPORT4MINOVERCNT",
+    "M14B.QUE.SENDFAB.VERTICALQUEUECOUNT",
+]
+
+
+# ─── 쿼리 실행 ─────────────────────────────────
+def query(label, q, timeout=180):
+    qs = " ".join(q.split())
+    url = f"{BASE}?_apikey={API_KEY}&_q={urllib.parse.quote(qs, safe='')}"
+    t0 = time.time()
+    try:
+        r = requests.get(url, verify=False, timeout=timeout)
+        el = time.time() - t0
+        if r.status_code != 200 or r.text.strip().startswith("<"):
+            print(f"  ❌ [{label}] HTTP {r.status_code} ({el:.1f}초)")
+            return None
+        df = pd.read_csv(StringIO(r.text))
+        print(f"  ✅ [{label}] {len(df)}행 × {len(df.columns)}컬럼 ({el:.1f}초)")
+        return df
+    except Exception as e:
+        el = time.time() - t0
+        print(f"  ❌ [{label}] {el:.1f}초 후 {type(e).__name__}")
+        return None
+
+
+# ─── 수집 1회 ─────────────────────────────────
+def collect():
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"\n[{ts}] 수집 시작")
+
+    df1 = query("PART1 (ts_current_job)", PART1_QUERY)
+    df2 = query("PART2 (star_transport_view pivot)", PART2_QUERY)
+
+    if df1 is None and df2 is None:
+        print("  ❌ 둘 다 실패")
+        return
+
+    # CURRTIME 키 통일
+    if df1 is not None and "CURRTIME" in df1.columns:
+        df1["CURRTIME"] = df1["CURRTIME"].astype(str)
+    if df2 is not None and "CURRTIME" in df2.columns:
+        df2["CURRTIME"] = df2["CURRTIME"].astype(str)
+
+    # join (CURRTIME 기준 - df1이 기준)
+    if df1 is None:
+        merged = df2
+    elif df2 is None:
+        merged = df1
+    else:
+        merged = pd.merge(df1, df2, on="CURRTIME", how="left")
+
+    # 정렬
+    if "CURRTIME" in merged.columns:
+        merged = merged.sort_values("CURRTIME")
+
+    # 최종 컬럼만 출력 순서 맞춰서 - 없는 컬럼은 NaN으로 채우고 진행
+    out_cols = [c for c in FINAL_COLS if c in merged.columns]
+    missing = [c for c in FINAL_COLS if c not in merged.columns]
+    if missing:
+        print(f"  ⚠️ 누락 컬럼 (NaN 처리): {missing}")
+        for c in missing:
+            merged[c] = None
+        out_cols = FINAL_COLS
+
+    merged = merged[out_cols]
+    merged.to_csv(OUTPUT, encoding="utf-8-sig", index=False)
+    print(f"  ✅ {len(merged)}행 × {len(merged.columns)}컬럼 → {OUTPUT}")
+
+
+# ─── 메인 ─────────────────────────────────────
+if __name__ == "__main__":
+    once = "--once" in sys.argv
+
+    print(f"{'='*60}")
+    print(f"  M14A_FAB 수집기 (Q_TRANSFER_INPUT_DATA)")
+    print(f"  출력: {os.path.abspath(OUTPUT)}")
+    print(f"  범위: {RANGE_MIN}분, 주기: {INTERVAL}초")
+    print(f"  중단: Ctrl+C")
+    print(f"{'='*60}")
+
+    if once:
+        collect()
+    else:
+        while True:
+            try:
+                t0 = time.time()
+                collect()
+                time.sleep(max(1, INTERVAL - (time.time() - t0)))
+            except KeyboardInterrupt:
+                print("\n중단")
+                break
