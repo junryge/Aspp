@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-V8 실시간 예측 - 범주형 15분 버전
+V8 실시간 예측 - 범주형 25분 버전
 3-Class Classification (Class 0/1/2)
 + 결과를 로그프레소 test_table에 저장
 """
@@ -16,7 +16,7 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
-model_dir = os.path.join(script_dir, 'model_15min', 'xgboost_Categorical_V8_15min.pkl')
+model_dir = os.path.join(script_dir, 'model_25min', 'xgboost_Categorical_V8_25min.pkl')
 data_dir = os.path.join(script_dir, 'data', 'HUBROOM_PIVOT_DATA.csv')
 
 FEATURE_COLS = {
@@ -88,7 +88,7 @@ def realtime_prediction():
    
     seq_end = recent_30['STAT_DT'].iloc[-1]
     current_time = seq_end
-    prediction_time = seq_end + timedelta(minutes=15)
+    prediction_time = seq_end + timedelta(minutes=25)
    
     # Feature 생성
     features = {
@@ -312,10 +312,10 @@ INSERT_TABLE = "test_table"   # ← 나중에 "test_hubroom_predict" 로 변경
 BASE = "http://10.40.42.27:8888/logpresso/httpexport/query.csv"
 
 # 하드코딩 필드
-FLOW               = "HUBROOM_PREDICT_15MIN_CATEGORICAL"
-MODEL              = "V8_CLASSIFICATION_15MIN"
+FLOW               = "HUBROOM_PREDICT_25MIN_CATEGORICAL"
+MODEL              = "V8_CLASSIFICATION_25MIN"
 MODEL_TYPE         = "CATEGORICAL"
-PREDICTION_HORIZON = "15MIN"
+PREDICTION_HORIZON = "25MIN"
 
 def _load_api_key():
     for p in [os.path.join(script_dir, "api_key.txt"),
