@@ -69,6 +69,13 @@ or IDC_NM == "CD_M163FSTORAGETOTAL"
 | eval FLOW = case(FLOW == "CD_M163FSTORAGEUTIL", "M16A_3F_STORAGE_UTIL", FLOW)
 | rename FLOW as IDC_NM, VAL as IDC_VAL
 | fields STAT_DT, IDC_NM, IDC_VAL
+| union [
+    table from=$("FR") to=$("TO") test_bridge_layout
+    | search IDC_NM == "CD_M163FSTORAGEUTIL"
+    | eval STAT_DT = case(isnull(STAT_DT), EVENT_DT, STAT_DT)
+    | rename CURR_VAL as IDC_VAL
+    | fields STAT_DT, IDC_NM, IDC_VAL
+]
 | pivot sum(long(IDC_VAL)) as IDC_VAL by STAT_DT for IDC_NM
 """
 
