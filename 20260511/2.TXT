@@ -15,4 +15,6 @@
 pip install "hermes-agent[all]"
 
 copy "F:\M14_Q\scientific-assistant\demos_v1\hermes_config.yaml" "$env:USERPROFILE\.hermes\config.yaml"
-hermes
+hermes-->n
+
+Invoke-RestMethod http://127.0.0.1:10009/v1/models
