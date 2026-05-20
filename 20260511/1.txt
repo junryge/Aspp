@@ -27,7 +27,12 @@ def load_api_key():
 
 API_KEY = load_api_key()
 BASE = "http://10.40.42.27:8888/logpresso/httpexport/query.csv"
-OUTPUT = "HUBROOM_PIVOT_DATA.csv"
+
+# 출력: data 폴더 자동 생성
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+OUTPUT = os.path.join(DATA_DIR, "HUBROOM_PIVOT_DATA.csv")
+
 INTERVAL = 60
 RANGE_MIN = 30  # 분
 
