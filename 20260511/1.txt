@@ -1,1 +1,127 @@
-ㅁㅁㅁㅁ
+hermes_config.yaml
+
+# =============================================================================
+# Hermes Agent — Demos V1 연동 설정
+# =============================================================================
+# 설치/배포 절차 (PowerShell):
+#   pip install "hermes-agent[all]"
+#   copy "scientific-assistant\demos_v1\hermes_config.yaml" "$env:USERPROFILE\.hermes\config.yaml"
+#
+# 회사 vLLM (HCP) 게이트웨이를 OpenAI-호환으로 사용.
+# api_key 는 TOKEN.TXT 의 값으로 채워 넣을 것 — 또는 환경변수 OPENAI_API_KEY 사용.
+# 실제 hermes-agent 버전 별로 키 이름이 다를 수 있음 → `hermes --help` / README 와 대조 후
+#   필요하면 키 명만 바꿔서 사용 (값/구조는 동일).
+# =============================================================================
+
+agent:
+  name: "demos-hermes"
+  version: "1.0"
+  description: "Demos V1 사이드카 — 분석/요약/코드 생성용 Hermes 에이전트"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LLM 백엔드 — 회사 vLLM (OpenAI-호환 엔드포인트)
+# ─────────────────────────────────────────────────────────────────────────────
+llm:
+  provider: openai                                # OpenAI-호환 (vLLM/litellm/HCP 모두 호환)
+  base_url: "http://dev.hcp.llm.skhynix.com/v1"   # /chat/completions 자동 부착
+  api_key: "${OPENAI_API_KEY}"                    # 또는 TOKEN.TXT 값 직접 입력
+  # 메인 모델 — 코드/문서 분석 중심이라 Coder-480B 권장
+  model: "Qwen3-Coder-480B-A35B-Instruct"
+  temperature: 0.3
+  max_tokens: 8192
+  timeout: 180
+  verify_ssl: false                               # 사내 인증서 우회 (필요시)
+  stream: true
+
+# 모델 별칭 (라우팅용) — Demos models 와 동일한 식별자 사용
+models:
+  fast:
+    model: "Qwen3-Next-80B-A3B-Instruct"
+    max_tokens: 4096
+  large:
+    model: "Qwen3.5-397B-A17B-FP8"
+    max_tokens: 16384
+  code:
+    model: "Qwen3-Coder-480B-A35B-Instruct"
+    max_tokens: 16384
+  vision:
+    model: "Qwen2.5-VL-72B-Instruct"
+    max_tokens: 8192
+  lightweight:
+    model: "Qwen3-Coder-30B-A3B-Instruct"
+    max_tokens: 4096
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 시스템 프롬프트 — Demos 의 톤/규칙과 일치
+# ─────────────────────────────────────────────────────────────────────────────
+system_prompt: |
+  당신은 Demos V1 산업 분석 어시스턴트(Hermes 사이드카)입니다.
+
+  [응답 규칙]
+  - 한국어로 답변. 사용자가 영어로 물으면 영어로.
+  - 사고 과정 sentinel(<think>...</think>, <|channel|>thought, <|im_start|>thinking 등) 출력 금지.
+  - 도구 호출 태그(<knowledge-search/>, <tool/>, <function/>, <search/> 등) 절대 출력 금지.
+  - 가짜 데이터 생성 금지. 제공된 컨텍스트(CSV, 파일, 검색 결과)의 실제 값만 사용.
+  - 존재하지 않는 컬럼명을 지어내지 않음.
+  - 사용자가 코드를 명시적으로 요청하지 않는 한 보고서/분석은 자연어로 작성.
+
+  [출력 형식]
+  - 핵심부터, 군더더기 없이.
+  - 코드는 항상 ```python / ```sql 등 정확한 언어 라벨 부착.
+  - 보고서 형식: 제목 → 요약 → 본문 → 결론.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 도구 / 스킬 — Demos 의 scientific-skills 폴더 연동
+# ─────────────────────────────────────────────────────────────────────────────
+tools:
+  # Demos 스킬 디렉토리 사용 (SKILL.md 자동 인식)
+  skills_dir: "../scientific-skills"
+
+  # 내장 도구
+  builtin:
+    - name: file_reader
+      enabled: true
+      max_size_mb: 50
+    - name: python_executor
+      enabled: false                              # 기본 비활성 — 필요 시 true
+      timeout: 30
+    - name: web_search
+      enabled: false                              # 사내망 외부 검색 차단됨
+
+# MCP 서버 (필요 시) — 기본 비활성
+mcp:
+  enabled: false
+  servers: []
+  # 예시:
+  # servers:
+  #   - name: github
+  #     command: "npx"
+  #     args: ["-y", "@modelcontextprotocol/server-github"]
+  #     env:
+  #       GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_PAT}"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 메모리 / 세션
+# ─────────────────────────────────────────────────────────────────────────────
+memory:
+  type: file                                      # in_memory | file | sqlite
+  path: "~/.hermes/sessions"
+  max_turns: 50
+  ttl_days: 30
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 로깅
+# ─────────────────────────────────────────────────────────────────────────────
+logging:
+  level: INFO                                     # DEBUG | INFO | WARN | ERROR
+  file: "~/.hermes/hermes.log"
+  rotate_mb: 10
+  console: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Demos 연동 옵션 — routes_chat 의 SSE 와 호환되도록 단일 system 메시지 유지
+# ─────────────────────────────────────────────────────────────────────────────
+compatibility:
+  single_system_message: true                     # vLLM "system must be at beginning" 회피
+  strip_thinking_artifacts: true                  # <think>...</think> 자동 제거
+  fallback_chain_disabled: true                   # 폴백 사슬 없음 (Demos 정책과 동일)
