@@ -246,3 +246,6 @@ Default model set to: gguf-4 (via http://127.0.0.1:10009/v1)
    hermes              Start chatting
    hermes gateway      Start messaging gateway
    hermes doctor       Check for issues
+
+
+Invoke-RestMethod http://127.0.0.1:9119/api/status
