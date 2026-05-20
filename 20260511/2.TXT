@@ -28,3 +28,221 @@ $body = @{
 
 $r = Invoke-RestMethod -Uri "http://127.0.0.1:10009/v1/chat/completions" -Method Post -Body $body -ContentType "application/json"
 $r.choices[0].message.content
+
+===========================================
+
+S C:\WINDOWS\system32> hermes setup
+
+┌─────────────────────────────────────────────────────────┐
+│             ⚕ Hermes Agent Setup Wizard                │
+├─────────────────────────────────────────────────────────┤
+│  Let's configure your Hermes Agent installation.       │
+│  Press Ctrl+C at any time to exit.                     │
+└─────────────────────────────────────────────────────────┘
+
+
+  How would you like to set up Hermes?
+  Select by number, Enter to confirm.
+
+  (●)  1. Quick setup — provider, model & messaging (recommended)
+  (○)  2. Full setup — configure everything
+
+  Choice [default 1]:
+    Skipped (keeping current)
+
+
+◆ Inference Provider
+  Choose how to connect to your main chat model.
+     Guide: https://hermes-agent.nousresearch.com/docs/integrations/providers
+
+Warning: No inference provider configured. Run 'hermes model' to choose a provider and model, or set an API key (OPENROUTER_API_KEY, OPENAI_API_KEY, etc.) in ~/.hermes/.env. Falling back to auto provider detection.
+
+  Current model:    (not set)
+  Active provider:  none
+
+
+  Select provider:
+  Select by number, Enter to confirm.
+
+  (●)  1. Nous Portal (Nous Research subscription)
+  (○)  2. OpenRouter (100+ models, pay-per-use)
+  (○)  3. NovitaAI (AI-native cloud: Model API, Agent Sandbox, GPU Cloud)
+  (○)  4. LM Studio (local desktop app with built-in model server)
+  (○)  5. Anthropic (Claude models — API key or Claude Code)
+  (○)  6. OpenAI Codex
+  (○)  7. Qwen Cloud / DashScope Coding (Qwen + multi-provider)
+  (○)  8. xAI Grok OAuth (SuperGrok Subscription)
+  (○)  9. Xiaomi MiMo (MiMo-V2.5 and V2 models — pro, omni, flash)
+  (○) 10. Tencent TokenHub (Hy3 Preview — direct API via tokenhub.tencentmaas.com)
+  (○) 11. NVIDIA NIM (Nemotron models — build.nvidia.com or local NIM)
+  (○) 12. GitHub Copilot (uses GITHUB_TOKEN or gh auth token)
+  (○) 13. GitHub Copilot ACP (spawns `copilot --acp --stdio`)
+  (○) 14. Hugging Face Inference Providers (20+ open models)
+  (○) 15. Google AI Studio (Gemini models — native Gemini API)
+  (○) 16. Google Gemini via OAuth + Code Assist (free tier supported; no API key needed)
+  (○) 17. DeepSeek (DeepSeek-V3, R1, coder — direct API)
+  (○) 18. xAI (Grok models — direct API)
+  (○) 19. Z.AI / GLM (Zhipu AI direct API)
+  (○) 20. Kimi Coding Plan (api.kimi.com) & Moonshot API
+  (○) 21. Kimi / Moonshot China (Moonshot CN direct API)
+  (○) 22. StepFun Step Plan (agent/coding models via Step Plan API)
+  (○) 23. MiniMax (global direct API)
+  (○) 24. MiniMax via OAuth browser login (Coding Plan, minimax.io)
+  (○) 25. MiniMax China (domestic direct API)
+  (○) 26. Ollama Cloud (cloud-hosted open models — ollama.com)
+  (○) 27. Arcee AI (Trinity models — direct API)
+  (○) 28. GMI Cloud (multi-model direct API)
+  (○) 29. Kilo Code (Kilo Gateway API)
+  (○) 30. OpenCode Zen (35+ curated models, pay-as-you-go)
+  (○) 31. OpenCode Go (open models, $10/month subscription)
+  (○) 32. AWS Bedrock (Claude, Nova, Llama, DeepSeek — IAM or API key)
+  (○) 33. Azure Foundry (OpenAI-style or Anthropic-style endpoint — your Azure AI deployment)
+  (○) 34. Vercel AI Gateway
+  (○) 35. Qwen OAuth (reuses local Qwen CLI login)
+  (○) 36. Alibaba Cloud Coding Plan — dedicated coding tier
+  (○) 37. custom (direct API)
+  (○) 38. Custom endpoint (enter URL manually)
+  (○) 39. Configure auxiliary models...
+  (○) 40. Leave unchanged
+
+  Choice [default 1]: 38
+
+Custom OpenAI-compatible endpoint configuration:
+
+API base URL [e.g. https://api.example.com/v1]: http://127.0.0.1:10009/v1
+API key [optional]:
+Verified endpoint via http://127.0.0.1:10009/v1/models (16 model(s) visible)
+
+Select API compatibility mode:
+  1. Auto-detect [current]
+     Use Hermes URL heuristics; best for standard OpenAI-compatible endpoints.
+  2. Chat Completions
+     Use /chat/completions for standard OpenAI-compatible servers.
+  3. Responses / Codex
+     Use /responses for Codex-compatible tool-calling backends.
+  4. Anthropic Messages
+     Use /v1/messages for Anthropic-compatible endpoints.
+Choice [1-4, Enter to keep current/detected]:
+  API mode: auto-detect
+  Available models:
+    1. gguf-0
+    2. gguf-1
+    3. gguf-2
+    4. gguf-3
+    5. gguf-4
+    6. gguf-5
+    7. glm-5
+    8. qwen3-coder-480b
+    9. qwen3-coder-next
+    10. qwen3-vl-30b
+    11. qwen25-vl-72b
+    12. qwen35-397b-fp8
+    13. qwen35-397b
+    14. gpt-oss-20b
+    15. qwen3-next-80b
+    16. qwen3-coder-30b
+  Select model [1-16] or type name: 5
+Context length in tokens [leave blank for auto-detect]:
+Display name [Local (127.0.0.1:10009)]:
+Default model set to: gguf-4 (via http://127.0.0.1:10009/v1)
+  💾 Saved to custom providers as "Local (127.0.0.1:10009)" (edit in config.yaml)
+
+◆ Terminal Backend
+  Choose where Hermes runs shell commands and code.
+  This affects tool execution, file access, and isolation.
+     Guide: https://hermes-agent.nousresearch.com/docs/developer-guide/environments
+
+
+  Select terminal backend:
+  Select by number, Enter to confirm.
+
+  (○)  1. Local - run directly on this machine (default)
+  (○)  2. Docker - isolated container with configurable resources
+  (○)  3. Modal - serverless cloud sandbox
+  (○)  4. SSH - run on a remote machine
+  (○)  5. Daytona - persistent cloud development environment
+  (○)  6. Vercel Sandbox - cloud microVM with snapshot filesystem persistence
+  (●)  7. Keep current (local)
+
+  Choice [default 7]: 7
+    Skipped (keeping current)
+
+  Keeping current backend: local
+✓ Applied recommended defaults:
+    Max iterations: 90
+    Tool progress: all
+    Compression threshold: 0.50
+    Session reset: inactivity (1440 min) + daily (4:00)
+    Run `hermes setup agent` later to customize.
+
+
+  Connect a messaging platform? (Telegram, Discord, etc.)
+  Select by number, Enter to confirm.
+
+  (●)  1. Set up messaging now (recommended)
+  (○)  2. Skip — set up later with 'hermes setup gateway'
+
+  Choice [default 1]: 2
+
+
+✓ Setup complete! You're ready to go.
+
+    Configure all settings:    hermes setup
+    Connect Telegram/Discord:  hermes setup gateway
+
+
+
+◆ Tool Availability Summary
+  5/10 tool categories available:
+
+   ✓ Vision (image analysis)
+   ✗ Mixture of Agents (missing OPENROUTER_API_KEY)
+   ✗ Web Search & Extract (missing EXA_API_KEY, PARALLEL_API_KEY, FIRECRAWL_API_KEY/FIRECRAWL_API_URL, TAVILY_API_KEY, or SEARXNG_URL)
+   ✗ Browser Automation (missing npm install -g agent-browser)
+   ✗ Image Generation (missing FAL_KEY or OPENAI_API_KEY)
+   ✓ Text-to-Speech (Edge TTS)
+   ✗ Skills Hub (GitHub) (missing GITHUB_TOKEN)
+   ✓ Terminal/Commands
+   ✓ Task Planning (todo)
+   ✓ Skills (view, create, edit)
+
+⚠ Some tools are disabled. Run 'hermes setup tools' to configure them,
+⚠ or edit ~/.hermes/.env directly to add the missing API keys.
+
+
+┌─────────────────────────────────────────────────────────┐
+│              ✓ Setup Complete!                          │
+└─────────────────────────────────────────────────────────┘
+
+📁 All your files are in ~/.hermes/:
+
+   Settings:  C:\Users\ggg3g\.hermes\config.yaml
+   API Keys:  C:\Users\ggg3g\.hermes\.env
+   Data:      C:\Users\ggg3g\.hermes/cron/, sessions/, logs/
+
+────────────────────────────────────────────────────────────
+
+📝 To edit your configuration:
+
+   hermes setup          Re-run the full wizard
+   hermes setup model    Change model/provider
+   hermes setup terminal Change terminal backend
+   hermes setup gateway  Configure messaging
+   hermes setup tools    Configure tool providers
+
+   hermes config         View current settings
+   hermes config edit    Open config in your editor
+   hermes config set <key> <value>
+                          Set a specific value
+
+   Or edit the files directly:
+   nano C:\Users\ggg3g\.hermes\config.yaml
+   nano C:\Users\ggg3g\.hermes\.env
+
+────────────────────────────────────────────────────────────
+
+🚀 Ready to go!
+
+   hermes              Start chatting
+   hermes gateway      Start messaging gateway
+   hermes doctor       Check for issues
