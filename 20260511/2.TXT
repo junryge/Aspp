@@ -22,8 +22,9 @@ Invoke-RestMethod http://127.0.0.1:10009/v1/models | ConvertTo-Json -Depth 5
 
 $body = @{
   model = "gguf-4"
-  messages = @(@{role="user"; content="안녕. 한 줄로만 답해줘."})
-  max_tokens = 100
+  messages = @(@{role="user"; content="Say hi in one short line."})
+  max_tokens = 50
 } | ConvertTo-Json -Depth 5
 
-Invoke-RestMethod -Uri "http://127.0.0.1:10009/v1/chat/completions" -Method Post -Body $body -ContentType "application/json"
+$r = Invoke-RestMethod -Uri "http://127.0.0.1:10009/v1/chat/completions" -Method Post -Body $body -ContentType "application/json"
+$r.choices[0].message.content
