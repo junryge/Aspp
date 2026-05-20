@@ -10,3 +10,6 @@
         <param key="end"   value="3525"/>
     </group>
 </group>
+
+
+pip install "hermes-agent[all]"
