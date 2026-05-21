@@ -1,266 +1,191 @@
-# -*- coding: utf-8 -*-
+"""Hermes ↔ 회사 vLLM(HCP) 프록시
+
+문제: hermes-agent 가 요청 body 에 `tools` 배열 18개를 같이 보내는데
+      회사 litellm/vLLM 게이트웨이가 그 schema 를 거부 → HTTP 400.
+
+해결: hermes 가 보내는 모든 OpenAI 호환 요청에서 tools/tool_choice/
+      function_call/functions 필드만 제거하고 upstream 게이트웨이로
+      그대로 전달.
+
+사용:
+  1) TOKEN.TXT 가 같은 폴더에 있는지 확인.
+  2) python hermes_proxy.py
+     → http://localhost:8765 에서 대기 시작.
+  3) hermes config edit 으로 ~/.hermes/config.yaml 의 custom provider URL 을
+       http://dev.hcp.llm.skhynix.com/v1
+     에서
+       http://localhost:8765/v1
+     로 변경.
+  4) hermes chat -q "안녕"
+
+스트리밍(SSE) / 일반 JSON 응답 둘 다 지원.
 """
-Prediction_ml.py
-HUBROOM + Q_TRANSFER 예측 통합 실행 마스터 (비동기 병렬)
 
-흐름 (매 분 정각 00초):
-  ▶ M16A_BR 사이트 + M14A_FAB 사이트를 동시(병렬) 실행
-  ▶ 각 사이트 내부 스크립트는 순차 실행
-
-M16A_BR (HUBROOM):
-  1) M16BR_hubroom_data_make.py  → 데이터 수집
-  2) V8_Categorical_Real_time_10/15/25min.py
-  3) V8_Numerical_Real_time_10/15/25min.py
-
-M14A_FAB (Q_TRANSFER):
-  1) M14A_FAB_data_make.py  → 데이터 수집
-  2) V8.3.1_Q_TRANSFER_PREDICTOR_10/15/25m.py
-
-특징:
-  - 매 분 정각(00초)에 시작
-  - 2개 사이트 동시 실행 (ThreadPoolExecutor)
-  - 1개 스크립트 실패해도 다음 스크립트 계속
-  - 사이클 통째 예외도 잡고 다음 사이클 진행
-  - 콘솔 + logs/Prediction_ml.log 동시 기록 (일자별 로테이션)
-
-위치:  job/Prediction_ml.py
-대상:  job/M16A_BR/*.py
-       job/M14A_FAB/*.py
-"""
+import json
 import os
 import sys
-import time
-import subprocess
-import logging
-import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from logging.handlers import TimedRotatingFileHandler
-from datetime import datetime
+
+try:
+    import requests
+    from flask import Flask, request, Response, stream_with_context, jsonify
+except ImportError:
+    print("[!] 의존성 설치 필요: pip install flask requests", file=sys.stderr)
+    sys.exit(1)
 
 
-# ─── 설정 ──────────────────────────────────────
-HERE = os.path.dirname(os.path.abspath(__file__))
-LOG_DIR = os.path.join(HERE, "logs")
-INTERVAL = 60
-SCRIPT_TIMEOUT = 300
+# ─────────────────────────────────────────────────────────────────────────────
+# 설정
+# ─────────────────────────────────────────────────────────────────────────────
+UPSTREAM = os.environ.get("HERMES_UPSTREAM", "http://dev.hcp.llm.skhynix.com")
+LISTEN_HOST = "127.0.0.1"
+LISTEN_PORT = int(os.environ.get("HERMES_PROXY_PORT", "8765"))
+TIMEOUT_S = 600
+VERIFY_SSL = False  # 사내 인증서 우회
 
-# 사이트별 실행 정의
-SITES = {
-    "M16A_BR": {
-        "dir":     os.path.join(HERE, "M16A_BR"),
-        "scripts": [
-            "M16BR_hubroom_data_make.py --once",
-            "V8_Categorical_Real_time_10min.py",
-            "V8_Categorical_Real_time_15min.py",
-            "V8_Categorical_Real_time_25min.py",
-            "V8_Numerical_Real_time_10min.py",
-            "V8_Numerical_Real_time_15min.py",
-            "V8_Numerical_Real_time_25min.py",
-        ],
-    },
-    "M14A_FAB": {
-        "dir":     os.path.join(HERE, "M14A_FAB"),
-        "scripts": [
-            "M14A_FAB_data_make.py --once",
-            "V8.3.1_Q_TRANSFER_PREDICTOR_10m.py",
-            "V8.3.1_Q_TRANSFER_PREDICTOR_15m.py",
-            "V8.3.1_Q_TRANSFER_PREDICTOR_25m.py",
-        ],
-    },
-}
-
-
-# ─── 로거 ──────────────────────────────────────
-os.makedirs(LOG_DIR, exist_ok=True)
-
-logger = logging.getLogger("Prediction_ml")
-logger.setLevel(logging.INFO)
-logger.propagate = False
-
-fmt = logging.Formatter(
-    "%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
+# tools 외에 함께 거부될 수 있는 필드들 — 안전하게 같이 제거
+STRIP_FIELDS = (
+    "tools",
+    "tool_choice",
+    "functions",
+    "function_call",
+    "parallel_tool_calls",
+    "response_format",  # 일부 vLLM 빌드에서 거부 (필요 시 주석 처리)
 )
 
-log_path = os.path.join(LOG_DIR, "Prediction_ml.log")
-fh = TimedRotatingFileHandler(log_path, when="midnight", backupCount=30, encoding="utf-8")
-fh.suffix = "%Y-%m-%d"
-fh.setFormatter(fmt)
-logger.addHandler(fh)
 
-ch = logging.StreamHandler(sys.stdout)
-ch.setFormatter(fmt)
-logger.addHandler(ch)
-
-_log_lock = threading.Lock()
-
-def log_info(msg):
-    with _log_lock:
-        logger.info(msg)
-
-def log_error(msg):
-    with _log_lock:
-        logger.error(msg)
-
-def log_exception(msg):
-    with _log_lock:
-        logger.exception(msg)
+app = Flask(__name__)
 
 
-# ─── 1개 스크립트 실행 ─────────────────────────
-def run_script(site: str, target_dir: str, script_cmd: str) -> bool:
-    parts = script_cmd.split()
-    script_name = parts[0]
-    script_path = os.path.join(target_dir, script_name)
+def _strip_unsupported(body):
+    """요청 body 에서 회사 vLLM 이 거부하는 필드 제거. 어떤 게 빠졌는지 로그."""
+    if not isinstance(body, dict):
+        return body, []
+    removed = []
+    for k in STRIP_FIELDS:
+        if k in body:
+            body.pop(k, None)
+            removed.append(k)
+    return body, removed
 
-    if not os.path.exists(script_path):
-        log_error(f"  [{site}] ❌ 파일 없음: {script_path}")
-        return False
 
-    cmd = [sys.executable, script_name] + parts[1:]
-    try:
-        t0 = time.time()
-        result = subprocess.run(
-            cmd,
-            cwd=target_dir,
-            capture_output=True,
-            text=True,
-            timeout=SCRIPT_TIMEOUT,
-            encoding="utf-8",
-        )
-        elapsed = time.time() - t0
-        ok = result.returncode == 0
+def _forward_headers():
+    """클라이언트(hermes) 가 보낸 헤더를 그대로 upstream 에 전달."""
+    h = {}
+    for k, v in request.headers.items():
+        if k.lower() in ("host", "content-length", "connection"):
+            continue
+        h[k] = v
+    return h
 
-        if ok:
-            log_info(f"  [{site}] ✅ {script_name} {elapsed:.1f}초")
+
+def _mask_auth(h):
+    """디버깅용: Authorization 값 마스킹해서 짧게 보여주기."""
+    a = h.get("Authorization") or h.get("authorization") or ""
+    if not a:
+        return "(none)"
+    parts = a.split(" ", 1)
+    if len(parts) == 2:
+        scheme, val = parts
+        if len(val) <= 12:
+            tail = val
         else:
-            log_error(f"  [{site}] ❌ {script_name} {elapsed:.1f}초 (returncode={result.returncode})")
-
-        if result.stdout:
-            for line in result.stdout.strip().splitlines():
-                if line.strip():
-                    log_info(f"     [{site}] {line}")
-
-        if not ok and result.stderr:
-            for line in result.stderr.strip().splitlines()[:20]:
-                log_error(f"     [{site}] stderr: {line}")
-
-        return ok
-
-    except subprocess.TimeoutExpired:
-        log_error(f"  [{site}] ❌ {script_name} 타임아웃 ({SCRIPT_TIMEOUT}초)")
-        return False
-    except Exception as e:
-        log_error(f"  [{site}] ❌ {script_name} {type(e).__name__}: {e}")
-        return False
+            tail = val[:6] + "..." + val[-4:]
+        return f"{scheme} {tail} (len={len(val)})"
+    return f"(raw, len={len(a)})"
 
 
-# ─── 1개 사이트 실행 (워커) ────────────────────
-def run_site(site_name: str) -> dict:
-    """사이트 1개의 스크립트들을 순차 실행 (스레드에서 호출됨)"""
-    cfg = SITES[site_name]
-    target_dir = cfg["dir"]
-    scripts = cfg["scripts"]
+@app.route("/v1/<path:subpath>", methods=["GET", "POST", "PUT", "DELETE"])
+def proxy_v1(subpath):
+    upstream_url = f"{UPSTREAM}/v1/{subpath}"
+    method = request.method
+    headers = _forward_headers()
 
-    if not os.path.isdir(target_dir):
-        log_error(f"  [{site_name}] ❌ 폴더 없음: {target_dir}")
-        return {"site": site_name, "success": 0, "fail": len(scripts), "skipped": True}
-
-    log_info(f"  [{site_name}] 시작 ({len(scripts)}개 스크립트)")
-
-    success = 0
-    fail = 0
-    for s in scripts:
+    # 요청 body 가공 (POST/PUT 만 의미 있음)
+    body_payload = None
+    is_stream = False
+    if method in ("POST", "PUT"):
         try:
-            if run_script(site_name, target_dir, s):
-                success += 1
-            else:
-                fail += 1
-        except Exception as e:
-            fail += 1
-            log_exception(f"  [{site_name}] ❌ {s} 사이트 내 예외: {e}")
+            body = request.get_json(force=True, silent=True) or {}
+        except Exception:
+            body = {}
+        body, removed = _strip_unsupported(body)
+        is_stream = bool(body.get("stream"))
+        print(
+            f"[PROXY] {method} /v1/{subpath} "
+            f"stream={is_stream} "
+            f"model={body.get('model')!r} "
+            f"messages={len(body.get('messages') or [])} "
+            f"removed={removed}"
+        )
+        print(f"[PROXY] auth = {_mask_auth(headers)}")
+        # 추가 헤더 중 흥미로운 것만 골라서 보여줌
+        extra = {k: v for k, v in headers.items()
+                 if k.lower() not in ("authorization", "content-type", "user-agent", "accept", "accept-encoding")}
+        if extra:
+            print(f"[PROXY] extra headers = {list(extra.keys())}")
+        body_payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    else:
+        print(f"[PROXY] {method} /v1/{subpath}")
 
-    log_info(f"  [{site_name}] 완료 (성공 {success} / 실패 {fail})")
-    return {"site": site_name, "success": success, "fail": fail, "skipped": False}
+    # upstream 호출
+    try:
+        r = requests.request(
+            method=method,
+            url=upstream_url,
+            headers=headers,
+            data=body_payload,
+            params=request.args,
+            timeout=TIMEOUT_S,
+            verify=VERIFY_SSL,
+            stream=is_stream,
+        )
+    except requests.RequestException as e:
+        print(f"[PROXY] ! upstream 실패: {e}")
+        return jsonify({"error": f"proxy upstream failure: {e}"}), 502
 
-
-# ─── 1회 사이클 (2개 사이트 병렬) ───────────────
-def run_cycle():
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log_info("=" * 70)
-    log_info(f"  [{ts}] 사이클 시작 (2개 사이트 병렬)")
-    log_info("=" * 70)
-
-    with ThreadPoolExecutor(max_workers=len(SITES)) as executor:
-        futures = {executor.submit(run_site, name): name for name in SITES.keys()}
-        results = []
-        for fut in as_completed(futures):
-            site_name = futures[fut]
+    # SSE 스트림이면 그대로 흘려보냄
+    if is_stream and r.headers.get("content-type", "").startswith("text/event-stream"):
+        def _gen():
             try:
-                results.append(fut.result())
-            except Exception as e:
-                log_exception(f"  [{site_name}] ❌ 사이트 실행 예외: {e}")
-                results.append({"site": site_name, "success": 0, "fail": -1, "skipped": False})
+                for line in r.iter_lines(decode_unicode=True):
+                    if line is None:
+                        continue
+                    yield (line + "\n").encode("utf-8")
+                # SSE 종단 이벤트
+                yield b"\n"
+            finally:
+                r.close()
 
-    total_s = sum(r["success"] for r in results)
-    total_f = sum(r["fail"] for r in results if r["fail"] >= 0)
-    log_info(f"  → 사이클 결과: 전체 성공 {total_s} / 실패 {total_f}")
+        resp = Response(stream_with_context(_gen()), status=r.status_code, mimetype="text/event-stream")
+        resp.headers["Cache-Control"] = "no-cache"
+        resp.headers["X-Accel-Buffering"] = "no"
+        return resp
+
+    # 일반 응답 — 그대로 전달
+    excluded = {"content-encoding", "transfer-encoding", "content-length", "connection"}
+    out_headers = [(k, v) for k, v in r.headers.items() if k.lower() not in excluded]
+
+    # 400 시 본문 로그 (디버깅용)
+    if r.status_code >= 400:
+        print(f"[PROXY] upstream {r.status_code}: {r.text[:600]}")
+
+    return Response(r.content, status=r.status_code, headers=out_headers)
 
 
-# ─── 메인 ──────────────────────────────────────
+@app.route("/")
+def root():
+    return jsonify({
+        "name": "hermes-vllm-proxy",
+        "upstream": UPSTREAM,
+        "listen": f"http://{LISTEN_HOST}:{LISTEN_PORT}",
+        "strips": list(STRIP_FIELDS),
+        "usage": "hermes config 의 base URL 을 http://localhost:8765/v1 로 바꾸세요.",
+    })
+
+
 if __name__ == "__main__":
-    once = "--once" in sys.argv
-
-    log_info("=" * 70)
-    log_info(f"  Prediction_ml 마스터 시작 (병렬)")
-    log_info(f"  베이스 폴더: {HERE}")
-    log_info(f"  로그 폴더:   {LOG_DIR}")
-    log_info(f"  주기:        {INTERVAL}초 (매 분 정각 동기화)")
-    log_info(f"  모드:        {'1회 (--once)' if once else 'Ctrl+C 중단'}")
-    for name, cfg in SITES.items():
-        exists = "✅" if os.path.isdir(cfg["dir"]) else "❌"
-        log_info(f"  사이트: {exists} {name} ({len(cfg['scripts'])}개) — {cfg['dir']}")
-    log_info("=" * 70)
-
-    if once:
-        try:
-            run_cycle()
-        except Exception as e:
-            log_exception(f"❌ once 사이클 예외: {e}")
-        sys.exit(0)
-
-    now = datetime.now()
-    wait_first = 60 - now.second - now.microsecond / 1_000_000
-    if wait_first < 1:
-        wait_first += 60
-    log_info(f"  → 다음 정각(00초)까지 {wait_first:.1f}초 대기")
-    time.sleep(wait_first)
-
-    while True:
-        try:
-            t0 = time.time()
-            run_cycle()
-            elapsed = time.time() - t0
-
-            now = datetime.now()
-            sleep_sec = 60 - now.second - now.microsecond / 1_000_000
-            if sleep_sec < 0.5:
-                sleep_sec += 60
-
-            log_info(f"  → 사이클 {elapsed:.1f}초 / 다음 정각까지 {sleep_sec:.1f}초 대기\n")
-            time.sleep(sleep_sec)
-
-        except KeyboardInterrupt:
-            log_info("중단 (KeyboardInterrupt)")
-            break
-
-        except Exception as e:
-            log_exception(f"❌ 메인 루프 예외 (계속 진행): {e}")
-            try:
-                now = datetime.now()
-                sleep_sec = 60 - now.second - now.microsecond / 1_000_000
-                if sleep_sec < 0.5:
-                    sleep_sec += 60
-                time.sleep(sleep_sec)
-            except Exception:
-                time.sleep(60)
+    print(f"[PROXY] 시작: http://{LISTEN_HOST}:{LISTEN_PORT}  →  {UPSTREAM}")
+    print(f"[PROXY] 제거할 필드: {list(STRIP_FIELDS)}")
+    print(f"[PROXY] hermes 에는 base URL 을 http://{LISTEN_HOST}:{LISTEN_PORT}/v1 로 설정하세요.")
+    app.run(host=LISTEN_HOST, port=LISTEN_PORT, threaded=True, debug=False)
