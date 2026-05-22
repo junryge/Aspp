@@ -1,219 +1,236 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-독립 API 수신 테스트 서버
+하이브리드 예측 결과 — API Receiver 로 샘플 데이터 전송 테스터
 
-목적: 외부 시스템 (Demos / Hermes / 회사 vLLM / 그 외 어떤 거든)
-       이 보내는 API 결과를 받아서 저장하고 화면에 보여주기.
-       demos_v1 / hermes-web 과 완전 분리. 단독 실행.
+목적:
+  api_receiver.py 가 hybrid CSV 한 줄 받을 수 있는지 확인.
+  실제 데이터 아닌 **샘플 6개 시나리오** 만들어서 전송.
 
-엔드포인트:
-  POST /api/receive       - 임의 JSON 받음. 메모리+파일 저장. 200 OK 응답.
-  POST /api/receive/<tag> - tag 별로 따로 저장 (예: /api/receive/llm, /api/receive/demos)
-  GET  /api/last          - 최근 수신 N개 (?limit=20&tag=llm)
-  GET  /api/clear         - 메모리 비우기 (파일 보존)
-  GET  /                  - 간단 대시보드 (자동 새로고침)
-  GET  /api/health        - 살아있나
+시나리오:
+  1) 정상            — 모든 룰 OFF, risk_level=정상
+  2) 관심            — 단독 약신호
+  3) 주의            — S2 + ML 약
+  4) 경보            — ML 단독강 (룰 OFF + ML강)
+  5) 위험-예측  ★    — S2 + ML강 → 30분내 S3 진행예상
+  6) 위험-확정  ★★   — S3 발동 (사건진행)
 
 실행:
-  python api_receiver.py            # 포트 9100 (기본)
-  python api_receiver.py 9200       # 포트 지정
-
-테스트:
-  curl -X POST http://localhost:9100/api/receive \
-       -H "Content-Type: application/json" \
-       -d '{"hello":"world","value":42}'
-
-  curl -X POST http://localhost:9100/api/receive/llm \
-       -H "Content-Type: application/json" \
-       -d '{"model":"qwen","output":"안녕하세요"}'
-
-  curl http://localhost:9100/api/last?limit=5
+  python sample_sender.py                              # 기본 localhost:9100
+  python sample_sender.py http://localhost:9200        # 다른 포트
+  python sample_sender.py http://192.168.0.10:9100     # 다른 서버
+  python sample_sender.py --interval 5                 # 5초 간격 전송
+  python sample_sender.py --once                       # 1회만 (테스트용)
 """
-import os
-import sys
+import argparse
 import json
+import sys
 import time
-from collections import deque
-from datetime import datetime
-from flask import Flask, request, jsonify, Response
+from datetime import datetime, timedelta
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-LOG_DIR = os.path.join(BASE_DIR, "received")
-os.makedirs(LOG_DIR, exist_ok=True)
-
-MAX_MEM = 200
-_received = deque(maxlen=MAX_MEM)
-
-app = Flask(__name__)
+try:
+    import requests
+except ImportError:
+    sys.exit("❌ requests 모듈 필요: pip install requests")
 
 
-def _save_to_file(tag, payload):
-    ts = datetime.now().strftime("%Y%m%d")
-    path = os.path.join(LOG_DIR, f"{tag}_{ts}.jsonl")
-    line = json.dumps({
-        "ts": datetime.now().isoformat(timespec="seconds"),
-        "tag": tag,
-        "payload": payload,
-    }, ensure_ascii=False)
-    try:
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(line + "\n")
-    except Exception as e:
-        print(f"[file-save 실패] {e}")
+DEFAULT_URL = "http://localhost:9100"
+TAG = "hybrid"  # POST /api/receive/<tag>
 
 
-def _receive(tag):
-    payload = request.get_json(silent=True)
-    if payload is None:
-        raw = request.get_data(as_text=True) or ""
-        payload = {"_raw": raw[:5000]}
-
-    rec = {
-        "id": int(time.time() * 1000),
-        "ts": datetime.now().isoformat(timespec="seconds"),
-        "tag": tag,
-        "remote": request.remote_addr,
-        "headers": {k: v for k, v in request.headers.items()
-                    if k.lower() not in ("cookie", "authorization")},
-        "payload": payload,
+def make_sample(level: str, dt: datetime) -> dict:
+    """level 별 샘플 hybrid 데이터 1행"""
+    base = {
+        "datetime":       dt.strftime("%Y-%m-%d %H:%M:%S"),
+        "prediction_for": (dt + timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M:%S"),
+        # 원천값
+        "avgtotal1min":   3.5,
+        "m14_to_m16":     150,
+        "fabstorage_ratio": 1.2,
+        "hub_storage_util": 95.0,
+        "inflow_total":   200,
+        # 룰 판정
+        "rule_s1": 0, "rule_s2": 0, "rule_s3": 0,
+        "ra_value": 3.5, "ra_trig": 0, "ra_sustained": False,
+        "rb_diff": 5,    "rb_trig": 0, "rb_fast": False,
+        "rc_trend": 0,   "rev_count": 0, "rc_trig": 0,
+        "rd_fabstorage": 1.2, "rd_trig": 0,
+        "re_trig": 0, "rf_trig": 0, "rf_fast": 0,
+        # 룰 이벤트
+        "stage": 0, "stage_name": "이벤트없음",
+        "rule_reason": "", "rule_relation": "",
+        # 위험도
+        "risk_score": 0, "risk_level": "정상", "risk_factors": "",
+        # ML
+        "ml_score": 0.05, "ml_level": "OK", "ml_level_kr": "정상",
+        # 융합
+        "final_level": "정상", "agreement": "none",
+        "direction": "-",      "final_reason": "",
     }
-    _received.append(rec)
-    _save_to_file(tag, payload)
 
-    print(f"[{rec['ts']}] [{tag}] from={rec['remote']} "
-          f"keys={list(payload.keys()) if isinstance(payload, dict) else type(payload).__name__}")
+    if level == "정상":
+        return base
 
-    return jsonify({"ok": True, "id": rec["id"], "tag": tag, "ts": rec["ts"]})
+    if level == "관심":
+        base.update({
+            "rev_count": 3, "rc_trend": 5,
+            "risk_score": 10, "risk_level": "관심", "risk_factors": "rev=3(준위험)",
+            "ml_score": 0.18, "ml_level": "OK", "ml_level_kr": "정상",
+            "final_level": "관심", "agreement": "none", "direction": "-",
+            "final_reason": "리프터 쏠림 초기",
+        })
+        return base
+
+    if level == "주의":
+        base.update({
+            "rule_s2": 1, "rb_diff": 80, "rb_fast": True, "rb_diff_10": 35,
+            "stage": 2, "stage_name": "2단계 주의보",
+            "rule_reason": "M14→M16 +35 (10분간 fast)",
+            "risk_score": 30, "risk_level": "주의",
+            "risk_factors": "rb_fast;rb=+80",
+            "ml_score": 0.42, "ml_level": "INFO", "ml_level_kr": "주의",
+            "final_level": "주의", "agreement": "both",
+            "direction": "sync(양합치)",
+            "final_reason": "S2 일반 (ml 약 0.42)",
+        })
+        return base
+
+    if level == "경보":
+        base.update({
+            "risk_score": 25, "risk_level": "주의",
+            "risk_factors": "rev=3(준위험)",
+            "ml_score": 0.88, "ml_level": "CRITICAL", "ml_level_kr": "위험",
+            "final_level": "경보", "agreement": "ml_only",
+            "direction": "ml→rule(예측)",
+            "final_reason": "ML 단독강 → 룰 곧 발동가능 ml=0.88",
+        })
+        return base
+
+    if level == "위험-예측":
+        base.update({
+            "avgtotal1min": 7.85,
+            "rule_s2": 1, "rb_diff": 118, "rb_trig": 1,
+            "rb_fast": True, "rb_diff_10": 42,
+            "rev_count": 3, "rc_trend": -8, "rc_trig": 1,
+            "rev_lids": "6ABL6011;6ABL6022;6ABL0121",
+            "stage": 2, "stage_name": "2단계 주의보", "transition": "1→2",
+            "rule_reason": "M14→M16 +118 (30분간)",
+            "rule_relation": "[R-A' Y] T1MIN=7.85분 | [R-B Y] +118/30분 | [R-C' Y] 역증가 3개",
+            "risk_score": 70, "risk_level": "매우위험",
+            "risk_factors": "ra=7.9분;rb_fast;rb=+118;rc_rev=3",
+            "ml_score": 0.8742, "ml_level": "CRITICAL", "ml_level_kr": "위험",
+            "final_level": "위험-예측", "agreement": "both",
+            "direction": "sync(양합치)",
+            "final_reason": "★ S2+ML강 → 30분내 S3 진행예상 ml=0.87 | risk=70(매우위험)",
+        })
+        return base
+
+    if level == "위험-확정":
+        base.update({
+            "avgtotal1min": 12.5,
+            "rule_s1": 1, "rule_s2": 1, "rule_s3": 1,
+            "ra_value": 12.5, "ra_count": 5, "ra_trig": 1, "ra_sustained": True,
+            "rb_diff": 162, "rb_trig": 1, "rb_fast": True, "rb_diff_10": 53,
+            "rev_count": 5, "rc_trend": -15, "rc_trig": 1,
+            "rev_lids": "6ABL6011;6ABL6022;6ABL0121;6ABL0122;6ABL0112",
+            "rd_fabstorage": 28.5, "rd_trig": 1,
+            "stage": 3, "stage_name": "3단계 ⭐확정", "transition": "2→3",
+            "rule_reason": "AND 만족 (1MIN 12.5, M14→M16 +162, 역증가 5개)",
+            "rule_relation": "[R-A' Y] T1MIN=12.5분 | [R-B Y] +162/30분 | [R-C' Y] 역증가 5개 | [R-D Y] FAB 28.5%",
+            "risk_score": 140, "risk_level": "매우위험",
+            "risk_factors": "ra_sustained;ra_count=5;ra=12.5분;rb_fast;rb=+162;rc_rev=5;rd=29%",
+            "ml_score": 0.9912, "ml_level": "CRITICAL", "ml_level_kr": "위험",
+            "final_level": "위험-확정", "agreement": "both",
+            "direction": "sync(양합치)",
+            "final_reason": "S3 발동, 이미 사건진행 ml=0.99 | risk=140(매우위험)",
+        })
+        return base
+
+    return base
 
 
-@app.route("/api/receive", methods=["POST"])
-def receive_default():
-    return _receive("default")
+SCENARIOS = ["정상", "관심", "주의", "경보", "위험-예측", "위험-확정"]
 
 
-@app.route("/api/receive/<tag>", methods=["POST"])
-def receive_tagged(tag):
-    safe_tag = "".join(c for c in tag if c.isalnum() or c in "-_")[:32] or "default"
-    return _receive(safe_tag)
-
-
-@app.route("/api/last")
-def api_last():
+def send_one(url: str, payload: dict) -> bool:
+    """1건 전송. 성공시 True"""
+    full_url = f"{url.rstrip('/')}/api/receive/{TAG}"
     try:
-        limit = max(1, min(MAX_MEM, int(request.args.get("limit", 20))))
-    except ValueError:
-        limit = 20
-    tag_filter = request.args.get("tag", "").strip()
-
-    items = list(_received)
-    if tag_filter:
-        items = [r for r in items if r["tag"] == tag_filter]
-    items = items[-limit:][::-1]
-
-    return jsonify({
-        "count": len(items),
-        "total_in_memory": len(_received),
-        "items": items,
-    })
+        r = requests.post(full_url, json=payload, timeout=5)
+        ok = r.status_code == 200
+        body = r.json() if ok else r.text[:200]
+        lvl = payload.get("final_level", "?")
+        score = payload.get("risk_score", 0)
+        ml = payload.get("ml_score", 0)
+        mark = "✓" if ok else "✗"
+        print(f"  {mark} [{payload['datetime']}] {lvl:<10} risk={score:>3} ml={ml:.2f} → {r.status_code} {body}")
+        return ok
+    except Exception as e:
+        print(f"  ✗ 전송 실패: {e}")
+        return False
 
 
-@app.route("/api/clear")
-def api_clear():
-    n = len(_received)
-    _received.clear()
-    return jsonify({"cleared": n})
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("url", nargs="?", default=DEFAULT_URL,
+                   help=f"API receiver URL (기본 {DEFAULT_URL})")
+    p.add_argument("--interval", type=int, default=2,
+                   help="시나리오 간격 초 (기본 2)")
+    p.add_argument("--once", action="store_true",
+                   help="6 시나리오 1회만 보내고 종료")
+    p.add_argument("--loop", action="store_true",
+                   help="시나리오 무한 반복")
+    p.add_argument("--scenario", choices=SCENARIOS,
+                   help="특정 시나리오 1개만 1회 전송")
+    args = p.parse_args()
 
+    print("=" * 60)
+    print("  Hybrid → API Receiver 샘플 전송")
+    print("=" * 60)
+    print(f"  대상 URL: {args.url}")
+    print(f"  엔드포인트: POST /api/receive/{TAG}")
+    print(f"  간격: {args.interval}초")
+    print("=" * 60)
 
-@app.route("/api/health")
-def api_health():
-    return jsonify({
-        "ok": True,
-        "in_memory": len(_received),
-        "log_dir": LOG_DIR,
-        "files": sorted(os.listdir(LOG_DIR)) if os.path.isdir(LOG_DIR) else [],
-    })
+    # 헬스 체크
+    try:
+        h = requests.get(f"{args.url.rstrip('/')}/api/health", timeout=3)
+        if h.status_code == 200:
+            print(f"  ✓ 서버 응답 정상: {h.json()}")
+        else:
+            print(f"  ⚠ /api/health 응답 코드 {h.status_code}")
+    except Exception as e:
+        print(f"  ⚠ 서버 헬스 체크 실패: {e}")
+        print(f"  계속 진행은 가능하지만 서버가 안 켜져있을 수 있음")
+    print()
 
+    # 단일 시나리오
+    if args.scenario:
+        payload = make_sample(args.scenario, datetime.now())
+        send_one(args.url, payload)
+        return
 
-_DASHBOARD_HTML = """<!doctype html>
-<html lang="ko"><head>
-<meta charset="utf-8"><title>API Receiver</title>
-<style>
-  body{font-family:ui-monospace,Menlo,Consolas,monospace;margin:16px;background:#0f1115;color:#e7e9ec}
-  h1{margin:0 0 8px;font-size:18px}
-  .bar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
-  .bar input,.bar select{background:#1a1d24;color:#e7e9ec;border:1px solid #2a2f3a;border-radius:6px;padding:6px 8px}
-  .bar button{background:#2a6df4;color:#fff;border:0;border-radius:6px;padding:6px 12px;cursor:pointer}
-  .bar button.gray{background:#374151}
-  .item{background:#1a1d24;border:1px solid #2a2f3a;border-radius:8px;padding:10px;margin:8px 0}
-  .head{display:flex;gap:10px;font-size:12px;color:#9ca3af;margin-bottom:6px}
-  .tag{background:#2a6df4;color:#fff;padding:1px 6px;border-radius:4px;font-size:11px}
-  pre{white-space:pre-wrap;word-break:break-all;margin:0;font-size:12px;color:#cbd5e1}
-  .stat{font-size:12px;color:#9ca3af}
-</style></head>
-<body>
-<h1>API Receiver Dashboard</h1>
-<div class="bar">
-  <label>tag <input id="tag" placeholder="(all)" style="width:120px"></label>
-  <label>limit <input id="limit" type="number" value="20" min="1" max="200" style="width:60px"></label>
-  <label><input id="auto" type="checkbox" checked> auto refresh 2s</label>
-  <button onclick="load()">refresh</button>
-  <button class="gray" onclick="if(confirm('메모리 비우기?'))fetch('/api/clear').then(load)">clear</button>
-  <span id="stat" class="stat"></span>
-</div>
-<div id="list"></div>
-<script>
-async function load(){
-  const tag = document.getElementById('tag').value.trim();
-  const lim = document.getElementById('limit').value || 20;
-  const u = '/api/last?limit=' + lim + (tag ? '&tag=' + encodeURIComponent(tag) : '');
-  const r = await fetch(u);
-  const j = await r.json();
-  document.getElementById('stat').textContent =
-    '표시 ' + j.count + ' / 메모리 ' + j.total_in_memory;
-  const html = (j.items||[]).map(it =>
-    '<div class="item">' +
-      '<div class="head">' +
-        '<span class="tag">' + escapeHtml(it.tag) + '</span>' +
-        '<span>' + escapeHtml(it.ts) + '</span>' +
-        '<span>from ' + escapeHtml(it.remote||'') + '</span>' +
-        '<span>id=' + it.id + '</span>' +
-      '</div>' +
-      '<pre>' + escapeHtml(JSON.stringify(it.payload, null, 2)) + '</pre>' +
-    '</div>'
-  ).join('');
-  document.getElementById('list').innerHTML = html || '<div class="stat">(수신 없음)</div>';
-}
-function escapeHtml(s){
-  return String(s==null?'':s).replace(/[&<>"']/g, c=>(
-    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
-  ));
-}
-load();
-setInterval(()=>{ if(document.getElementById('auto').checked) load(); }, 2000);
-</script>
-</body></html>"""
+    # 시나리오 순차 전송
+    rounds = 1
+    while True:
+        print(f"━━━ Round {rounds} — 6 시나리오 전송 ━━━")
+        ok_cnt = 0
+        for i, lvl in enumerate(SCENARIOS):
+            t = datetime.now() + timedelta(minutes=i)  # 시각 다르게
+            payload = make_sample(lvl, t)
+            if send_one(args.url, payload):
+                ok_cnt += 1
+            time.sleep(args.interval)
+        print(f"  → {ok_cnt}/{len(SCENARIOS)} 성공\n")
 
+        if args.once:
+            break
+        if not args.loop:
+            break
+        rounds += 1
 
-@app.route("/")
-def dashboard():
-    return Response(_DASHBOARD_HTML, mimetype="text/html; charset=utf-8")
+    print("종료")
 
 
 if __name__ == "__main__":
-    port = 9100
-    if len(sys.argv) > 1:
-        try:
-            port = int(sys.argv[1])
-        except ValueError:
-            pass
-
-    print("=" * 60)
-    print("  API Receiver (독립 단일 파일)")
-    print("=" * 60)
-    print(f"  포트: {port}")
-    print(f"  로그 디렉토리: {LOG_DIR}")
-    print(f"  대시보드:  http://localhost:{port}/")
-    print(f"  엔드포인트: POST http://localhost:{port}/api/receive")
-    print(f"             POST http://localhost:{port}/api/receive/<tag>")
-    print("=" * 60)
-
-    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
+    main()
