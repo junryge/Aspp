@@ -1,908 +1,219 @@
-<!doctype html>
-<html lang="ko">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Hermes</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Inter:wght@300;400;500;600;700&family=Noto+Serif+KR:wght@400;500;700&family=Noto+Sans+KR:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.0/dist/purify.min.js"></script>
+"""
+독립 API 수신 테스트 서버
+
+목적: 외부 시스템 (Demos / Hermes / 회사 vLLM / 그 외 어떤 거든)
+       이 보내는 API 결과를 받아서 저장하고 화면에 보여주기.
+       demos_v1 / hermes-web 과 완전 분리. 단독 실행.
+
+엔드포인트:
+  POST /api/receive       - 임의 JSON 받음. 메모리+파일 저장. 200 OK 응답.
+  POST /api/receive/<tag> - tag 별로 따로 저장 (예: /api/receive/llm, /api/receive/demos)
+  GET  /api/last          - 최근 수신 N개 (?limit=20&tag=llm)
+  GET  /api/clear         - 메모리 비우기 (파일 보존)
+  GET  /                  - 간단 대시보드 (자동 새로고침)
+  GET  /api/health        - 살아있나
+
+실행:
+  python api_receiver.py            # 포트 9100 (기본)
+  python api_receiver.py 9200       # 포트 지정
+
+테스트:
+  curl -X POST http://localhost:9100/api/receive \
+       -H "Content-Type: application/json" \
+       -d '{"hello":"world","value":42}'
+
+  curl -X POST http://localhost:9100/api/receive/llm \
+       -H "Content-Type: application/json" \
+       -d '{"model":"qwen","output":"안녕하세요"}'
+
+  curl http://localhost:9100/api/last?limit=5
+"""
+import os
+import sys
+import json
+import time
+from collections import deque
+from datetime import datetime
+from flask import Flask, request, jsonify, Response
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+LOG_DIR = os.path.join(BASE_DIR, "received")
+os.makedirs(LOG_DIR, exist_ok=True)
+
+MAX_MEM = 200
+_received = deque(maxlen=MAX_MEM)
+
+app = Flask(__name__)
+
+
+def _save_to_file(tag, payload):
+    ts = datetime.now().strftime("%Y%m%d")
+    path = os.path.join(LOG_DIR, f"{tag}_{ts}.jsonl")
+    line = json.dumps({
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "tag": tag,
+        "payload": payload,
+    }, ensure_ascii=False)
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception as e:
+        print(f"[file-save 실패] {e}")
+
+
+def _receive(tag):
+    payload = request.get_json(silent=True)
+    if payload is None:
+        raw = request.get_data(as_text=True) or ""
+        payload = {"_raw": raw[:5000]}
+
+    rec = {
+        "id": int(time.time() * 1000),
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "tag": tag,
+        "remote": request.remote_addr,
+        "headers": {k: v for k, v in request.headers.items()
+                    if k.lower() not in ("cookie", "authorization")},
+        "payload": payload,
+    }
+    _received.append(rec)
+    _save_to_file(tag, payload)
+
+    print(f"[{rec['ts']}] [{tag}] from={rec['remote']} "
+          f"keys={list(payload.keys()) if isinstance(payload, dict) else type(payload).__name__}")
+
+    return jsonify({"ok": True, "id": rec["id"], "tag": tag, "ts": rec["ts"]})
+
+
+@app.route("/api/receive", methods=["POST"])
+def receive_default():
+    return _receive("default")
+
+
+@app.route("/api/receive/<tag>", methods=["POST"])
+def receive_tagged(tag):
+    safe_tag = "".join(c for c in tag if c.isalnum() or c in "-_")[:32] or "default"
+    return _receive(safe_tag)
+
+
+@app.route("/api/last")
+def api_last():
+    try:
+        limit = max(1, min(MAX_MEM, int(request.args.get("limit", 20))))
+    except ValueError:
+        limit = 20
+    tag_filter = request.args.get("tag", "").strip()
+
+    items = list(_received)
+    if tag_filter:
+        items = [r for r in items if r["tag"] == tag_filter]
+    items = items[-limit:][::-1]
+
+    return jsonify({
+        "count": len(items),
+        "total_in_memory": len(_received),
+        "items": items,
+    })
+
+
+@app.route("/api/clear")
+def api_clear():
+    n = len(_received)
+    _received.clear()
+    return jsonify({"cleared": n})
+
+
+@app.route("/api/health")
+def api_health():
+    return jsonify({
+        "ok": True,
+        "in_memory": len(_received),
+        "log_dir": LOG_DIR,
+        "files": sorted(os.listdir(LOG_DIR)) if os.path.isdir(LOG_DIR) else [],
+    })
+
+
+_DASHBOARD_HTML = """<!doctype html>
+<html lang="ko"><head>
+<meta charset="utf-8"><title>API Receiver</title>
 <style>
-  :root {
-    /* Light — Ivory & Gold */
-    --bg: #faf7f1;
-    --bg-card: #ffffff;
-    --bg-side: #f3ede1;
-    --bg-soft: #f7f1e4;
-    --border: #e6dcc7;
-    --border-soft: #efe8d7;
-    --text: #1a2342;
-    --text-dim: #5a5345;
-    --text-mute: #948872;
-    --gold: #b08a4a;
-    --gold-soft: #d4b576;
-    --gold-glow: rgba(176, 138, 74, 0.12);
-    --navy: #1a2342;
-    --user-bg: #1a2342;
-    --user-fg: #faf7f1;
-    --asst-bg: #ffffff;
-    --asst-fg: #1a2342;
-    --shadow-sm: 0 1px 2px rgba(26, 35, 66, 0.04), 0 1px 1px rgba(26, 35, 66, 0.02);
-    --shadow-md: 0 4px 12px rgba(26, 35, 66, 0.06), 0 1px 3px rgba(26, 35, 66, 0.04);
-    --shadow-lg: 0 12px 32px rgba(26, 35, 66, 0.08);
-    --shadow-gold: 0 0 0 3px var(--gold-glow);
-  }
-  html[data-theme="dark"] {
-    --bg: #0c0f1c;
-    --bg-card: #141828;
-    --bg-side: #0f1322;
-    --bg-soft: #1a1f33;
-    --border: #252a3e;
-    --border-soft: #1c2034;
-    --text: #f0e9d8;
-    --text-dim: #b8b09a;
-    --text-mute: #8a8270;
-    --gold: #d4b576;
-    --gold-soft: #e5cb95;
-    --gold-glow: rgba(212, 181, 118, 0.18);
-    --navy: #f0e9d8;
-    --user-bg: #d4b576;
-    --user-fg: #0c0f1c;
-    --asst-bg: #141828;
-    --asst-fg: #f0e9d8;
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
-    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.5);
-    --shadow-gold: 0 0 0 3px var(--gold-glow);
-  }
-  * { box-sizing: border-box; }
-  html, body {
-    margin: 0; padding: 0; height: 100%;
-    background: var(--bg);
-    color: var(--text);
-    font-family: "Inter", "Noto Sans KR", -apple-system, BlinkMacSystemFont, sans-serif;
-    font-size: 14px;
-    font-weight: 400;
-    letter-spacing: 0.01em;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-  }
-  /* 배경에 미세한 텍스처 (그리스 키 패턴의 추상화) */
-  body::before {
-    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: -1;
-    background-image:
-      radial-gradient(circle at 20% 10%, var(--gold-glow) 0%, transparent 40%),
-      radial-gradient(circle at 80% 90%, var(--gold-glow) 0%, transparent 50%);
-    opacity: 0.5;
-  }
-
-  .serif { font-family: "Cormorant Garamond", "Noto Serif KR", serif; }
-  .serif-ko { font-family: "Noto Serif KR", "Cormorant Garamond", serif; }
-
-  .app { display: grid; grid-template-columns: 340px 1fr; height: 100vh; gap: 0; }
-
-  /* ───────────── Sidebar ───────────── */
-  .side {
-    background: var(--bg-side);
-    border-right: 1px solid var(--border);
-    display: flex; flex-direction: column;
-    overflow: hidden;
-    position: relative;
-  }
-  .side-head {
-    padding: 28px 24px 20px;
-    border-bottom: 1px solid var(--border);
-    text-align: center;
-  }
-  .brand {
-    font-family: "Cormorant Garamond", serif;
-    font-size: 34px;
-    font-weight: 500;
-    font-style: italic;
-    letter-spacing: 0.02em;
-    color: var(--navy);
-    line-height: 1;
-    margin: 0;
-  }
-  .brand-sub {
-    font-family: "Inter", sans-serif;
-    font-size: 9.5px;
-    font-weight: 600;
-    letter-spacing: 0.45em;
-    text-transform: uppercase;
-    color: var(--gold);
-    margin-top: 8px;
-  }
-  .brand-line {
-    width: 40px; height: 1px;
-    background: var(--gold);
-    margin: 14px auto 0;
-    opacity: 0.6;
-  }
-  .env-pill {
-    display: inline-flex; align-items: center; gap: 6px;
-    margin-top: 16px;
-    padding: 4px 12px;
-    font-size: 10px; font-weight: 600; letter-spacing: 0.15em;
-    color: var(--gold);
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    text-transform: uppercase;
-  }
-  .env-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: #c4c4c4; }
-  .env-pill .dot.ok { background: #5a9460; box-shadow: 0 0 6px rgba(90, 148, 96, 0.4); }
-  .env-pill .dot.bad { background: #c66; }
-
-  .side-search { padding: 14px 18px; }
-  .side-search input {
-    width: 100%; padding: 10px 14px;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--text); font-size: 13px;
-    outline: none; transition: all 0.15s;
-    font-family: inherit;
-  }
-  .side-search input::placeholder { color: var(--text-mute); font-style: italic; }
-  .side-search input:focus { border-color: var(--gold); box-shadow: var(--shadow-gold); }
-
-  .side-cat { padding: 0 18px 12px; }
-  .side-cat select {
-    width: 100%; padding: 9px 12px;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--text); font-size: 12.5px;
-    outline: none; transition: all 0.15s;
-    font-family: inherit;
-    cursor: pointer;
-    appearance: none; -webkit-appearance: none;
-    background-image: linear-gradient(45deg, transparent 50%, var(--text-mute) 50%),
-                      linear-gradient(135deg, var(--text-mute) 50%, transparent 50%);
-    background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
-    background-size: 5px 5px, 5px 5px;
-    background-repeat: no-repeat;
-  }
-  .side-cat select:focus { border-color: var(--gold); box-shadow: var(--shadow-gold); }
-
-  .side-stat {
-    padding: 0 22px 8px;
-    display: flex; justify-content: space-between;
-    font-size: 10.5px; font-weight: 500;
-    color: var(--text-mute);
-    letter-spacing: 0.1em; text-transform: uppercase;
-  }
-  .side-stat .sel { color: var(--gold); font-weight: 700; }
-
-  .side-list { flex: 1; overflow-y: auto; padding: 6px 12px 16px; }
-  .side-list::-webkit-scrollbar { width: 6px; }
-  .side-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-
-  .skill {
-    display: flex; gap: 10px; align-items: flex-start;
-    padding: 9px 12px; border-radius: 8px;
-    cursor: pointer; user-select: none;
-    transition: background 0.12s;
-    border: 1px solid transparent;
-  }
-  .skill:hover { background: var(--bg-card); }
-  .skill.checked { background: var(--bg-card); border-color: var(--border-soft); }
-  .skill input[type="checkbox"] {
-    appearance: none; -webkit-appearance: none;
-    width: 16px; height: 16px; margin: 2px 0 0;
-    border: 1.5px solid var(--border); border-radius: 3px;
-    background: var(--bg-card); cursor: pointer; flex-shrink: 0;
-    position: relative; transition: all 0.15s;
-  }
-  .skill input[type="checkbox"]:checked {
-    background: var(--gold); border-color: var(--gold);
-  }
-  .skill input[type="checkbox"]:checked::after {
-    content: ""; position: absolute;
-    left: 4px; top: 1px; width: 5px; height: 9px;
-    border: solid white; border-width: 0 2px 2px 0;
-    transform: rotate(45deg);
-  }
-  .skill-body { min-width: 0; flex: 1; }
-  .skill-name {
-    font-size: 12.5px; font-weight: 500;
-    color: var(--text); line-height: 1.3;
-  }
-  .skill-desc {
-    font-size: 11px; color: var(--text-mute);
-    line-height: 1.5; margin-top: 3px;
-    display: -webkit-box; -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical; overflow: hidden;
-  }
-
-  .side-foot {
-    padding: 12px 16px;
-    border-top: 1px solid var(--border);
-    display: flex; gap: 8px;
-  }
-  .side-foot button {
-    flex: 1; padding: 7px 10px;
-    background: transparent; color: var(--text-dim);
-    border: 1px solid var(--border); border-radius: 6px;
-    cursor: pointer; font-size: 11.5px; font-weight: 500;
-    letter-spacing: 0.05em; transition: all 0.15s;
-    font-family: inherit;
-  }
-  .side-foot button:hover {
-    background: var(--bg-card); color: var(--gold);
-    border-color: var(--gold-soft);
-  }
-
-  /* ───────────── Main ───────────── */
-  .main { display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
-
-  .top {
-    display: flex; align-items: center;
-    padding: 20px 36px 18px;
-    border-bottom: 1px solid var(--border);
-    gap: 14px;
-    background: var(--bg);
-  }
-  .top-title {
-    font-family: "Cormorant Garamond", serif;
-    font-size: 22px; font-weight: 500;
-    font-style: italic; color: var(--navy);
-  }
-  .top-sub {
-    font-size: 11px; color: var(--text-mute);
-    letter-spacing: 0.15em; text-transform: uppercase;
-    border-left: 1px solid var(--border); padding-left: 14px; margin-left: 4px;
-  }
-  .top-right { margin-left: auto; display: flex; gap: 10px; align-items: center; }
-  .top-status {
-    font-size: 10.5px; font-weight: 500;
-    color: var(--text-mute);
-    display: flex; align-items: center; gap: 6px;
-    letter-spacing: 0.08em;
-  }
-  .top-status .dot { width: 6px; height: 6px; border-radius: 50%; background: #c4c4c4; }
-  .top-status .dot.ok { background: #5a9460; box-shadow: 0 0 6px rgba(90, 148, 96, 0.4); }
-  .top-status .dot.bad { background: #c66; }
-  .theme-btn {
-    background: transparent; border: 1px solid var(--border);
-    color: var(--text-dim); padding: 6px 10px;
-    border-radius: 6px; cursor: pointer; font-size: 13px;
-    transition: all 0.15s;
-  }
-  .theme-btn:hover { border-color: var(--gold-soft); color: var(--gold); }
-
-  .msgs {
-    flex: 1; overflow-y: auto;
-    padding: 36px 32px 24px;
-    scroll-behavior: smooth;
-  }
-  .msgs::-webkit-scrollbar { width: 8px; }
-  .msgs::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-
-  .msg {
-    max-width: 780px; margin: 0 auto 28px;
-    display: flex; flex-direction: column; gap: 8px;
-  }
-  .msg .who {
-    font-size: 10px; font-weight: 600;
-    letter-spacing: 0.3em; text-transform: uppercase;
-    color: var(--text-mute);
-    display: flex; align-items: center; gap: 8px;
-  }
-  .msg .who::after {
-    content: ""; flex: 1; height: 1px;
-    background: linear-gradient(to right, var(--border), transparent);
-  }
-  .msg.user .who { color: var(--gold); justify-content: flex-end; }
-  .msg.user .who::after { background: linear-gradient(to left, var(--border), transparent); order: -1; }
-
-  .bubble {
-    padding: 18px 22px;
-    border-radius: 14px;
-    line-height: 1.7; font-size: 14.5px;
-    background: var(--asst-bg);
-    color: var(--asst-fg);
-    box-shadow: var(--shadow-sm);
-    border: 1px solid var(--border-soft);
-    white-space: pre-wrap; word-wrap: break-word;
-    font-family: "Inter", "Noto Sans KR", sans-serif;
-  }
-  .msg.user .bubble {
-    background: var(--user-bg); color: var(--user-fg);
-    align-self: flex-end; max-width: 80%;
-    border-color: transparent;
-    box-shadow: var(--shadow-md);
-  }
-  .msg.assistant.error .bubble {
-    background: #fff5f5; color: #7a2424;
-    border-color: #f5c4c4;
-  }
-  html[data-theme="dark"] .msg.assistant.error .bubble {
-    background: #2a1414; color: #f4b4b4; border-color: #5a2828;
-  }
-  .bubble code {
-    background: var(--bg-soft); padding: 2px 6px;
-    border-radius: 3px; font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 13px; color: var(--gold);
-  }
-
-  /* ─── 마크다운 렌더링 스타일 ─── */
-  .bubble h1, .bubble h2, .bubble h3, .bubble h4 {
-    font-family: "Cormorant Garamond", "Noto Serif KR", serif;
-    color: var(--navy); margin: 1.2em 0 0.5em;
-    font-weight: 600; line-height: 1.3;
-  }
-  .bubble h1 { font-size: 22px; border-bottom: 1px solid var(--gold-soft); padding-bottom: 6px; }
-  .bubble h2 { font-size: 19px; border-bottom: 1px solid var(--border-soft); padding-bottom: 4px; }
-  .bubble h3 { font-size: 16px; color: var(--gold); }
-  .bubble h4 { font-size: 14.5px; color: var(--text-dim); }
-  .bubble h1:first-child, .bubble h2:first-child, .bubble h3:first-child { margin-top: 0; }
-
-  .bubble p { margin: 0.6em 0; line-height: 1.7; }
-  .bubble ul, .bubble ol { padding-left: 1.5em; margin: 0.6em 0; }
-  .bubble li { margin: 0.25em 0; line-height: 1.6; }
-  .bubble li > p { margin: 0.2em 0; }
-
-  .bubble blockquote {
-    border-left: 3px solid var(--gold); margin: 0.8em 0;
-    padding: 0.4em 1em; background: var(--bg-soft);
-    color: var(--text-dim); border-radius: 0 4px 4px 0;
-  }
-
-  .bubble table {
-    border-collapse: collapse; margin: 1em 0;
-    width: 100%; font-size: 13.5px;
-    box-shadow: var(--shadow-sm);
-    border-radius: 6px; overflow: hidden;
-  }
-  .bubble th, .bubble td {
-    padding: 9px 14px;
-    border-bottom: 1px solid var(--border);
-    text-align: left; vertical-align: top;
-  }
-  .bubble th {
-    background: var(--bg-soft); color: var(--navy);
-    font-weight: 600; font-size: 12.5px;
-    letter-spacing: 0.03em;
-    border-bottom: 2px solid var(--gold-soft);
-  }
-  .bubble td { color: var(--text); }
-  .bubble tr:last-child td { border-bottom: none; }
-  .bubble tr:hover td { background: var(--bg-soft); }
-
-  .bubble pre {
-    background: var(--code-bg); padding: 14px 16px;
-    border-radius: 8px; overflow-x: auto;
-    margin: 0.8em 0; border: 1px solid var(--border-soft);
-    line-height: 1.55;
-  }
-  .bubble pre code {
-    background: transparent; padding: 0; color: var(--text);
-    font-size: 13px; font-family: "JetBrains Mono", ui-monospace, monospace;
-  }
-
-  .bubble hr {
-    border: none; height: 1px;
-    background: linear-gradient(to right, transparent, var(--border), transparent);
-    margin: 1.4em 0;
-  }
-
-  .bubble a {
-    color: var(--gold); text-decoration: none;
-    border-bottom: 1px solid var(--gold-soft);
-  }
-  .bubble a:hover { color: var(--navy); border-bottom-color: var(--navy); }
-
-  .bubble strong { color: var(--navy); font-weight: 600; }
-  html[data-theme="dark"] .bubble strong { color: var(--gold-soft); }
-  .bubble em { color: var(--text-dim); font-style: italic; }
-
-  .meta-line {
-    font-size: 10.5px; color: var(--text-mute);
-    letter-spacing: 0.1em; text-transform: uppercase;
-    margin-top: 2px; padding: 0 4px;
-    font-weight: 500;
-  }
-  .msg.user .meta-line { text-align: right; }
-
-  .typing::after {
-    content: "▎"; color: var(--gold);
-    animation: blink 1s infinite;
-    font-weight: 100;
-  }
-  @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0.1; } }
-
-  /* ───────────── Input ───────────── */
-  .input-wrap {
-    border-top: 1px solid var(--border);
-    padding: 18px 32px 22px;
-    background: var(--bg);
-  }
-  .input-card {
-    max-width: 780px; margin: 0 auto;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    box-shadow: var(--shadow-md);
-    transition: all 0.15s;
-    display: flex; align-items: flex-end;
-    padding: 4px 4px 4px 16px;
-  }
-  .input-card:focus-within { border-color: var(--gold); box-shadow: var(--shadow-gold), var(--shadow-md); }
-  textarea#msg {
-    flex: 1; min-height: 44px; max-height: 200px;
-    padding: 12px 8px 12px 0;
-    border: none; outline: none; resize: none;
-    background: transparent; color: var(--text);
-    font-family: inherit; font-size: 14.5px;
-    line-height: 1.6; letter-spacing: 0.01em;
-  }
-  textarea#msg::placeholder { color: var(--text-mute); font-style: italic; }
-  .send-btn {
-    width: 44px; height: 44px;
-    background: var(--gold); color: white;
-    border: none; border-radius: 10px;
-    cursor: pointer; font-size: 18px;
-    display: flex; align-items: center; justify-content: center;
-    transition: all 0.15s; margin: 0;
-    box-shadow: 0 2px 6px rgba(176, 138, 74, 0.3);
-  }
-  .send-btn:hover { background: var(--navy); box-shadow: 0 4px 12px rgba(26, 35, 66, 0.3); }
-  .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-  .input-hint {
-    max-width: 780px; margin: 8px auto 0;
-    font-size: 10.5px; color: var(--text-mute);
-    text-align: center;
-    letter-spacing: 0.1em; text-transform: uppercase;
-  }
-
-  /* Hermes logo svg (winged) */
-  .crest {
-    width: 38px; height: 38px;
-    margin: 0 auto 10px;
-    color: var(--gold);
-    opacity: 0.85;
-  }
-
-  /* 모바일 (간단 — 사이드바 접기) */
-  @media (max-width: 800px) {
-    .app { grid-template-columns: 1fr; }
-    .side { display: none; }
-  }
-</style>
-</head>
+  body{font-family:ui-monospace,Menlo,Consolas,monospace;margin:16px;background:#0f1115;color:#e7e9ec}
+  h1{margin:0 0 8px;font-size:18px}
+  .bar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+  .bar input,.bar select{background:#1a1d24;color:#e7e9ec;border:1px solid #2a2f3a;border-radius:6px;padding:6px 8px}
+  .bar button{background:#2a6df4;color:#fff;border:0;border-radius:6px;padding:6px 12px;cursor:pointer}
+  .bar button.gray{background:#374151}
+  .item{background:#1a1d24;border:1px solid #2a2f3a;border-radius:8px;padding:10px;margin:8px 0}
+  .head{display:flex;gap:10px;font-size:12px;color:#9ca3af;margin-bottom:6px}
+  .tag{background:#2a6df4;color:#fff;padding:1px 6px;border-radius:4px;font-size:11px}
+  pre{white-space:pre-wrap;word-break:break-all;margin:0;font-size:12px;color:#cbd5e1}
+  .stat{font-size:12px;color:#9ca3af}
+</style></head>
 <body>
-<div class="app">
-
-  <!-- ─────── Sidebar ─────── -->
-  <aside class="side">
-    <div class="side-head">
-      <!-- Hermes 의 caduceus 영감 (날개) - 단순화 -->
-      <svg class="crest" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="1.5">
-        <path d="M32 8 L32 56" stroke-linecap="round"/>
-        <circle cx="32" cy="6" r="2.5" fill="currentColor"/>
-        <path d="M32 18 C 22 18, 16 14, 12 8  M32 18 C 42 18, 48 14, 52 8" stroke-linecap="round"/>
-        <path d="M32 14 C 24 22, 20 28, 18 36  C 24 32, 30 24, 32 22" stroke-linecap="round"/>
-        <path d="M32 14 C 40 22, 44 28, 46 36  C 40 32, 34 24, 32 22" stroke-linecap="round"/>
-        <path d="M32 26 C 26 32, 24 38, 24 44  C 28 40, 32 34, 32 32" stroke-linecap="round" opacity="0.7"/>
-        <path d="M32 26 C 38 32, 40 38, 40 44  C 36 40, 32 34, 32 32" stroke-linecap="round" opacity="0.7"/>
-      </svg>
-      <h1 class="brand">Hermes</h1>
-      <div class="brand-sub">Messenger of Skills</div>
-      <div class="brand-line"></div>
-      <div class="env-pill"><span class="dot" id="envDot"></span><span id="envBadge">···</span></div>
-    </div>
-
-    <div class="side-search">
-      <input id="search" type="text" placeholder="스킬 검색…" autocomplete="off" />
-    </div>
-    <div class="side-cat">
-      <select id="categorySel" onchange="renderSkills()">
-        <option value="all">전체 카테고리</option>
-      </select>
-    </div>
-    <div class="side-stat">
-      <span id="skillCount">0 SKILLS</span>
-      <span class="sel" id="selectedCount">0 SELECTED</span>
-    </div>
-    <div class="side-list" id="skillList"></div>
-    <div class="side-foot">
-      <button onclick="clearSkills()">CLEAR</button>
-      <button onclick="reloadSkills()">RELOAD</button>
-      <button id="trBtn" onclick="translateSkills()">한글로</button>
-    </div>
-    <div id="trProgress" style="display:none;padding:6px 14px;font-size:10.5px;color:var(--gold);letter-spacing:0.08em;border-top:1px solid var(--border);background:var(--bg-card);">번역 중…</div>
-  </aside>
-
-  <!-- ─────── Main ─────── -->
-  <main class="main">
-    <div class="top">
-      <span class="top-title">Conversation</span>
-      <span class="top-sub" id="topSub">초기화 중...</span>
-      <div class="top-right">
-        <span class="top-status"><span class="dot" id="proxyDot"></span><span id="proxyText">PROXY ···</span></span>
-        <span class="top-status" id="sendingStatus" onclick="forceReset()" style="cursor:pointer;" title="클릭하면 잠금 풀림">
-          <span class="dot" id="sendDot"></span><span id="sendText">READY</span>
-        </span>
-        <button class="theme-btn" onclick="toggleTheme()" title="테마">◐</button>
-      </div>
-    </div>
-
-    <div class="msgs" id="msgs">
-      <div class="msg assistant">
-        <div class="who">HERMES</div>
-        <div class="bubble">
-사용할 스킬을 왼쪽에서 선택하고 메시지를 보내세요.
-선택하지 않으면 Hermes 가 카탈로그를 보고 자동으로 판단합니다.
-
-<span style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:16px;color:var(--gold);">
-"신들의 전령, 길의 안내자."
-</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="input-wrap">
-      <div class="input-card">
-        <textarea id="msg" placeholder="메시지를 적으세요…" rows="1"></textarea>
-        <button class="send-btn" id="sendBtn" onclick="send()" title="전송 (Enter)">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/>
-          </svg>
-        </button>
-      </div>
-      <div class="input-hint">ENTER 전송 · SHIFT+ENTER 줄바꿈</div>
-    </div>
-  </main>
+<h1>API Receiver Dashboard</h1>
+<div class="bar">
+  <label>tag <input id="tag" placeholder="(all)" style="width:120px"></label>
+  <label>limit <input id="limit" type="number" value="20" min="1" max="200" style="width:60px"></label>
+  <label><input id="auto" type="checkbox" checked> auto refresh 2s</label>
+  <button onclick="load()">refresh</button>
+  <button class="gray" onclick="if(confirm('메모리 비우기?'))fetch('/api/clear').then(load)">clear</button>
+  <span id="stat" class="stat"></span>
 </div>
-
+<div id="list"></div>
 <script>
-let allSkills = [];
-let selected = new Set();
-let history = [];
-let sending = false;
-
-// ─── Theme ───
-function applyTheme(t) {
-  document.documentElement.setAttribute("data-theme", t);
-  localStorage.setItem("hermes_theme", t);
+async function load(){
+  const tag = document.getElementById('tag').value.trim();
+  const lim = document.getElementById('limit').value || 20;
+  const u = '/api/last?limit=' + lim + (tag ? '&tag=' + encodeURIComponent(tag) : '');
+  const r = await fetch(u);
+  const j = await r.json();
+  document.getElementById('stat').textContent =
+    '표시 ' + j.count + ' / 메모리 ' + j.total_in_memory;
+  const html = (j.items||[]).map(it =>
+    '<div class="item">' +
+      '<div class="head">' +
+        '<span class="tag">' + escapeHtml(it.tag) + '</span>' +
+        '<span>' + escapeHtml(it.ts) + '</span>' +
+        '<span>from ' + escapeHtml(it.remote||'') + '</span>' +
+        '<span>id=' + it.id + '</span>' +
+      '</div>' +
+      '<pre>' + escapeHtml(JSON.stringify(it.payload, null, 2)) + '</pre>' +
+    '</div>'
+  ).join('');
+  document.getElementById('list').innerHTML = html || '<div class="stat">(수신 없음)</div>';
 }
-function toggleTheme() {
-  const cur = document.documentElement.getAttribute("data-theme") || "light";
-  applyTheme(cur === "dark" ? "light" : "dark");
+function escapeHtml(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, c=>(
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
+  ));
 }
-applyTheme(localStorage.getItem("hermes_theme") || "light");
-
-// ─── Health ───
-async function refreshHealth() {
-  try {
-    const r = await fetch("/api/health");
-    const d = await r.json();
-    document.getElementById("envBadge").textContent = d.env_mode;
-    const envDot = document.getElementById("envDot");
-    envDot.classList.remove("ok", "bad");
-    envDot.classList.add(d.skills_dir_exists ? "ok" : "bad");
-
-    document.getElementById("topSub").textContent =
-      `${d.env_mode}  ·  ${d.skills_dir_exists ? "SKILLS READY" : "SKILLS MISSING"}`;
-
-    const pDot = document.getElementById("proxyDot");
-    pDot.classList.remove("ok", "bad");
-    pDot.classList.add(d.proxy_alive ? "ok" : "bad");
-    document.getElementById("proxyText").textContent =
-      "PROXY " + (d.proxy_alive ? "ONLINE" : "OFFLINE");
-  } catch (e) {
-    document.getElementById("topSub").textContent = "CONNECTION ERROR";
-  }
-}
-
-// ─── Skills ───
-async function loadSkills() {
-  try {
-    const r = await fetch("/api/skills");
-    const d = await r.json();
-    allSkills = d.skills || [];
-    populateCategories(d.categories || [], allSkills);
-    document.getElementById("skillCount").textContent = `${allSkills.length} SKILLS`;
-    renderSkills();
-  } catch (e) {
-    document.getElementById("skillList").innerHTML =
-      '<div style="padding:24px;color:var(--text-mute);font-size:11px;text-align:center;letter-spacing:0.1em;">SKILLS 로드 실패</div>';
-  }
-}
-function populateCategories(cats, skills) {
-  const sel = document.getElementById("categorySel");
-  if (!sel || !cats.length) return;
-  // 카테고리별 카운트
-  const counts = {};
-  skills.forEach(s => { counts[s.category] = (counts[s.category] || 0) + 1; });
-  const total = skills.length;
-  const cur = sel.value || "all";
-  sel.innerHTML = cats.map(c => {
-    const n = c.key === "all" ? total : (counts[c.key] || 0);
-    return `<option value="${c.key}">${c.name} (${n})</option>`;
-  }).join("");
-  sel.value = cats.some(c => c.key === cur) ? cur : "all";
-}
-function renderSkills() {
-  const q = document.getElementById("search").value.trim().toLowerCase();
-  const catSel = document.getElementById("categorySel");
-  const cat = catSel ? catSel.value : "all";
-  const list = document.getElementById("skillList");
-  let filtered = allSkills;
-  if (cat && cat !== "all") {
-    filtered = filtered.filter(s => (s.category || "etc") === cat);
-  }
-  if (q) {
-    filtered = filtered.filter(s =>
-      (s.id || "").toLowerCase().includes(q) ||
-      (s.name || "").toLowerCase().includes(q) ||
-      (s.description || "").toLowerCase().includes(q) ||
-      (s.description_kr || "").toLowerCase().includes(q));
-  }
-  list.innerHTML = filtered.map(s => {
-    const id = s.id, name = s.name || id;
-    // 한글 캐시 있으면 우선 사용, 없으면 영문
-    const desc = (s.description_kr && s.description_kr.trim()) ? s.description_kr : (s.description || "");
-    const checked = selected.has(id) ? "checked" : "";
-    const klass = selected.has(id) ? "skill checked" : "skill";
-    return `<label class="${klass}">
-      <input type="checkbox" ${checked} onchange="toggleSkill('${id.replace(/'/g, "\\'")}', this.checked, this)">
-      <div class="skill-body">
-        <div class="skill-name">${escapeHtml(name)}</div>
-        ${desc ? `<div class="skill-desc">${escapeHtml(desc)}</div>` : ''}
-      </div>
-    </label>`;
-  }).join("");
-  updateSelectedCount();
-}
-function escapeHtml(s) {
-  return (s || "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-}
-
-// ─── 마크다운 → 안전한 HTML 렌더링 ───
-// marked.js + DOMPurify 사용. 표/헤더/코드블록/리스트 다 처리.
-if (window.marked) {
-  marked.setOptions({
-    gfm: true,           // GitHub Flavored Markdown (표 등)
-    breaks: true,        // 줄바꿈 그대로
-    headerIds: false,
-    mangle: false,
-  });
-}
-function renderBubble(el, text) {
-  if (!text) { el.textContent = ""; return; }
-  try {
-    const html = window.marked ? marked.parse(text) : escapeHtml(text);
-    const safe = window.DOMPurify ? DOMPurify.sanitize(html) : html;
-    el.innerHTML = safe;
-  } catch (e) {
-    el.textContent = text;
-  }
-}
-function toggleSkill(id, checked, el) {
-  if (checked) selected.add(id); else selected.delete(id);
-  if (el) el.closest(".skill").classList.toggle("checked", checked);
-  updateSelectedCount();
-}
-function updateSelectedCount() {
-  document.getElementById("selectedCount").textContent = `${selected.size} SELECTED`;
-}
-function clearSkills() { selected.clear(); renderSkills(); }
-function reloadSkills() { loadSkills(); }
-document.getElementById("search").addEventListener("input", renderSkills);
-
-// ─── 한글 번역 (배치 반복) ───
-let translating = false;
-async function translateSkills() {
-  if (translating) return;
-  const btn = document.getElementById("trBtn");
-  const prog = document.getElementById("trProgress");
-  translating = true;
-  btn.disabled = true;
-  prog.style.display = "block";
-  let totalDone = 0;
-  let cumStart = 0;
-  try {
-    while (true) {
-      const r = await fetch("/api/translate-skills", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ batch_size: 10, only_missing: true })
-      });
-      const d = await r.json();
-      if (d.error) { prog.textContent = "에러: " + d.error; break; }
-      totalDone += (d.translated || 0);
-      const cachedTotal = d.cached_total || 0;
-      const total = d.total || allSkills.length;
-      prog.textContent = `번역 중… ${cachedTotal} / ${total}  (이번 배치: ${d.translated}/${d.batch_size})`;
-      if (d.status === "complete" || !d.remaining) break;
-      // UI 업데이트 (중간중간 한글 반영)
-      await loadSkills();
-    }
-    prog.textContent = `완료 — 총 ${totalDone} 항목 번역됨. 새로고침 적용 완료.`;
-    setTimeout(() => { prog.style.display = "none"; }, 4000);
-    await loadSkills();
-  } catch (e) {
-    prog.textContent = "실패: " + e.message;
-  } finally {
-    translating = false;
-    btn.disabled = false;
-  }
-}
-
-// ─── Messages ───
-function addMsg(role, content, opts) {
-  opts = opts || {};
-  const wrap = document.createElement("div");
-  wrap.className = "msg " + role + (opts.error ? " error" : "");
-  const who = document.createElement("div"); who.className = "who";
-  who.textContent = role === "user" ? "YOU" : "HERMES";
-  const bub = document.createElement("div"); bub.className = "bubble";
-  bub.textContent = content;
-  wrap.appendChild(who); wrap.appendChild(bub);
-  if (opts.meta) {
-    const m = document.createElement("div"); m.className = "meta-line";
-    m.textContent = opts.meta; wrap.appendChild(m);
-  }
-  document.getElementById("msgs").appendChild(wrap);
-  const c = document.getElementById("msgs");
-  c.scrollTop = c.scrollHeight;
-  return bub;
-}
-
-// ─── Send ───
-function setSending(v) {
-  // 무조건 READY — sending 잠금 안 함
-  sending = false;
-  const dot = document.getElementById("sendDot");
-  const txt = document.getElementById("sendText");
-  if (dot) { dot.classList.remove("bad"); dot.classList.add("ok"); }
-  if (txt) txt.textContent = "READY";
-  document.getElementById("sendBtn").disabled = false;
-}
-
-function forceReset() {
-  console.log("[hermes] forceReset()");
-  setSending(false);
-}
-window.forceReset = forceReset;
-setSending(false);  // 초기 상태
-
-let currentAbort = null;
-
-async function send() {
-  console.log("[hermes] send() called, sending=" + sending);
-  // 이전 요청이 아직 sending 이면 강제 취소 후 진행
-  if (sending) {
-    console.warn("[hermes] 이전 요청 중인데 새 요청 → 이전 abort 후 진행");
-    if (currentAbort) { try { currentAbort.abort(); } catch(_) {} }
-    setSending(false);
-  }
-  const ta = document.getElementById("msg");
-  const text = (ta.value || "").trim();
-  if (!text) return;
-  ta.value = ""; ta.style.height = "44px";
-  history.push({ role: "user", content: text });
-  addMsg("user", text);
-
-  const skillIds = Array.from(selected);
-  setSending(true);
-
-  // 안전망: 5분 후에도 끝 안 나면 강제 해제
-  const safetyTimer = setTimeout(() => {
-    if (sending) {
-      console.warn("[hermes] 5분 타임아웃 — 강제 해제");
-      setSending(false);
-      bubble.classList.remove("typing");
-      if (!acc.trim()) bubble.textContent = "⏱ 응답 시간 초과 (5분)";
-    }
-  }, 300000);
-
-  const bubble = addMsg("assistant", "");
-  bubble.classList.add("typing");
-  let acc = "";
-
-  currentAbort = new AbortController();
-
-  try {
-    const resp = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: currentAbort.signal,
-      body: JSON.stringify({ messages: history, skills: skillIds }),
-    });
-    if (!resp.ok || !resp.body) throw new Error("SSE start failed: " + resp.status);
-
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = "";
-
-    outer: while (true) {
-      const { value, done } = await reader.read();
-      if (done) break outer;
-      buf += decoder.decode(value, { stream: true });
-      let nl;
-      while ((nl = buf.indexOf("\n\n")) !== -1) {
-        const evt = buf.slice(0, nl);
-        buf = buf.slice(nl + 2);
-        if (!evt.startsWith("data:")) continue;
-        const payload = evt.slice(5).trim();
-        if (payload === "[DONE]") {
-          console.log("[hermes] [DONE] received, breaking outer");
-          try { await reader.cancel(); } catch(_) {}
-          break outer;
-        }
-        try {
-          const obj = JSON.parse(payload);
-          if (obj.type === "meta") {
-            const wrap = bubble.parentElement;
-            const m = wrap.querySelector(".meta-line") || (() => {
-              const d = document.createElement("div"); d.className = "meta-line";
-              wrap.appendChild(d); return d;
-            })();
-            m.textContent = obj.info || "";
-          } else if (obj.type === "token") {
-            acc += obj.t || "";
-            renderBubble(bubble, acc);
-            bubble.classList.remove("typing");
-            const c = document.getElementById("msgs");
-            c.scrollTop = c.scrollHeight;
-          } else if (obj.type === "error") {
-            bubble.classList.remove("typing");
-            bubble.parentElement.classList.add("error");
-            bubble.textContent = "✦ " + (obj.error || "오류") +
-              (obj.detail ? "\n→ " + obj.detail : "");
-            acc = bubble.textContent;
-          } else if (obj.type === "end") {
-            bubble.classList.remove("typing");
-            const stats = obj.stats || {};
-            const m = bubble.parentElement.querySelector(".meta-line");
-            if (m) m.textContent += `  ·  ${stats.emitted ?? 0} LINES`;
-          }
-        } catch (e) {}
-      }
-    }
-    bubble.classList.remove("typing");
-    if (acc.trim()) history.push({ role: "assistant", content: acc });
-  } catch (e) {
-    bubble.classList.remove("typing");
-    bubble.parentElement.classList.add("error");
-    bubble.textContent = "✦ 전송 실패: " + e.message;
-  } finally {
-    clearTimeout(safetyTimer);
-    setSending(false);
-    bubble.classList.remove("typing");
-    console.log("[hermes] send() finally — sending=false, button enabled");
-  }
-}
-
-// ─── Input ───
-const ta = document.getElementById("msg");
-ta.addEventListener("keydown", e => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    // sending 상태로 막혀있으면 강제 풀고 보냄
-    if (sending) {
-      console.warn("[hermes] Enter 입력 — sending=true 자동 해제 후 진행");
-      forceReset();
-    }
-    send();
-  }
-});
-ta.addEventListener("input", () => {
-  ta.style.height = "44px";
-  ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
-});
-
-// ─── Init ───
-refreshHealth();
-loadSkills();
-setInterval(refreshHealth, 15000);
+load();
+setInterval(()=>{ if(document.getElementById('auto').checked) load(); }, 2000);
 </script>
-</body>
-</html>
+</body></html>"""
+
+
+@app.route("/")
+def dashboard():
+    return Response(_DASHBOARD_HTML, mimetype="text/html; charset=utf-8")
+
+
+if __name__ == "__main__":
+    port = 9100
+    if len(sys.argv) > 1:
+        try:
+            port = int(sys.argv[1])
+        except ValueError:
+            pass
+
+    print("=" * 60)
+    print("  API Receiver (독립 단일 파일)")
+    print("=" * 60)
+    print(f"  포트: {port}")
+    print(f"  로그 디렉토리: {LOG_DIR}")
+    print(f"  대시보드:  http://localhost:{port}/")
+    print(f"  엔드포인트: POST http://localhost:{port}/api/receive")
+    print(f"             POST http://localhost:{port}/api/receive/<tag>")
+    print("=" * 60)
+
+    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
