@@ -24,3 +24,8 @@ payload = {
     "tool_choice": "auto",
     "temperature": 0.1,
 }
+
+r = requests.post(f"{BASE}/v1/chat/completions", headers=headers, json=payload, timeout=60)
+print("status:", r.status_code)
+import json
+print(json.dumps(r.json(), indent=2, ensure_ascii=False))
