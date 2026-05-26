@@ -1,0 +1,5 @@
+copy /Y "scientific-assistant\hermes-web\hermes_config_lean.yaml" "$env:USERPROFILE\.hermes\config.yaml"
+# 1초만에 원상복구
+copy "$env:USERPROFILE\.hermes\config.full_backup_*.yaml" "$env:USERPROFILE\.hermes\config.yaml"
+# 또는 hermes_config.yaml (full 원본) 을 그대로 다시 복사
+copy "scientific-assistant\hermes-web\hermes_config.yaml" "$env:USERPROFILE\.hermes\config.yaml"
