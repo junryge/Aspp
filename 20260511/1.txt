@@ -1,1 +1,1 @@
-copy /Y "%USERPROFILE%\Downloads\config.yaml" "%USERPROFILE%\.hermes\config.yaml"
+hermes skills list
