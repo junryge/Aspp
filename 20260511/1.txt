@@ -1,1 +1,20 @@
+skills_archive.py
+
+3.2 KB
+
+실행 (CMD)
+:: 1) 다운받은 스크립트 실행
+python "%USERPROFILE%\Downloads\skills_archive.py"
+
+:: 2) 확인
 hermes skills list
+기대 출력:
+
+✅ 이동: 333개  /  유지: 65개
+그 다음 hermes skills list 가 65 enabled 로 바뀌어야 함.
+
+복구 (마음 바뀌면)
+python "%USERPROFILE%\Downloads\skills_archive.py" --restore
+→ archive 폴더에서 다시 원위치로. 1초 컷.
+
+hermes skills config --help 도 결과 보여줘 — 거기 bulk 옵션 있으면 굳이 파일 이동 안 하고도 됐을 수 있어. 둘 다 비교하고 너가 좋은 거 선택하면 됨
