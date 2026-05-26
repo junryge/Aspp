@@ -1,3 +1,1 @@
-where bash
-echo %HERMES_GIT_BASH_PATH%
-dir "%LOCALAPPDATA%\hermes\git" 2>nul
+dir /S /B "%LOCALAPPDATA%\hermes\git\bash.exe" 2>nul & dir /S /B "%LOCALAPPDATA%\hermes\bash.exe" 2>nul & where bash 2>nul & where git 2>nul
