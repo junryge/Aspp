@@ -1,20 +1,62 @@
-skills_archive.py
+"""
+~/.hermes/skills 에서 65개 화이트리스트만 ~/.hermes/skills_keep 으로 이동.
+나머지는 그대로 둠 (사용자가 수동 삭제).
 
-3.2 KB
+실행: python keep_skills.py
+"""
+import os, shutil
 
-실행 (CMD)
-:: 1) 다운받은 스크립트 실행
-python "%USERPROFILE%\Downloads\skills_archive.py"
+HOME = os.path.expanduser("~")
+SRC = os.path.join(HOME, ".hermes", "skills")
+DST = os.path.join(HOME, ".hermes", "skills_keep")
 
-:: 2) 확인
-hermes skills list
-기대 출력:
+KEEP = {
+    "agent-ai-engineer", "agent-api-designer", "agent-backend-developer",
+    "agent-code-reviewer", "agent-debugger", "agent-documentation-engineer",
+    "agent-frontend-developer", "agent-fullstack-developer", "agent-javascript-pro",
+    "agent-mcp-developer", "agent-nextjs-developer", "agent-prompt-engineer",
+    "agent-python-pro", "agent-qa-expert", "agent-react-specialist",
+    "agent-security-auditor", "agent-technical-writer", "agent-test-automator",
+    "agent-typescript-pro", "anthropic-prompt-engineer", "backend-development",
+    "brainstorming", "claude-code", "cmd-cr", "cmd-cr-fx", "cmd-explore",
+    "code-review", "common", "content-research-writer", "debugging",
+    "docs-seeker", "docx", "drawio-diagram", "engineer-skill-creator",
+    "file-organizer", "get-available-resources", "guide-claude-md",
+    "guide-documentation", "guide-hooks", "guide-python", "internal-comms",
+    "knowledge-search", "markdown-mermaid-writing", "markitdown",
+    "mcp-builder", "md-to-html", "pdf", "pptx", "problem-solving",
+    "python-deprecation-fixer", "python-project-skel", "repomix",
+    "sequential-thinking", "skill-creator", "skill-share",
+    "systematic-debugging", "template-skill", "test-driven-development",
+    "using-superpowers", "verification-before-completion", "webapp-testing",
+    "weekly-report", "writing-plans", "writing-skills", "xlsx",
+}
 
-✅ 이동: 333개  /  유지: 65개
-그 다음 hermes skills list 가 65 enabled 로 바뀌어야 함.
+if not os.path.isdir(SRC):
+    print(f"❌ skills 폴더 없음: {SRC}")
+    raise SystemExit(1)
 
-복구 (마음 바뀌면)
-python "%USERPROFILE%\Downloads\skills_archive.py" --restore
-→ archive 폴더에서 다시 원위치로. 1초 컷.
+os.makedirs(DST, exist_ok=True)
 
-hermes skills config --help 도 결과 보여줘 — 거기 bulk 옵션 있으면 굳이 파일 이동 안 하고도 됐을 수 있어. 둘 다 비교하고 너가 좋은 거 선택하면 됨
+moved, missing = [], []
+for name in KEEP:
+    src = os.path.join(SRC, name)
+    dst = os.path.join(DST, name)
+    if not os.path.isdir(src):
+        missing.append(name)
+        continue
+    if os.path.exists(dst):
+        print(f"  skip (이미 keep 폴더에 있음): {name}")
+        continue
+    shutil.move(src, dst)
+    moved.append(name)
+
+print(f"\n✅ 이동 완료: {len(moved)}개 → {DST}")
+if missing:
+    print(f"⚠ skills 폴더에 없던 항목 {len(missing)}개:")
+    for n in missing:
+        print(f"   - {n}")
+
+# 남아있는 폴더 갯수 안내
+remain = [n for n in os.listdir(SRC) if os.path.isdir(os.path.join(SRC, n))]
+print(f"\n📂 {SRC} 에 남은 폴더: {len(remain)}개 (수동 삭제 대상)")
