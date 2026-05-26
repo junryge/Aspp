@@ -1,1 +1,1 @@
-python "%USERPROFILE%\Downloads\skills_archive.py"
+hermes skills list
