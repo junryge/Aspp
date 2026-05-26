@@ -1296,19 +1296,13 @@ ta.addEventListener("input", () => {
 });
 
 // ─── Init ───
-// 한 번만 실행되는 sid 강제 무효화 (옛 죽은 세션이 묶여있을 때 탈출).
-// 히스토리(과거 대화)는 절대 안 지움. sid 만 비워서 새 세션 시작하게 함.
-// ?reset=1 붙이면 sid + history 둘 다 비움 (완전 초기화).
-const RESET_FLAG = "hermes_reset_v3";
-const fullReset = location.search.includes("reset=1") || location.hash.includes("reset");
-if (fullReset) {
+// sid / history 둘 다 그대로 유지. server.py 가 죽은 sid 알아서 무시하고
+// 새 세션 만들어줌. 새 sid 는 end 이벤트에서 자동 회수돼 다음 메시지부터 이어감.
+// ?reset=1 붙이면 강제 완전 초기화.
+if (location.search.includes("reset=1") || location.hash.includes("reset")) {
   localStorage.removeItem(LS_SID);
   localStorage.removeItem(LS_HISTORY);
-  console.log("[hermes] 완전 초기화 (sid + history)");
-} else if (!localStorage.getItem(RESET_FLAG)) {
-  localStorage.removeItem(LS_SID);   // sid 만 비움 — 히스토리 유지
-  localStorage.setItem(RESET_FLAG, "done");
-  console.log("[hermes] 옛 sid 만 자동 무효화 (history 유지)");
+  console.log("[hermes] 완전 초기화");
 }
 
 // 세션 ID 복원 (이제 비어있으니 새 대화로 시작)
