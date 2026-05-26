@@ -1,8 +1,1 @@
-taskkill /F /IM python.exe
-taskkill /F /IM hermes.exe
-del /F /Q "%USERPROFILE%\.hermes\state.db" 2>nul
-del /F /Q "%USERPROFILE%\.hermes\last_session*" 2>nul
-del /F /Q "%USERPROFILE%\.hermes\*.lock" 2>nul
-rmdir /S /Q "%USERPROFILE%\.hermes\sessions" 2>nul
-mkdir "%USERPROFILE%\.hermes\sessions"
-hermes chat -q "안녕"
+dir "%USERPROFILE%\.hermes" /B /A
