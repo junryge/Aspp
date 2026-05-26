@@ -1,2 +1,631 @@
-# 다른 경로 확인
-dir "$env:USERPROFILE\.hermes" -Recurse -Filter "*.json" | Select-Object FullName, Length, LastWriteTime | Sort-Object LastWriteTime -Descending | Select-Object -First 5
+# Hermes lean config — 65 skills + auxiliary LLM 사내 vLLM 지정 (openrouter.ai 차단 회피)
+agent:
+  name: demos-hermes
+  version: '1.0'
+  description: Demos V1 — 회사 vLLM(HCP) 게이트웨이 연동 + 389 스킬 카탈로그
+defaults:
+  provider: openai
+  base_url: http://common.llm.skhynix.com/v1
+  api_key: ${OPENAI_API_KEY}
+  model: Kimi-K2.5
+  temperature: 0.3
+  max_tokens: 8192
+  verify_ssl: false
+  stream: true
+models:
+- id: kimi-k2-5
+  name: Kimi-K2.5 (Common, ★ Agent)
+  model: Kimi-K2.5
+  url: http://common.llm.skhynix.com/v1/chat/completions
+  capabilities:
+  - text
+  - code
+  - analysis
+  - tools
+  - function_calling
+  - large
+  context_window: 128000
+  priority: 1
+  cost_tier: high
+- id: glm-5-1
+  name: GLM-5.1 (Common, ★ Agent)
+  model: GLM-5.1
+  url: http://common.llm.skhynix.com/v1/chat/completions
+  capabilities:
+  - text
+  - code
+  - analysis
+  - tools
+  - function_calling
+  - reasoning
+  context_window: 128000
+  priority: 1
+  cost_tier: medium
+- id: qwen36-35b
+  name: Qwen3.6-35B-A3B (Common, Agent)
+  model: Qwen3.6-35B-A3B-public
+  url: http://common.llm.skhynix.com/v1/chat/completions
+  capabilities:
+  - text
+  - code
+  - tools
+  - function_calling
+  - reasoning
+  - medium
+  context_window: 128000
+  priority: 2
+  cost_tier: low
+- id: gemma-4-31b
+  name: Gemma-4-31B-it (Common, Agent)
+  model: gemma-4-31B-it-public
+  url: http://common.llm.skhynix.com/v1/chat/completions
+  capabilities:
+  - text
+  - tools
+  - function_calling
+  - reasoning
+  - medium
+  context_window: 128000
+  priority: 3
+  cost_tier: low
+- id: glm-5
+  name: GLM-5 (HCP)
+  model: GLM-5
+  url: http://dev.hcp.llm.skhynix.com/v1/chat/completions
+  capabilities:
+  - text
+  - code
+  - analysis
+  - fast
+  context_window: 128000
+  priority: 2
+  cost_tier: medium
+- id: qwen3-coder-480b
+  name: Coder-480B (HCP)
+  model: Qwen3-Coder-480B-A35B-Instruct
+  url: http://dev.hcp.llm.skhynix.com/v1/chat/completions
+  capabilities:
+  - text
+  - code
+  - analysis
+  - large
+  context_window: 128000
+  priority: 1
+  cost_tier: high
+- id: qwen3-coder-next
+  name: Coder-Next (HCP)
+  model: Qwen3-Coder-Next
+  url: http://dev.hcp.llm.skhynix.com/v1/chat/completions
+  capabilities:
+  - text
+  - code
+  - medium
+  context_window: 128000
+  priority: 2
+  cost_tier: medium
+- id: qwen3-vl-30b
+  name: VL-30B-A3B (Vision/HCP)
+  model: Qwen3-VL-30B-A3B-Instruct
+  url: http://dev.hcp.llm.skhynix.com/v1/chat/completions
+  capabilities:
+  - text
+  - vision
+  - fast
+  context_window: 128000
+  priority: 2
+  cost_tier: low
+- id: qwen25-vl-72b
+  name: VL-72B (Vision/HCP, 시조새)
+  model: Qwen2.5-VL-72B-Instruct
+  url: http://dev.hcp.llm.skhynix.com/v1/chat/completions
+  capabilities:
+  - text
+  - vision
+  - large
+  - analysis
+  context_window: 128000
+  priority: 1
+  cost_tier: high
+- id: qwen35-397b-fp8
+  name: Qwen3.5-397B FP8 (HCP, 매머드)
+  model: Qwen3.5-397B-A17B-FP8
+  url: http://dev.hcp.llm.skhynix.com/v1/chat/completions
+  capabilities:
+  - text
+  - code
+  - analysis
+  - large
+  context_window: 128000
+  priority: 1
+  cost_tier: high
+- id: qwen35-397b
+  name: Qwen3.5-397B (HCP, 시조새)
+  model: Qwen3.5-397B-A17B
+  url: http://dev.hcp.llm.skhynix.com/v1/chat/completions
+  capabilities:
+  - text
+  - code
+  - analysis
+  - large
+  context_window: 128000
+  priority: 1
+  cost_tier: high
+- id: gpt-oss-20b
+  name: GPT-OSS (20B/Common)
+  model: gpt-oss-20b
+  url: http://common.llm.skhynix.com/v1/chat/completions
+  capabilities:
+  - text
+  - code
+  - fast
+  context_window: 128000
+  priority: 3
+  cost_tier: low
+- id: qwen3-next-80b
+  name: Next-80B (Common)
+  model: Qwen3-Next-80B-A3B-Instruct
+  url: http://common.llm.skhynix.com/v1/chat/completions
+  capabilities:
+  - text
+  - analysis
+  - medium
+  context_window: 128000
+  priority: 2
+  cost_tier: medium
+- id: qwen3-coder-30b
+  name: Coder-30B-A3B (Common)
+  model: Qwen3-Coder-30B-A3B-Instruct
+  url: http://common.llm.skhynix.com/v1/chat/completions
+  capabilities:
+  - text
+  - code
+  - medium
+  context_window: 128000
+  priority: 3
+  cost_tier: low
+skills:
+  root: ../scientific-skills
+  auto_load: true
+  catalog:
+  - id: agent-ai-engineer
+    name: ai-engineer
+    description: '>'
+    path: ../scientific-skills/agent-ai-engineer
+    has_scripts: false
+    has_references: false
+  - id: agent-api-designer
+    name: api-designer
+    description: '>'
+    path: ../scientific-skills/agent-api-designer
+    has_scripts: false
+    has_references: false
+  - id: agent-backend-developer
+    name: backend-developer
+    description: '>'
+    path: ../scientific-skills/agent-backend-developer
+    has_scripts: false
+    has_references: false
+  - id: agent-code-reviewer
+    name: code-reviewer
+    description: '>'
+    path: ../scientific-skills/agent-code-reviewer
+    has_scripts: false
+    has_references: false
+  - id: agent-debugger
+    name: debugger
+    description: '>'
+    path: ../scientific-skills/agent-debugger
+    has_scripts: false
+    has_references: false
+  - id: agent-documentation-engineer
+    name: documentation-engineer
+    description: '>'
+    path: ../scientific-skills/agent-documentation-engineer
+    has_scripts: false
+    has_references: false
+  - id: agent-frontend-developer
+    name: frontend-developer
+    description: '>'
+    path: ../scientific-skills/agent-frontend-developer
+    has_scripts: false
+    has_references: false
+  - id: agent-fullstack-developer
+    name: fullstack-developer
+    description: '>'
+    path: ../scientific-skills/agent-fullstack-developer
+    has_scripts: false
+    has_references: false
+  - id: agent-javascript-pro
+    name: javascript-pro
+    description: '>'
+    path: ../scientific-skills/agent-javascript-pro
+    has_scripts: false
+    has_references: false
+  - id: agent-mcp-developer
+    name: mcp-developer
+    description: '>'
+    path: ../scientific-skills/agent-mcp-developer
+    has_scripts: false
+    has_references: false
+  - id: agent-nextjs-developer
+    name: nextjs-developer
+    description: '>'
+    path: ../scientific-skills/agent-nextjs-developer
+    has_scripts: false
+    has_references: false
+  - id: agent-prompt-engineer
+    name: prompt-engineer
+    description: '>'
+    path: ../scientific-skills/agent-prompt-engineer
+    has_scripts: false
+    has_references: false
+  - id: agent-python-pro
+    name: python-pro
+    description: '>'
+    path: ../scientific-skills/agent-python-pro
+    has_scripts: false
+    has_references: false
+  - id: agent-qa-expert
+    name: qa-expert
+    description: '>'
+    path: ../scientific-skills/agent-qa-expert
+    has_scripts: false
+    has_references: false
+  - id: agent-react-specialist
+    name: react-specialist
+    description: '>'
+    path: ../scientific-skills/agent-react-specialist
+    has_scripts: false
+    has_references: false
+  - id: agent-security-auditor
+    name: security-auditor
+    description: '>'
+    path: ../scientific-skills/agent-security-auditor
+    has_scripts: false
+    has_references: false
+  - id: agent-technical-writer
+    name: technical-writer
+    description: '>'
+    path: ../scientific-skills/agent-technical-writer
+    has_scripts: false
+    has_references: false
+  - id: agent-test-automator
+    name: test-automator
+    description: '>'
+    path: ../scientific-skills/agent-test-automator
+    has_scripts: false
+    has_references: false
+  - id: agent-typescript-pro
+    name: typescript-pro
+    description: '>'
+    path: ../scientific-skills/agent-typescript-pro
+    has_scripts: false
+    has_references: false
+  - id: anthropic-prompt-engineer
+    name: anthropic-prompt-engineer
+    description: Master Anthropic's prompt engineering techniques to generate new prompts or improve existing ones using best practices for Claude AI models.
+    path: ../scientific-skills/anthropic-prompt-engineer
+    has_scripts: false
+    has_references: true
+  - id: backend-development
+    name: backend-development
+    description: Build robust backend systems with modern technologies (Node.js, Python, Go, Rust), frameworks (NestJS, FastAPI, Django), databases (PostgreSQL, MongoDB, Redis), APIs (REST, GraphQL, gRPC),
+      authenticat
+    path: ../scientific-skills/backend-development
+    has_scripts: false
+    has_references: true
+  - id: brainstorming
+    name: brainstorming
+    description: Use when the user asks to build, design, or plan something new - before writing ANY code. Socratic design refinement that forces spec clarification through questions, explores alternatives,
+      and presen
+    path: ../scientific-skills/brainstorming
+    has_scripts: false
+    has_references: false
+  - id: claude-code
+    name: claude-code
+    description: Claude Code is Anthropic's agentic coding tool that lives in the terminal and helps turn ideas into code faster. It combines autonomous planning, execution, and validation with extensibility
+      through s
+    path: ../scientific-skills/claude-code
+    has_scripts: false
+    has_references: true
+  - id: cmd-cr
+    name: cmd-cr
+    description: Comprehensive code review using parallel specialist agents. Produces actionable findings prioritized by severity with clear remediation paths. Outputs structured review report ready for
+      implementation
+    path: ../scientific-skills/cmd-cr
+    has_scripts: false
+    has_references: false
+  - id: cmd-cr-fx
+    name: cmd-cr-fx
+    description: Interactive remediation of code review findings using parallel specialist agents. Elicits user input at key decision points (use --quick to skip prompts), deploys domain specialists, and
+      verifies with
+    path: ../scientific-skills/cmd-cr-fx
+    has_scripts: false
+    has_references: false
+  - id: cmd-explore
+    name: cmd-explore
+    description: Exhaustive codebase exploration command optimized for Opus 4.5. Conducts comprehensive, thorough investigation of codebases with maximum file reading depth. Uses "very thorough" exploration
+      level, par
+    path: ../scientific-skills/cmd-explore
+    has_scripts: false
+    has_references: false
+  - id: code-review
+    name: code-review
+    description: Use when receiving code review feedback (especially if unclear or technically questionable), when completing tasks or major features requiring review before proceeding, or before making
+      any completion
+    path: ../scientific-skills/code-review
+    has_scripts: false
+    has_references: true
+  - id: common
+    name: common
+    description: Common utilities and API key helpers shared across skills
+    path: ../scientific-skills/common
+    has_scripts: false
+    has_references: false
+  - id: content-research-writer
+    name: content-research-writer
+    description: Assists in writing high-quality content by conducting research, adding citations, improving hooks, iterating on outlines, and providing real-time feedback on each section. Transforms your
+      writing proc
+    path: ../scientific-skills/content-research-writer
+    has_scripts: false
+    has_references: false
+  - id: debugging
+    name: debugging
+    description: Systematic debugging methodology with defense-in-depth, root-cause tracing, and verification
+    path: ../scientific-skills/debugging
+    has_scripts: false
+    has_references: false
+  - id: docs-seeker
+    name: docs-seeker
+    description: 'Searching internet for technical documentation using llms.txt standard, GitHub repositories via Repomix, and parallel exploration. Use when user needs: (1) Latest documentation for libraries/framework'
+    path: ../scientific-skills/docs-seeker
+    has_scripts: false
+    has_references: true
+  - id: docx
+    name: docx
+    description: 'Use this skill whenever the user wants to create, read, edit, or manipulate Word documents (.docx files). Triggers include: any mention of ''Word doc'', ''word document'', ''.docx'', or
+      requests to produce '
+    path: ../scientific-skills/docx
+    has_scripts: true
+    has_references: false
+  - id: drawio-diagram
+    name: drawio-diagram
+    description: 코드, 아키텍처, 데이터 흐름, 시스템 구조, 설비 배치 등을 분석하여 Draw.io (diagrams.net) 호환 XML을 생성합니다.
+    path: ../scientific-skills/drawio-diagram
+    has_scripts: false
+    has_references: false
+  - id: engineer-skill-creator
+    name: engineer-skill-creator
+    description: Transform extracted engineer expertise into an actionable skill with progressive disclosure, allowing agents to find and apply relevant patterns for specific tasks.
+    path: ../scientific-skills/engineer-skill-creator
+    has_scripts: true
+    has_references: false
+  - id: file-organizer
+    name: file-organizer
+    description: Intelligently organizes your files and folders across your computer by understanding context, finding duplicates, suggesting better structures, and automating cleanup tasks. Reduces cognitive
+      load and
+    path: ../scientific-skills/file-organizer
+    has_scripts: false
+    has_references: false
+  - id: get-available-resources
+    name: get-available-resources
+    description: This skill should be used at the start of any computationally intensive scientific task to detect and report available system resources (CPU cores, GPUs, memory, disk space). It creates
+      a JSON file wi
+    path: ../scientific-skills/get-available-resources
+    has_scripts: true
+    has_references: false
+  - id: guide-claude-md
+    name: guide-claude-md
+    description: This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+    path: ../scientific-skills/guide-claude-md
+    has_scripts: false
+    has_references: false
+  - id: guide-documentation
+    name: guide-documentation
+    description: 'For documentation tasks, leverage these specialized agents:'
+    path: ../scientific-skills/guide-documentation
+    has_scripts: false
+    has_references: false
+  - id: guide-hooks
+    name: guide-hooks
+    description: Claude Code hook system - prompt capture and lifecycle hooks
+    path: ../scientific-skills/guide-hooks
+    has_scripts: false
+    has_references: false
+  - id: guide-python
+    name: guide-python
+    description: 'Leverage specialized agents from `~/.claude/agents/` for Python work:'
+    path: ../scientific-skills/guide-python
+    has_scripts: false
+    has_references: false
+  - id: internal-comms
+    name: internal-comms
+    description: A set of resources to help me write all kinds of internal communications, using the formats that my company likes to use. Claude should use this skill whenever asked to write some sort
+      of internal com
+    path: ../scientific-skills/internal-comms
+    has_scripts: false
+    has_references: false
+  - id: knowledge-search
+    name: knowledge-search
+    description: 사용자별 개인 지식 도메인 검색. knowledge/{user_id}/ 폴더에서 검색.
+    path: ../scientific-skills/knowledge-search
+    has_scripts: true
+    has_references: false
+  - id: markdown-mermaid-writing
+    name: markdown-mermaid-writing
+    description: Comprehensive markdown and Mermaid diagram writing skill. Use when creating any scientific document, report, analysis, or visualization. Establishes text-based diagrams as the default documentation
+      st
+    path: ../scientific-skills/markdown-mermaid-writing
+    has_scripts: false
+    has_references: true
+  - id: markitdown
+    name: markitdown
+    description: Convert files and office documents to Markdown. Supports PDF, DOCX, PPTX, XLSX, images (with OCR), audio (with transcription), HTML, CSV, JSON, XML, ZIP, YouTube URLs, EPubs and more.
+    path: ../scientific-skills/markitdown
+    has_scripts: true
+    has_references: true
+  - id: mcp-builder
+    name: mcp-builder
+    description: Guide for creating high-quality MCP (Model Context Protocol) servers that enable LLMs to interact with external services through well-designed tools. Use when building MCP servers to integrate
+      externa
+    path: ../scientific-skills/mcp-builder
+    has_scripts: true
+    has_references: true
+  - id: md-to-html
+    name: md-to-html
+    description: Markdown 보고서를 MD/HTML 파일로 자동 변환 다운로드. 사용자가 보고서, 문서, 리포트를 MD/HTML로 저장·다운로드·변환 요청 시 트리거.
+    path: ../scientific-skills/md-to-html
+    has_scripts: false
+    has_references: false
+  - id: pdf
+    name: pdf
+    description: Use this skill whenever the user wants to do anything with PDF files. This includes reading or extracting text/tables from PDFs, combining or merging multiple PDFs into one, splitting PDFs
+      apart, rota
+    path: ../scientific-skills/pdf
+    has_scripts: true
+    has_references: false
+  - id: pptx
+    name: pptx
+    description: 'Use this skill any time a .pptx file is involved in any way — as input, output, or both. This includes: creating slide decks, pitch decks, or presentations; reading, parsing, or extracting
+      text from a'
+    path: ../scientific-skills/pptx
+    has_scripts: true
+    has_references: false
+  - id: problem-solving
+    name: problem-solving
+    description: Advanced problem-solving frameworks including collision-zone thinking, inversion exercise, meta-pattern recognition, and scale game
+    path: ../scientific-skills/problem-solving
+    has_scripts: false
+    has_references: false
+  - id: python-deprecation-fixer
+    name: python-deprecation-fixer
+    description: Automatically detect and fix Python deprecation warnings in codebases, including datetime.utcnow(), and other common deprecated patterns. Supports extensible pattern matching for future
+      deprecations.
+    path: ../scientific-skills/python-deprecation-fixer
+    has_scripts: true
+    has_references: false
+  - id: python-project-skel
+    name: python-project-skel
+    description: Generate production-ready Python project skeletons with Astral UV package manager, Hatchling build backend with dynamic versioning, and modern tooling (ruff, mypy, pytest, bandit). Use
+      when creating n
+    path: ../scientific-skills/python-project-skel
+    has_scripts: true
+    has_references: false
+  - id: repomix
+    name: repomix
+    description: Package entire code repositories into single AI-friendly files using Repomix. Capabilities include pack codebases with customizable include/exclude patterns, generate multiple output formats
+      (XML, Mar
+    path: ../scientific-skills/repomix
+    has_scripts: true
+    has_references: true
+  - id: sequential-thinking
+    name: sequential-thinking
+    description: Use when complex problems require systematic step-by-step reasoning with ability to revise thoughts, branch into alternative approaches, or dynamically adjust scope. Ideal for multi-stage
+      analysis, de
+    path: ../scientific-skills/sequential-thinking
+    has_scripts: false
+    has_references: true
+  - id: skill-creator
+    name: skill-creator
+    description: '>'
+    path: ../scientific-skills/skill-creator
+    has_scripts: true
+    has_references: true
+  - id: skill-share
+    name: skill-share
+    description: A skill that creates new Claude skills and automatically shares them on Slack using Rube for seamless team collaboration and skill discovery.
+    path: ../scientific-skills/skill-share
+    has_scripts: false
+    has_references: false
+  - id: systematic-debugging
+    name: systematic-debugging
+    description: 'Use when any bug, test failure, error, or unexpected behavior appears. Enforces 4-phase root cause investigation BEFORE any fix is attempted. Symptom patches are forbidden. Covers evidence
+      gathering, '
+    path: ../scientific-skills/systematic-debugging
+    has_scripts: false
+    has_references: false
+  - id: template-skill
+    name: template-skill
+    description: Replace with description of the skill and when Claude should use it.
+    path: ../scientific-skills/template-skill
+    has_scripts: false
+    has_references: false
+  - id: test-driven-development
+    name: test-driven-development
+    description: 'Use during any implementation work - writing new functions, classes, modules, or fixing bugs. Enforces strict RED-GREEN-REFACTOR cycle where failing test must exist and be verified failing
+      BEFORE any '
+    path: ../scientific-skills/test-driven-development
+    has_scripts: false
+    has_references: false
+  - id: using-superpowers
+    name: using-superpowers
+    description: Use when starting any task, receiving a user request, or about to respond. Meta-skill that forces checking available skills before every response. Even 1% chance a skill applies means invoke
+      it. Cover
+    path: ../scientific-skills/using-superpowers
+    has_scripts: false
+    has_references: false
+  - id: verification-before-completion
+    name: verification-before-completion
+    description: Use BEFORE declaring any task complete, before saying "done", "finished", "완료", "끝", before creating a PR, before merging. Forces concrete evidence of success by running actual verification
+      commands a
+    path: ../scientific-skills/verification-before-completion
+    has_scripts: false
+    has_references: false
+  - id: webapp-testing
+    name: webapp-testing
+    description: Toolkit for interacting with and testing local web applications using Playwright. Supports verifying frontend functionality, debugging UI behavior, capturing browser screenshots, and viewing
+      browser l
+    path: ../scientific-skills/webapp-testing
+    has_scripts: true
+    has_references: false
+  - id: weekly-report
+    name: weekly-report
+    description: 주간보고 PPT 생성. 금주 실적과 차주 계획을 PPT로 변환. 이 스킬이 로드되면 pptx 스킬의 코드 방식 대신 이 스킬의 코드를 사용할 것.
+    path: ../scientific-skills/weekly-report
+    has_scripts: true
+    has_references: false
+  - id: writing-plans
+    name: writing-plans
+    description: Use after brainstorming produces an approved design document, before any implementation begins. Breaks the design into bite-sized tasks of 2-5 minutes each, with exact file paths, complete
+      code blocks
+    path: ../scientific-skills/writing-plans
+    has_scripts: false
+    has_references: false
+  - id: writing-skills
+    name: writing-skills
+    description: Use when creating new Claude skills or improving existing ones. Applies TDD to documentation - write failing test scenarios first, then minimal skill content to address the specific failures,
+      then ref
+    path: ../scientific-skills/writing-skills
+    has_scripts: false
+    has_references: false
+  - id: xlsx
+    name: xlsx
+    description: 'Use this skill any time a spreadsheet file is the primary input or output. This means any task where the user wants to: open, read, edit, or fix an existing .xlsx, .xlsm, .csv, or .tsv
+      file (e.g., add'
+    path: ../scientific-skills/xlsx
+    has_scripts: true
+    has_references: false
+compatibility:
+  single_system_message: true
+  strip_thinking_artifacts: true
+  fallback_chain_disabled: true
+auxiliary:
+  provider: openai
+  base_url: http://common.llm.skhynix.com/v1
+  api_key: ${OPENAI_API_KEY}
+  model: gemma-4-31B-it-public
+  temperature: 0.1
+  verify_ssl: false
+summarizer:
+  provider: openai
+  base_url: http://common.llm.skhynix.com/v1
+  api_key: ${OPENAI_API_KEY}
+  model: gemma-4-31B-it-public
+  temperature: 0.1
+  verify_ssl: false
+compaction:
+  enabled: true
+  provider: openai
+  base_url: http://common.llm.skhynix.com/v1
+  model: gemma-4-31B-it-public
+  api_key: ${OPENAI_API_KEY}
