@@ -1,1 +1,23 @@
-dir "%USERPROFILE%\.hermes" /B /A
+찾았다. .hermes_history 가 옛 sid 기억하는 범인. 그리고 state.db-shm / state.db-wal 도 같이 안 지우면 SQLite 가 옛 상태로 복원함.
+
+:: hermes 죽이고
+taskkill /F /IM hermes.exe 2>nul
+taskkill /F /IM python.exe 2>nul
+
+:: SQLite 3종 세트 한 방에
+del /F /Q "%USERPROFILE%\.hermes\state.db" "%USERPROFILE%\.hermes\state.db-shm" "%USERPROFILE%\.hermes\state.db-wal" 2>nul
+
+:: 옛 sid 기억하는 history 파일
+del /F /Q "%USERPROFILE%\.hermes\.hermes_history" 2>nul
+
+:: snapshot 캐시도 (안전)
+del /F /Q "%USERPROFILE%\.hermes\.skills_prompt_snapshot.json" 2>nul
+
+:: 새 세션 시작
+hermes chat -q "안녕"
+이번엔 Resumed session 20260522... 줄이 안 보여야 정상이야. Initializing agent... → 바로 답.
+
+여전히 그 sid 나오면 그땐 .env 안에 박혀있는 거니까:
+
+type "%USERPROFILE%\.hermes\.env"
+결과 보여줘.
