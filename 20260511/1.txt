@@ -1,62 +1,27 @@
-"""
-~/.hermes/skills 에서 65개 화이트리스트만 ~/.hermes/skills_keep 으로 이동.
-나머지는 그대로 둠 (사용자가 수동 삭제).
+# Hermes config — custom_providers list 형식 + api_key 명시
+model:
+  provider: custom
+  default: gemma-4-31B-it
+  base_url: http://127.0.0.1:8765/v1
+  api_key: ${OPENAI_API_KEY}
 
-실행: python keep_skills.py
-"""
-import os, shutil
+custom_providers:
+  - name: vllm-proxy
+    base_url: http://127.0.0.1:8765/v1
+    api_key: ${OPENAI_API_KEY}
+    models:
+      - gemma-4-31B-it
+      - Kimi-K2.5
+      - GLM-5.1
+      - Qwen3.6-35B-A3B
 
-HOME = os.path.expanduser("~")
-SRC = os.path.join(HOME, ".hermes", "skills")
-DST = os.path.join(HOME, ".hermes", "skills_keep")
+auxiliary:
+  provider: custom
+  base_url: http://127.0.0.1:8765/v1
+  api_key: ${OPENAI_API_KEY}
+  default: gemma-4-31B-it
 
-KEEP = {
-    "agent-ai-engineer", "agent-api-designer", "agent-backend-developer",
-    "agent-code-reviewer", "agent-debugger", "agent-documentation-engineer",
-    "agent-frontend-developer", "agent-fullstack-developer", "agent-javascript-pro",
-    "agent-mcp-developer", "agent-nextjs-developer", "agent-prompt-engineer",
-    "agent-python-pro", "agent-qa-expert", "agent-react-specialist",
-    "agent-security-auditor", "agent-technical-writer", "agent-test-automator",
-    "agent-typescript-pro", "anthropic-prompt-engineer", "backend-development",
-    "brainstorming", "claude-code", "cmd-cr", "cmd-cr-fx", "cmd-explore",
-    "code-review", "common", "content-research-writer", "debugging",
-    "docs-seeker", "docx", "drawio-diagram", "engineer-skill-creator",
-    "file-organizer", "get-available-resources", "guide-claude-md",
-    "guide-documentation", "guide-hooks", "guide-python", "internal-comms",
-    "knowledge-search", "markdown-mermaid-writing", "markitdown",
-    "mcp-builder", "md-to-html", "pdf", "pptx", "problem-solving",
-    "python-deprecation-fixer", "python-project-skel", "repomix",
-    "sequential-thinking", "skill-creator", "skill-share",
-    "systematic-debugging", "template-skill", "test-driven-development",
-    "using-superpowers", "verification-before-completion", "webapp-testing",
-    "weekly-report", "writing-plans", "writing-skills", "xlsx",
-}
-
-if not os.path.isdir(SRC):
-    print(f"❌ skills 폴더 없음: {SRC}")
-    raise SystemExit(1)
-
-os.makedirs(DST, exist_ok=True)
-
-moved, missing = [], []
-for name in KEEP:
-    src = os.path.join(SRC, name)
-    dst = os.path.join(DST, name)
-    if not os.path.isdir(src):
-        missing.append(name)
-        continue
-    if os.path.exists(dst):
-        print(f"  skip (이미 keep 폴더에 있음): {name}")
-        continue
-    shutil.move(src, dst)
-    moved.append(name)
-
-print(f"\n✅ 이동 완료: {len(moved)}개 → {DST}")
-if missing:
-    print(f"⚠ skills 폴더에 없던 항목 {len(missing)}개:")
-    for n in missing:
-        print(f"   - {n}")
-
-# 남아있는 폴더 갯수 안내
-remain = [n for n in os.listdir(SRC) if os.path.isdir(os.path.join(SRC, n))]
-print(f"\n📂 {SRC} 에 남은 폴더: {len(remain)}개 (수동 삭제 대상)")
+skills:
+  root: C:\Users\X0163954\.hermes\skills
+  auto_load: false
+  lazy_load: true
