@@ -1,7 +1,5 @@
-에러 숨김 — 로그 봐:
-
-type "%USERPROFILE%\.hermes\logs\errors.log" | findstr /i "1111 write" | more
-또는 그냥 절대 경로로 다시 시도:
-
-cd /d C:\연구과제\CODE\데모스_분석툴\scientific-assistant\hermes-web
-hermes chat -q "C:/temp/test.txt 파일 만들고 hello 라고 써줘. 절대경로로."
+terminal:
+  backend: local
+  ...
+  auto_source_bashrc: false      ← true → false
+  persistent_shell: false        ← true → false
