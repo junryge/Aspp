@@ -1,1 +1,8 @@
-findstr /S /I /M "20260522_155300_74b432" "%USERPROFILE%\.hermes\*.*"
+:: 1) 죽은 세션 파일 자체 삭제
+rmdir /S /Q "%USERPROFILE%\.hermes\sessions_old"
+
+:: 2) state.db 트리오 다시 (재생성된 거)
+del /F /Q "%USERPROFILE%\.hermes\state.db" "%USERPROFILE%\.hermes\state.db-shm" "%USERPROFILE%\.hermes\state.db-wal"
+
+:: 3) 깨끗한 시작 (bare hermes 말고 chat -q 로!)
+hermes chat -q "테스트"
