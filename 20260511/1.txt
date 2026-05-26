@@ -1,27 +1,3 @@
-# Hermes config — custom_providers list 형식 + api_key 명시
-model:
-  provider: custom
-  default: gemma-4-31B-it
-  base_url: http://127.0.0.1:8765/v1
-  api_key: ${OPENAI_API_KEY}
-
-custom_providers:
-  - name: vllm-proxy
-    base_url: http://127.0.0.1:8765/v1
-    api_key: ${OPENAI_API_KEY}
-    models:
-      - gemma-4-31B-it
-      - Kimi-K2.5
-      - GLM-5.1
-      - Qwen3.6-35B-A3B
-
-auxiliary:
-  provider: custom
-  base_url: http://127.0.0.1:8765/v1
-  api_key: ${OPENAI_API_KEY}
-  default: gemma-4-31B-it
-
-skills:
-  root: C:\Users\X0163954\.hermes\skills
-  auto_load: false
-  lazy_load: true
+del /F /Q "%USERPROFILE%\.hermes\state.db"
+rmdir /S /Q "%USERPROFILE%\.hermes\sessions"
+mkdir "%USERPROFILE%\.hermes\sessions"
