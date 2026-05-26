@@ -1,1 +1,3 @@
-hermes postinstall
+where bash
+echo %HERMES_GIT_BASH_PATH%
+dir "%LOCALAPPDATA%\hermes\git" 2>nul
