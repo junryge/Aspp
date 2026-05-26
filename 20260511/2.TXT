@@ -1,15 +1,13 @@
-받은 hermes_config_lean.yaml 을 hermes-web 폴더에 덮어쓰고:
-
 cd /d C:\연구과제\CODE\데모스_분석툴\scientific-assistant\hermes-web
 
-:: 새 lean 적용
+:: 1. 새 lean 덮어쓰기 (받은 파일이 이 폴더에 있다고 가정)
 copy /Y hermes_config_lean.yaml "%USERPROFILE%\.hermes\config.yaml"
 
-:: 옛 세션 진짜로 비우기
+:: 2. 옛 세션 폴더 비우기
 rmdir /S /Q "%USERPROFILE%\.hermes\sessions"
 mkdir "%USERPROFILE%\.hermes\sessions"
 
-:: python 다 죽이고 다시 띄우기
+:: 3. python 다 죽이고 재시작
 taskkill /F /IM python.exe
 start "hermes proxy" cmd /k python hermes_proxy.py
 start "hermes web" cmd /k python server.py
