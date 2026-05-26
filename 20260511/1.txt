@@ -1,1318 +1,1057 @@
-<!doctype html>
-<html lang="ko">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Hermes</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Inter:wght@300;400;500;600;700&family=Noto+Serif+KR:wght@400;500;700&family=Noto+Sans+KR:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.0/dist/purify.min.js"></script>
-<style>
-  :root {
-    /* Light — Ivory & Gold */
-    --bg: #faf7f1;
-    --bg-card: #ffffff;
-    --bg-side: #f3ede1;
-    --bg-soft: #f7f1e4;
-    --border: #e6dcc7;
-    --border-soft: #efe8d7;
-    --text: #1a2342;
-    --text-dim: #5a5345;
-    --text-mute: #948872;
-    --gold: #b08a4a;
-    --gold-soft: #d4b576;
-    --gold-glow: rgba(176, 138, 74, 0.12);
-    --navy: #1a2342;
-    --user-bg: #1a2342;
-    --user-fg: #faf7f1;
-    --asst-bg: #ffffff;
-    --asst-fg: #1a2342;
-    --shadow-sm: 0 1px 2px rgba(26, 35, 66, 0.04), 0 1px 1px rgba(26, 35, 66, 0.02);
-    --shadow-md: 0 4px 12px rgba(26, 35, 66, 0.06), 0 1px 3px rgba(26, 35, 66, 0.04);
-    --shadow-lg: 0 12px 32px rgba(26, 35, 66, 0.08);
-    --shadow-gold: 0 0 0 3px var(--gold-glow);
-  }
-  html[data-theme="dark"] {
-    --bg: #0c0f1c;
-    --bg-card: #141828;
-    --bg-side: #0f1322;
-    --bg-soft: #1a1f33;
-    --border: #252a3e;
-    --border-soft: #1c2034;
-    --text: #f0e9d8;
-    --text-dim: #b8b09a;
-    --text-mute: #8a8270;
-    --gold: #d4b576;
-    --gold-soft: #e5cb95;
-    --gold-glow: rgba(212, 181, 118, 0.18);
-    --navy: #f0e9d8;
-    --user-bg: #d4b576;
-    --user-fg: #0c0f1c;
-    --asst-bg: #141828;
-    --asst-fg: #f0e9d8;
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
-    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.5);
-    --shadow-gold: 0 0 0 3px var(--gold-glow);
-  }
-  * { box-sizing: border-box; }
-  html, body {
-    margin: 0; padding: 0; height: 100%;
-    background: var(--bg);
-    color: var(--text);
-    font-family: "Inter", "Noto Sans KR", -apple-system, BlinkMacSystemFont, sans-serif;
-    font-size: 14px;
-    font-weight: 400;
-    letter-spacing: 0.01em;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-  }
-  /* 배경에 미세한 텍스처 (그리스 키 패턴의 추상화) */
-  body::before {
-    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: -1;
-    background-image:
-      radial-gradient(circle at 20% 10%, var(--gold-glow) 0%, transparent 40%),
-      radial-gradient(circle at 80% 90%, var(--gold-glow) 0%, transparent 50%);
-    opacity: 0.5;
-  }
+"""
+Hermes Web — 독립 Flask 웹 UI
 
-  .serif { font-family: "Cormorant Garamond", "Noto Serif KR", serif; }
-  .serif-ko { font-family: "Noto Serif KR", "Cormorant Garamond", serif; }
+- demos_v1 와 완전 분리. demos 실행 여부와 무관하게 동작.
+- 단, hermes-web/hermes_proxy.py (:8765) 가 떠있어야 hermes 가 응답함.
+- hermes 자체는 ~/.hermes/config.yaml 의 model/base_url 사용
+  (템플릿: hermes-web/hermes_config.yaml — common.llm.skhynix.com + Kimi-K2.5 디폴트).
+- 환경 자동감지: F:/M14_Q/... 존재하면 HOME, C:/연구과제/... 존재하면 OFFICE.
 
-  .app { display: grid; grid-template-columns: 340px 1fr; height: 100vh; gap: 0; }
+라우트:
+  GET  /                    → static/index.html
+  GET  /api/health          → 프록시 + hermes 살아있나 + 환경 모드
+  GET  /api/skills          → scientific-skills/ 폴더 스캔, 389 카탈로그 JSON
+  POST /api/chat            → SSE 토큰 스트리밍 (hermes subprocess)
 
-  /* ───────────── Sidebar ───────────── */
-  .side {
-    background: var(--bg-side);
-    border-right: 1px solid var(--border);
-    display: flex; flex-direction: column;
-    overflow: hidden;
-    position: relative;
-  }
-  .side-head {
-    padding: 28px 24px 20px;
-    border-bottom: 1px solid var(--border);
-    text-align: center;
-  }
-  .brand {
-    font-family: "Cormorant Garamond", serif;
-    font-size: 34px;
-    font-weight: 500;
-    font-style: italic;
-    letter-spacing: 0.02em;
-    color: var(--navy);
-    line-height: 1;
-    margin: 0;
-  }
-  .brand-sub {
-    font-family: "Inter", sans-serif;
-    font-size: 9.5px;
-    font-weight: 600;
-    letter-spacing: 0.45em;
-    text-transform: uppercase;
-    color: var(--gold);
-    margin-top: 8px;
-  }
-  .brand-line {
-    width: 40px; height: 1px;
-    background: var(--gold);
-    margin: 14px auto 0;
-    opacity: 0.6;
-  }
-  .env-pill {
-    display: inline-flex; align-items: center; gap: 6px;
-    margin-top: 16px;
-    padding: 4px 12px;
-    font-size: 10px; font-weight: 600; letter-spacing: 0.15em;
-    color: var(--gold);
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    text-transform: uppercase;
-  }
-  .env-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: #c4c4c4; }
-  .env-pill .dot.ok { background: #5a9460; box-shadow: 0 0 6px rgba(90, 148, 96, 0.4); }
-  .env-pill .dot.bad { background: #c66; }
+실행:
+  python server.py             (기본 포트 8788)
+  python server.py 9000        (포트 지정)
+"""
+import os
+import re
+import sys
+import json
+import socket
+import subprocess
+from pathlib import Path
+from flask import Flask, request, Response, jsonify, stream_with_context, send_from_directory
 
-  .side-search { padding: 14px 18px; }
-  .side-search input {
-    width: 100%; padding: 10px 14px;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--text); font-size: 13px;
-    outline: none; transition: all 0.15s;
-    font-family: inherit;
-  }
-  .side-search input::placeholder { color: var(--text-mute); font-style: italic; }
-  .side-search input:focus { border-color: var(--gold); box-shadow: var(--shadow-gold); }
+# ─────────────────────────────────────────────────────────────────────────────
+# 환경 자동 감지 (HOME / OFFICE)
+# ─────────────────────────────────────────────────────────────────────────────
+HOME_BASE   = r"F:\M14_Q\scientific-assistant"
+OFFICE_BASE = r"C:\연구과제\CODE\데모스_분석툴\scientific-assistant"
 
-  .side-cat { padding: 0 18px 12px; }
-  .side-cat select {
-    width: 100%; padding: 9px 12px;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--text); font-size: 12.5px;
-    outline: none; transition: all 0.15s;
-    font-family: inherit;
-    cursor: pointer;
-    appearance: none; -webkit-appearance: none;
-    background-image: linear-gradient(45deg, transparent 50%, var(--text-mute) 50%),
-                      linear-gradient(135deg, var(--text-mute) 50%, transparent 50%);
-    background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
-    background-size: 5px 5px, 5px 5px;
-    background-repeat: no-repeat;
-  }
-  .side-cat select:focus { border-color: var(--gold); box-shadow: var(--shadow-gold); }
+if os.path.isdir(HOME_BASE):
+    ENV_MODE = "HOME"
+    SCIENTIFIC_BASE = HOME_BASE
+elif os.path.isdir(OFFICE_BASE):
+    ENV_MODE = "OFFICE"
+    SCIENTIFIC_BASE = OFFICE_BASE
+else:
+    ENV_MODE = "UNKNOWN"
+    SCIENTIFIC_BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-  .side-stat {
-    padding: 0 22px 8px;
-    display: flex; justify-content: space-between;
-    font-size: 10.5px; font-weight: 500;
-    color: var(--text-mute);
-    letter-spacing: 0.1em; text-transform: uppercase;
-  }
-  .side-stat .sel { color: var(--gold); font-weight: 700; }
+# 스킬 디렉토리: ~/.hermes/skills (실제로 hermes 가 보는 곳) 우선,
+# 없으면 옛 scientific-skills/ 폴백
+_HERMES_SKILLS = os.path.expanduser("~/.hermes/skills")
+if os.path.isdir(_HERMES_SKILLS):
+    SKILLS_DIR = _HERMES_SKILLS
+else:
+    SKILLS_DIR = os.path.join(SCIENTIFIC_BASE, "scientific-skills")
+PROXY_HOST = "127.0.0.1"
+PROXY_PORT = 8765
 
-  .side-list { flex: 1; overflow-y: auto; padding: 6px 12px 16px; }
-  .side-list::-webkit-scrollbar { width: 6px; }
-  .side-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+# ─────────────────────────────────────────────────────────────────────────────
+# Windows pywinpty (hermes prompt_toolkit 가 콘솔 요구)
+# ─────────────────────────────────────────────────────────────────────────────
+_USE_WINPTY = False
+_WINPTY_MOD = None
+if sys.platform == "win32":
+    try:
+        import winpty as _WINPTY_MOD
+        _USE_WINPTY = True
+    except Exception:
+        _USE_WINPTY = False
 
-  .skill {
-    display: flex; gap: 10px; align-items: flex-start;
-    padding: 9px 12px; border-radius: 8px;
-    cursor: pointer; user-select: none;
-    transition: background 0.12s;
-    border: 1px solid transparent;
-  }
-  .skill:hover { background: var(--bg-card); }
-  .skill.checked { background: var(--bg-card); border-color: var(--border-soft); }
-  .skill input[type="checkbox"] {
-    appearance: none; -webkit-appearance: none;
-    width: 16px; height: 16px; margin: 2px 0 0;
-    border: 1.5px solid var(--border); border-radius: 3px;
-    background: var(--bg-card); cursor: pointer; flex-shrink: 0;
-    position: relative; transition: all 0.15s;
-  }
-  .skill input[type="checkbox"]:checked {
-    background: var(--gold); border-color: var(--gold);
-  }
-  .skill input[type="checkbox"]:checked::after {
-    content: ""; position: absolute;
-    left: 4px; top: 1px; width: 5px; height: 9px;
-    border: solid white; border-width: 0 2px 2px 0;
-    transform: rotate(45deg);
-  }
-  .skill-body { min-width: 0; flex: 1; }
-  .skill-name {
-    font-size: 12.5px; font-weight: 500;
-    color: var(--text); line-height: 1.3;
-  }
-  .skill-desc {
-    font-size: 11px; color: var(--text-mute);
-    line-height: 1.5; margin-top: 3px;
-    display: -webkit-box; -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical; overflow: hidden;
-  }
+# ─────────────────────────────────────────────────────────────────────────────
+# ANSI/CSI 이스케이프 정규식 (CSI ?, OSC title, 컬러)
+# ─────────────────────────────────────────────────────────────────────────────
+_ANSI_RE = re.compile(
+    r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"
+    r"|\x1b\[[\?>=!]?[0-9;]*[ -/]*[@-~]"
+    r"|\x1b[()][AB012]"
+    r"|\x1b[=>]"
+    r"|\x1b\][0-9]+;[^\x07\x1b]*"
+)
 
-  .side-foot {
-    padding: 12px 16px;
-    border-top: 1px solid var(--border);
-    display: flex; gap: 8px;
-  }
-  .side-foot button {
-    flex: 1; padding: 7px 10px;
-    background: transparent; color: var(--text-dim);
-    border: 1px solid var(--border); border-radius: 6px;
-    cursor: pointer; font-size: 11.5px; font-weight: 500;
-    letter-spacing: 0.05em; transition: all 0.15s;
-    font-family: inherit;
-  }
-  .side-foot button:hover {
-    background: var(--bg-card); color: var(--gold);
-    border-color: var(--gold-soft);
-  }
+# hermes CLI TUI 노이즈: 박스 드로잉, 메타 헤더만 — 마크다운 불릿/표는 보존
+NOISE_PREFIXES = (
+    "✔", "ℹ",
+    "Elapsed:", "Context:", "Session:", "Resume", "Duration:",
+    "Messages:", "hermes --resume", "  hermes --resume",
+    "Query:", "Initializing", "Initialized",
+)
 
-  /* ───────────── Main ───────────── */
-  .main { display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
+# Hermes 메타 줄 (어디든 매치)
+_META_LINE_RE = re.compile(
+    r"\b(Session|Elapsed|Context|Duration|Messages|Resume\sthis\ssession)\s*:|"
+    r"hermes\s+--resume\s+\S+",
+)
 
-  .top {
-    display: flex; align-items: center;
-    padding: 20px 36px 18px;
-    border-bottom: 1px solid var(--border);
-    gap: 14px;
-    background: var(--bg);
-  }
-  .top-title {
-    font-family: "Cormorant Garamond", serif;
-    font-size: 22px; font-weight: 500;
-    font-style: italic; color: var(--navy);
-  }
-  .top-sub {
-    font-size: 11px; color: var(--text-mute);
-    letter-spacing: 0.15em; text-transform: uppercase;
-    border-left: 1px solid var(--border); padding-left: 14px; margin-left: 4px;
-  }
-  .top-right { margin-left: auto; display: flex; gap: 10px; align-items: center; }
-  .top-status {
-    font-size: 10.5px; font-weight: 500;
-    color: var(--text-mute);
-    display: flex; align-items: center; gap: 6px;
-    letter-spacing: 0.08em;
-  }
-  .top-status .dot { width: 6px; height: 6px; border-radius: 50%; background: #c4c4c4; }
-  .top-status .dot.ok { background: #5a9460; box-shadow: 0 0 6px rgba(90, 148, 96, 0.4); }
-  .top-status .dot.bad { background: #c66; }
-  .theme-btn {
-    background: transparent; border: 1px solid var(--border);
-    color: var(--text-dim); padding: 6px 10px;
-    border-radius: 6px; cursor: pointer; font-size: 13px;
-    transition: all 0.15s;
-  }
-  .theme-btn:hover { border-color: var(--gold-soft); color: var(--gold); }
+# 박스 드로잉만으로 이뤄진 구분선 — 앞에 한 글자(예: "Q") 가 붙어있어도 매치
+_BOXLINE_RE = re.compile(r"^[A-Z]?\s*[─═━┌┐└┘├┤┬┴┼│]{3,}\s*$")
 
-  .msgs {
-    flex: 1; overflow-y: auto;
-    padding: 36px 32px 24px;
-    scroll-behavior: smooth;
-  }
-  .msgs::-webkit-scrollbar { width: 8px; }
-  .msgs::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+# hermes 가 답변 전에 토하는 "Q\n" 단독 prompt-echo 라인
+_Q_PROMPT_RE = re.compile(r"^Q\s*$")
 
-  .msg {
-    max-width: 780px; margin: 0 auto 28px;
-    display: flex; flex-direction: column; gap: 8px;
-  }
-  .msg .who {
-    font-size: 10px; font-weight: 600;
-    letter-spacing: 0.3em; text-transform: uppercase;
-    color: var(--text-mute);
-    display: flex; align-items: center; gap: 8px;
-  }
-  .msg .who::after {
-    content: ""; flex: 1; height: 1px;
-    background: linear-gradient(to right, var(--border), transparent);
-  }
-  .msg.user .who { color: var(--gold); justify-content: flex-end; }
-  .msg.user .who::after { background: linear-gradient(to left, var(--border), transparent); order: -1; }
+# 명시적 thinking 마커 (보수적) — 일반 산문은 절대 안 잡게
+_THINK_MARKER_RE = re.compile(
+    r"^\s*(?:<think>|</think>|<thinking>|</thinking>|"
+    r"\[?Inner monologue\]?|\[?Reasoning\]?\s*:)",
+    re.IGNORECASE,
+)
 
-  .bubble {
-    padding: 18px 22px;
-    border-radius: 14px;
-    line-height: 1.7; font-size: 14.5px;
-    background: var(--asst-bg);
-    color: var(--asst-fg);
-    box-shadow: var(--shadow-sm);
-    border: 1px solid var(--border-soft);
-    white-space: pre-wrap; word-wrap: break-word;
-    font-family: "Inter", "Noto Sans KR", sans-serif;
-  }
-  .msg.user .bubble {
-    background: var(--user-bg); color: var(--user-fg);
-    align-self: flex-end; max-width: 80%;
-    border-color: transparent;
-    box-shadow: var(--shadow-md);
-  }
-  .msg.assistant.error .bubble {
-    background: #fff5f5; color: #7a2424;
-    border-color: #f5c4c4;
-  }
-  html[data-theme="dark"] .msg.assistant.error .bubble {
-    background: #2a1414; color: #f4b4b4; border-color: #5a2828;
-  }
-  .bubble code {
-    background: var(--bg-soft); padding: 2px 6px;
-    border-radius: 3px; font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 13px; color: var(--gold);
-  }
 
-  /* ─── 마크다운 렌더링 스타일 ─── */
-  .bubble h1, .bubble h2, .bubble h3, .bubble h4 {
-    font-family: "Cormorant Garamond", "Noto Serif KR", serif;
-    color: var(--navy); margin: 1.2em 0 0.5em;
-    font-weight: 600; line-height: 1.3;
-  }
-  .bubble h1 { font-size: 22px; border-bottom: 1px solid var(--gold-soft); padding-bottom: 6px; }
-  .bubble h2 { font-size: 19px; border-bottom: 1px solid var(--border-soft); padding-bottom: 4px; }
-  .bubble h3 { font-size: 16px; color: var(--gold); }
-  .bubble h4 { font-size: 14.5px; color: var(--text-dim); }
-  .bubble h1:first-child, .bubble h2:first-child, .bubble h3:first-child { margin-top: 0; }
+def _strip_ansi(s):
+    return _ANSI_RE.sub("", s or "")
 
-  .bubble p { margin: 0.6em 0; line-height: 1.7; }
-  .bubble ul, .bubble ol { padding-left: 1.5em; margin: 0.6em 0; }
-  .bubble li { margin: 0.25em 0; line-height: 1.6; }
-  .bubble li > p { margin: 0.2em 0; }
 
-  .bubble blockquote {
-    border-left: 3px solid var(--gold); margin: 0.8em 0;
-    padding: 0.4em 1em; background: var(--bg-soft);
-    color: var(--text-dim); border-radius: 0 4px 4px 0;
-  }
+def _normalize_for_match(s):
+    """선두/끝 비가시 문자 제거 — prefix 매치 신뢰성 확보."""
+    return (s or "").strip().lstrip("​﻿\xa0")
 
-  .bubble table {
-    border-collapse: collapse; margin: 1em 0;
-    width: 100%; font-size: 13.5px;
-    box-shadow: var(--shadow-sm);
-    border-radius: 6px; overflow: hidden;
-  }
-  .bubble th, .bubble td {
-    padding: 9px 14px;
-    border-bottom: 1px solid var(--border);
-    text-align: left; vertical-align: top;
-  }
-  .bubble th {
-    background: var(--bg-soft); color: var(--navy);
-    font-weight: 600; font-size: 12.5px;
-    letter-spacing: 0.03em;
-    border-bottom: 2px solid var(--gold-soft);
-  }
-  .bubble td { color: var(--text); }
-  .bubble tr:last-child td { border-bottom: none; }
-  .bubble tr:hover td { background: var(--bg-soft); }
 
-  .bubble pre {
-    background: var(--code-bg); padding: 14px 16px;
-    border-radius: 8px; overflow-x: auto;
-    margin: 0.8em 0; border: 1px solid var(--border-soft);
-    line-height: 1.55;
-  }
-  .bubble pre code {
-    background: transparent; padding: 0; color: var(--text);
-    font-size: 13px; font-family: "JetBrains Mono", ui-monospace, monospace;
-  }
+def _is_proxy_alive():
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(0.4)
+    try:
+        s.connect((PROXY_HOST, PROXY_PORT))
+        return True
+    except Exception:
+        return False
+    finally:
+        try:
+            s.close()
+        except Exception:
+            pass
 
-  .bubble hr {
-    border: none; height: 1px;
-    background: linear-gradient(to right, transparent, var(--border), transparent);
-    margin: 1.4em 0;
-  }
 
-  .bubble a {
-    color: var(--gold); text-decoration: none;
-    border-bottom: 1px solid var(--gold-soft);
-  }
-  .bubble a:hover { color: var(--navy); border-bottom-color: var(--navy); }
+def _find_hermes():
+    """hermes 실행파일 경로 찾기. PATH 우선, 없으면 Python Scripts 폴더."""
+    import shutil
+    for name in ("hermes", "hermes.exe"):
+        p = shutil.which(name)
+        if p:
+            return p
+    # 폴백: 현재 인터프리터의 Scripts 폴더
+    py_dir = os.path.dirname(sys.executable)
+    for cand in (
+        os.path.join(py_dir, "hermes.exe"),
+        os.path.join(py_dir, "Scripts", "hermes.exe"),
+    ):
+        if os.path.isfile(cand):
+            return cand
+    return None
 
-  .bubble strong { color: var(--navy); font-weight: 600; }
-  html[data-theme="dark"] .bubble strong { color: var(--gold-soft); }
-  .bubble em { color: var(--text-dim); font-style: italic; }
 
-  .meta-line {
-    font-size: 10.5px; color: var(--text-mute);
-    letter-spacing: 0.1em; text-transform: uppercase;
-    margin-top: 2px; padding: 0 4px;
-    font-weight: 500;
-  }
-  .msg.user .meta-line { text-align: right; }
+# ─────────────────────────────────────────────────────────────────────────────
+# 스킬 카탈로그 스캔 (Level 0 메타만)
+# ─────────────────────────────────────────────────────────────────────────────
+_SKILL_CACHE = None
 
-  .typing::after {
-    content: "▎"; color: var(--gold);
-    animation: blink 1s infinite;
-    font-weight: 100;
-  }
-  @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0.1; } }
 
-  /* ───────────── Input ───────────── */
-  .input-wrap {
-    border-top: 1px solid var(--border);
-    padding: 18px 32px 22px;
-    background: var(--bg);
-  }
-  .input-card {
-    max-width: 780px; margin: 0 auto;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    box-shadow: var(--shadow-md);
-    transition: all 0.15s;
-    display: flex; align-items: flex-end;
-    padding: 4px 4px 4px 16px;
-  }
-  .input-card:focus-within { border-color: var(--gold); box-shadow: var(--shadow-gold), var(--shadow-md); }
-  textarea#msg {
-    flex: 1; min-height: 44px; max-height: 200px;
-    padding: 12px 8px 12px 0;
-    border: none; outline: none; resize: none;
-    background: transparent; color: var(--text);
-    font-family: inherit; font-size: 14.5px;
-    line-height: 1.6; letter-spacing: 0.01em;
-  }
-  textarea#msg::placeholder { color: var(--text-mute); font-style: italic; }
-  .send-btn {
-    width: 44px; height: 44px;
-    background: var(--gold); color: white;
-    border: none; border-radius: 10px;
-    cursor: pointer; font-size: 18px;
-    display: flex; align-items: center; justify-content: center;
-    transition: all 0.15s; margin: 0;
-    box-shadow: 0 2px 6px rgba(176, 138, 74, 0.3);
-  }
-  .send-btn:hover { background: var(--navy); box-shadow: 0 4px 12px rgba(26, 35, 66, 0.3); }
-  .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+def _parse_skill_md(path):
+    """SKILL.md 의 YAML frontmatter 에서 name, description 추출."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read(4000)  # 첫 4KB 면 충분
+    except Exception:
+        return None
+    name = None
+    desc = None
+    # YAML frontmatter
+    m = re.match(r"---\s*\n([\s\S]+?)\n---", text)
+    if m:
+        body = m.group(1)
+        nm = re.search(r"^name:\s*(.+?)$", body, re.MULTILINE)
+        dm = re.search(r"^description:\s*(.+?)$", body, re.MULTILINE)
+        if nm:
+            name = nm.group(1).strip().strip('"').strip("'")
+        if dm:
+            desc = dm.group(1).strip().strip('"').strip("'")
+    return name, (desc or "")[:300]
 
-  .input-hint {
-    max-width: 780px; margin: 8px auto 0;
-    font-size: 10.5px; color: var(--text-mute);
-    text-align: center;
-    letter-spacing: 0.1em; text-transform: uppercase;
-  }
 
-  /* Hermes logo svg (winged) */
-  .crest {
-    width: 38px; height: 38px;
-    margin: 0 auto 10px;
-    color: var(--gold);
-    opacity: 0.85;
-  }
+def _scan_skills():
+    global _SKILL_CACHE
+    if _SKILL_CACHE is not None:
+        return _SKILL_CACHE
+    items = []
+    if not os.path.isdir(SKILLS_DIR):
+        _SKILL_CACHE = items
+        return items
+    for entry in sorted(os.listdir(SKILLS_DIR)):
+        d = os.path.join(SKILLS_DIR, entry)
+        if not os.path.isdir(d):
+            continue
+        skill_md = os.path.join(d, "SKILL.md")
+        if not os.path.isfile(skill_md):
+            continue
+        parsed = _parse_skill_md(skill_md)
+        if not parsed:
+            continue
+        name, desc = parsed
+        items.append({
+            "id": entry,
+            "name": name or entry,
+            "description": desc,
+            "category": _categorize(entry, name or entry, desc or ""),
+        })
+    _SKILL_CACHE = items
+    return items
 
-  /* ───────────── Modal (스킬 상세) ───────────── */
-  .modal-bg {
-    position: fixed; inset: 0; z-index: 100;
-    background: rgba(26, 35, 66, 0.45);
-    display: none;
-    align-items: center; justify-content: center;
-    padding: 24px;
-  }
-  .modal-bg.open { display: flex; }
-  html[data-theme="dark"] .modal-bg { background: rgba(0, 0, 0, 0.65); }
-  .modal {
-    max-width: 820px; width: 100%; max-height: 86vh;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    box-shadow: var(--shadow-lg);
-    display: flex; flex-direction: column;
-    overflow: hidden;
-  }
-  .modal-head {
-    padding: 18px 22px;
-    border-bottom: 1px solid var(--border);
-    display: flex; align-items: center; gap: 12px;
-  }
-  .modal-title {
-    font-family: "Cormorant Garamond", serif;
-    font-size: 22px; font-weight: 500;
-    font-style: italic; color: var(--navy);
-    flex: 1; min-width: 0;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .modal-id {
-    font-family: "JetBrains Mono", monospace;
-    font-size: 11px; color: var(--gold);
-    padding: 3px 9px;
-    background: var(--gold-glow);
-    border-radius: 4px;
-  }
-  .modal-close {
-    background: transparent; border: 1px solid var(--border);
-    color: var(--text-dim); padding: 4px 11px;
-    border-radius: 6px; cursor: pointer; font-size: 13px;
-  }
-  .modal-body {
-    padding: 20px 24px; overflow-y: auto; flex: 1;
-    line-height: 1.7; font-size: 14px;
-  }
-  .modal-body h1, .modal-body h2, .modal-body h3 {
-    font-family: "Cormorant Garamond", "Noto Serif KR", serif;
-    color: var(--navy); margin: 1em 0 0.4em; font-weight: 600;
-  }
-  .modal-body h1 { font-size: 22px; }
-  .modal-body h2 { font-size: 18px; border-bottom: 1px solid var(--border-soft); padding-bottom: 4px; }
-  .modal-body h3 { font-size: 15.5px; color: var(--gold); }
-  .modal-body pre {
-    background: var(--bg-soft); padding: 12px 14px;
-    border-radius: 6px; overflow-x: auto;
-    border: 1px solid var(--border-soft);
-    font-family: "JetBrains Mono", monospace; font-size: 12.5px;
-  }
-  .modal-body code { font-family: "JetBrains Mono", monospace; }
-  .modal-files {
-    border-top: 1px solid var(--border-soft);
-    padding: 12px 24px;
-    font-size: 11px; color: var(--text-mute);
-    letter-spacing: 0.05em;
-  }
-  .modal-files b { color: var(--gold); margin-right: 8px; }
 
-  /* ───────────── Skill info button ───────────── */
-  .skill-info {
-    background: transparent; border: none;
-    color: var(--text-mute); cursor: pointer;
-    font-size: 12px; padding: 0 4px;
-    opacity: 0; transition: opacity 0.12s;
-    line-height: 1; flex-shrink: 0;
-  }
-  .skill:hover .skill-info { opacity: 1; }
-  .skill-info:hover { color: var(--gold); }
+# ─────────────────────────────────────────────────────────────────────────────
+# 스킬 대분류 (8개 + 기타)
+# ─────────────────────────────────────────────────────────────────────────────
+SKILL_CATEGORIES = [
+    {"key": "all",     "name": "전체"},
+    {"key": "code",    "name": "코드 작성"},
+    {"key": "review",  "name": "코드 리뷰·디버깅"},
+    {"key": "docs",    "name": "문서·MD·PPT"},
+    {"key": "skill",   "name": "스킬·에이전트 만들기"},
+    {"key": "data",    "name": "데이터·DB"},
+    {"key": "science", "name": "과학·리서치"},
+    {"key": "design",  "name": "시각화·디자인"},
+    {"key": "ops",     "name": "Git·배포·DevOps"},
+    {"key": "etc",     "name": "기타"},
+]
 
-  /* ───────────── Code copy ───────────── */
-  .bubble pre { position: relative; }
-  .code-copy {
-    position: absolute; top: 6px; right: 6px;
-    background: var(--bg-card); border: 1px solid var(--border);
-    color: var(--text-dim); padding: 2px 8px;
-    font-size: 10px; letter-spacing: 0.08em;
-    border-radius: 4px; cursor: pointer;
-    opacity: 0; transition: opacity 0.12s;
-    font-family: "Inter", sans-serif;
-  }
-  .bubble pre:hover .code-copy { opacity: 1; }
-  .code-copy:hover { color: var(--gold); border-color: var(--gold-soft); }
-  .code-copy.done { color: var(--gold); }
+# 명시 오버라이드 — 패턴으로 안 잡히는 항목들
+_CATEGORY_OVERRIDE = {
+    # ── 코드 리뷰·디버깅 ──
+    "code-review": "review",
+    "requesting-code-review": "review",
+    "peer-review": "review",
+    "debugging": "review",
+    "systematic-debugging": "review",
+    "test-driven-development": "review",
+    "webapp-testing": "review",
+    "verification-before-completion": "review",
+    "owasp-security": "review",
+    "scholar-evaluation": "review",
+    "scientific-critical-thinking": "review",
+    "agent-code-reviewer": "review",
+    "agent-debugger": "review",
+    "agent-error-coordinator": "review",
+    "agent-error-detective": "review",
+    "agent-test-automator": "review",
+    "agent-qa-expert": "review",
+    "agent-chaos-engineer": "review",
+    "agent-architect-reviewer": "review",
+    "agent-refactoring-specialist": "review",
+    "agent-legacy-modernizer": "review",
+    "agent-security-auditor": "review",
+    "agent-security-engineer": "review",
+    "agent-penetration-tester": "review",
+    "agent-compliance-auditor": "review",
 
-  /* ───────────── Session bar / actions ───────────── */
-  .session-bar {
-    display: inline-flex; align-items: center; gap: 8px;
-    font-size: 10.5px; color: var(--text-mute);
-    letter-spacing: 0.05em;
-  }
-  .session-bar .sid {
-    font-family: "JetBrains Mono", monospace;
-    color: var(--gold); font-size: 11px;
-  }
-  .session-bar button {
-    background: transparent; border: 1px solid var(--border);
-    color: var(--text-dim); padding: 3px 8px;
-    font-size: 10px; letter-spacing: 0.1em;
-    border-radius: 4px; cursor: pointer;
-    font-family: inherit;
-  }
-  .session-bar button:hover { color: var(--gold); border-color: var(--gold-soft); }
+    # ── 문서·MD·PPT ──
+    "markdown-mermaid-writing": "docs",
+    "md-to-html": "docs",
+    "pdf": "docs",
+    "pptx": "docs",
+    "xlsx": "docs",
+    "docx": "docs",
+    "markitdown": "docs",
+    "repomix": "docs",
+    "citation-management": "docs",
+    "weekly-report": "docs",
+    "scientific-writing": "docs",
+    "scientific-slides": "docs",
+    "clinical-reports": "docs",
+    "treatment-plans": "docs",
+    "latex-posters": "docs",
+    "pptx-posters": "docs",
+    "venue-templates": "docs",
+    "research-grants": "docs",
+    "market-research-reports": "docs",
+    "iso-13485-certification": "docs",
+    "internal-comms": "docs",
+    "paper-2-web": "docs",
+    "changelog-generator": "docs",
+    "drawio-diagram": "docs",
+    "content-research-writer": "docs",
+    "writing-plans": "docs",
+    "literature-review": "docs",
+    "agent-documentation-engineer": "docs",
+    "agent-technical-writer": "docs",
+    "agent-api-documenter": "docs",
+    "agent-content-marketer": "docs",
 
-  /* RAW toggle */
-  .raw-toggle {
-    display: inline-flex; align-items: center; gap: 6px;
-    font-size: 10px; color: var(--text-mute);
-    letter-spacing: 0.1em; cursor: pointer;
-    user-select: none;
-  }
-  .raw-toggle input { margin: 0; cursor: pointer; }
-  .raw-toggle.on { color: var(--gold); }
+    # ── 스킬·에이전트 만들기 / 프롬프트 ──
+    "skill-creator": "skill",
+    "skill-share": "skill",
+    "template-skill": "skill",
+    "writing-skills": "skill",
+    "engineer-skill-creator": "skill",
+    "mcp-builder": "skill",
+    "anthropic-architect": "skill",
+    "anthropic-prompt-engineer": "skill",
+    "openai-prompt-engineer": "skill",
+    "claude-code": "skill",
+    "using-superpowers": "skill",
+    "guide-hooks": "skill",
+    "developer-growth-analysis": "skill",
+    "agent-mcp-developer": "skill",
+    "agent-prompt-engineer": "skill",
+    "agent-llm-architect": "skill",
+    "agent-ai-engineer": "skill",
+    "agent-context-manager": "skill",
+    "agent-agent-organizer": "skill",
+    "agent-multi-agent-coordinator": "skill",
+    "agent-workflow-orchestrator": "skill",
+    "agent-task-distributor": "skill",
 
-  /* Stop button overlay on send */
-  .send-btn.streaming {
-    background: #c66;
-    box-shadow: 0 2px 6px rgba(198, 102, 102, 0.35);
-  }
-  .send-btn.streaming:hover { background: #a44; }
+    # ── Git · 배포 · DevOps ──
+    "devops": "ops",
+    "github-ecosystem": "ops",
+    "guide-git": "ops",
+    "guide-github-actions": "ops",
+    "modal": "ops",
+    "agent-deployment-engineer": "ops",
+    "agent-devops-engineer": "ops",
+    "agent-devops-incident-responder": "ops",
+    "agent-incident-responder": "ops",
+    "agent-build-engineer": "ops",
+    "agent-cloud-architect": "ops",
+    "agent-kubernetes-specialist": "ops",
+    "agent-terraform-engineer": "ops",
+    "agent-sre-engineer": "ops",
+    "agent-platform-engineer": "ops",
+    "agent-network-engineer": "ops",
+    "agent-dependency-manager": "ops",
+    "agent-tooling-engineer": "ops",
+    "agent-dx-optimizer": "ops",
+    "agent-git-workflow-manager": "ops",
 
-  /* Hamburger button (mobile only) */
-  .hamburger {
-    display: none;
-    background: transparent; border: 1px solid var(--border);
-    color: var(--text-dim); padding: 5px 9px;
-    border-radius: 6px; cursor: pointer; font-size: 15px;
-    line-height: 1;
-  }
+    # ── 시각화·디자인 ──
+    "matplotlib": "design",
+    "plotly": "design",
+    "seaborn": "design",
+    "scientific-visualization": "design",
+    "scientific-schematics": "design",
+    "aesthetic": "design",
+    "ui-styling": "design",
+    "frontend-design": "design",
+    "web-design-guidelines": "design",
+    "brand-guidelines": "design",
+    "theme-factory": "design",
+    "canvas-design": "design",
+    "infographics": "design",
+    "generate-image": "design",
+    "image-enhancer": "design",
+    "slack-gif-creator": "design",
+    "artifacts-builder": "design",
+    "web-artifacts-builder": "design",
+    "agent-ui-designer": "design",
+    "agent-ux-researcher": "design",
 
-  /* Drawer backdrop */
-  .drawer-bg {
-    display: none; position: fixed; inset: 0; z-index: 50;
-    background: rgba(26, 35, 66, 0.4);
-  }
-  .drawer-bg.open { display: block; }
+    # ── 데이터·DB (DataFrame/대용량/금융 데이터 포함) ──
+    "databases": "data",
+    "polars": "data",
+    "dask": "data",
+    "vaex": "data",
+    "zarr-python": "data",
+    "edgartools": "data",
+    "alpha-vantage": "data",
+    "fred-economic-data": "data",
+    "hedgefundmonitor": "data",
+    "usfiscaldata": "data",
+    "datacommons-client": "data",
+    "logpresso-query": "data",
+    "logpresso-search": "data",
+    "tiledbvcf": "data",
+    "agent-data-analyst": "data",
+    "agent-data-engineer": "data",
+    "agent-database-administrator": "data",
+    "agent-database-optimizer": "data",
+    "agent-postgres-pro": "data",
+    "agent-sql-pro": "data",
 
-  /* 모바일 — 사이드바 드로어 */
-  @media (max-width: 800px) {
-    .app { grid-template-columns: 1fr; }
-    .side {
-      position: fixed; top: 0; left: 0; bottom: 0;
-      width: 320px; max-width: 88vw;
-      z-index: 60;
-      transform: translateX(-100%);
-      transition: transform 0.25s ease;
-      box-shadow: var(--shadow-lg);
-    }
-    .side.open { transform: translateX(0); }
-    .hamburger { display: inline-flex; }
-    .top { padding: 14px 18px; }
-    .top-title { font-size: 18px; }
-    .msgs { padding: 24px 16px 16px; }
-    .input-wrap { padding: 12px 16px 16px; }
-  }
-</style>
-</head>
-<body>
-<div class="drawer-bg" id="drawerBg" onclick="toggleDrawer(false)"></div>
+    # ── 과학·리서치 ──
+    "biopython": "science",
+    "scanpy": "science",
+    "scvi-tools": "science",
+    "scvelo": "science",
+    "anndata": "science",
+    "cellxgene-census": "science",
+    "deepchem": "science",
+    "rdkit": "science",
+    "datamol": "science",
+    "molfeat": "science",
+    "medchem": "science",
+    "torchdrug": "science",
+    "diffdock": "science",
+    "esm": "science",
+    "alphafold-database": "science",
+    "molecular-dynamics": "science",
+    "phylogenetics": "science",
+    "etetoolkit": "science",
+    "astropy": "science",
+    "fluidsim": "science",
+    "pymatgen": "science",
+    "matlab": "science",
+    "sympy": "science",
+    "cobrapy": "science",
+    "arboreto": "science",
+    "geniml": "science",
+    "gtars": "science",
+    "flowio": "science",
+    "histolab": "science",
+    "pathml": "science",
+    "matchms": "science",
+    "pyopenms": "science",
+    "pysam": "science",
+    "deeptools": "science",
+    "pydeseq2": "science",
+    "scikit-bio": "science",
+    "scikit-survival": "science",
+    "pydicom": "science",
+    "pyhealth": "science",
+    "neurokit2": "science",
+    "neuropixels-analysis": "science",
+    "pytdc": "science",
+    "geomaster": "science",
+    "geopandas": "science",
+    "clinical-decision-support": "science",
+    "glycoengineering": "science",
+    "imaging-data-commons": "science",
+    "pyzotero": "science",
+    "scientific-brainstorming": "science",
+    "hypothesis-generation": "science",
+    "hypogenic": "science",
+    "denario": "science",
+    "research-lookup": "science",
+    "bgpt-paper-search": "science",
+    "notebooklm-skill": "science",
+    "open-notebook": "science",
+    "perplexity-search": "science",
+    "parallel-web": "science",
+    "ai-multimodal": "science",
+    "statistical-analysis": "science",
+    "statsmodels": "science",
+    "pymc": "science",
+    "pymoo": "science",
+    "shap": "science",
+    "umap-learn": "science",
+    "networkx": "science",
+    "transformers": "science",
+    "scikit-learn": "science",
+    "pytorch-lightning": "science",
+    "torch-geometric": "science",
+    "stable-baselines3": "science",
+    "pufferlib": "science",
+    "timesfm-forecasting": "science",
+    "aeon": "science",
+    "qiskit": "science",
+    "cirq": "science",
+    "pennylane": "science",
+    "qutip": "science",
+    "rowan": "science",
+    "simpy": "science",
+    "lamindb": "science",
+    "bioservices": "science",
+    "gget": "science",
+    "adaptyv": "science",
+    "benchling-integration": "science",
+    "ginkgo-cloud-lab": "science",
+    "opentrons-integration": "science",
+    "pylabrobot": "science",
+    "protocolsio-integration": "science",
+    "labarchive-integration": "science",
+    "dnanexus-integration": "science",
+    "latchbio-integration": "science",
+    "omero-integration": "science",
+    "exploratory-data-analysis": "science",
+    "agent-data-scientist": "science",
+    "agent-data-researcher": "science",
+    "agent-research-analyst": "science",
+    "agent-machine-learning-engineer": "science",
+    "agent-ml-engineer": "science",
+    "agent-mlops-engineer": "science",
+    "agent-nlp-engineer": "science",
+    "agent-quant-analyst": "science",
+    "agent-knowledge-synthesizer": "science",
+    "agent-market-researcher": "science",
+    "agent-competitive-analyst": "science",
+    "agent-trend-analyst": "science",
+    "agent-business-analyst": "science",
+    "agent-search-specialist": "science",
 
-<!-- ─────── Skill Detail Modal ─────── -->
-<div class="modal-bg" id="modalBg" onclick="closeSkillModal(event)">
-  <div class="modal" onclick="event.stopPropagation()">
-    <div class="modal-head">
-      <span class="modal-title" id="modalTitle">…</span>
-      <span class="modal-id" id="modalId"></span>
-      <button class="modal-close" onclick="closeSkillModal()">CLOSE</button>
-    </div>
-    <div class="modal-body" id="modalBody"></div>
-    <div class="modal-files" id="modalFiles" style="display:none;"></div>
-  </div>
-</div>
+    # ── 코드 작성 (개발 가이드/프레임워크) ──
+    "frontend-development": "code",
+    "backend-development": "code",
+    "web-frameworks": "code",
+    "react-best-practices": "code",
+    "python-project-skel": "code",
+    "python-deprecation-fixer": "code",
+    "better-auth": "code",
+    "shopify": "code",
+    "chrome-devtools": "code",
+    "docs-seeker": "code",
+    "guide-python": "code",
+    "guide-react": "code",
+    "guide-golang": "code",
+    "guide-opus-4-5": "code",
+    "guide-opus-4-5-agent": "code",
+    "guide-opus-migration": "code",
+    "guide-mcp-reference": "code",
+    "guide-version-discovery": "code",
+    "guide-claude-md": "docs",
+    "guide-documentation": "docs",
+    "guide-testing": "review",
+    "guide-hmhco": "etc",
 
-<div class="app"><!-- ─────── Sidebar ─────── -->
-  <aside class="side">
-    <div class="side-head">
-      <!-- Hermes 의 caduceus 영감 (날개) - 단순화 -->
-      <svg class="crest" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="1.5">
-        <path d="M32 8 L32 56" stroke-linecap="round"/>
-        <circle cx="32" cy="6" r="2.5" fill="currentColor"/>
-        <path d="M32 18 C 22 18, 16 14, 12 8  M32 18 C 42 18, 48 14, 52 8" stroke-linecap="round"/>
-        <path d="M32 14 C 24 22, 20 28, 18 36  C 24 32, 30 24, 32 22" stroke-linecap="round"/>
-        <path d="M32 14 C 40 22, 44 28, 46 36  C 40 32, 34 24, 32 22" stroke-linecap="round"/>
-        <path d="M32 26 C 26 32, 24 38, 24 44  C 28 40, 32 34, 32 32" stroke-linecap="round" opacity="0.7"/>
-        <path d="M32 26 C 38 32, 40 38, 40 44  C 36 40, 32 34, 32 32" stroke-linecap="round" opacity="0.7"/>
-      </svg>
-      <h1 class="brand">Hermes</h1>
-      <div class="brand-sub">Messenger of Skills</div>
-      <div class="brand-line"></div>
-      <div class="env-pill"><span class="dot" id="envDot"></span><span id="envBadge">···</span></div>
-    </div>
+    # ── 기타 ──
+    "common": "etc",
+    "get-available-resources": "etc",
+    "file-organizer": "etc",
+    "invoice-organizer": "etc",
+    "raffle-winner-picker": "etc",
+    "video-downloader": "etc",
+    "media-processing": "etc",
+    "datadog-entity-generator": "ops",
+    "competitive-ads-extractor": "science",
+    "domain-name-brainstormer": "etc",
+    "lead-research-assistant": "science",
+    "meeting-insights-analyzer": "science",
+    "knowledge-search": "docs",
+    "offer-k-dense-web": "skill",
+    "brainstorming": "skill",
+    "consciousness-council": "skill",
+    "sequential-thinking": "skill",
+    "problem-solving": "skill",
+    "what-if-oracle": "skill",
+    "dhdna-profiler": "skill",
+    "openalex-database": "data",
 
-    <div class="side-search">
-      <input id="search" type="text" placeholder="스킬 검색…" autocomplete="off" />
-    </div>
-    <div class="side-cat">
-      <select id="categorySel" onchange="renderSkills()">
-        <option value="all">전체 카테고리</option>
-      </select>
-    </div>
-    <div class="side-stat">
-      <span id="skillCount">0 SKILLS</span>
-      <span class="sel" id="selectedCount">0 SELECTED</span>
-    </div>
-    <div class="side-list" id="skillList"></div>
-    <div class="side-foot">
-      <button onclick="clearSkills()">CLEAR</button>
-      <button onclick="reloadSkills()">RELOAD</button>
-      <button id="trBtn" onclick="translateSkills()">한글로</button>
-    </div>
-    <div id="trProgress" style="display:none;padding:6px 14px;font-size:10.5px;color:var(--gold);letter-spacing:0.08em;border-top:1px solid var(--border);background:var(--bg-card);">번역 중…</div>
-  </aside>
-
-  <!-- ─────── Main ─────── -->
-  <main class="main">
-    <div class="top">
-      <button class="hamburger" onclick="toggleDrawer()" title="스킬 패널" aria-label="menu">☰</button>
-      <span class="top-title">Conversation</span>
-      <span class="top-sub" id="topSub">초기화 중...</span>
-      <span class="session-bar" id="sessionBar" style="display:none;">
-        <span>SESSION</span>
-        <span class="sid" id="sessionSid">—</span>
-        <button onclick="newSession()" title="새 대화 시작">NEW</button>
-        <button onclick="clearChat()" title="히스토리 삭제">CLEAR</button>
-      </span>
-      <div class="top-right">
-        <label class="raw-toggle" id="rawToggle" title="필터 끄고 hermes 원본 그대로">
-          <input type="checkbox" id="rawChk" onchange="toggleRaw()"/>
-          <span>RAW</span>
-        </label>
-        <span class="top-status"><span class="dot" id="proxyDot"></span><span id="proxyText">PROXY ···</span></span>
-        <span class="top-status" id="sendingStatus" onclick="forceReset()" style="cursor:pointer;" title="클릭하면 잠금 풀림">
-          <span class="dot" id="sendDot"></span><span id="sendText">READY</span>
-        </span>
-        <button class="theme-btn" onclick="toggleTheme()" title="테마">◐</button>
-      </div>
-    </div>
-
-    <div class="msgs" id="msgs">
-      <div class="msg assistant">
-        <div class="who">HERMES</div>
-        <div class="bubble">
-사용할 스킬을 왼쪽에서 선택하고 메시지를 보내세요.
-선택하지 않으면 Hermes 가 카탈로그를 보고 자동으로 판단합니다.
-
-<span style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:16px;color:var(--gold);">
-"신들의 전령, 길의 안내자."
-</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="input-wrap">
-      <div class="input-card">
-        <textarea id="msg" placeholder="메시지를 적으세요…" rows="1"></textarea>
-        <button class="send-btn" id="sendBtn" onclick="onSendClick()" title="전송 (Enter)">
-          <svg id="sendIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/>
-          </svg>
-        </button>
-      </div>
-      <div class="input-hint">ENTER 전송 · SHIFT+ENTER 줄바꿈</div>
-    </div>
-  </main>
-</div>
-
-<script>
-let allSkills = [];
-let selected = new Set();
-let history = [];
-let sending = false;
-let currentSessionId = null;
-let rawMode = false;
-
-const LS_HISTORY = "hermes_history_v1";
-const LS_SID = "hermes_sid_v1";
-const LS_RAW = "hermes_raw_v1";
-
-// ─── Theme ───
-function applyTheme(t) {
-  document.documentElement.setAttribute("data-theme", t);
-  localStorage.setItem("hermes_theme", t);
-}
-function toggleTheme() {
-  const cur = document.documentElement.getAttribute("data-theme") || "light";
-  applyTheme(cur === "dark" ? "light" : "dark");
-}
-applyTheme(localStorage.getItem("hermes_theme") || "light");
-
-// ─── Drawer (모바일) ───
-function toggleDrawer(force) {
-  const side = document.querySelector(".side");
-  const bg = document.getElementById("drawerBg");
-  const open = (typeof force === "boolean") ? force : !side.classList.contains("open");
-  side.classList.toggle("open", open);
-  bg.classList.toggle("open", open);
+    # ── 보정 (패턴이 잘못 잡는 항목) ──
+    "agent-fintech-engineer": "code",
+    "agent-embedded-systems": "code",
+    "agent-iot-engineer": "code",
+    "agent-game-developer": "code",
+    "agent-accessibility-tester": "design",
+    "agent-performance-monitor": "ops",
+    "agent-performance-engineer": "ops",
+    "cmd-deep-research": "science",
+    "cmd-explore": "skill",
+    "agent-api-designer": "code",
+    "depmap": "science",
+    "primekg": "science",
+    "google-adk-python": "skill",
 }
 
-// ─── RAW 모드 ───
-function toggleRaw() {
-  rawMode = document.getElementById("rawChk").checked;
-  localStorage.setItem(LS_RAW, rawMode ? "1" : "0");
-  document.getElementById("rawToggle").classList.toggle("on", rawMode);
-}
-(function initRaw() {
-  rawMode = localStorage.getItem(LS_RAW) === "1";
-  const chk = document.getElementById("rawChk");
-  if (chk) {
-    chk.checked = rawMode;
-    document.getElementById("rawToggle").classList.toggle("on", rawMode);
-  }
-})();
 
-// ─── 세션 ID ───
-function setSessionId(sid) {
-  currentSessionId = sid || null;
-  if (sid) localStorage.setItem(LS_SID, sid);
-  else localStorage.removeItem(LS_SID);
-  const bar = document.getElementById("sessionBar");
-  const span = document.getElementById("sessionSid");
-  if (sid) {
-    bar.style.display = "inline-flex";
-    span.textContent = sid.length > 10 ? sid.slice(0, 8) + "…" : sid;
-    span.title = sid;
-  } else {
-    bar.style.display = "none";
-  }
-}
-function newSession() {
-  setSessionId(null);
-  // 새 대화 — 히스토리도 비움
-  history = [];
-  saveHistory();
-  document.getElementById("msgs").innerHTML =
-    '<div class="msg assistant"><div class="who">HERMES</div>' +
-    '<div class="bubble">새 대화를 시작했어요. 메시지를 보내세요.</div></div>';
-}
-function clearChat() {
-  if (!confirm("대화 히스토리를 모두 지울까요?")) return;
-  history = [];
-  saveHistory();
-  setSessionId(null);
-  document.getElementById("msgs").innerHTML = "";
-}
+def _categorize(sid, name, desc):
+    """스킬 ID → 대분류 키. 명시 매핑 우선, 다음 패턴 규칙."""
+    if sid in _CATEGORY_OVERRIDE:
+        return _CATEGORY_OVERRIDE[sid]
 
-// ─── localStorage 히스토리 ───
-function saveHistory() {
-  try {
-    // 너무 커지면 슬라이스 (최근 50)
-    const trimmed = history.slice(-50);
-    localStorage.setItem(LS_HISTORY, JSON.stringify(trimmed));
-  } catch (_) {}
-}
-function loadHistory() {
-  try {
-    const raw = localStorage.getItem(LS_HISTORY);
-    if (!raw) return;
-    const arr = JSON.parse(raw);
-    if (!Array.isArray(arr)) return;
-    history = arr;
-    // 화면에 다시 렌더
-    const msgs = document.getElementById("msgs");
-    msgs.innerHTML = "";
-    arr.forEach(m => {
-      if (m.role === "user") {
-        addMsg("user", m.content);
-      } else if (m.role === "assistant") {
-        const b = addMsg("assistant", "");
-        renderBubble(b, m.content);
-        attachCodeCopy(b);
-      }
-    });
-  } catch (_) {}
-}
+    # 패턴: 명확한 그룹
+    if sid.startswith("cmd-git-"):
+        return "ops"
+    if sid.startswith("cmd-cr"):
+        return "review"
+    if sid.endswith("-database"):
+        return "data"
+    if sid.startswith("guide-"):
+        return "docs"
 
-// ─── Health ───
-async function refreshHealth() {
-  try {
-    const r = await fetch("/api/health");
-    const d = await r.json();
-    document.getElementById("envBadge").textContent = d.env_mode;
-    const envDot = document.getElementById("envDot");
-    envDot.classList.remove("ok", "bad");
-    envDot.classList.add(d.skills_dir_exists ? "ok" : "bad");
+    # agent-* 패턴 분기
+    if sid.startswith("agent-"):
+        tail = sid[len("agent-"):]
+        # ops 키워드
+        if any(k in tail for k in ("devops", "deployment", "cloud", "kubernetes",
+                                   "terraform", "sre", "platform", "network",
+                                   "incident", "build-", "datadog")):
+            return "ops"
+        # review/QA/security 키워드
+        if any(k in tail for k in ("security", "penetration", "auditor", "debug",
+                                   "error", "test", "qa", "chaos", "reviewer",
+                                   "refactor", "legacy", "compliance")):
+            return "review"
+        # data 키워드
+        if any(k in tail for k in ("data-", "database", "postgres", "sql")):
+            return "data"
+        # design 키워드
+        if any(k in tail for k in ("ui-", "ux-", "designer")):
+            return "design"
+        # docs/비즈니스 키워드
+        if any(k in tail for k in ("writer", "documenter", "marketer", "scrum-",
+                                   "project-manager", "product-manager",
+                                   "scrum-master", "customer-", "sales-",
+                                   "legal-", "risk-", "fintech",
+                                   "seo-", "payment-")):
+            return "docs"
+        # 개발 직군
+        if any(k in tail for k in ("-developer", "-pro", "-expert", "-specialist",
+                                   "-architect", "-engineer", "-master")):
+            return "code"
+        return "etc"
 
-    document.getElementById("topSub").textContent =
-      `${d.env_mode}  ·  ${d.skills_dir_exists ? "SKILLS READY" : "SKILLS MISSING"}`;
+    return "etc"
 
-    const pDot = document.getElementById("proxyDot");
-    pDot.classList.remove("ok", "bad");
-    pDot.classList.add(d.proxy_alive ? "ok" : "bad");
-    document.getElementById("proxyText").textContent =
-      "PROXY " + (d.proxy_alive ? "ONLINE" : "OFFLINE");
-  } catch (e) {
-    document.getElementById("topSub").textContent = "CONNECTION ERROR";
-  }
-}
 
-// ─── Skills ───
-async function loadSkills() {
-  try {
-    const r = await fetch("/api/skills");
-    const d = await r.json();
-    allSkills = d.skills || [];
-    populateCategories(d.categories || [], allSkills);
-    document.getElementById("skillCount").textContent = `${allSkills.length} SKILLS`;
-    renderSkills();
-  } catch (e) {
-    document.getElementById("skillList").innerHTML =
-      '<div style="padding:24px;color:var(--text-mute);font-size:11px;text-align:center;letter-spacing:0.1em;">SKILLS 로드 실패</div>';
-  }
-}
-function populateCategories(cats, skills) {
-  const sel = document.getElementById("categorySel");
-  if (!sel || !cats.length) return;
-  // 카테고리별 카운트
-  const counts = {};
-  skills.forEach(s => { counts[s.category] = (counts[s.category] || 0) + 1; });
-  const total = skills.length;
-  const cur = sel.value || "all";
-  sel.innerHTML = cats.map(c => {
-    const n = c.key === "all" ? total : (counts[c.key] || 0);
-    return `<option value="${c.key}">${c.name} (${n})</option>`;
-  }).join("");
-  sel.value = cats.some(c => c.key === cur) ? cur : "all";
-}
-function renderSkills() {
-  const q = document.getElementById("search").value.trim().toLowerCase();
-  const catSel = document.getElementById("categorySel");
-  const cat = catSel ? catSel.value : "all";
-  const list = document.getElementById("skillList");
-  let filtered = allSkills;
-  if (cat && cat !== "all") {
-    filtered = filtered.filter(s => (s.category || "etc") === cat);
-  }
-  if (q) {
-    filtered = filtered.filter(s =>
-      (s.id || "").toLowerCase().includes(q) ||
-      (s.name || "").toLowerCase().includes(q) ||
-      (s.description || "").toLowerCase().includes(q) ||
-      (s.description_kr || "").toLowerCase().includes(q));
-  }
-  list.innerHTML = filtered.map(s => {
-    const id = s.id, name = s.name || id;
-    // 한글 캐시 있으면 우선 사용, 없으면 영문
-    const desc = (s.description_kr && s.description_kr.trim()) ? s.description_kr : (s.description || "");
-    const checked = selected.has(id) ? "checked" : "";
-    const klass = selected.has(id) ? "skill checked" : "skill";
-    const safeId = id.replace(/'/g, "\\'");
-    return `<label class="${klass}">
-      <input type="checkbox" ${checked} onchange="toggleSkill('${safeId}', this.checked, this)">
-      <div class="skill-body">
-        <div class="skill-name">${escapeHtml(name)}</div>
-        ${desc ? `<div class="skill-desc">${escapeHtml(desc)}</div>` : ''}
-      </div>
-      <button class="skill-info" title="SKILL.md 보기" onclick="event.preventDefault();event.stopPropagation();openSkillModal('${safeId}')">ⓘ</button>
-    </label>`;
-  }).join("");
-  updateSelectedCount();
-}
-function escapeHtml(s) {
-  return (s || "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-}
+# ─────────────────────────────────────────────────────────────────────────────
+# Flask app
+# ─────────────────────────────────────────────────────────────────────────────
+app = Flask(__name__, static_folder="static", static_url_path="/static")
 
-// ─── 마크다운 → 안전한 HTML 렌더링 ───
-// marked.js + DOMPurify 사용. 표/헤더/코드블록/리스트 다 처리.
-if (window.marked) {
-  marked.setOptions({
-    gfm: true,           // GitHub Flavored Markdown (표 등)
-    breaks: true,        // 줄바꿈 그대로
-    headerIds: false,
-    mangle: false,
-  });
-}
-function renderBubble(el, text) {
-  if (!text) { el.textContent = ""; return; }
-  try {
-    const html = window.marked ? marked.parse(text) : escapeHtml(text);
-    const safe = window.DOMPurify ? DOMPurify.sanitize(html) : html;
-    el.innerHTML = safe;
-  } catch (e) {
-    el.textContent = text;
-  }
-}
-function toggleSkill(id, checked, el) {
-  if (checked) selected.add(id); else selected.delete(id);
-  if (el) el.closest(".skill").classList.toggle("checked", checked);
-  updateSelectedCount();
-}
-function updateSelectedCount() {
-  document.getElementById("selectedCount").textContent = `${selected.size} SELECTED`;
-}
-function clearSkills() { selected.clear(); renderSkills(); }
-function reloadSkills() { loadSkills(); }
-document.getElementById("search").addEventListener("input", renderSkills);
 
-// ─── 한글 번역 (배치 반복) ───
-let translating = false;
-async function translateSkills() {
-  if (translating) return;
-  const btn = document.getElementById("trBtn");
-  const prog = document.getElementById("trProgress");
-  translating = true;
-  btn.disabled = true;
-  prog.style.display = "block";
-  let totalDone = 0;
-  let cumStart = 0;
-  try {
-    while (true) {
-      const r = await fetch("/api/translate-skills", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ batch_size: 10, only_missing: true })
-      });
-      const d = await r.json();
-      if (d.error) { prog.textContent = "에러: " + d.error; break; }
-      totalDone += (d.translated || 0);
-      const cachedTotal = d.cached_total || 0;
-      const total = d.total || allSkills.length;
-      prog.textContent = `번역 중… ${cachedTotal} / ${total}  (이번 배치: ${d.translated}/${d.batch_size})`;
-      if (d.status === "complete" || !d.remaining) break;
-      // UI 업데이트 (중간중간 한글 반영)
-      await loadSkills();
-    }
-    prog.textContent = `완료 — 총 ${totalDone} 항목 번역됨. 새로고침 적용 완료.`;
-    setTimeout(() => { prog.style.display = "none"; }, 4000);
-    await loadSkills();
-  } catch (e) {
-    prog.textContent = "실패: " + e.message;
-  } finally {
-    translating = false;
-    btn.disabled = false;
-  }
-}
+@app.route("/")
+def index():
+    return send_from_directory(app.static_folder, "index.html")
 
-// ─── Messages ───
-function addMsg(role, content, opts) {
-  opts = opts || {};
-  const wrap = document.createElement("div");
-  wrap.className = "msg " + role + (opts.error ? " error" : "");
-  const who = document.createElement("div"); who.className = "who";
-  who.textContent = role === "user" ? "YOU" : "HERMES";
-  const bub = document.createElement("div"); bub.className = "bubble";
-  bub.textContent = content;
-  wrap.appendChild(who); wrap.appendChild(bub);
-  if (opts.meta) {
-    const m = document.createElement("div"); m.className = "meta-line";
-    m.textContent = opts.meta; wrap.appendChild(m);
-  }
-  document.getElementById("msgs").appendChild(wrap);
-  const c = document.getElementById("msgs");
-  c.scrollTop = c.scrollHeight;
-  return bub;
-}
 
-// ─── Send / Stop ───
-function setSending(v) {
-  sending = !!v;
-  const dot = document.getElementById("sendDot");
-  const txt = document.getElementById("sendText");
-  const btn = document.getElementById("sendBtn");
-  const icon = document.getElementById("sendIcon");
-  if (v) {
-    if (dot) { dot.classList.remove("ok"); dot.classList.add("bad"); }
-    if (txt) txt.textContent = "STREAMING";
-    if (btn) {
-      btn.classList.add("streaming");
-      btn.title = "중단";
-    }
-    // 아이콘 → stop 사각형
-    if (icon) icon.innerHTML = '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/>';
-  } else {
-    if (dot) { dot.classList.remove("bad"); dot.classList.add("ok"); }
-    if (txt) txt.textContent = "READY";
-    if (btn) {
-      btn.classList.remove("streaming");
-      btn.disabled = false;
-      btn.title = "전송 (Enter)";
-    }
-    if (icon) icon.innerHTML = '<path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/>';
-  }
-}
+@app.route("/api/health")
+def health():
+    hermes_bin = _find_hermes()
+    return jsonify({
+        "env_mode": ENV_MODE,
+        "scientific_base": SCIENTIFIC_BASE,
+        "skills_dir": SKILLS_DIR,
+        "skills_dir_exists": os.path.isdir(SKILLS_DIR),
+        "proxy_alive": _is_proxy_alive(),
+        "proxy_url": f"http://{PROXY_HOST}:{PROXY_PORT}",
+        "hermes_binary": hermes_bin,
+        "winpty": _USE_WINPTY,
+    })
 
-function forceReset() {
-  if (currentAbort) { try { currentAbort.abort(); } catch(_) {} }
-  setSending(false);
-}
-window.forceReset = forceReset;
-setSending(false);
 
-let currentAbort = null;
+SKILLS_KR_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skills_kr.json")
 
-function onSendClick() {
-  if (sending) {
-    // 스트리밍 중 클릭 = 중단
-    if (currentAbort) { try { currentAbort.abort(); } catch(_) {} }
-    return;
-  }
-  send();
-}
 
-async function send() {
-  const ta = document.getElementById("msg");
-  const text = (ta.value || "").trim();
-  if (!text) return;
-  if (sending) return;  // 이중 클릭 방지
+def _load_kr_cache():
+    if not os.path.isfile(SKILLS_KR_CACHE):
+        return {}
+    try:
+        with open(SKILLS_KR_CACHE, "r", encoding="utf-8") as f:
+            return json.load(f) or {}
+    except Exception:
+        return {}
 
-  ta.value = ""; ta.style.height = "44px";
-  history.push({ role: "user", content: text });
-  saveHistory();
-  addMsg("user", text);
 
-  const skillIds = Array.from(selected);
-  setSending(true);
+def _save_kr_cache(d):
+    try:
+        with open(SKILLS_KR_CACHE, "w", encoding="utf-8") as f:
+            json.dump(d, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[kr-cache] 저장 실패: {e}")
 
-  // 안전망: 5분 후에도 끝 안 나면 강제 해제
-  const safetyTimer = setTimeout(() => {
-    if (sending) {
-      console.warn("[hermes] 5분 타임아웃 — 강제 해제");
-      if (currentAbort) { try { currentAbort.abort(); } catch(_) {} }
-      setSending(false);
-      bubble.classList.remove("typing");
-      if (!acc.trim()) bubble.textContent = "⏱ 응답 시간 초과 (5분)";
-    }
-  }, 300000);
 
-  const bubble = addMsg("assistant", "");
-  bubble.classList.add("typing");
-  let acc = "";
-  let aborted = false;
-  let hadError = false;
+@app.route("/api/skills")
+def api_skills():
+    items = _scan_skills()
+    kr = _load_kr_cache()
+    # 한글 캐시 머지: description_kr 필드 추가
+    for it in items:
+        it["description_kr"] = kr.get(it["id"], "")
+    return jsonify({
+        "count": len(items),
+        "skills": items,
+        "kr_cached": sum(1 for it in items if it["description_kr"]),
+        "categories": SKILL_CATEGORIES,
+    })
 
-  currentAbort = new AbortController();
 
-  try {
-    const resp = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: currentAbort.signal,
-      body: JSON.stringify({
-        messages: history,
-        skills: skillIds,
-        session_id: currentSessionId,
-        raw: rawMode,
-      }),
-    });
-    if (!resp.ok || !resp.body) throw new Error("SSE start failed: " + resp.status);
+@app.route("/api/skill/<sid>")
+def api_skill_detail(sid):
+    """SKILL.md 전체 내용 + frontmatter 메타 반환 (progressive disclosure Tier 2)."""
+    # 디렉토리 traversal 방지
+    if not sid or "/" in sid or "\\" in sid or sid.startswith("."):
+        return jsonify({"error": "invalid skill id"}), 400
+    d = os.path.join(SKILLS_DIR, sid)
+    skill_md = os.path.join(d, "SKILL.md")
+    if not os.path.isfile(skill_md):
+        return jsonify({"error": "SKILL.md not found", "id": sid}), 404
+    try:
+        with open(skill_md, "r", encoding="utf-8") as f:
+            text = f.read()
+    except Exception as e:
+        return jsonify({"error": f"read fail: {e}"}), 500
 
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = "";
+    name, desc = None, ""
+    m = re.match(r"---\s*\n([\s\S]+?)\n---\s*\n", text)
+    body = text
+    if m:
+        front = m.group(1)
+        body = text[m.end():]
+        nm = re.search(r"^name:\s*(.+?)$", front, re.MULTILINE)
+        dm = re.search(r"^description:\s*(.+?)$", front, re.MULTILINE)
+        if nm:
+            name = nm.group(1).strip().strip('"').strip("'")
+        if dm:
+            desc = dm.group(1).strip().strip('"').strip("'")
 
-    outer: while (true) {
-      const { value, done } = await reader.read();
-      if (done) break outer;
-      buf += decoder.decode(value, { stream: true });
-      let nl;
-      while ((nl = buf.indexOf("\n\n")) !== -1) {
-        const evt = buf.slice(0, nl);
-        buf = buf.slice(nl + 2);
-        if (!evt.startsWith("data:")) continue;
-        const payload = evt.slice(5).trim();
-        if (payload === "[DONE]") {
-          try { await reader.cancel(); } catch(_) {}
-          break outer;
+    # 보조 파일 리스트 (references/*, scripts/*)
+    files = []
+    for sub in ("references", "scripts", "assets"):
+        sd = os.path.join(d, sub)
+        if os.path.isdir(sd):
+            for fn in sorted(os.listdir(sd)):
+                fp = os.path.join(sd, fn)
+                if os.path.isfile(fp):
+                    files.append(f"{sub}/{fn}")
+
+    return jsonify({
+        "id": sid,
+        "name": name or sid,
+        "description": desc,
+        "body": body,
+        "files": files,
+    })
+
+
+@app.route("/api/translate-skills", methods=["POST"])
+def api_translate_skills():
+    """프록시(:8765/v1) 통해 LLM 으로 영문 description → 한글 요약. 배치 처리.
+    body: {"batch_size": 10, "only_missing": true}"""
+    body = request.get_json(silent=True) or {}
+    batch_size = max(1, min(20, int(body.get("batch_size", 8))))
+    only_missing = bool(body.get("only_missing", True))
+
+    items = _scan_skills()
+    cache = _load_kr_cache()
+
+    todo = []
+    for it in items:
+        if only_missing and cache.get(it["id"]):
+            continue
+        if not (it.get("description") or "").strip():
+            cache[it["id"]] = ""  # 설명 없음 → 빈 캐시
+            continue
+        todo.append(it)
+
+    if not todo:
+        return jsonify({"status": "complete", "translated": 0, "remaining": 0})
+
+    if not _is_proxy_alive():
+        return jsonify({"error": "프록시(:8765) 가 안 떠있음"}), 502
+
+    import requests as _req
+
+    # 배치 호출 한 번 (이 요청에서 처리하는 갯수만큼)
+    batch = todo[:batch_size]
+    prompt_items = "\n".join(
+        f"{i+1}. [{it['id']}] {it['description'][:250]}"
+        for i, it in enumerate(batch)
+    )
+    prompt = (
+        "다음은 영문 스킬 설명들이다. 각 항목을 한국어로 한 줄 (60자 이내) 요약하라.\n"
+        "출력 형식 정확히 지킬 것:\n"
+        "1. [id] 한국어 요약\n"
+        "2. [id] 한국어 요약\n"
+        "...\n\n"
+        f"항목:\n{prompt_items}"
+    )
+
+    try:
+        r = _req.post(
+            f"http://{PROXY_HOST}:{PROXY_PORT}/v1/chat/completions",
+            json={
+                "model": "any",
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.1,
+                "max_tokens": 2000,
+                "stream": False,
+            },
+            timeout=120,
+        )
+        r.raise_for_status()
+        data = r.json()
+        text = data.get("choices", [{}])[0].get("message", {}).get("content", "") or ""
+    except Exception as e:
+        return jsonify({"error": f"번역 호출 실패: {e}"}), 500
+
+    # 응답 파싱: "1. [id] 한국어 요약"
+    parsed = {}
+    for line in text.splitlines():
+        line = line.strip()
+        m = re.match(r"^\d+\.\s*\[([^\]]+)\]\s*(.+)$", line)
+        if m:
+            sid = m.group(1).strip()
+            kr = m.group(2).strip()
+            parsed[sid] = kr
+
+    # 배치의 모든 id 에 대해, 파싱된 것 있으면 저장 / 아니면 영문 그대로
+    saved = 0
+    for it in batch:
+        if it["id"] in parsed:
+            cache[it["id"]] = parsed[it["id"]]
+            saved += 1
+        else:
+            # 파싱 실패 → 다음번에 다시 시도하도록 캐시 안 함
+            pass
+    _save_kr_cache(cache)
+
+    return jsonify({
+        "status": "ok",
+        "translated": saved,
+        "batch_size": len(batch),
+        "remaining": max(0, len(todo) - len(batch)),
+        "total": len(items),
+        "cached_total": sum(1 for v in cache.values() if v),
+    })
+
+
+@app.route("/api/chat", methods=["POST"])
+def api_chat():
+    data = request.json or {}
+    messages = data.get("messages") or []
+    skill_ids = [s for s in (data.get("skills") or []) if s and isinstance(s, str)]
+    raw_mode = bool(data.get("raw", False))
+    session_id = (data.get("session_id") or "").strip()
+
+    last_user = ""
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            c = m.get("content", "")
+            if isinstance(c, str):
+                last_user = c
+            break
+
+    # 입력 에코 매치용: 사용자가 보낸 메시지의 각 비공백 줄을 집합으로
+    echo_lines = set()
+    for ln in (last_user or "").splitlines():
+        t = ln.strip()
+        if t:
+            echo_lines.add(t)
+
+    def gen():
+        info = ("Hermes — 전달된 스킬: " + ", ".join(skill_ids)) \
+               if skill_ids else "Hermes (자동 스킬 판단)"
+        meta = {
+            "type": "meta",
+            "env_mode": ENV_MODE,
+            "loaded_skills": skill_ids,
+            "info": info,
+            "session_id_in": session_id or None,
+            "raw": raw_mode,
         }
-        try {
-          const obj = JSON.parse(payload);
-          if (obj.type === "meta") {
-            const wrap = bubble.parentElement;
-            const m = wrap.querySelector(".meta-line") || (() => {
-              const d = document.createElement("div"); d.className = "meta-line";
-              wrap.appendChild(d); return d;
-            })();
-            m.textContent = (obj.info || "") + (obj.raw ? "  ·  RAW" : "");
-          } else if (obj.type === "token") {
-            acc += obj.t || "";
-            renderBubble(bubble, acc);
-            bubble.classList.remove("typing");
-            const c = document.getElementById("msgs");
-            c.scrollTop = c.scrollHeight;
-          } else if (obj.type === "error") {
-            hadError = true;
-            bubble.classList.remove("typing");
-            bubble.parentElement.classList.add("error");
-            bubble.textContent = "✦ " + (obj.error || "오류") +
-              (obj.detail ? "\n→ " + obj.detail : "");
-            acc = bubble.textContent;
-          } else if (obj.type === "end") {
-            bubble.classList.remove("typing");
-            const stats = obj.stats || {};
-            const m = bubble.parentElement.querySelector(".meta-line");
-            if (m) m.textContent += `  ·  ${stats.emitted ?? 0} LINES`;
-            // 세션 ID 캡처
-            if (obj.hermes_session_id) {
-              setSessionId(obj.hermes_session_id);
+        yield f"data: {json.dumps(meta, ensure_ascii=False)}\n\n"
+
+        if not _is_proxy_alive():
+            err = {
+                "type": "error",
+                "error": f"프록시(:{PROXY_PORT}) 가 떠있지 않습니다",
+                "detail": f"python {os.path.dirname(os.path.abspath(__file__))}/hermes_proxy.py",
             }
-          }
-        } catch (e) {}
-      }
-    }
-    bubble.classList.remove("typing");
-    attachCodeCopy(bubble);
-    // 빈 응답 안내
-    if (!hadError && !acc.trim()) {
-      bubble.textContent = rawMode
-        ? "(hermes 가 빈 출력을 냈어요)"
-        : "응답이 비어있어요. 상단의 RAW 토글을 켜고 다시 보내보세요 — 필터가 다 걸렀을 수 있어요.";
-    }
-    if (acc.trim() && !hadError) history.push({ role: "assistant", content: acc });
-    saveHistory();
-  } catch (e) {
-    bubble.classList.remove("typing");
-    if (e.name === "AbortError") {
-      aborted = true;
-      if (!acc.trim()) bubble.textContent = "(중단됨)";
-      else {
-        attachCodeCopy(bubble);
-        const note = document.createElement("div");
-        note.className = "meta-line";
-        note.textContent = "··· 중단됨";
-        bubble.parentElement.appendChild(note);
-      }
-    } else {
-      bubble.parentElement.classList.add("error");
-      bubble.textContent = "✦ 전송 실패: " + e.message;
-    }
-  } finally {
-    clearTimeout(safetyTimer);
-    setSending(false);
-    bubble.classList.remove("typing");
-    currentAbort = null;
-  }
-}
+            yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+            return
 
-// ─── 코드 블록 복사 버튼 ───
-function attachCodeCopy(bubble) {
-  if (!bubble) return;
-  bubble.querySelectorAll("pre").forEach(pre => {
-    if (pre.querySelector(".code-copy")) return;
-    const btn = document.createElement("button");
-    btn.className = "code-copy";
-    btn.textContent = "COPY";
-    btn.onclick = (e) => {
-      e.preventDefault(); e.stopPropagation();
-      const code = pre.querySelector("code");
-      const text = code ? code.textContent : pre.textContent;
-      navigator.clipboard.writeText(text).then(() => {
-        btn.textContent = "COPIED"; btn.classList.add("done");
-        setTimeout(() => { btn.textContent = "COPY"; btn.classList.remove("done"); }, 1500);
-      }).catch(() => {
-        btn.textContent = "FAIL";
-        setTimeout(() => { btn.textContent = "COPY"; }, 1500);
-      });
-    };
-    pre.appendChild(btn);
-  });
-}
+        if not last_user.strip():
+            yield f"data: {json.dumps({'type':'error','error':'빈 메시지'}, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+            return
 
-// ─── 스킬 상세 모달 ───
-async function openSkillModal(id) {
-  const bg = document.getElementById("modalBg");
-  const title = document.getElementById("modalTitle");
-  const idEl = document.getElementById("modalId");
-  const body = document.getElementById("modalBody");
-  const files = document.getElementById("modalFiles");
-  title.textContent = id;
-  idEl.textContent = id;
-  body.innerHTML = '<div style="color:var(--text-mute);text-align:center;padding:40px 0;font-size:11px;letter-spacing:0.15em;">LOADING…</div>';
-  files.style.display = "none";
-  bg.classList.add("open");
-  try {
-    const r = await fetch("/api/skill/" + encodeURIComponent(id));
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    const d = await r.json();
-    title.textContent = d.name || id;
-    idEl.textContent = d.id || id;
-    renderBubble(body, (d.description ? "_" + d.description + "_\n\n" : "") + (d.body || ""));
-    attachCodeCopy(body);
-    if (d.files && d.files.length) {
-      files.style.display = "block";
-      files.innerHTML = "<b>FILES</b>" + d.files.map(f => `<span style="margin-right:14px;">${escapeHtml(f)}</span>`).join("");
-    }
-  } catch (e) {
-    body.innerHTML = '<div style="color:#c66;padding:24px 0;">로드 실패: ' + escapeHtml(e.message) + '</div>';
-  }
-}
-function closeSkillModal(ev) {
-  if (ev && ev.target && ev.target.id !== "modalBg") return;
-  document.getElementById("modalBg").classList.remove("open");
-}
-window.openSkillModal = openSkillModal;
-window.closeSkillModal = closeSkillModal;
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") {
-    document.getElementById("modalBg").classList.remove("open");
-  }
-});
+        hermes_bin = _find_hermes()
+        if not hermes_bin:
+            yield f"data: {json.dumps({'type':'error','error':'hermes 명령 못 찾음 (PATH 확인)'}, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+            return
 
-// ─── Input ───
-const ta = document.getElementById("msg");
-ta.addEventListener("keydown", e => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    // sending 상태로 막혀있으면 강제 풀고 보냄
-    if (sending) {
-      console.warn("[hermes] Enter 입력 — sending=true 자동 해제 후 진행");
-      forceReset();
-    }
-    send();
-  }
-});
-ta.addEventListener("input", () => {
-  ta.style.height = "44px";
-  ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
-});
+        cmd = [hermes_bin]
+        # session_id 가 와도 실제 세션 파일이 없으면 --resume 안 함 (silent skip)
+        # → 죽은 sid 들고 있는 브라우저 자동 구제, 새 세션 시작되어 sid 회수
+        if session_id:
+            sess_dir = os.path.expanduser("~/.hermes/sessions")
+            possible_files = [
+                os.path.join(sess_dir, f"session_{session_id}.json"),
+                os.path.join(sess_dir, f"{session_id}.json"),
+            ]
+            sess_exists = any(os.path.isfile(p) for p in possible_files)
+            if sess_exists:
+                cmd += ["--resume", session_id]
+                print(f"[chat] resume 가능: {session_id}")
+            else:
+                print(f"[chat] session_id={session_id} 파일 없음 → 새 세션 시작")
+        if skill_ids:
+            cmd += ["-s", ",".join(skill_ids)]
+        cmd += ["chat", "-q", last_user]
 
-// ─── Init ───
-// sid / history 둘 다 그대로 유지. server.py 가 죽은 sid 알아서 무시하고
-// 새 세션 만들어줌. 새 sid 는 end 이벤트에서 자동 회수돼 다음 메시지부터 이어감.
-// ?reset=1 붙이면 강제 완전 초기화.
-if (location.search.includes("reset=1") || location.hash.includes("reset")) {
-  localStorage.removeItem(LS_SID);
-  localStorage.removeItem(LS_HISTORY);
-  console.log("[hermes] 완전 초기화");
-}
+        env = dict(os.environ)
+        env["PYTHONUNBUFFERED"] = "1"
+        env.setdefault("TERM", "xterm-256color")
 
-// 세션 ID 복원 (이제 비어있으니 새 대화로 시작)
-const savedSid = localStorage.getItem(LS_SID);
-if (savedSid) setSessionId(savedSid);
-// 히스토리 복원
-loadHistory();
-refreshHealth();
-loadSkills();
-setInterval(refreshHealth, 15000);
-</script>
-</body>
-</html>
+        print(f"[chat] cmd={cmd}  (winpty={_USE_WINPTY}, raw={raw_mode}, sid_in={session_id})")
+
+        new_sid = None
+        line_count = 0
+        emit_count = 0
+        # 답변 본문이 시작되었는가 — 한 번 시작되면 에코 필터 끔
+        body_started = [False]
+
+        def _proc_line(rawline):
+            nonlocal new_sid
+            line = _strip_ansi(rawline.rstrip("\r\n"))
+            # session_id 는 항상 추출 (raw 모드여도 sid 는 필요)
+            mm = re.search(r"hermes\s+--resume\s+(\S+)", line)
+            if mm:
+                new_sid = mm.group(1)
+                if not raw_mode:
+                    return None  # 메타라인은 일반 모드에서만 숨김
+
+            if raw_mode:
+                # 그대로 통과 (디버그용)
+                if line:
+                    return line + "\n"
+                return None
+
+            s = _normalize_for_match(line)
+            if not s:
+                return None
+            # 박스/구분선 (앞에 한 글자가 붙어있어도 매치)
+            if _BOXLINE_RE.match(s):
+                return None
+            # "Q" 단독 prompt-echo
+            if _Q_PROMPT_RE.match(s):
+                return None
+            # NOISE_PREFIXES (정규화 후 prefix 매치)
+            if any(s.startswith(p) for p in NOISE_PREFIXES):
+                return None
+            if "⚕ Hermes" in s:
+                return None
+            if _META_LINE_RE.search(s):
+                return None
+            # 명시적 thinking 마커만 필터 (보수적)
+            if _THINK_MARKER_RE.match(s):
+                return None
+            # 입력 에코 — 답변 본문 시작 전까지만 드롭
+            if not body_started[0] and s in echo_lines:
+                return None
+            # 한 줄 답변이 시작된 시점부터는 에코 필터 비활성
+            body_started[0] = True
+            return s + "\n"
+
+        if _USE_WINPTY and _WINPTY_MOD is not None:
+            try:
+                proc = _WINPTY_MOD.PtyProcess.spawn(cmd, env=env, dimensions=(40, 240))
+            except Exception as e:
+                yield f"data: {json.dumps({'type':'error','error':f'winpty spawn 실패: {e}'}, ensure_ascii=False)}\n\n"
+                yield "data: [DONE]\n\n"
+                return
+            buf = ""
+            try:
+                while True:
+                    try:
+                        chunk = proc.read(1024)
+                    except EOFError:
+                        break
+                    except Exception as _re:
+                        print(f"[chat] read 예외: {_re}")
+                        break
+                    if not chunk:
+                        if not proc.isalive():
+                            break
+                        continue
+                    buf += chunk
+                    while True:
+                        idx_rn = buf.find("\r\n")
+                        idx_n = buf.find("\n")
+                        idx_r = buf.find("\r")
+                        cands = [(i, ln) for (i, ln) in
+                                 [(idx_rn, 2), (idx_n, 1), (idx_r, 1)] if i != -1]
+                        if not cands:
+                            break
+                        cands.sort()
+                        nl_idx, nl_len = cands[0]
+                        if idx_rn != -1 and idx_rn == nl_idx:
+                            nl_len = 2
+                        line_str = buf[:nl_idx]
+                        buf = buf[nl_idx + nl_len:]
+                        line_count += 1
+                        tok = _proc_line(line_str)
+                        if tok:
+                            yield f"data: {json.dumps({'type':'token','t':tok}, ensure_ascii=False)}\n\n"
+                            emit_count += 1
+                if buf.strip():
+                    line_count += 1
+                    tok = _proc_line(buf)
+                    if tok:
+                        yield f"data: {json.dumps({'type':'token','t':tok}, ensure_ascii=False)}\n\n"
+                        emit_count += 1
+            finally:
+                try:
+                    if proc.isalive():
+                        proc.terminate(force=True)
+                        print("[chat] hermes proc terminated")
+                except Exception:
+                    pass
+        else:
+            try:
+                proc = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, encoding="utf-8", errors="replace", bufsize=1, env=env,
+                )
+            except FileNotFoundError:
+                yield f"data: {json.dumps({'type':'error','error':'hermes 명령 못 찾음'}, ensure_ascii=False)}\n\n"
+                yield "data: [DONE]\n\n"
+                return
+            try:
+                for raw_line in proc.stdout:
+                    line_count += 1
+                    tok = _proc_line(raw_line)
+                    if tok:
+                        yield f"data: {json.dumps({'type':'token','t':tok}, ensure_ascii=False)}\n\n"
+                        emit_count += 1
+            finally:
+                try:
+                    proc.stdout.close()
+                except Exception:
+                    pass
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+
+        print(f"[chat] 종료: {line_count} 줄 읽음, {emit_count} 줄 emit, hermes_sid={new_sid}")
+        end_evt = {
+            "type": "end",
+            "finish_reason": "stop",
+            "hermes_session_id": new_sid,
+            "stats": {"lines": line_count, "emitted": emit_count},
+        }
+        yield f"data: {json.dumps(end_evt, ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return Response(stream_with_context(gen()), mimetype="text/event-stream")
+
+
+if __name__ == "__main__":
+    port = 8788
+    if len(sys.argv) > 1:
+        try:
+            port = int(sys.argv[1])
+        except ValueError:
+            pass
+
+    if sys.platform == "win32":
+        os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+        os.environ.setdefault("PYTHONUTF8", "1")
+        try:
+            os.system("chcp 65001 >nul 2>&1")
+        except Exception:
+            pass
+
+    print("=" * 70)
+    print(f"  Hermes Web")
+    print("=" * 70)
+    print(f"  환경 자동 감지: {ENV_MODE}")
+    print(f"  Scientific 베이스: {SCIENTIFIC_BASE}")
+    print(f"  스킬 디렉토리:  {SKILLS_DIR} (존재: {os.path.isdir(SKILLS_DIR)})")
+    print(f"  프록시 살아있나: {_is_proxy_alive()}  ({PROXY_HOST}:{PROXY_PORT})")
+    print(f"  Hermes 바이너리: {_find_hermes()}")
+    print(f"  pywinpty: {_USE_WINPTY}")
+    print(f"  포트: {port}")
+
+    # 참고: GGUF 로드는 hermes_proxy.py 가 담당 (이 server.py 는 UI 만)
+    print("-" * 70)
+    print(f"  http://localhost:{port}  에서 접속")
+    print("=" * 70)
+    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
