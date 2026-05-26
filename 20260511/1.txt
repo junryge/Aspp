@@ -1,5 +1,1 @@
-terminal:
-  backend: local
-  ...
-  auto_source_bashrc: false      ← true → false
-  persistent_shell: false        ← true → false
+hermes postinstall
