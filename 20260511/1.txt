@@ -1,31 +1,30 @@
-import requests
-token = "<TOKEN.TXT 의 값>"
-BASE = "http://common.llm.skhynix.com"
-headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+# 1. 메시지 한 번 보낸 직후에 실행할 것 (가장 최근 dump 찾기)
+$dump = Get-ChildItem "$env:USERPROFILE\.hermes\sessions\request_dump_*.json" `
+        | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 
-payload = {
-    "model": "Kimi-K2.5",
-    "messages": [{"role": "user", "content": "Make a file test.txt with content 'hello'. Use the create_file tool."}],
-    "tools": [{
-        "type": "function",
-        "function": {
-            "name": "create_file",
-            "description": "Create a file on disk",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string"},
-                    "content": {"type": "string"}
-                },
-                "required": ["path", "content"]
-            }
-        }
-    }],
-    "tool_choice": "auto",
-    "temperature": 0.1,
+Write-Host "`n📁 파일: $($dump.Name)"
+Write-Host "📏 크기: $([math]::Round($dump.Length/1KB, 1)) KB`n"
+
+# 2. JSON 파싱해서 핵심 숫자만
+$j = Get-Content $dump.FullName -Raw | ConvertFrom-Json
+
+# 모델
+Write-Host "🤖 model       : $($j.model)"
+# tools 갯수
+$toolCount = if ($j.tools) { $j.tools.Count } else { 0 }
+Write-Host "🔧 tools 갯수  : $toolCount"
+# system 메시지 길이
+$sys = $j.messages | Where-Object { $_.role -eq 'system' } | Select-Object -First 1
+$sysLen = if ($sys) { $sys.content.Length } else { 0 }
+Write-Host "📜 system 길이 : $sysLen 자"
+# 전체 메시지 길이 합
+$totalLen = ($j.messages | ForEach-Object { $_.content.Length } | Measure-Object -Sum).Sum
+Write-Host "📝 전체 길이   : $totalLen 자"
+Write-Host ""
+
+# 3. system 의 첫 300자만 미리보기
+if ($sys) {
+    Write-Host "── system 메시지 앞부분 ──"
+    Write-Host ($sys.content.Substring(0, [math]::Min(300, $sys.content.Length)))
+    Write-Host "..."
 }
-
-r = requests.post(f"{BASE}/v1/chat/completions", headers=headers, json=payload, timeout=60)
-print("status:", r.status_code)
-import json
-print(json.dumps(r.json(), indent=2, ensure_ascii=False))
