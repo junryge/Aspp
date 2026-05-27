@@ -25,6 +25,7 @@ M16 HUBROOM 통합 이벤트 예측기 v4.1 (룰베이스 8영역)
 수집기가 매분 ./predict/M16A_HUBROOM_PR.csv 덮어쓰면
 본 스크립트는 ./predict_tobe/ 폴더에 날짜별 CSV 로 append.
 
+python3 hubroom_predictor.py path/to/sample.csv
 사용법:
     # 일괄 (백테스트)
     python3 hubroom_predictor.py path/to/INPUT.csv -o ./predict_tobe
