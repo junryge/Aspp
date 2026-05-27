@@ -1,32 +1,42 @@
 -- =====================================================================
--- AWS_IDC_DATA_HIS — 통합 이벤트 예측 v4.1 (269개 컬럼 — 누락 0)
+-- AWS_IDC_DATA_HIS — 통합 이벤트 예측 v4.2 (269 컬럼 — 수정판)
 -- =====================================================================
--- ★ ORA-01489 (문자열 연결 너무 김) 해결: PIVOT 직접 SELECT 방식 사용
--- ★ 헤더는 SET HEADING ON 으로 자동, COLSEP ',' 가 CSV 콤마 처리
+-- v4.1 → v4.2 수정 사항 (사용자 ASP.CSV 보고 발견):
+--   ★ 문제 1: 2번째 라인에 dash 구분선 (---,---,---)
+--     → SET UNDERLINE OFF 추가
+--   ★ 문제 2: 1분에 여러 행 (00:00:00, 00:00:09 같은 분 중복)
+--     → GROUP BY TRUNC(CRT_TM, 'MI') 로 분 단위 묶음
+--   ★ 문제 3: 헤더/값에 공백 패딩
+--     → SET MARKUP CSV ON QUOTE OFF + SET TRIMSPOOL ON 보강
+--     → SET PAGESIZE 999999 (헤더 1번만 나오게)
 --
 -- 미션: M16HUB + M14 + M14B + M16A + M16B + M16 + M16_PKT + M16_WT 통합 예측
--- 출처: MAIN_TS.TXT (263) + v3.1 M16_PKT/WT 보강 (6) = 269개 ★ 누락 0
---
--- 영역별: M16HUB(104), M14(41), M14B(41),
---         M16A(39), M16B(25), M16(11),
---         M16_PKT(4), M16_WT(4)
+-- 컬럼: 269개 (누락 0)
 -- =====================================================================
 
-SET COLSEP ','
-SET PAGESIZE 50000
-SET TRIMSPOOL ON
-SET LINESIZE 32767
+-- ▼▼▼ SQL*Plus 출력 설정 (★ CSV 깔끔하게) ▼▼▼
+SET ECHO OFF
 SET FEEDBACK OFF
-SET HEADING ON
-SET MARKUP CSV ON QUOTE OFF
+SET VERIFY OFF
+SET HEADING ON              -- 헤더 표시
+SET UNDERLINE OFF           -- ★ dash 구분선 제거
+SET COLSEP ','              -- 컬럼 구분자
+SET PAGESIZE 999999         -- 헤더 1번만 (페이지 분할 없음)
+SET LINESIZE 32767          -- 한 줄 최대 길이
+SET TRIMSPOOL ON            -- 오른쪽 공백 제거
+SET TRIMOUT ON
+SET TERMOUT OFF             -- 콘솔 출력 끔 (속도 ↑)
+SET NEWPAGE NONE
+SET NUMWIDTH 12             -- 숫자 컬럼 폭 (공백 패딩 최소화)
+ALTER SESSION SET NLS_NUMERIC_CHARACTERS = '.,';
 
-SPOOL D:\data\AWS_IDC_DATA_HIS_INTEGRATED_v41.csv
+SPOOL D:\data\AWS_IDC_DATA_HIS_INTEGRATED_v42.csv
 
 -- =====================================================================
--- 통합 PIVOT SELECT — 269 컬럼 (각각 MAX CASE WHEN)
+-- 통합 PIVOT SELECT — 269 컬럼 (분 단위 그룹)
 -- =====================================================================
 SELECT
-  TO_CHAR(CRT_TM, 'YYYY-MM-DD HH24:MI:SS') AS "CRT_TM",
+  TO_CHAR(TRUNC(CRT_TM, 'MI'), 'YYYY-MM-DD HH24:MI:SS') AS "CRT_TM",
   -- ────── [M16HUB] ──────
   MAX(CASE WHEN IDC_NM='M16HUB.CNV.SENDFAB.TO_M14A_CURRENTQCNT' THEN IDC_VAL END) AS "M16HUB.CNV.SENDFAB.TO_M14A_CURRENTQCNT",
   MAX(CASE WHEN IDC_NM='M16HUB.LFT.6ABL0111.2F_TO_3F_CURRENTQCNT' THEN IDC_VAL END) AS "M16HUB.LFT.6ABL0111.2F_TO_3F_CURRENTQCNT",
@@ -586,8 +596,13 @@ WHERE CRT_TM BETWEEN TO_DATE('2026-01-01 00:00', 'YYYY-MM-DD HH24:MI')
     'M16_WT.QUE.OHT.OHTUTIL',
     'M16_WT.QUE.TIME.AVGTOTALTIME1MIN'
 )
-GROUP BY CRT_TM
-ORDER BY CRT_TM;
+GROUP BY TRUNC(CRT_TM, 'MI')    -- ★ 분 단위로 묶기 (초 무시)
+ORDER BY TRUNC(CRT_TM, 'MI');
 
 SPOOL OFF
-SET MARKUP CSV OFF
+
+-- 출력 설정 원복
+SET TERMOUT ON
+SET HEADING ON
+SET UNDERLINE ON
+SET FEEDBACK ON
