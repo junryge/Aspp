@@ -1,40 +1,39 @@
 -- =====================================================================
--- AWS_IDC_DATA_HIS — 통합 이벤트 예측 v4.2 (269 컬럼 — 수정판)
+-- AWS_IDC_DATA_HIS — 통합 이벤트 예측 v4.3 (269 컬럼)
 -- =====================================================================
--- v4.1 → v4.2 수정 사항 (사용자 ASP.CSV 보고 발견):
---   ★ 문제 1: 2번째 라인에 dash 구분선 (---,---,---)
---     → SET UNDERLINE OFF 추가
---   ★ 문제 2: 1분에 여러 행 (00:00:00, 00:00:09 같은 분 중복)
---     → GROUP BY TRUNC(CRT_TM, 'MI') 로 분 단위 묶음
---   ★ 문제 3: 헤더/값에 공백 패딩
---     → SET MARKUP CSV ON QUOTE OFF + SET TRIMSPOOL ON 보강
---     → SET PAGESIZE 999999 (헤더 1번만 나오게)
+-- v4.2 → v4.3 수정 (SQL*Plus SP2 오류 해결):
+--   ★ SP2-0158/0268/0265: SET 문에 인라인 코멘트(--) 못 씀
+--     → 모든 SET 라인에서 인라인 코멘트 제거, 코멘트는 별도 줄
 --
--- 미션: M16HUB + M14 + M14B + M16A + M16B + M16 + M16_PKT + M16_WT 통합 예측
--- 컬럼: 269개 (누락 0)
+-- 이전 ASP.CSV 문제 (계속 해결):
+--   ★ dash 구분선 → SET UNDERLINE OFF
+--   ★ 1분 여러 행 → GROUP BY TRUNC(CRT_TM, 'MI')
+--   ★ 공백 패딩 → SET PAGESIZE 999999 + TRIMSPOOL ON
+--
+-- 컬럼: 269개 (M16HUB 104 + M14 41 + M14B 41 + M16A 39 + M16B 25
+--                 + M16 11 + M16_PKT 4 + M16_WT 4)
 -- =====================================================================
 
--- ▼▼▼ SQL*Plus 출력 설정 (★ CSV 깔끔하게) ▼▼▼
+-- SQL*Plus 출력 설정 (★ 각 SET 라인 끝에 인라인 코멘트 절대 금지!)
 SET ECHO OFF
 SET FEEDBACK OFF
 SET VERIFY OFF
-SET HEADING ON              -- 헤더 표시
-SET UNDERLINE OFF           -- ★ dash 구분선 제거
-SET COLSEP ','              -- 컬럼 구분자
-SET PAGESIZE 999999         -- 헤더 1번만 (페이지 분할 없음)
-SET LINESIZE 32767          -- 한 줄 최대 길이
-SET TRIMSPOOL ON            -- 오른쪽 공백 제거
+SET HEADING ON
+SET UNDERLINE OFF
+SET COLSEP ','
+SET PAGESIZE 999999
+SET LINESIZE 32767
+SET TRIMSPOOL ON
 SET TRIMOUT ON
-SET TERMOUT OFF             -- 콘솔 출력 끔 (속도 ↑)
+SET TERMOUT OFF
 SET NEWPAGE NONE
-SET NUMWIDTH 12             -- 숫자 컬럼 폭 (공백 패딩 최소화)
+SET NUMWIDTH 12
+
 ALTER SESSION SET NLS_NUMERIC_CHARACTERS = '.,';
 
-SPOOL D:\data\AWS_IDC_DATA_HIS_INTEGRATED_v42.csv
+SPOOL D:\data\AWS_IDC_DATA_HIS_INTEGRATED_v43.csv
 
--- =====================================================================
 -- 통합 PIVOT SELECT — 269 컬럼 (분 단위 그룹)
--- =====================================================================
 SELECT
   TO_CHAR(TRUNC(CRT_TM, 'MI'), 'YYYY-MM-DD HH24:MI:SS') AS "CRT_TM",
   -- ────── [M16HUB] ──────
@@ -596,7 +595,7 @@ WHERE CRT_TM BETWEEN TO_DATE('2026-01-01 00:00', 'YYYY-MM-DD HH24:MI')
     'M16_WT.QUE.OHT.OHTUTIL',
     'M16_WT.QUE.TIME.AVGTOTALTIME1MIN'
 )
-GROUP BY TRUNC(CRT_TM, 'MI')    -- ★ 분 단위로 묶기 (초 무시)
+GROUP BY TRUNC(CRT_TM, 'MI')
 ORDER BY TRUNC(CRT_TM, 'MI');
 
 SPOOL OFF
