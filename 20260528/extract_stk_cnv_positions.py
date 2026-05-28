@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """station.dat 의 CNV/STK 포트 station + layout.xml Addr 좌표를 결합해서
    CNV/STK 포트의 고정 위치(X, Y) CSV 출력.
-
+python3 extract_stk_cnv_positions.py --station /tmp/A.station.dat --layout-zip /tmp/A.layout.zip --output stk_cnv_positions_M14A.csv
 사용:
     python extract_stk_cnv_positions.py
     python extract_stk_cnv_positions.py \\
