@@ -2,6 +2,7 @@
 """station.dat 의 CNV/STK 포트 station + layout.xml Addr 좌표를 결합해서
    CNV/STK 포트의 고정 위치(X, Y) CSV 출력.
 python3 extract_stk_cnv_positions.py --station /tmp/A.station.dat --layout-zip /tmp/A.layout.zip --output stk_cnv_positions_M14A.csv
+
 사용:
     python extract_stk_cnv_positions.py
     python extract_stk_cnv_positions.py \\
@@ -12,6 +13,7 @@ python3 extract_stk_cnv_positions.py --station /tmp/A.station.dat --layout-zip /
 
 import argparse
 import csv
+import re
 import sys
 import time
 import zipfile
@@ -19,6 +21,17 @@ from pathlib import Path
 
 
 PORT_STATION_TYPES = {"ACQUIRE", "DEPOSIT", "DUAL_ACCESS"}
+
+CNV_EQUIPMENT_PATTERN = re.compile(r"^[0-9][A-Z](FC|BL|LFA)[0-9]")
+STK_SHELF_SLOT_PATTERN = re.compile(r"-\d+$")
+
+
+def classify_device(port_name, equipment_id):
+    if STK_SHELF_SLOT_PATTERN.search(port_name):
+        return "STK"
+    if CNV_EQUIPMENT_PATTERN.match(equipment_id):
+        return "CNV"
+    return "EQP"
 
 
 def parse_station_line(line):
@@ -185,12 +198,14 @@ def main():
         if a is None:
             missing += 1
             continue
+        eq_id = equipment_id(st["name"])
         rows.append({
+            "device_type": classify_device(st["name"], eq_id),
             "station_id": st["station_id"],
             "station_type": st["station_type"],
             "access_mode": st["access_mode"],
             "port_name": st["name"],
-            "equipment_id": equipment_id(st["name"]),
+            "equipment_id": eq_id,
             "address": st["address"],
             "slide_mm": st["slide_mm"],
             "cad_x": a["cad_x"],
@@ -200,10 +215,10 @@ def main():
             "draw_y": a["draw_y"],
         })
 
-    rows.sort(key=lambda r: (r["equipment_id"], r["port_name"]))
+    rows.sort(key=lambda r: (r["device_type"], r["equipment_id"], r["port_name"]))
 
     fields = [
-        "station_id", "station_type", "access_mode",
+        "device_type", "station_id", "station_type", "access_mode",
         "port_name", "equipment_id", "address", "slide_mm",
         "cad_x", "cad_y", "cad_z", "draw_x", "draw_y",
     ]
@@ -216,13 +231,15 @@ def main():
     if missing:
         print(f"      ⚠ Addr 미발견 {missing}개 (layout.xml 에 없는 주소)")
 
-    by_type = {}
-    eqs = set()
+    by_device, by_type, eqs_by_dev = {}, {}, {}
     for r in rows:
+        d = r["device_type"]
+        by_device[d] = by_device.get(d, 0) + 1
         by_type[r["station_type"]] = by_type.get(r["station_type"], 0) + 1
-        eqs.add(r["equipment_id"])
-    print(f"\n  유형별: {by_type}")
-    print(f"  고유 장비 ID: {len(eqs)}개")
+        eqs_by_dev.setdefault(d, set()).add(r["equipment_id"])
+    print(f"\n  device_type 별 포트 수: {by_device}")
+    print(f"  station_type 별: {by_type}")
+    print(f"  device_type 별 고유 장비 ID: {{ {', '.join(f'{k}: {len(v)}' for k, v in eqs_by_dev.items())} }}")
 
 
 if __name__ == "__main__":
