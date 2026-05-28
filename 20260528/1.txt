@@ -360,15 +360,15 @@ def build_sql() -> str:
     in_list = ",\n    ".join(f"'{nm}'" for nm in IDC_COLUMNS)
     return f"""
 SELECT
-  TO_CHAR(CRT_TM, 'YYYY-MM-DD HH24:MI') AS CRT_TM,
+  TO_CHAR(TRUNC(CRT_TM, 'MI'), 'YYYY-MM-DD HH24:MI') AS CRT_TM,
   {pivot_cols}
 FROM AWS_IDC_DATA_HIS
 WHERE CRT_TM BETWEEN SYSDATE - :window_min/1440 AND SYSDATE
   AND IDC_NM IN (
     {in_list}
   )
-GROUP BY TO_CHAR(CRT_TM, 'YYYY-MM-DD HH24:MI')
-ORDER BY TO_CHAR(CRT_TM, 'YYYY-MM-DD HH24:MI')
+GROUP BY TRUNC(CRT_TM, 'MI')
+ORDER BY TRUNC(CRT_TM, 'MI')
 """.strip()
 
 
