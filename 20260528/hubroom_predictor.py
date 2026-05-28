@@ -25,7 +25,6 @@ M16 HUBROOM 통합 이벤트 예측기 v4.1 (룰베이스 8영역)
 수집기가 매분 ./predict/M16A_HUBROOM_PR.csv 덮어쓰면
 본 스크립트는 ./predict_tobe/ 폴더에 날짜별 CSV 로 append.
 
-python3 hubroom_predictor.py path/to/sample.csv
 사용법:
     # 일괄 (백테스트)
     python3 hubroom_predictor.py path/to/INPUT.csv -o ./predict_tobe
@@ -37,6 +36,12 @@ import csv, logging, os, sys, time
 from collections import deque
 from datetime import datetime, timedelta
 from pathlib import Path
+
+# Logpresso 업로더 (선택 — 모듈 없거나 비활성 시 자동 스킵)
+try:
+    import Rule_LO as _logpresso
+except Exception as _e:
+    _logpresso = None
 
 # ============================================================
 # 기본 경로 / 상수
@@ -956,7 +961,11 @@ def incident_to_row(c, file_name):
 def append_event_row(out_dir, ev, file_name):
     ymd = ev['time'].strftime('%Y%m%d')
     path = os.path.join(out_dir, f'{ymd}_발동이벤트.csv')
-    append_rows_csv(path, EVENT_FIELDS, [event_to_row(ev, file_name)])
+    row = event_to_row(ev, file_name)
+    append_rows_csv(path, EVENT_FIELDS, [row])
+    # Logpresso 적재 (file 컬럼은 Rule_LO 에서 'Rule_system' 으로 하드코딩)
+    if _logpresso is not None:
+        _logpresso.upload(EVENT_FIELDS, row)
     return path
 
 
@@ -997,9 +1006,12 @@ class Predictor:
         try:
             for d in iter_unified_rows(self.input_csv):
                 t = d['time']
+                # 분 단위 정규화 — 같은 분에 초만 다른 입력 행 중복 방지
+                t = t.replace(second=0, microsecond=0)
                 if self.last_t is not None and t <= self.last_t:
                     continue
                 self.last_t = t
+                d['time'] = t
                 new_rows += 1
 
                 for a in AREAS_ALL:
@@ -1091,10 +1103,14 @@ def run_once(input_csv: Path, out_dir: Path, logger):
     logger.info(f"  OUTPUT: {out_dir}")
     logger.info(f"  대상 영역: {', '.join(AREAS_ALL)}")
     logger.info("=" * 70)
+    if _logpresso is not None:
+        _logpresso.start()
     p = Predictor(input_csv, out_dir, logger)
     n = p.tick()
     p.finalize()
     logger.info(f"처리 완료: {n}행 / 이벤트 {p.last_event_count}건 / 사건 {p.last_incident_count}건")
+    if _logpresso is not None:
+        _logpresso.stop()
 
 
 def run_watch(input_csv: Path, out_dir: Path, logger):
@@ -1104,6 +1120,8 @@ def run_watch(input_csv: Path, out_dir: Path, logger):
     logger.info(f"  OUTPUT: {out_dir}")
     logger.info(f"  대상 영역: {', '.join(AREAS_ALL)}")
     logger.info("=" * 70)
+    if _logpresso is not None:
+        _logpresso.start()
     p = Predictor(input_csv, out_dir, logger)
     logger.info("[INIT] 시작 시점 윈도우 채우기...")
     n0 = p.tick()
@@ -1122,6 +1140,8 @@ def run_watch(input_csv: Path, out_dir: Path, logger):
     except KeyboardInterrupt:
         logger.info("사용자 중단 (Ctrl+C)")
         p.finalize()
+        if _logpresso is not None:
+            _logpresso.stop()
         logger.info("종료")
 
 
