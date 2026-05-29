@@ -331,8 +331,12 @@ python3 Prediction_ml.py
 | test_table6 에 ERROR_RATE/ERROR_VALUE 행 없음 | `QTransferDashBoardItemBatch.java` 의 `_buildTransQuePredictError` 미이식 | **QTransferDashBoardItemBatch.py** 신규 추가 + 마스터 등록 |
 
 ### 운영 첫 실행 사이클 후 들어갈 행 (정상 동작 확인용)
-| 테이블 | 들어갈 것 |
-|---|---|
-| test_table | Hubroom 3 FLOW × 1행 WARN_YN |
-| test_table5 | 통계 N행 + 예측 1행 (LSTM<1700 사이클은 알람 0) |
-| test_table6 | STATE 1 + REQUESTOR 3-6 + WARNINGLOG 0-3 (ERROR 2행은 **누적 2시간 후**) |
+| 테이블 | 들어갈 것 | 누가 적재 |
+|---|---|---|
+| **test_table** | Hubroom Categorical 3개 + Numerical 3개 + WARN_YN 3개 = **9행** | V8_Categorical/Numerical 예측기 6종 + HubroomTransPredictBatch |
+| **test_table2** | **V8.3.1 예측기 3개 × 1행 = 3행** (LSTM/STATE/STATE_PER/TIME, 10m/15m/25m) | V8.3.1_Q_TRANSFER_PREDICTOR_{10,15,25}m.py |
+| **test_table5** | 통계 N행 + 예측 1행 (LSTM<1700 사이클은 알람 0) | QTransferPredictBatch |
+| **test_table6** | STATE 1 + REQUESTOR 3-6 + WARNINGLOG 0-3 (ERROR 2행은 **누적 2시간 후**) | QTransferPredictBatch (STATE) + QTransferDashBoardItemBatch (나머지) |
+
+> ⚠ test_table2 는 **QTransferPredictBatch 가 읽기만** 함 (predict_table 로). 적재는 V8.3.1 예측기 3개가 함.
+> 첫 사이클에 test_table2 에 3행 안 들어가면 → V8.3.1 모델 .pkl 또는 api_key 문제. QTransfer 알람 배치는 절대 동작 안 함.
