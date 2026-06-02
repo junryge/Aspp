@@ -281,14 +281,14 @@ def iter_unified_rows(filepath):
                         'rd_oht': safe_float(g(RD_OHT_COL['M14B'])),
                         'sorter': safe_int(g(SORTER_COL['M14B'])),
                         # M14B(7F) ↔ M16HUBROOM(3F) 리프터 6대 (도메인 4-4)
-                        # 양방향 TOTAL 합산 (참고용)
+                        # 양방향 TOTAL 합산 (참고용) — None 안전
                         'lft_4abld_sum': sum(
-                            safe_int(g(f'M14B.LFT.4ABLD{lid}.TOTAL_CURRENTQCNT'))
+                            (safe_int(g(f'M14B.LFT.4ABLD{lid}.TOTAL_CURRENTQCNT')) or 0)
                             for lid in ('111', '112', '121', '122', '131', '132')
                         ),
-                        # M14B(7F) → M16HUB(3F) 하강 방향만 (정체 직접 신호) ★
+                        # M14B(7F) → M16HUB(3F) 하강 방향만 (정체 직접 신호) ★ — None 안전
                         'lft_4abld_to_hub_sum': sum(
-                            safe_int(g(f'M14B.LFT.4ABLD{lid}.7F_TO_4F_CURRENTQCNT'))
+                            (safe_int(g(f'M14B.LFT.4ABLD{lid}.7F_TO_4F_CURRENTQCNT')) or 0)
                             for lid in ('111', '112', '121', '122', '131', '132')
                         ),
                         # 122 단독값 — 운영 호환용 (메신저에서 자주 참조)
