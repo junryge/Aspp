@@ -696,16 +696,19 @@ class IncidentTracker:
             'triggered_rules': {}, # {area: set of rule_names}
             'maxcapa_history': set(),  # 사건 내 변경된 MAXCAPA 컬럼들
             # ★ 신규 — 룰별 점수 max / sum 추적 (고객 조합 분석용)
-            'area_pts_max': {},    # {area: {RA: max_pts, ...}}
+            'area_pts_max': {},    # {area: {RA: max_pts, ...}} 9 룰
             'area_pts_sum': {},    # {area: {RA: total_pts, ...}} — 사건 동안 누적
-            'unified_pts_max': {   # 통합 점수 분해의 사건 중 max
+            'unified_pts_max': {
                 'layer1_total': 0, 'flow_score': 0,
                 'sla_score': 0, 'sorter_score': 0, 'mc_score': 0,
             },
-            'unified_pts_sum': {   # 통합 점수 분해의 사건 동안 누적
+            'unified_pts_sum': {
                 'layer1_total': 0, 'flow_score': 0,
                 'sla_score': 0, 'sorter_score': 0, 'mc_score': 0,
             },
+            # ★ B 보강 — 진단 키 max / sum 추적
+            'area_diag_max': {},   # {area: {ra_count: max, rb_diff_10: max, ...}}
+            'area_diag_sum': {},
         }
         self.state = 'IN_INCIDENT'
         self._merge_area_stats(ctx)
@@ -753,14 +756,32 @@ class IncidentTracker:
             for x in r.get('maxcapa_changed', []) or []:
                 c['maxcapa_history'].add(f"{area}:{x}")
 
-            # ★ 룰별 점수 max / sum 누적 (고객 조합 분석용)
+            # ★ 룰별 점수 max / sum 누적 (9 룰)
             pm = c['area_pts_max'].setdefault(area, {})
             ps = c['area_pts_sum'].setdefault(area, {})
-            for sig in ('RA', 'RA_sus', 'RB', 'RB_fast', 'RC', 'RD'):
+            for sig in ('RA', 'RA_sus', 'RB', 'RB_fast', 'RC', 'RD', 'SLA', 'SORT', 'MAXCAPA'):
                 v = r.get(f'pts_{sig}', 0) or 0
                 if v > pm.get(sig, 0):
                     pm[sig] = v
                 ps[sig] = ps.get(sig, 0) + v
+
+            # ★ B 보강 — 진단 키 max / sum 누적
+            dm = c['area_diag_max'].setdefault(area, {})
+            ds = c['area_diag_sum'].setdefault(area, {})
+            for k in ('ra_count', 'rb_diff_10', 'rc_trend', 'rd_oht',
+                      'sla_cnt', 'sorter_fail_val', 'cnv_skew', 'area_score_raw'):
+                v = r.get(k)
+                if v is None:
+                    continue
+                # 음수 trend 도 추적 (max 는 절댓값 큰 쪽)
+                if k == 'rc_trend':
+                    cur_max = dm.get(k)
+                    if cur_max is None or abs(v) > abs(cur_max):
+                        dm[k] = v
+                else:
+                    if v > dm.get(k, 0):
+                        dm[k] = v
+                ds[k] = ds.get(k, 0) + (v if isinstance(v, (int, float)) else 0)
 
         # 통합 점수 분해 max / sum 누적 (영역 루프 밖, ctx 1회)
         um = c['unified_pts_max']
@@ -807,21 +828,44 @@ EVENT_FIELDS = [
     'M16HUB_signals', 'M14_signals', 'M14B_signals', 'M16A_signals', 'M16B_signals',
     'M16HUB_ra', 'M14_ra', 'M14B_ra', 'M16A_ra', 'M16B_ra',
     'M16HUB_rb_diff30', 'M14_rb_diff30', 'M14B_rb_diff30', 'M16A_rb_diff30',
+    'M16B_rb_diff30',                            # ★ A 보강: 대칭 복구
     'M16HUB_rd_fab', 'M16HUB_stb_util',
     'M16HUB_rev_count', 'M16HUB_rev_lids',
-    'sla_M14', 'sla_M16A', 'sla_M16B', 'sla_M16HUB',
+    'sla_M14', 'sla_M14B', 'sla_M16A', 'sla_M16B', 'sla_M16HUB',  # ★ A 보강: sla_M14B
     'sorter_M14', 'sorter_M14B', 'sorter_M16A', 'sorter_M16B',
+    'sorter_M16HUB',                             # ★ A 보강: sorter_M16HUB
     'reason',
     # ─────────────────────────────────────────────────────────
-    # ★ 신규 — 룰별 분해 점수 (고객 조합 분석용)
-    # 영역별 6 룰 점수 × 5 핵심 영역 = 30 컬럼
-    'M16HUB_pts_RA', 'M16HUB_pts_RA_sus', 'M16HUB_pts_RB', 'M16HUB_pts_RB_fast', 'M16HUB_pts_RC', 'M16HUB_pts_RD',
-    'M14_pts_RA',    'M14_pts_RA_sus',    'M14_pts_RB',    'M14_pts_RB_fast',    'M14_pts_RC',    'M14_pts_RD',
-    'M14B_pts_RA',   'M14B_pts_RA_sus',   'M14B_pts_RB',   'M14B_pts_RB_fast',   'M14B_pts_RC',   'M14B_pts_RD',
-    'M16A_pts_RA',   'M16A_pts_RA_sus',   'M16A_pts_RB',   'M16A_pts_RB_fast',   'M16A_pts_RC',   'M16A_pts_RD',
-    'M16B_pts_RA',   'M16B_pts_RA_sus',   'M16B_pts_RB',   'M16B_pts_RB_fast',   'M16B_pts_RC',   'M16B_pts_RD',
+    # ★ A 보강 — 룰별 분해 점수 (영역 5 × 9 룰 = 45 컬럼)
+    # RA/RA_sus/RB/RB_fast/RC/RD/SLA/SORT/MAXCAPA 9 룰 모두 분해
+    'M16HUB_pts_RA', 'M16HUB_pts_RA_sus', 'M16HUB_pts_RB', 'M16HUB_pts_RB_fast',
+    'M16HUB_pts_RC', 'M16HUB_pts_RD', 'M16HUB_pts_SLA', 'M16HUB_pts_SORT', 'M16HUB_pts_MAXCAPA',
+    'M14_pts_RA', 'M14_pts_RA_sus', 'M14_pts_RB', 'M14_pts_RB_fast',
+    'M14_pts_RC', 'M14_pts_RD', 'M14_pts_SLA', 'M14_pts_SORT', 'M14_pts_MAXCAPA',
+    'M14B_pts_RA', 'M14B_pts_RA_sus', 'M14B_pts_RB', 'M14B_pts_RB_fast',
+    'M14B_pts_RC', 'M14B_pts_RD', 'M14B_pts_SLA', 'M14B_pts_SORT', 'M14B_pts_MAXCAPA',
+    'M16A_pts_RA', 'M16A_pts_RA_sus', 'M16A_pts_RB', 'M16A_pts_RB_fast',
+    'M16A_pts_RC', 'M16A_pts_RD', 'M16A_pts_SLA', 'M16A_pts_SORT', 'M16A_pts_MAXCAPA',
+    'M16B_pts_RA', 'M16B_pts_RA_sus', 'M16B_pts_RB', 'M16B_pts_RB_fast',
+    'M16B_pts_RC', 'M16B_pts_RD', 'M16B_pts_SLA', 'M16B_pts_SORT', 'M16B_pts_MAXCAPA',
     # 통합 점수 분해 (5 컬럼)
     'layer1_total', 'flow_score', 'sla_score_total', 'sorter_score_total', 'mc_score_total',
+    # ─────────────────────────────────────────────────────────
+    # ★ B 보강 — 룰 진단 키 (운영자 디버깅 + ML 피처)
+    # RA 진단: 10분 중 임계 초과 횟수 (5 영역)
+    'M16HUB_ra_count', 'M14_ra_count', 'M14B_ra_count', 'M16A_ra_count', 'M16B_ra_count',
+    # RB 진단: 10분 변화량 (5 영역)
+    'M16HUB_rb_diff10', 'M14_rb_diff10', 'M14B_rb_diff10', 'M16A_rb_diff10', 'M16B_rb_diff10',
+    # RC 진단: M16HUB 리프터 20분 트렌드 + M14 CNV 편향
+    'M16HUB_rc_trend', 'M14_cnv_skew',
+    # RD 진단: OHT 가동률 (다른 영역 R-D 핵심)
+    'M14_rd_oht', 'M14B_rd_oht', 'M16A_rd_oht', 'M16B_rd_oht',
+    # SLA 진단: 4분 초과 카운트 (4 영역)
+    'M16HUB_sla_cnt', 'M14_sla_cnt', 'M16A_sla_cnt', 'M16B_sla_cnt',
+    # Sorter 실패 (M16A/M16B)
+    'M16A_sorter_fail', 'M16B_sorter_fail',
+    # 영역 점수 원본 (50 클리핑 전, 5 영역) — score 가 50 캡 됐는지 확인용
+    'M16HUB_score_raw', 'M14_score_raw', 'M14B_score_raw', 'M16A_score_raw', 'M16B_score_raw',
 ]
 
 INCIDENT_FIELDS = [
@@ -835,33 +879,58 @@ INCIDENT_FIELDS = [
     'maxcapa_changes',     # 사건 내 변경된 운영자 변수
     'relation',            # 영역별 핵심 컬럼-값-임계값 상세
     # ─────────────────────────────────────────────────────────
-    # ★ 신규 — 룰별 점수 max (사건 중 가장 강하게 발동한 시점)
-    # 5 영역 × 6 룰 = 30 컬럼
+    # ★ A 보강 — 룰별 점수 max (5 영역 × 9 룰 = 45)
     'M16HUB_max_pts_RA', 'M16HUB_max_pts_RA_sus', 'M16HUB_max_pts_RB',
     'M16HUB_max_pts_RB_fast', 'M16HUB_max_pts_RC', 'M16HUB_max_pts_RD',
+    'M16HUB_max_pts_SLA', 'M16HUB_max_pts_SORT', 'M16HUB_max_pts_MAXCAPA',
     'M14_max_pts_RA', 'M14_max_pts_RA_sus', 'M14_max_pts_RB',
     'M14_max_pts_RB_fast', 'M14_max_pts_RC', 'M14_max_pts_RD',
+    'M14_max_pts_SLA', 'M14_max_pts_SORT', 'M14_max_pts_MAXCAPA',
     'M14B_max_pts_RA', 'M14B_max_pts_RA_sus', 'M14B_max_pts_RB',
     'M14B_max_pts_RB_fast', 'M14B_max_pts_RC', 'M14B_max_pts_RD',
+    'M14B_max_pts_SLA', 'M14B_max_pts_SORT', 'M14B_max_pts_MAXCAPA',
     'M16A_max_pts_RA', 'M16A_max_pts_RA_sus', 'M16A_max_pts_RB',
     'M16A_max_pts_RB_fast', 'M16A_max_pts_RC', 'M16A_max_pts_RD',
+    'M16A_max_pts_SLA', 'M16A_max_pts_SORT', 'M16A_max_pts_MAXCAPA',
     'M16B_max_pts_RA', 'M16B_max_pts_RA_sus', 'M16B_max_pts_RB',
     'M16B_max_pts_RB_fast', 'M16B_max_pts_RC', 'M16B_max_pts_RD',
-    # ★ 룰별 점수 sum (사건 동안 누적 — 얼마나 오래 발동했는지)
-    # 5 영역 × 6 룰 = 30 컬럼
+    'M16B_max_pts_SLA', 'M16B_max_pts_SORT', 'M16B_max_pts_MAXCAPA',
+    # ★ A 보강 — 룰별 점수 sum (45 컬럼)
     'M16HUB_sum_pts_RA', 'M16HUB_sum_pts_RA_sus', 'M16HUB_sum_pts_RB',
     'M16HUB_sum_pts_RB_fast', 'M16HUB_sum_pts_RC', 'M16HUB_sum_pts_RD',
+    'M16HUB_sum_pts_SLA', 'M16HUB_sum_pts_SORT', 'M16HUB_sum_pts_MAXCAPA',
     'M14_sum_pts_RA', 'M14_sum_pts_RA_sus', 'M14_sum_pts_RB',
     'M14_sum_pts_RB_fast', 'M14_sum_pts_RC', 'M14_sum_pts_RD',
+    'M14_sum_pts_SLA', 'M14_sum_pts_SORT', 'M14_sum_pts_MAXCAPA',
     'M14B_sum_pts_RA', 'M14B_sum_pts_RA_sus', 'M14B_sum_pts_RB',
     'M14B_sum_pts_RB_fast', 'M14B_sum_pts_RC', 'M14B_sum_pts_RD',
+    'M14B_sum_pts_SLA', 'M14B_sum_pts_SORT', 'M14B_sum_pts_MAXCAPA',
     'M16A_sum_pts_RA', 'M16A_sum_pts_RA_sus', 'M16A_sum_pts_RB',
     'M16A_sum_pts_RB_fast', 'M16A_sum_pts_RC', 'M16A_sum_pts_RD',
+    'M16A_sum_pts_SLA', 'M16A_sum_pts_SORT', 'M16A_sum_pts_MAXCAPA',
     'M16B_sum_pts_RA', 'M16B_sum_pts_RA_sus', 'M16B_sum_pts_RB',
     'M16B_sum_pts_RB_fast', 'M16B_sum_pts_RC', 'M16B_sum_pts_RD',
+    'M16B_sum_pts_SLA', 'M16B_sum_pts_SORT', 'M16B_sum_pts_MAXCAPA',
     # 통합 점수 분해 max + sum (10 컬럼)
     'max_layer1_total', 'max_flow_score', 'max_sla_score', 'max_sorter_score', 'max_mc_score',
     'sum_layer1_total', 'sum_flow_score', 'sum_sla_score', 'sum_sorter_score', 'sum_mc_score',
+    # ─────────────────────────────────────────────────────────
+    # ★ B 보강 — 진단 키 max + sum (사건 분석용)
+    # ra_count / rb_diff10 / rc_trend / rd_oht / sla_cnt / sorter_fail / cnv_skew / score_raw
+    'M16HUB_max_ra_count','M14_max_ra_count','M14B_max_ra_count','M16A_max_ra_count','M16B_max_ra_count',
+    'M16HUB_max_rb_diff10','M14_max_rb_diff10','M14B_max_rb_diff10','M16A_max_rb_diff10','M16B_max_rb_diff10',
+    'M16HUB_max_rc_trend','M14_max_cnv_skew',
+    'M14_max_rd_oht','M14B_max_rd_oht','M16A_max_rd_oht','M16B_max_rd_oht',
+    'M16HUB_max_sla_cnt','M14_max_sla_cnt','M16A_max_sla_cnt','M16B_max_sla_cnt',
+    'M16A_max_sorter_fail','M16B_max_sorter_fail',
+    'M16HUB_max_score_raw','M14_max_score_raw','M14B_max_score_raw','M16A_max_score_raw','M16B_max_score_raw',
+    # sum 동일 패턴
+    'M16HUB_sum_ra_count','M14_sum_ra_count','M14B_sum_ra_count','M16A_sum_ra_count','M16B_sum_ra_count',
+    'M16HUB_sum_rb_diff10','M14_sum_rb_diff10','M14B_sum_rb_diff10','M16A_sum_rb_diff10','M16B_sum_rb_diff10',
+    'M14_sum_rd_oht','M14B_sum_rd_oht','M16A_sum_rd_oht','M16B_sum_rd_oht',
+    'M16HUB_sum_sla_cnt','M14_sum_sla_cnt','M16A_sum_sla_cnt','M16B_sum_sla_cnt',
+    'M16A_sum_sorter_fail','M16B_sum_sorter_fail',
+    'M16HUB_sum_score_raw','M14_sum_score_raw','M14B_sum_score_raw','M16A_sum_score_raw','M16B_sum_score_raw',
 ]
 
 
@@ -984,31 +1053,54 @@ def event_to_row(ev, file_name):
         _fmt(A('M16B', 'ra_value')),
         A('M16HUB', 'rb_diff_30', 0), A('M14', 'rb_diff_30', 0),
         A('M14B', 'rb_diff_30', 0), A('M16A', 'rb_diff_30', 0),
+        A('M16B', 'rb_diff_30', 0),                                  # ★ A 보강
         _fmt(A('M16HUB', 'rd_fab')), _fmt(A('M16HUB', 'hub_stb_util')),
         A('M16HUB', 'rev_count', 0), ','.join(A('M16HUB', 'rev_lids', []) or []),
-        _fmt(A('M14', 'sla_ratio')), _fmt(A('M16A', 'sla_ratio')),
-        _fmt(A('M16B', 'sla_ratio')), _fmt(A('M16HUB', 'sla_ratio')),
+        _fmt(A('M14', 'sla_ratio')), _fmt(A('M14B', 'sla_ratio')),   # ★ A 보강: M14B
+        _fmt(A('M16A', 'sla_ratio')), _fmt(A('M16B', 'sla_ratio')),
+        _fmt(A('M16HUB', 'sla_ratio')),
         A('M14', 'sorter_val', 0), A('M14B', 'sorter_val', 0),
         A('M16A', 'sorter_val', 0), A('M16B', 'sorter_val', 0),
+        A('M16HUB', 'sorter_val', 0),                                # ★ A 보강
         reason,
         # ─────────────────────────────────────────────────────────
-        # ★ 신규 — 룰별 분해 점수 (영역 5 × 6 룰 = 30 컬럼)
-        A('M16HUB', 'pts_RA', 0), A('M16HUB', 'pts_RA_sus', 0), A('M16HUB', 'pts_RB', 0),
-        A('M16HUB', 'pts_RB_fast', 0), A('M16HUB', 'pts_RC', 0), A('M16HUB', 'pts_RD', 0),
-        A('M14',    'pts_RA', 0), A('M14',    'pts_RA_sus', 0), A('M14',    'pts_RB', 0),
-        A('M14',    'pts_RB_fast', 0), A('M14',    'pts_RC', 0), A('M14',    'pts_RD', 0),
-        A('M14B',   'pts_RA', 0), A('M14B',   'pts_RA_sus', 0), A('M14B',   'pts_RB', 0),
-        A('M14B',   'pts_RB_fast', 0), A('M14B',   'pts_RC', 0), A('M14B',   'pts_RD', 0),
-        A('M16A',   'pts_RA', 0), A('M16A',   'pts_RA_sus', 0), A('M16A',   'pts_RB', 0),
-        A('M16A',   'pts_RB_fast', 0), A('M16A',   'pts_RC', 0), A('M16A',   'pts_RD', 0),
-        A('M16B',   'pts_RA', 0), A('M16B',   'pts_RA_sus', 0), A('M16B',   'pts_RB', 0),
-        A('M16B',   'pts_RB_fast', 0), A('M16B',   'pts_RC', 0), A('M16B',   'pts_RD', 0),
+        # ★ A 보강 — 룰별 분해 점수 9 룰 (영역 5 × 9 = 45 컬럼)
+        A('M16HUB','pts_RA',0), A('M16HUB','pts_RA_sus',0), A('M16HUB','pts_RB',0),
+        A('M16HUB','pts_RB_fast',0), A('M16HUB','pts_RC',0), A('M16HUB','pts_RD',0),
+        A('M16HUB','pts_SLA',0), A('M16HUB','pts_SORT',0), A('M16HUB','pts_MAXCAPA',0),
+        A('M14','pts_RA',0), A('M14','pts_RA_sus',0), A('M14','pts_RB',0),
+        A('M14','pts_RB_fast',0), A('M14','pts_RC',0), A('M14','pts_RD',0),
+        A('M14','pts_SLA',0), A('M14','pts_SORT',0), A('M14','pts_MAXCAPA',0),
+        A('M14B','pts_RA',0), A('M14B','pts_RA_sus',0), A('M14B','pts_RB',0),
+        A('M14B','pts_RB_fast',0), A('M14B','pts_RC',0), A('M14B','pts_RD',0),
+        A('M14B','pts_SLA',0), A('M14B','pts_SORT',0), A('M14B','pts_MAXCAPA',0),
+        A('M16A','pts_RA',0), A('M16A','pts_RA_sus',0), A('M16A','pts_RB',0),
+        A('M16A','pts_RB_fast',0), A('M16A','pts_RC',0), A('M16A','pts_RD',0),
+        A('M16A','pts_SLA',0), A('M16A','pts_SORT',0), A('M16A','pts_MAXCAPA',0),
+        A('M16B','pts_RA',0), A('M16B','pts_RA_sus',0), A('M16B','pts_RB',0),
+        A('M16B','pts_RB_fast',0), A('M16B','pts_RC',0), A('M16B','pts_RD',0),
+        A('M16B','pts_SLA',0), A('M16B','pts_SORT',0), A('M16B','pts_MAXCAPA',0),
         # 통합 점수 분해 (5 컬럼)
         ctx.get('layer1_total', 0),
         ctx.get('flow_score', 0),
         ctx.get('sla_score', 0),
         ctx.get('sorter_score', 0),
         ctx.get('mc_score', 0),
+        # ─────────────────────────────────────────────────────────
+        # ★ B 보강 — 룰 진단 키 (운영자 디버깅 + ML 피처)
+        A('M16HUB','ra_count',0), A('M14','ra_count',0), A('M14B','ra_count',0),
+        A('M16A','ra_count',0), A('M16B','ra_count',0),
+        A('M16HUB','rb_diff_10',0), A('M14','rb_diff_10',0), A('M14B','rb_diff_10',0),
+        A('M16A','rb_diff_10',0), A('M16B','rb_diff_10',0),
+        A('M16HUB','rc_trend',0), _fmt(A('M14','cnv_skew')),
+        _fmt(A('M14','rd_oht')), _fmt(A('M14B','rd_oht')),
+        _fmt(A('M16A','rd_oht')), _fmt(A('M16B','rd_oht')),
+        A('M16HUB','sla_cnt',0), A('M14','sla_cnt',0),
+        A('M16A','sla_cnt',0), A('M16B','sla_cnt',0),
+        A('M16A','sorter_fail_val',0), A('M16B','sorter_fail_val',0),
+        A('M16HUB','area_score_raw',0), A('M14','area_score_raw',0),
+        A('M14B','area_score_raw',0), A('M16A','area_score_raw',0),
+        A('M16B','area_score_raw',0),
     ]
 
 
@@ -1075,12 +1167,17 @@ def incident_to_row(c, file_name):
     maxcapa_changes_s = '; '.join(sorted(c.get('maxcapa_history', []) or []))
     relation_s = ' | '.join(rel_parts) if rel_parts else ''
 
-    # ★ 신규 — 룰별 점수 max / sum (5 영역 × 6 룰 = 30 + 30 = 60 + 통합 10 = 70 컬럼)
+    # ★ 신규 — 룰별 점수 max / sum (9 룰 × 5 영역 × 2 = 90) + 통합 10 + 진단 max/sum
     def PM(area, sig):
         return (c.get('area_pts_max', {}).get(area, {}) or {}).get(sig, 0)
     def PS(area, sig):
         return (c.get('area_pts_sum', {}).get(area, {}) or {}).get(sig, 0)
-    SIGS = ('RA', 'RA_sus', 'RB', 'RB_fast', 'RC', 'RD')
+    def DM(area, k):
+        return (c.get('area_diag_max', {}).get(area, {}) or {}).get(k, 0)
+    def DS(area, k):
+        return (c.get('area_diag_sum', {}).get(area, {}) or {}).get(k, 0)
+
+    SIGS = ('RA', 'RA_sus', 'RB', 'RB_fast', 'RC', 'RD', 'SLA', 'SORT', 'MAXCAPA')
     AREAS5 = ('M16HUB', 'M14', 'M14B', 'M16A', 'M16B')
     pts_max_vals = [PM(a, s) for a in AREAS5 for s in SIGS]
     pts_sum_vals = [PS(a, s) for a in AREAS5 for s in SIGS]
@@ -1091,6 +1188,25 @@ def incident_to_row(c, file_name):
     unified_sum_vals = [us.get(k, 0) for k in
                         ('layer1_total', 'flow_score', 'sla_score', 'sorter_score', 'mc_score')]
 
+    # B 보강 — 진단 키 max / sum
+    diag_max_vals = (
+        [DM(a, 'ra_count')    for a in AREAS5] +
+        [DM(a, 'rb_diff_10')  for a in AREAS5] +
+        [DM('M16HUB', 'rc_trend'), DM('M14', 'cnv_skew')] +
+        [DM(a, 'rd_oht')      for a in ('M14','M14B','M16A','M16B')] +
+        [DM(a, 'sla_cnt')     for a in ('M16HUB','M14','M16A','M16B')] +
+        [DM(a, 'sorter_fail_val') for a in ('M16A','M16B')] +
+        [DM(a, 'area_score_raw') for a in AREAS5]
+    )
+    diag_sum_vals = (
+        [DS(a, 'ra_count')    for a in AREAS5] +
+        [DS(a, 'rb_diff_10')  for a in AREAS5] +
+        [DS(a, 'rd_oht')      for a in ('M14','M14B','M16A','M16B')] +
+        [DS(a, 'sla_cnt')     for a in ('M16HUB','M14','M16A','M16B')] +
+        [DS(a, 'sorter_fail_val') for a in ('M16A','M16B')] +
+        [DS(a, 'area_score_raw') for a in AREAS5]
+    )
+
     return [
         file_name, c['start_time'].strftime('%Y-%m-%d'),
         c['predict_time'].strftime('%H:%M'), c['start_time'].strftime('%H:%M'),
@@ -1100,7 +1216,8 @@ def incident_to_row(c, file_name):
         c['hot_area'], ';'.join(sorted(c['affected_areas_union'])),
         c['propagation_chain'],
         triggered_rules_s, risk_factors_s, maxcapa_changes_s, relation_s,
-    ] + pts_max_vals + pts_sum_vals + unified_max_vals + unified_sum_vals
+    ] + pts_max_vals + pts_sum_vals + unified_max_vals + unified_sum_vals \
+      + diag_max_vals + diag_sum_vals
 
 
 def append_event_row(out_dir, ev, file_name):
