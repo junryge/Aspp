@@ -387,10 +387,34 @@ def fetch_and_save(conn) -> int:
         cur.execute(SQL_QUERY, window_min=WINDOW_MIN)
         rows = cur.fetchall()
 
+    # ★ Python 분 단위 머지 (SQL 이 혹시 여러 행 줘도 분당 1행 보장)
+    # 같은 분 (CRT_TM 의 'YYYY-MM-DD HH:MM') 의 행들을 한 행으로 합침
+    # 컬럼별로 비-NULL 값 채택 (None / '' 은 무시하고 다른 행 값 사용)
+    merged = {}  # {minute_key: row_list}
+    for r in rows:
+        if not r or r[0] is None:
+            continue
+        # 분 단위 키 추출 ('2026-06-02 12:56:07' → '2026-06-02 12:56:00')
+        t_str = str(r[0])
+        if len(t_str) >= 16:
+            minute_key = t_str[:16] + ':00'
+        else:
+            minute_key = t_str
+        if minute_key not in merged:
+            # 새 분 — 빈 행으로 시작
+            merged[minute_key] = [minute_key] + [None] * (len(r) - 1)
+        # 비-NULL 값으로 갱신
+        for i, v in enumerate(r[1:], 1):
+            if v is not None and v != '':
+                merged[minute_key][i] = v
+
+    # 분 키 정렬
+    sorted_rows = [merged[k] for k in sorted(merged.keys())]
+
     with open(TMP_FILE, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f, quoting=csv.QUOTE_MINIMAL)
         writer.writerow(CSV_HEADER)
-        for r in rows:
+        for r in sorted_rows:
             writer.writerow(["" if v is None else v for v in r])
 
     # 윈도우 파일잠금 대비 재시도
