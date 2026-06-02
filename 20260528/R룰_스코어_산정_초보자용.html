@@ -1,0 +1,1052 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>R-룰 점수 산정 — 처음부터 끝까지 (초보자용)</title>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Pretendard,
+                 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+    max-width: 1100px; margin: 0 auto;
+    padding: 24px 16px 80px;
+    color: #1a1a1a; line-height: 1.75;
+    background: #fafafa;
+  }
+  h1 { font-size: 30px; margin: 8px 0 4px; }
+  h1 + .sub { color: #555; margin-bottom: 32px; font-size: 16px; }
+  h2 { font-size: 24px; margin-top: 56px; padding: 12px 0 10px;
+       border-bottom: 3px solid #222; }
+  h2 .num { display: inline-block; background: #222; color: #fff;
+            padding: 4px 14px; border-radius: 6px; margin-right: 10px;
+            font-size: 18px; }
+  h3 { font-size: 19px; margin-top: 32px; color: #1d4ed8; }
+  h4 { font-size: 16px; margin-top: 20px; color: #444; }
+
+  p { margin: 12px 0; }
+
+  code, pre { font-family: 'SF Mono', Consolas, 'Courier New', monospace; font-size: 13px; }
+  code { background: #f0f0f5; padding: 2px 7px; border-radius: 4px; color: #1d4ed8; }
+  pre { background: #1e1e1e; color: #d4d4d4; padding: 14px 18px;
+        border-radius: 8px; overflow-x: auto; }
+  pre code { background: transparent; padding: 0; color: inherit; }
+
+  table { border-collapse: collapse; width: 100%; background: #fff; margin: 14px 0;
+          font-size: 14px; }
+  th, td { border: 1px solid #d0d0d0; padding: 10px 14px; text-align: left; vertical-align: top; }
+  th { background: #eef; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafaff; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td.center, th.center { text-align: center; }
+
+  .intro-box {
+    background: #fff7e6;
+    border-left: 5px solid #ff9800;
+    padding: 18px 24px;
+    border-radius: 0 8px 8px 0;
+    margin: 16px 0;
+  }
+  .intro-box h4 { margin-top: 0; color: #b85400; }
+
+  .analogy {
+    background: #e8f4f8;
+    border-left: 5px solid #0288d1;
+    padding: 18px 24px;
+    border-radius: 0 8px 8px 0;
+    margin: 16px 0;
+  }
+  .analogy::before {
+    content: '💡 일상 비유';
+    display: block;
+    font-weight: 700;
+    color: #01579b;
+    margin-bottom: 6px;
+    font-size: 13px;
+  }
+
+  .warn {
+    background: #fff3cd; border-left: 5px solid #ffc107;
+    padding: 14px 20px; border-radius: 0 8px 8px 0; margin: 14px 0;
+  }
+  .warn::before {
+    content: '⚠️ 주의';
+    display: block;
+    font-weight: 700;
+    color: #856404;
+    margin-bottom: 4px;
+    font-size: 13px;
+  }
+
+  .ok {
+    background: #d4edda; border-left: 5px solid #28a745;
+    padding: 14px 20px; border-radius: 0 8px 8px 0; margin: 14px 0;
+  }
+  .ok::before {
+    content: '✅ 핵심';
+    display: block;
+    font-weight: 700;
+    color: #155724;
+    margin-bottom: 4px;
+    font-size: 13px;
+  }
+
+  .term {
+    background: #fff; border: 1px solid #e0e0e0; border-radius: 8px;
+    padding: 12px 18px; margin: 8px 0;
+  }
+  .term b { color: #1d4ed8; }
+
+  .step {
+    background: #fff; border: 2px solid #1d4ed8;
+    border-radius: 10px; padding: 18px 22px; margin: 16px 0;
+  }
+  .step-header {
+    background: #1d4ed8; color: #fff;
+    padding: 6px 14px; border-radius: 6px;
+    display: inline-block; font-weight: 700; font-size: 14px;
+    margin-bottom: 12px;
+  }
+
+  .score-pill {
+    display: inline-block; padding: 5px 14px; border-radius: 20px;
+    font-weight: 700; font-size: 14px;
+    background: #fef3c7; color: #92400e;
+  }
+  .score-pill.big {
+    font-size: 18px; padding: 8px 18px;
+    background: #dc2626; color: #fff;
+  }
+
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 4px;
+           font-size: 12px; font-weight: 600; margin-right: 4px; }
+  .badge.green { background: #d4edda; color: #155724; }
+  .badge.amber { background: #fff3cd; color: #856404; }
+  .badge.red   { background: #f8d7da; color: #721c24; }
+  .badge.blue  { background: #d1ecf1; color: #0c5460; }
+
+  .toc {
+    background: #fff; border: 2px solid #1d4ed8; border-radius: 10px;
+    padding: 20px 26px; margin-bottom: 40px;
+  }
+  .toc h3 { margin: 0 0 12px; color: #1d4ed8; }
+  .toc ol { margin: 0; padding-left: 22px; }
+  .toc li { margin: 6px 0; }
+  .toc a { color: #1d4ed8; text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+
+  .formula-box {
+    background: #f3e8ff; border: 2px solid #9333ea;
+    padding: 16px 22px; border-radius: 10px;
+    font-family: 'SF Mono', Consolas, monospace; font-size: 15px;
+    margin: 16px 0; line-height: 1.8;
+  }
+  .formula-box .label { font-family: sans-serif; font-weight: 700; color: #6b21a8; }
+
+  .visual {
+    background: #fff; border: 2px dashed #888; border-radius: 10px;
+    padding: 18px; margin: 14px 0; text-align: center;
+    font-family: 'SF Mono', Consolas, monospace; font-size: 13px;
+    line-height: 1.6; white-space: pre;
+  }
+
+  .question {
+    background: #fff; border: 1px solid #e0e0e0; border-radius: 8px;
+    padding: 14px 20px; margin: 10px 0;
+  }
+  .question b { color: #dc2626; }
+  .answer { margin-top: 8px; color: #444; }
+
+  .stage-card {
+    border: 2px solid; border-radius: 10px; padding: 16px 20px;
+    margin: 12px 0; background: #fff;
+  }
+  .stage-card.s0 { border-color: #999; }
+  .stage-card.s1 { border-color: #fbbf24; background: #fffbeb; }
+  .stage-card.s2 { border-color: #f97316; background: #fff7ed; }
+  .stage-card.s3 { border-color: #dc2626; background: #fef2f2; }
+  .stage-card h4 { margin: 0 0 6px; }
+</style>
+</head>
+<body>
+
+<h1>R-룰 점수 산정 — 처음부터 끝까지</h1>
+<div class="sub">
+  반도체 공장 OHS 시스템을 전혀 모르는 사람도 이해할 수 있도록 처음부터 차근차근 풀어쓴 문서.
+  용어 → 측정 → 룰 → 점수 → 최종 판정까지.
+</div>
+
+<div class="toc">
+  <h3>📚 목차</h3>
+  <ol>
+    <li><a href="#what">1. 우리가 무엇을 하고 있나? (시스템 소개)</a></li>
+    <li><a href="#terms">2. 꼭 알아야 할 용어 7개</a></li>
+    <li><a href="#why">3. 왜 점수를 매기나? (목적)</a></li>
+    <li><a href="#flow">4. 점수가 만들어지는 큰 흐름 (3 단계)</a></li>
+    <li><a href="#ra">5. R-A 룰 — 반송시간 (얼마나 느려졌나?)</a></li>
+    <li><a href="#rb">6. R-B 룰 — 큐 누적 (얼마나 쌓이나?)</a></li>
+    <li><a href="#rc">7. R-C 룰 — 반전 흐름 (모양이 깨졌나?)</a></li>
+    <li><a href="#rd">8. R-D 룰 — Fab 적체 (공간이 부족한가?)</a></li>
+    <li><a href="#area">9. 영역 점수 만들기 (0~50점)</a></li>
+    <li><a href="#unified">10. 통합 점수 만들기 (0~500점)</a></li>
+    <li><a href="#level">11. 위험도 등급 (6단계)</a></li>
+    <li><a href="#stage">12. Stage 판정 — 진짜 사건인가?</a></li>
+    <li><a href="#example">13. 처음부터 끝까지 — 실제 계산 예시</a></li>
+    <li><a href="#qa">14. 자주 묻는 질문</a></li>
+  </ol>
+</div>
+
+<!-- ======================================== -->
+<h2 id="what"><span class="num">1</span>우리가 무엇을 하고 있나?</h2>
+
+<p>이천에 있는 SK하이닉스 반도체 공장 (M14, M16 빌딩) 에는 <b>FOUP</b> 이라는 통이 있습니다. 이 통 안에 웨이퍼 (반도체 칩의 원재료) 가 들어있고, 공정 진행에 따라 장비에서 장비로 이동해야 합니다.</p>
+
+<p>FOUP 은 사람이 들고 다니지 않고, 천장에 설치된 레일 위를 <b>OHT</b> (무인 운반차) 가 들고 다닙니다. 마치 공항의 무인 셔틀이 정해진 경로로 다니는 것과 비슷합니다.</p>
+
+<p>M14 빌딩과 M16 빌딩 사이의 모든 FOUP 은 <b>M16HUBROOM</b> (HUB) 이라는 중앙 공간을 통과합니다. 즉:</p>
+
+<div class="visual">
+[M14 빌딩]  ──→  [M16HUBROOM]  ──→  [M16 빌딩]
+                       ↑↓
+                   허브가 막히면 전체 다 막힘
+</div>
+
+<div class="ok">
+  HUBROOM 이 정체되면 공장 전체 생산이 늦어집니다. 그래서 매분 매분 HUBROOM 상태를 자동으로 감시하고 점수를 매기는 것이 룰베이스의 목적입니다.
+</div>
+
+<!-- ======================================== -->
+<h2 id="terms"><span class="num">2</span>꼭 알아야 할 용어 7개</h2>
+
+<div class="term">
+  <b>FOUP</b> — 웨이퍼가 담긴 통. 자판기 음료 한 캔 정도 크기. 한 번에 25장 정도 들어있음.
+</div>
+
+<div class="term">
+  <b>OHT</b> — Overhead Transport. 천장 레일 위 무인 운반차. FOUP 을 들고 장비 사이를 이동.
+</div>
+
+<div class="term">
+  <b>FAB</b> — Fabrication. 반도체 공장의 생산 라인. M14 FAB / M16 FAB 처럼 빌딩별로 부름.
+</div>
+
+<div class="term">
+  <b>M16HUBROOM (HUB)</b> — M14 빌딩과 M16 빌딩의 FOUP 이 만나는 중앙 환승역. 3층 (3F) 에 위치.
+</div>
+
+<div class="term">
+  <b>LFT (리프터)</b> — 층간 이동 엘리베이터. FOUP 을 다른 층으로 옮김. ZT 라고도 부름.
+</div>
+
+<div class="term">
+  <b>CNV (컨베이어)</b> — 같은 층 내 이동 장치. FOUP 을 컨베이어 벨트로 다음 위치로 보냄.
+</div>
+
+<div class="term">
+  <b>큐 (Queue)</b> — 처리 대기 중인 FOUP 줄. 큐가 길면 정체. 마트 계산대 줄을 생각하세요.
+</div>
+
+<!-- ======================================== -->
+<h2 id="why"><span class="num">3</span>왜 점수를 매기나?</h2>
+
+<p>운영팀 사람이 100개가 넘는 컬럼을 매분 직접 보고 "지금 정체인가?" 판단하기는 불가능합니다. 그래서 컴퓨터가 자동으로:</p>
+
+<ol>
+  <li>매분 데이터 (수백 개 컬럼) 를 읽어서</li>
+  <li>"정체 신호" 라고 정의된 4가지 룰 (R-A, R-B, R-C, R-D) 을 검사</li>
+  <li>발동한 룰에 따라 <b>점수를 가산</b></li>
+  <li>총 점수에 따라 <b>위험도 등급</b> 매김 (정상 → 관심 → 경계 → 주의 → 위험 → 매우위험)</li>
+  <li>3가지 룰이 동시에 발동하면 <b>Stage 3 (확정)</b> 사건으로 기록</li>
+</ol>
+
+<div class="analogy">
+  병원의 응급실 트리아지와 비슷합니다. 환자가 들어오면 의사가:<br>
+  • 체온 (R-A 같은 시간 지표)<br>
+  • 혈압 (R-B 같은 누적 지표)<br>
+  • 의식 상태 (R-C 같은 패턴 지표)<br>
+  • 산소포화도 (R-D 같은 용량 지표)<br>
+  를 모두 체크해서 "초록(정상) → 노랑(주의) → 빨강(위급)" 등급을 매기는 것과 같은 원리입니다.
+</div>
+
+<!-- ======================================== -->
+<h2 id="flow"><span class="num">4</span>점수가 만들어지는 큰 흐름</h2>
+
+<p>전체 점수는 3 단계로 만들어집니다:</p>
+
+<div class="visual">
+[원본 데이터]  →  [1단계: 룰 트리거 판정]  →  [2단계: 영역 점수]  →  [3단계: 통합 점수]
+   265 컬럼          True/False                    0~50점                  0~500점
+                  (이 룰이 발동했나?)            (한 영역의 점수)         (전체 시스템 점수)
+</div>
+
+<h4>1단계 — 룰이 발동했나?</h4>
+<p>R-A, R-B, R-C, R-D 각 룰의 조건을 검사. 예: "지난 10분 동안 반송시간이 9분 넘은 적 있나?" → 예/아니오.</p>
+
+<h4>2단계 — 영역 점수 (0~50점)</h4>
+<p>한 영역 (예: M16HUB) 에서 발동된 룰 점수를 합산.<br>
+R-A 발동 → +10점, R-B 발동 → +10점, ... 모두 합쳐서 최대 50점.</p>
+
+<h4>3단계 — 통합 점수 (0~500점)</h4>
+<p>모든 영역의 점수 + 흐름 점수 + SLA + Sorter + MAXCAPA → 통합 점수.<br>
+이 점수로 위험도 등급 결정.</p>
+
+<!-- ======================================== -->
+<h2 id="ra"><span class="num">5</span>R-A 룰 — 반송시간 (얼마나 느려졌나?)</h2>
+
+<div class="intro-box">
+  <h4>한 문장 요약</h4>
+  <p>"FOUP 한 개 옮기는 데 걸리는 시간이 평소보다 길어졌나?" 를 검사하는 룰.</p>
+</div>
+
+<div class="analogy">
+  평소 집에서 회사까지 30분 걸리는데, 오늘 1시간 걸렸다. 길이 막혔다는 신호.
+</div>
+
+<h3>5-1. 측정하는 컬럼 (영역마다 다름)</h3>
+
+<p>영역마다 측정 방식이 다르고 임계값도 다릅니다:</p>
+
+<table>
+  <tr>
+    <th>영역</th>
+    <th>측정 컬럼</th>
+    <th class="num">임계 (분)</th>
+    <th>의미</th>
+  </tr>
+  <tr>
+    <td><b>M16HUB</b></td>
+    <td><code>M16HUB.QUE.TIME.AVGTOTALTIME1MIN</code></td>
+    <td class="num"><b>9.0</b></td>
+    <td>HUB 의 1분 평균 반송시간</td>
+  </tr>
+  <tr>
+    <td>M14</td>
+    <td><code>M14.QUE.LOAD.AVGLOADTIME1MIN</code></td>
+    <td class="num">3.3</td>
+    <td>M14 의 1분 평균 적재시간</td>
+  </tr>
+  <tr>
+    <td>M14B</td>
+    <td><code>M14B.QUE.TIME.AVGTOTALTIME1MIN</code></td>
+    <td class="num">5.0</td>
+    <td>M14B 의 1분 평균 반송시간</td>
+  </tr>
+  <tr>
+    <td>M16A</td>
+    <td><code>M16A.QUE.LOAD.AVGLOADTIME1MIN</code></td>
+    <td class="num">3.2</td>
+    <td>M16A 의 1분 평균 적재시간</td>
+  </tr>
+  <tr>
+    <td>M16B</td>
+    <td><code>M16B.QUE.LOAD.AVGLOADTIME1MIN</code></td>
+    <td class="num">3.5</td>
+    <td>M16B 의 1분 평균 적재시간</td>
+  </tr>
+  <tr>
+    <td>M16_PKT</td>
+    <td><code>M16_PKT.QUE.TIME.AVGTOTALTIME1MIN</code></td>
+    <td class="num">7.5</td>
+    <td>M16 패킷</td>
+  </tr>
+  <tr>
+    <td>M16_WT</td>
+    <td><code>M16_WT.QUE.TIME.AVGTOTALTIME1MIN</code></td>
+    <td class="num">2.8</td>
+    <td>M16 WT</td>
+  </tr>
+</table>
+
+<div class="warn">
+  영역마다 임계가 다른 이유: M16HUB 는 본래 처리량이 많아서 평소 반송시간이 길고, M14 는 짧습니다. 같은 9분이라도 영역에 따라 의미가 다릅니다.
+</div>
+
+<h3>5-2. R-A 는 두 가지로 나뉩니다</h3>
+
+<h4>① RA (절대) — <span class="score-pill">+10점</span></h4>
+<p><b>조건</b>: 지난 10분 동안 <b>한 번이라도</b> 임계값을 넘었나?</p>
+
+<div class="visual">
+시각:    분1  분2  분3  분4  분5  분6  분7  분8  분9  분10
+M16HUB:  5.0  6.2  5.8  9.5  4.0  3.8  5.0  6.1  4.9  5.2
+                          ↑
+                  여기서 9.5 ≥ 9.0 한 번 → RA 발동! → +10점
+</div>
+
+<h4>② RA_sus (지속) — <span class="score-pill">+5점</span></h4>
+<p><b>조건</b>: 지난 5분 동안 <b>3번 이상</b> (TH_RA × 0.67) 을 넘었나?</p>
+<p>M16HUB 의 경우: 9.0 × 0.67 = <b>6.03 분</b> 이 sustained 임계.</p>
+
+<div class="visual">
+시각:    분1  분2  분3  분4  분5
+M16HUB:  6.5  5.8  6.1  6.2  4.5
+         ↑         ↑   ↑
+       (3번이 ≥ 6.03 → RA_sus 발동! → +5점)
+</div>
+
+<div class="warn">
+  <b>왜 두 가지로 나누나?</b><br>
+  • RA (절대) = 갑작스런 spike. "9분 한 번"은 일시적 사고일 수 있음.<br>
+  • RA_sus (지속) = 만성 정체. "6분이 3번"이 더 무서움 — 계속 막혀있다는 뜻.
+</div>
+
+<h3>5-3. 두 조건 모두 발동하면?</h3>
+<p>RA + RA_sus 둘 다 ON → <b>+10 + +5 = +15점</b> 가산.</p>
+
+<!-- ======================================== -->
+<h2 id="rb"><span class="num">6</span>R-B 룰 — 큐 누적 (얼마나 쌓이나?)</h2>
+
+<div class="intro-box">
+  <h4>한 문장 요약</h4>
+  <p>"처리되지 않은 FOUP 이 시간이 지나면서 쌓이고 있나?" 를 검사하는 룰.</p>
+</div>
+
+<div class="analogy">
+  마트 계산대 줄 길이가 30분 전엔 5명이었는데 지금 50명이라면 → 점원이 처리를 못 따라가는 상황. 30분 동안 +45명 쌓임.
+</div>
+
+<h3>6-1. 측정하는 컬럼 (영역마다 다름)</h3>
+
+<table>
+  <tr>
+    <th>영역</th>
+    <th>측정 컬럼 (큐 카운트)</th>
+    <th class="num">30분 임계</th>
+    <th class="num">10분 임계</th>
+  </tr>
+  <tr>
+    <td><b>M16HUB</b></td>
+    <td><code>M16HUB.QUE.M14TOM16.MESCURRENTQCNT</code></td>
+    <td class="num"><b>+100</b></td>
+    <td class="num">+30</td>
+  </tr>
+  <tr>
+    <td>M14</td>
+    <td><code>M14.QUE.ALL.3F_TO_HUB_JOB</code></td>
+    <td class="num">+80</td>
+    <td class="num">+24</td>
+  </tr>
+  <tr>
+    <td>M14B</td>
+    <td><code>M14B.QUE.ALL.7F_TO_HUB_JOB</code></td>
+    <td class="num">+150</td>
+    <td class="num">+45</td>
+  </tr>
+  <tr>
+    <td>M16A</td>
+    <td><code>M16A.QUE.ALL.6F_TO_HUB_JOB</code></td>
+    <td class="num">+80</td>
+    <td class="num">+24</td>
+  </tr>
+  <tr>
+    <td>M16B</td>
+    <td><code>M16B.QUE.ALL.10F_TO_HUB_JOB</code></td>
+    <td class="num">+30</td>
+    <td class="num">+10</td>
+  </tr>
+  <tr>
+    <td>M16</td>
+    <td><code>M16.QUE.SFAB.SENDQUEUETOTAL</code></td>
+    <td class="num">+20</td>
+    <td class="num">+10</td>
+  </tr>
+</table>
+
+<p style="font-size: 13px; color: #666;">
+  10분 임계 = max(10, 30분 임계 × 0.3) 으로 자동 계산.
+</p>
+
+<h3>6-2. R-B 도 두 가지로 나뉩니다</h3>
+
+<h4>① RB (30분 누적) — <span class="score-pill">+10점</span></h4>
+<p><b>조건</b>: 현재 큐 카운트 - 30분 전 큐 카운트 ≥ 임계.</p>
+
+<div class="visual">
+[M16HUB 예시]
+30분 전 시점:  M14TOM16 큐 = 50 개
+                       ↓
+30분이 지나서
+                       ↓
+현재 시점:     M14TOM16 큐 = 155 개
+
+변화: 155 - 50 = +105 개  ≥  100 (임계)
+
+→  RB 발동!  M16HUB 영역에 +10점
+</div>
+
+<div class="ok">
+  사용자 예시 <code>M14TOM16.MESCURRENTQCNT 의 30분 변화량이 100보다 크면</code> → <b>R-B 의 30분 누적 룰</b> 입니다. (R-A 가 아님 주의)
+</div>
+
+<h4>② RB_fast (10분 폭주) — <span class="score-pill">+5점</span></h4>
+<p><b>조건</b>: 현재 큐 - 10분 전 큐 ≥ (30분 임계 × 0.3).</p>
+
+<div class="visual">
+[M16HUB 예시]
+10분 전:  M14TOM16 큐 = 120 개
+현재:     M14TOM16 큐 = 155 개
+
+변화: 155 - 120 = +35 개  ≥  30 (임계)
+
+→  RB_fast 발동!  +5점
+</div>
+
+<div class="warn">
+  <b>왜 30분과 10분 따로?</b><br>
+  • RB (30분) = 점진적 데드락. 천천히 쌓이는 만성 정체.<br>
+  • RB_fast (10분) = 폭주. Bridge OHT Error 같은 급변 사고.<br>
+  같은 큐 누적이지만 원인이 다르니 따로 잡습니다.
+</div>
+
+<!-- ======================================== -->
+<h2 id="rc"><span class="num">7</span>R-C 룰 — 반전 흐름 (모양이 깨졌나?)</h2>
+
+<div class="intro-box">
+  <h4>한 문장 요약</h4>
+  <p>"전체 큐 합계는 그대로인데, 특정 리프터에 몰리거나 한쪽 CNV 가 막혔나?" 를 검사하는 룰.</p>
+</div>
+
+<div class="analogy">
+  도시 전체 차량 수는 똑같지만, 한 도로에만 차가 몰리고 다른 도로는 비어있다면 → 어딘가 사고가 있다는 신호.
+</div>
+
+<h3>7-1. M16HUB 리프터 10대 반전 — <span class="score-pill">+8점</span></h3>
+
+<p>M16HUB 에는 리프터가 10대 있습니다:</p>
+
+<table>
+  <tr><th>리프터 ID</th><th>역할</th></tr>
+  <tr><td><code>6ABL6011, 6012, 6021, 6022</code></td><td>M16A 6F 대응</td></tr>
+  <tr><td><code>6ABL6031, 6032</code></td><td>M16A 3F 대응</td></tr>
+  <tr><td><code>6ABL0111, 0112, 0121, 0122</code></td><td>M16EUV 대응</td></tr>
+</table>
+
+<p><b>발동 조건 (두 가지 모두 만족)</b>:</p>
+
+<ol>
+  <li>20분 전 대비 10대 큐 합계가 <b>감소</b> (rc_trend &lt; 0)</li>
+  <li>개별 큐가 증가한 리프터가 <b>2대 이상</b> (rev_count ≥ 2)</li>
+</ol>
+
+<div class="visual">
+20분 전:
+  L1=10  L2=15  L3=12  L4=8  L5=5  L6=11  L7=20  L8=14  L9=10  L10=15
+  합계 = 120
+
+현재:
+  L1=18  L2=22  L3=15  L4=2  L5=1  L6=5   L7=10  L8=8   L9=20  L10=14
+  합계 = 115  ← 5 감소 (rc_trend < 0)
+
+증가한 리프터: L1 (10→18), L2 (15→22), L3 (12→15), L9 (10→20)
+→ 4대 증가 (≥ 2)
+
+→ RC 발동! +8점
+</div>
+
+<p style="font-size: 13px; color: #666;">
+  <b>의미</b>: 전체적으로 큐는 줄었는데, 특정 리프터들에 큐가 쏠리고 있음. 흐름이 한 방향으로 편향된 상태.
+</p>
+
+<h3>7-2. M14 CNV 남북 편향 — <span class="score-pill">+8점</span></h3>
+
+<p>M14 에서 M16HUB 로 가는 컨베이어가 2개 있습니다:</p>
+
+<table>
+  <tr><th>방향</th><th>컬럼</th></tr>
+  <tr><td>북측</td><td><code>4AFC3301</code></td></tr>
+  <tr><td>남측</td><td><code>4AFC3201</code></td></tr>
+</table>
+
+<p><b>발동 조건</b>: 한쪽이 전체의 <b>70% 이상</b> 차지.</p>
+
+<div class="visual">
+[정상 상황]
+북측: 50 개,  남측: 50 개
+비율: 50/100 = 50%  → 정상
+
+[편향 상황]
+북측: 280 개,  남측: 70 개
+비율: 280/350 = 80%  ≥ 70%
+→ RC 발동! M14 영역에 +8점
+</div>
+
+<p>왜? 한쪽 CNV 가 막혔거나, 한쪽으로만 작업이 몰리고 있다는 신호.</p>
+
+<!-- ======================================== -->
+<h2 id="rd"><span class="num">8</span>R-D 룰 — Fab 적체 (공간이 부족한가?)</h2>
+
+<div class="intro-box">
+  <h4>한 문장 요약</h4>
+  <p>"저장 공간이 거의 다 차서 새 FOUP 을 못 받는 상태인가?" 또는 "처리 장비가 풀가동되어 여유가 없나?" 를 검사하는 룰.</p>
+</div>
+
+<div class="analogy">
+  주차장이 99% 차면 새 차가 들어올 수 없습니다. 마찬가지로 FAB 저장 공간이 차면 새 FOUP 을 받을 수 없습니다.
+</div>
+
+<h3>8-1. M16HUB Fab 적체 — <span class="score-pill">+7점</span></h3>
+
+<p><b>발동 조건 (둘 중 하나라도)</b>:</p>
+
+<ol>
+  <li><code>M16HUB.STRATE.ALL.FABSTORAGERATIO</code> ≥ <b>25.0%</b><br>
+      → M16HUB 의 fab 저장 사용률이 평소 분포 (p95) 의 25% 넘음</li>
+  <li><code>M16HUB.STRATE.STB.3F_STORAGE_UTIL</code> ≥ <b>99.0%</b><br>
+      → STB (임시 저장소) 가 거의 꽉 참</li>
+</ol>
+
+<div class="visual">
+[정상 상황]
+FABSTORAGERATIO = 15%
+STB_UTIL = 80%
+→ R-D 비발동, 0점
+
+[적체 상황]
+FABSTORAGERATIO = 28%  ≥ 25.0
+또는 STB_UTIL = 99.5%  ≥ 99.0
+→ R-D 발동! M16HUB 영역에 +7점
+</div>
+
+<h3>8-2. 다른 영역 OHT 가동률 — <span class="score-pill">+7점</span></h3>
+
+<p>대상: M14, M14B, M16A, M16B</p>
+<p><b>발동 조건</b>: <code>*.QUE.OHT.OHTUTIL</code> ≥ <b>95.0%</b></p>
+
+<div class="visual">
+[정상 상황]
+M14.OHT.OHTUTIL = 75%
+→ R-D 비발동
+
+[과부하 상황]
+M14.OHT.OHTUTIL = 97.3%  ≥ 95.0
+→ R-D 발동! M14 영역에 +7점
+</div>
+
+<div class="warn">
+  <b>왜 임계 25 / 99 / 95?</b><br>
+  • 25% — M16HUB 평소 분포의 상위 5% (p95). 평소 흔히 보는 값이 아님.<br>
+  • 99% — STB 가 사실상 꽉 찬 시점 (마지막 1대 공간만 남음).<br>
+  • 95% — OHT 가 신규 작업 받을 여유가 거의 없는 시점.
+</div>
+
+<!-- ======================================== -->
+<h2 id="area"><span class="num">9</span>영역 점수 만들기 (0~50점)</h2>
+
+<p>한 영역 (예: M16HUB) 에서 발동된 모든 룰의 점수를 합산. 최대 50점에서 클리핑.</p>
+
+<table>
+  <tr>
+    <th>시그널</th>
+    <th>의미</th>
+    <th class="num">점수</th>
+  </tr>
+  <tr><td><b>RA</b></td><td>R-A 절대 임계 발동</td><td class="num">+10</td></tr>
+  <tr><td><b>RA_sus</b></td><td>R-A 지속 임계 발동</td><td class="num">+5</td></tr>
+  <tr><td><b>RB</b></td><td>R-B 30분 누적 발동</td><td class="num">+10</td></tr>
+  <tr><td><b>RB_fast</b></td><td>R-B 10분 폭주 발동</td><td class="num">+5</td></tr>
+  <tr><td><b>RC</b></td><td>R-C 반전 발동</td><td class="num">+8</td></tr>
+  <tr><td><b>RD</b></td><td>R-D 적체 발동</td><td class="num">+7</td></tr>
+  <tr><td>SLA</td><td>전송 4분 초과 비율 임계 위반</td><td class="num">+5</td></tr>
+  <tr><td>SORT</td><td>소터 대기 큐 임계 위반</td><td class="num">+3</td></tr>
+  <tr><td>MAXCAPA</td><td>운영자가 MAXCAPA 변경한 컬럼 수 × 10</td><td class="num">+10n</td></tr>
+</table>
+
+<div class="formula-box">
+  <span class="label">영역 점수 공식</span><br>
+  area_score = min(50, RA + RA_sus + RB + RB_fast + RC + RD + SLA + SORT + MAXCAPA)
+</div>
+
+<div class="visual">
+[M16HUB 예시]
+RA = +10  (발동)
+RA_sus = +5  (발동)
+RB = +10  (발동)
+RB_fast = +5  (발동)
+RC = +8  (발동)
+RD = +7  (발동)
+SLA = +5  (발동)
+SORT = 0  (미발동)
+MAXCAPA = 0  (미발동)
+────────────────────
+합계 = 50
+
+min(50, 50) = 50점  ← M16HUB area_score
+</div>
+
+<div class="warn">
+  영역 점수의 최대값은 50 으로 고정. 어떤 영역도 50을 넘지 않습니다.
+</div>
+
+<!-- ======================================== -->
+<h2 id="unified"><span class="num">10</span>통합 점수 만들기 (0~500점)</h2>
+
+<p>모든 영역의 점수 + 흐름 점수 + SLA + Sorter + MAXCAPA → 전체 시스템 점수.</p>
+
+<div class="formula-box">
+  <span class="label">통합 점수 공식 (5 항 합산)</span>
+  <pre style="background: transparent; color: inherit; margin: 8px 0; padding: 0;">unified_risk_score = min(500,
+    layer1_total     # 8 영역 점수 합산
+  + flow_score        # 10 흐름 노드 점수
+  + sla_score         # SLA 발동 영역 수 × 5
+  + sorter_score      # 소터 발동 영역 수 × 3
+  + mc_score          # MAXCAPA 변경 수 × 10
+)</pre>
+</div>
+
+<h4>10-1. layer1_total — 영역 점수 합산</h4>
+<p>8 영역 (M16HUB, M14, M14B, M16A, M16B, M16, M16_PKT, M16_WT) 의 area_score 합산.</p>
+<p>최대 = 50 × 8 = <b>400점</b></p>
+
+<h4>10-2. flow_score — 흐름 노드 점수</h4>
+<p>영역 간 흐름을 보는 10 개 노드. 각 노드의 현재 값 / 평소 값 (ratio) 으로 판정:</p>
+
+<table>
+  <tr><th>ratio</th><th>등급</th><th class="num">점수</th></tr>
+  <tr><td>≥ 1.5</td><td>주의</td><td class="num">+5</td></tr>
+  <tr><td>≥ 2.0</td><td>위험</td><td class="num">+15</td></tr>
+  <tr><td>≥ 3.0</td><td>심각</td><td class="num">+30</td></tr>
+</table>
+
+<p>10 노드 (M14_CNV_TO_HUB, M14_TO_HUB_JOB, M14B_7F_TO_HUB, M14B_LFT_4ABLD_SUM, M14B_LFT_4ABLD_TO_HUB_SUM, M16A_6F_TO_HUB, M16A_2F_TO_HUB, M16B_10F_TO_HUB, HUB_OHT_QCNT, M14_TO_M16) 각각 평가하여 합산.</p>
+
+<h4>10-3. sla_score / sorter_score</h4>
+<p>SLA 트리거된 영역마다 +5. 소터 트리거된 영역마다 +3.</p>
+<p>예: SLA 가 M16HUB + M14 두 영역에 발동 → sla_score = 5 × 2 = 10</p>
+
+<h4>10-4. mc_score — MAXCAPA 변경</h4>
+<p>운영자가 MAXCAPA 컬럼을 정상값 이하로 낮춘 컬럼 수 × 10.</p>
+
+<table>
+  <tr><th>컬럼</th><th class="num">정상값</th><th class="num">변경 감지</th></tr>
+  <tr><td><code>M16HUB.QUE.LFT.3F_LFT_MAXCAPA</code></td><td class="num">165</td><td class="num">≤ 100</td></tr>
+  <tr><td><code>M16HUB.QUE.LFT.3F_M14BLFT_MAXCAPA</code></td><td class="num">66</td><td class="num">≤ 50</td></tr>
+  <tr><td><code>M16HUB.QUE.CNV.3F_CNV_MAXCAPA</code></td><td class="num">129</td><td class="num">≤ 80</td></tr>
+  <tr><td><code>M14.QUE.CNV.3F_CNV_MAXCAPA</code></td><td class="num">244</td><td class="num">≤ 150</td></tr>
+  <tr><td><code>M16A.QUE.LFT.2F_LFT_MAXCAPA</code></td><td class="num">54</td><td class="num">≤ 40</td></tr>
+  <tr><td><code>M16A.QUE.LFT.6F_LFT_MAXCAPA</code></td><td class="num">149</td><td class="num">≤ 100</td></tr>
+</table>
+
+<p>예: 3개 컬럼이 변경됨 → mc_score = 10 × 3 = 30</p>
+
+<!-- ======================================== -->
+<h2 id="level"><span class="num">11</span>위험도 등급 (6단계)</h2>
+
+<p>통합 점수에 따라 6 단계 등급으로 분류:</p>
+
+<table>
+  <tr><th class="center">등급</th><th class="num">점수 범위</th><th>의미</th><th>대응</th></tr>
+  <tr>
+    <td class="center"><span class="badge red">매우위험</span></td>
+    <td class="num">≥ 250</td>
+    <td>중대 사건 진행 중</td>
+    <td>즉시 현장 출동</td>
+  </tr>
+  <tr>
+    <td class="center"><span class="badge red">위험</span></td>
+    <td class="num">≥ 150</td>
+    <td>사건 발생 가능성 매우 높음</td>
+    <td>즉시 대응</td>
+  </tr>
+  <tr>
+    <td class="center"><span class="badge amber">주의</span></td>
+    <td class="num">≥ 80</td>
+    <td>다중 룰 동시 발동</td>
+    <td>모니터링 강화</td>
+  </tr>
+  <tr>
+    <td class="center"><span class="badge amber">경계</span></td>
+    <td class="num">≥ 65</td>
+    <td>관심 단계 후반</td>
+    <td>추적</td>
+  </tr>
+  <tr>
+    <td class="center"><span class="badge blue">관심</span></td>
+    <td class="num">≥ 30</td>
+    <td>1~2개 룰 발동</td>
+    <td>추적</td>
+  </tr>
+  <tr>
+    <td class="center"><span class="badge green">정상</span></td>
+    <td class="num">&lt; 30</td>
+    <td>모두 정상</td>
+    <td>통과</td>
+  </tr>
+</table>
+
+<!-- ======================================== -->
+<h2 id="stage"><span class="num">12</span>Stage 판정 — 진짜 사건인가?</h2>
+
+<p>점수 (degree) 와 별개로 <b>Stage</b> 가 있습니다. Stage 는 "이게 진짜 사건인가?" 라는 yes/no 판정입니다.</p>
+
+<div class="stage-card s0">
+  <h4>Stage 0 — 이벤트없음</h4>
+  <p>모든 룰 정상.</p>
+</div>
+
+<div class="stage-card s1">
+  <h4>Stage 1 — 조기경보</h4>
+  <p>R-A 만 발동. 시간 지연 신호 (한 가지) 만.</p>
+  <p><b>조건</b>: 어느 영역이든 RA OR RA_sus</p>
+</div>
+
+<div class="stage-card s2">
+  <h4>Stage 2 — 주의보</h4>
+  <p>R-B 만 발동. 큐 누적 신호 (한 가지) 만.</p>
+  <p><b>조건</b>: 어느 영역이든 RB OR RB_fast</p>
+</div>
+
+<div class="stage-card s3">
+  <h4>Stage 3 — ⭐확정 사건 ★</h4>
+  <p>3 가지 종류 신호가 동시에 발동.</p>
+  <p><b>조건</b> (모두 만족):</p>
+  <ol>
+    <li>any_ra = 어느 영역이든 R-A 발동 (시간)</li>
+    <li>any_rd_or_sla 또는 any_rc = R-D 또는 SLA 또는 R-C 발동 (공간/패턴)</li>
+    <li>any_rb 또는 any_flow_severe = R-B 또는 흐름 위험/심각 (누적)</li>
+  </ol>
+</div>
+
+<div class="formula-box">
+  <span class="label">Stage 3 공식</span>
+  <pre style="background: transparent; color: inherit; margin: 8px 0; padding: 0;">S3 = any_ra
+   AND (any_rd_or_sla OR any_rc)
+   AND (any_rb OR any_flow_severe)</pre>
+</div>
+
+<div class="ok">
+  <b>왜 S3 가 3중 조건?</b><br>
+  단일 룰 1개만 발동했다고 사건이라고 판정하면 위양성 (false alarm) 이 너무 많아집니다.<br>
+  시간 + 공간/패턴 + 누적 — 3 가지 시각이 모두 일치할 때만 "확정 사건" 으로 판정합니다.
+</div>
+
+<!-- ======================================== -->
+<h2 id="example"><span class="num">13</span>처음부터 끝까지 — 실제 계산 예시</h2>
+
+<p>가상 데이터로 실제 어떻게 점수가 만들어지는지 한 단계씩 따라가봅시다.</p>
+
+<div class="step">
+  <div class="step-header">STEP 0 — 입력 데이터</div>
+  <p>M16HUB 정체 시나리오를 가정합니다:</p>
+  <table>
+    <tr><th>측정 항목</th><th>값</th></tr>
+    <tr><td>M16HUB 반송시간 (현재)</td><td>11.2 분</td></tr>
+    <tr><td>M16HUB 반송시간 (10분 중 ≥ 9.0 횟수)</td><td>2 회</td></tr>
+    <tr><td>M16HUB 반송시간 (5분 중 ≥ 6.03 횟수)</td><td>3 회</td></tr>
+    <tr><td>M14TOM16 큐 (현재)</td><td>155 개</td></tr>
+    <tr><td>M14TOM16 큐 (30분 전)</td><td>50 개</td></tr>
+    <tr><td>M14TOM16 큐 (10분 전)</td><td>120 개</td></tr>
+    <tr><td>M16HUB FABSTORAGERATIO</td><td>28.5 %</td></tr>
+    <tr><td>M16HUB 리프터 10대 합계 (20분 전)</td><td>180</td></tr>
+    <tr><td>M16HUB 리프터 10대 합계 (현재)</td><td>175</td></tr>
+    <tr><td>증가한 리프터 수</td><td>3 대</td></tr>
+    <tr><td>M16HUB SLA ratio</td><td>6.2 %</td></tr>
+    <tr><td>HUB_OHT_QCNT (현재 / baseline)</td><td>110 / 50 → ratio 2.2</td></tr>
+    <tr><td>그 외 모든 영역</td><td>정상</td></tr>
+  </table>
+</div>
+
+<div class="step">
+  <div class="step-header">STEP 1 — M16HUB 의 각 룰 평가</div>
+
+  <h4>R-A 평가</h4>
+  <ul>
+    <li>RA: 10분 중 2회 ≥ 9.0 → ✅ 발동 → <b>+10점</b></li>
+    <li>RA_sus: 5분 중 3회 ≥ 6.03 → ✅ 발동 → <b>+5점</b></li>
+  </ul>
+
+  <h4>R-B 평가</h4>
+  <ul>
+    <li>RB: 155 - 50 = +105 ≥ 100 → ✅ 발동 → <b>+10점</b></li>
+    <li>RB_fast: 155 - 120 = +35 ≥ 30 → ✅ 발동 → <b>+5점</b></li>
+  </ul>
+
+  <h4>R-C 평가</h4>
+  <ul>
+    <li>trend: 175 - 180 = -5 → &lt; 0 ✓</li>
+    <li>증가 리프터: 3대 ≥ 2 ✓</li>
+    <li>→ ✅ 발동 → <b>+8점</b></li>
+  </ul>
+
+  <h4>R-D 평가</h4>
+  <ul>
+    <li>FABSTORAGERATIO 28.5 ≥ 25.0 → ✅ 발동 → <b>+7점</b></li>
+  </ul>
+
+  <h4>SLA / SORT / MAXCAPA</h4>
+  <ul>
+    <li>SLA: 6.2 ≥ 5.0 → ✅ → <b>+5점</b></li>
+    <li>SORT: 미발동 → 0점</li>
+    <li>MAXCAPA: 미발동 → 0점</li>
+  </ul>
+</div>
+
+<div class="step">
+  <div class="step-header">STEP 2 — M16HUB 영역 점수</div>
+  <div class="visual">
+RA      +10
+RA_sus   +5
+RB      +10
+RB_fast  +5
+RC       +8
+RD       +7
+SLA      +5
+SORT      0
+MAXCAPA   0
+────────────
+합계     50
+
+min(50, 50) = 50점  ← M16HUB area_score
+  </div>
+</div>
+
+<div class="step">
+  <div class="step-header">STEP 3 — 다른 영역 (모두 정상)</div>
+  <p>M14 = 0, M14B = 0, M16A = 0, M16B = 0, M16 = 0, M16_PKT = 0, M16_WT = 0</p>
+  <div class="formula-box">
+    <span class="label">layer1_total</span><br>
+    50 + 0 + 0 + 0 + 0 + 0 + 0 + 0 = <b>50점</b>
+  </div>
+</div>
+
+<div class="step">
+  <div class="step-header">STEP 4 — 흐름 점수 (10 노드 평가)</div>
+  <table>
+    <tr><th>노드</th><th>ratio</th><th>등급</th><th class="num">점수</th></tr>
+    <tr><td>HUB_OHT_QCNT</td><td>2.2 (110/50)</td><td>위험 (≥ 2.0)</td><td class="num">+15</td></tr>
+    <tr><td>M14_TO_M16</td><td>1.8 (155/85)</td><td>주의 (≥ 1.5)</td><td class="num">+5</td></tr>
+    <tr><td>나머지 8 노드</td><td>&lt; 1.5</td><td>—</td><td class="num">0</td></tr>
+  </table>
+  <p><b>flow_score = 15 + 5 + 0 = 20점</b></p>
+</div>
+
+<div class="step">
+  <div class="step-header">STEP 5 — SLA / Sorter / MAXCAPA</div>
+  <ul>
+    <li>sla_score: M16HUB 1개 영역 SLA 발동 → 5 × 1 = <b>5점</b></li>
+    <li>sorter_score: 0개 → <b>0점</b></li>
+    <li>mc_score: 0개 → <b>0점</b></li>
+  </ul>
+</div>
+
+<div class="step">
+  <div class="step-header">STEP 6 — 통합 점수</div>
+  <div class="formula-box">
+    unified_risk_score = layer1_total + flow_score + sla_score + sorter_score + mc_score<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;= 50 + 20 + 5 + 0 + 0<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;= <span class="score-pill big">75</span>
+  </div>
+</div>
+
+<div class="step">
+  <div class="step-header">STEP 7 — 위험도 등급</div>
+  <p>75점 → <span class="badge amber">경계</span> 등급 (65 ≤ 75 &lt; 80)</p>
+</div>
+
+<div class="step">
+  <div class="step-header">STEP 8 — Stage 판정</div>
+  <table>
+    <tr><td><code>any_ra</code></td><td>M16HUB RA + RA_sus ✓</td></tr>
+    <tr><td><code>any_rb</code></td><td>M16HUB RB + RB_fast ✓</td></tr>
+    <tr><td><code>any_rd_or_sla</code></td><td>M16HUB RD + SLA ✓</td></tr>
+    <tr><td><code>any_rc</code></td><td>M16HUB RC ✓</td></tr>
+    <tr><td><code>any_flow_severe</code></td><td>HUB_OHT_QCNT 위험 ✓</td></tr>
+  </table>
+
+  <div class="formula-box">
+    S3 = any_ra ✓ AND (any_rd_or_sla ✓ OR any_rc ✓) AND (any_rb ✓ OR any_flow_severe ✓)<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;= True AND True AND True<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;= <span class="score-pill big">Stage 3 ⭐ 확정</span>
+  </div>
+</div>
+
+<div class="step">
+  <div class="step-header">STEP 9 — 최종 출력</div>
+  <table>
+    <tr><th>항목</th><th>값</th></tr>
+    <tr><td>stage</td><td>3 (3단계 ⭐확정)</td></tr>
+    <tr><td>unified_risk_score</td><td>75</td></tr>
+    <tr><td>unified_risk_level</td><td>경계</td></tr>
+    <tr><td>hot_area</td><td>M16HUB (area_score 50 최대)</td></tr>
+    <tr><td>signals</td><td>RA + RA_sus + RB + RB_fast + RC + RD + SLA</td></tr>
+    <tr><td>운영 대응</td><td>즉시 현장 출동 (Stage 3 + 경계)</td></tr>
+  </table>
+</div>
+
+<!-- ======================================== -->
+<h2 id="qa"><span class="num">14</span>자주 묻는 질문</h2>
+
+<div class="question">
+  <b>Q1. 점수 75 가 등급 "경계" 인데 Stage 3 도 확정이면 모순 아닌가?</b>
+  <div class="answer">
+    아닙니다. 점수 (degree, 정도) 와 Stage (사건 발생 여부) 는 서로 다른 차원입니다.<br>
+    • 점수 = 정량적 위험도 (얼마나 위험한가)<br>
+    • Stage = 정성적 사건 판정 (3가지 시각이 동시 일치하는가)<br>
+    Stage 3 이지만 점수가 낮을 수 있고, 점수가 높지만 Stage 1 일 수도 있습니다. 둘 다 봐야 합니다.
+  </div>
+</div>
+
+<div class="question">
+  <b>Q2. 임계값들 (9.0, 100, 0.67 등) 은 어떻게 정해졌나?</b>
+  <div class="answer">
+    2026년 3월 24일 ~ 4월 30일 사이의 실제 운영 데이터 분포를 분석:<br>
+    • TH_RA = p95 (95 백분위) 또는 운영자 경험적 임계<br>
+    • TH_RB = 사건 발생 직전 30분 평균 증가량<br>
+    • TH_RC_REVERSE = 2 (단일 1대로는 노이즈, 3대 이상이면 너무 보수적)<br>
+    • TH_RD = 운영 매뉴얼 기준치
+  </div>
+</div>
+
+<div class="question">
+  <b>Q3. 영역마다 임계값이 다른 이유?</b>
+  <div class="answer">
+    각 영역의 평소 분포 (baseline) 가 다릅니다. M16HUB 는 본래 처리량이 많아 평소 반송시간 3~5분이 정상이지만, M14 는 1~2분이 정상. 같은 9분이라도 영역에 따라 의미가 완전 다르므로 영역별 임계를 따로 두었습니다.
+  </div>
+</div>
+
+<div class="question">
+  <b>Q4. R-A 만 발동하면 점수가 얼마인가?</b>
+  <div class="answer">
+    M16HUB 만 R-A 발동 가정:<br>
+    • RA +10 → area_score 10<br>
+    • layer1_total = 10<br>
+    • flow_score = 0 (가정)<br>
+    • 다른 점수 = 0<br>
+    • <b>unified_risk_score = 10</b> → 등급 "정상" (&lt; 30)<br>
+    • Stage 1 (조기경보)
+  </div>
+</div>
+
+<div class="question">
+  <b>Q5. 같은 룰이 여러 영역에 동시 발동하면?</b>
+  <div class="answer">
+    영역마다 따로 점수 매김. 예: R-A 가 M16HUB + M14 에 동시 발동 → M16HUB area_score +10, M14 area_score +10. 두 영역 점수 모두 layer1_total 에 합산됨.
+  </div>
+</div>
+
+<div class="question">
+  <b>Q6. unified_risk_score 가 500 을 넘으면?</b>
+  <div class="answer">
+    넘지 않습니다. <code>min(500, ...)</code> 으로 클리핑. 이론상 최대 500.
+  </div>
+</div>
+
+<div class="question">
+  <b>Q7. Stage 3 인데 등급이 "정상" 일 수 있나?</b>
+  <div class="answer">
+    이론적으로 가능하지만 실제로는 극히 드뭅니다. Stage 3 조건이 만족되면 보통 점수가 50+ 이상으로 올라가 "관심" 이상 등급이 됩니다. 만약 Stage 3 + 점수 낮으면 → 룰 임계가 너무 낮게 설정되었다는 신호 (재조정 필요).
+  </div>
+</div>
+
+<div class="question">
+  <b>Q8. 매분 자동으로 모든 점수가 계산되나?</b>
+  <div class="answer">
+    예. <code>run_ml.py</code> 가 매분 5초에 hubroom_predictor 를 실행하여 발동이벤트.csv 에 한 행 기록. 동시에 Logpresso test_table3 에 적재. 운영자는 CSV 또는 Logpresso 대시보드에서 실시간 확인.
+  </div>
+</div>
+
+<hr style="margin-top: 64px; border: none; border-top: 1px solid #ddd;">
+<p style="text-align: center; color: #999; font-size: 12px;">
+  R-룰 점수 산정 초보자용 문서 — 룰베이스 v4.1 기준.<br>
+  코드 출처: <code>hubroom_predictor.py</code>. 자동 검증: <code>python rules_extractor.py</code>.
+</p>
+
+</body>
+</html>
