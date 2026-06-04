@@ -1,115 +1,23 @@
-# -*- coding: utf-8 -*-
-"""
-token_count.py - /tokenize 토큰 카운터 (모델명 자동 해결)
-사용: python token_count.py "텍스트"
-      python token_count.py -m 모델id "텍스트"
-      python token_count.py -l            # 모델 목록만 출력
-"""
-import sys
-import requests
+데이터가 의미하는 것
+M14 Sorter 평소  400+
+M14B Sorter 평소 290+
+M16HUB STB 평소  100%
+M16B OHT 평소    97~99%
+→ "임계 초과" 가 아니라 "평소 운영 상태".
 
-with open("token.txt", "r") as f:
-    token = f.read().strip()
+FAB 처리 능력
+계속 들어오는 양 ↔ 계속 처리하는 양
+   균형 유지 중 = 정체 아님 ✓
+수치만 보면 "꽉 차 보이지만" 실제로는:
 
-BASE = "http://dev.hcp.llm.skhynix.com"
+Sorter 400 → 처리하면서 또 들어옴 (회전 빠름)
+STB 100% → 들어오자마자 나감 (체류 시간 0)
+OHT 99% → 풀가동 효율 운영
+→ 소화 능력 안에서 잘 돌아가는 상태.
 
-headers = {
-    "Authorization": f"Bearer {token}",
-    "Content-Type": "application/json"
-}
-
-# ===== 1. 서버에 실제로 떠 있는 모델 id부터 확인 =====
-resp = requests.get(f"{BASE}/v1/models", headers=headers, timeout=30).json()
-model_ids = [m["id"] for m in resp.get("data", resp)] if resp else []
-
-if not model_ids:
-    print("모델 목록을 못 가져옴. /v1/models 응답:", resp)
-    sys.exit(1)
-
-DEFAULT_MODEL = "Qwen3.5-397B-A17B-FP8"
-
-
-def pick_model(name):
-    """대소문자/부분일치로 실제 모델 id 찾기"""
-    for mid in model_ids:
-        if name.lower() == mid.lower():
-            return mid
-    for mid in model_ids:
-        if name.lower() in mid.lower():
-            return mid
-    print(f"'{name}' 없음. 사용 가능: {model_ids}")
-    sys.exit(1)
-
-
-# 서버 목록에서 실제 id로 매칭 (대소문자/표기 차이 자동 보정)
-MODEL = pick_model(DEFAULT_MODEL)
-
-
-def count_text(text, model=None):
-    model = model or MODEL
-    r = requests.post(f"{BASE}/tokenize", headers=headers,
-                      json={"model": model, "prompt": text}, timeout=30)
-    if r.status_code != 200:
-        return _fallback([{"role": "user", "content": text}], model,
-                         tokenize_err=f"{r.status_code} {r.text[:150]}")
-    return r.json()
-
-
-def count_messages(messages, model=None):
-    model = model or MODEL
-    r = requests.post(f"{BASE}/tokenize", headers=headers,
-                      json={"model": model,
-                            "messages": messages,
-                            "add_generation_prompt": True,
-                            "add_special_tokens": False}, timeout=30)
-    if r.status_code != 200:
-        return _fallback(messages, model,
-                         tokenize_err=f"{r.status_code} {r.text[:150]}")
-    return r.json()
-
-
-def _fallback(messages, model, tokenize_err=""):
-    r = requests.post(f"{BASE}/v1/chat/completions", headers=headers,
-                      json={"model": model, "messages": messages,
-                            "max_tokens": 1}, timeout=60)
-    if r.status_code != 200:
-        raise RuntimeError(
-            f"/tokenize 실패: {tokenize_err}\n"
-            f"/v1/chat/completions도 실패 ({r.status_code}): {r.text[:200]}\n"
-            f"사용한 모델명: {model}\n"
-            f"서버 모델 목록: {model_ids}")
-    return {"count": r.json()["usage"]["prompt_tokens"], "method": "fallback"}
-
-
-if __name__ == "__main__":
-    args = sys.argv[1:]
-
-    if "-l" in args:
-        print("사용 가능 모델:")
-        for mid in model_ids:
-            print(f"  - {mid}")
-        sys.exit(0)
-
-    if "-m" in args:
-        i = args.index("-m")
-        MODEL = pick_model(args[i + 1])
-        del args[i:i + 2]
-
-    if args and args[0] == "-f":
-        with open(args[1], "r", encoding="utf-8") as f:
-            text = f.read()
-    elif args:
-        text = " ".join(args)
-    else:
-        text = sys.stdin.read()
-
-    print(f"서버 모델 목록: {model_ids}")
-    print(f"선택 모델     : {MODEL}\n")
-
-    r = count_text(text)
-    print(f"토큰 수       : {r['count']}")
-    if "max_model_len" in r:
-        print(f"max_model_len : {r['max_model_len']}")
-        print(f"남은 여유     : {r['max_model_len'] - r['count']}")
-    if r.get("method") == "fallback":
-        print("(주의: /tokenize 막혀서 usage.prompt_tokens로 계산)")
+진짜 정체란?
+들어오는 양 > 처리하는 양
+   ↓
+큐가 시간에 따라 증가 (R-B 의 30분 +N)
+   ↓
+이것만이 진짜 정체 신호
