@@ -1,1 +1,169 @@
-A111
+# -*- coding: utf-8 -*-
+"""
+token_count.py - vLLM /tokenize 기반 프롬프트 토큰 수 계산 헬퍼
+사내 폐쇄망 LLM 엔드포인트용 (dev.hcp.llm.skhynix.com 등)
+
+사용법:
+  python token_count.py "안녕하세요 토큰 테스트"           # 텍스트 카운트
+  python token_count.py -f prompt.txt                      # 파일 카운트
+  python token_count.py -c "유저 질문 내용"                # chat 형식 (system+user, template 적용)
+  echo "내용" | python token_count.py                      # stdin
+
+코드에서:
+  from token_count import TokenCounter
+  tc = TokenCounter()
+  tc.count("텍스트")                          # -> int
+  tc.count_messages([{"role":"user","content":"..."}])  # -> int
+"""
+import json
+import sys
+import os
+import http.client
+import ssl
+from urllib.parse import urlparse
+
+# ===== 설정 =====
+BASE_URL = os.environ.get("LLM_BASE_URL", "https://dev.hcp.llm.skhynix.com")
+MODEL    = os.environ.get("LLM_MODEL", "Qwen3-Coder-480B")
+TIMEOUT  = 30
+
+
+def _load_token():
+    """TOKEN.TXT 자동 탐색 (현재 디렉토리 -> 스크립트 디렉토리 -> ~/.hllm)"""
+    candidates = [
+        "TOKEN.TXT", "token.txt",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "TOKEN.TXT"),
+        os.path.expanduser("~/.hllm/token.txt"),
+    ]
+    for p in candidates:
+        if os.path.isfile(p):
+            with open(p, "r", encoding="utf-8") as f:
+                return f.read().strip()
+    return os.environ.get("LLM_TOKEN", "")
+
+
+class TokenCounter:
+    def __init__(self, base_url=BASE_URL, model=MODEL, token=None):
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.token = token if token is not None else _load_token()
+        self._tokenize_available = None  # None=미확인, True/False
+
+    # ---------- 내부 HTTP (http.client: latin-1 인코딩 이슈 회피) ----------
+    def _post(self, path, payload):
+        u = urlparse(self.base_url)
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json; charset=utf-8",
+            "Content-Length": str(len(body)),
+        }
+        if self.token:
+            headers["Authorization"] = "Bearer " + self.token
+
+        if u.scheme == "https":
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE  # 사내 자체 인증서 대응
+            conn = http.client.HTTPSConnection(u.netloc, timeout=TIMEOUT, context=ctx)
+        else:
+            conn = http.client.HTTPConnection(u.netloc, timeout=TIMEOUT)
+        try:
+            conn.request("POST", (u.path or "") + path, body=body, headers=headers)
+            resp = conn.getresponse()
+            data = resp.read().decode("utf-8", errors="replace")
+            return resp.status, data
+        finally:
+            conn.close()
+
+    # ---------- /tokenize ----------
+    def count(self, text, detail=False):
+        """단순 텍스트 토큰 수. detail=True면 dict 전체 반환."""
+        status, data = self._post("/tokenize", {"model": self.model, "prompt": text})
+        if status in (403, 404, 405):
+            # 게이트웨이가 /tokenize 차단 -> fallback
+            return self._fallback_count_text(text, detail)
+        result = json.loads(data)
+        return result if detail else result["count"]
+
+    def count_messages(self, messages, add_generation_prompt=True, detail=False):
+        """chat 형식 토큰 수 (chat template 적용, 실제 요청과 동일)."""
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "add_generation_prompt": add_generation_prompt,
+            "add_special_tokens": False,
+        }
+        status, data = self._post("/tokenize", payload)
+        if status in (403, 404, 405):
+            return self._fallback_count_messages(messages, detail)
+        result = json.loads(data)
+        return result if detail else result["count"]
+
+    def detokenize(self, tokens):
+        """토큰 ID 배열 -> 텍스트 역변환."""
+        status, data = self._post("/detokenize", {"model": self.model, "tokens": tokens})
+        if status != 200:
+            raise RuntimeError("detokenize 실패 (%d): %s" % (status, data[:200]))
+        return json.loads(data)["prompt"]
+
+    def remaining(self, messages):
+        """남은 컨텍스트 여유 토큰 수 계산."""
+        r = self.count_messages(messages, detail=True)
+        if isinstance(r, dict) and "max_model_len" in r:
+            return r["max_model_len"] - r["count"]
+        return None
+
+    # ---------- fallback: /v1/chat/completions usage 활용 ----------
+    def _fallback_count_messages(self, messages, detail=False):
+        """tokenize 차단 시 max_tokens=1 요청으로 usage.prompt_tokens 확인."""
+        payload = {"model": self.model, "messages": messages, "max_tokens": 1}
+        status, data = self._post("/v1/chat/completions", payload)
+        if status != 200:
+            raise RuntimeError("fallback 실패 (%d): %s" % (status, data[:200]))
+        usage = json.loads(data).get("usage", {})
+        count = usage.get("prompt_tokens")
+        return {"count": count, "method": "fallback_usage"} if detail else count
+
+    def _fallback_count_text(self, text, detail=False):
+        return self._fallback_count_messages(
+            [{"role": "user", "content": text}], detail)
+
+
+# ===== CLI =====
+def main():
+    args = sys.argv[1:]
+    chat_mode = False
+    text = None
+
+    if "-c" in args:
+        chat_mode = True
+        args.remove("-c")
+    if "-f" in args:
+        i = args.index("-f")
+        with open(args[i + 1], "r", encoding="utf-8") as f:
+            text = f.read()
+        del args[i:i + 2]
+    if text is None:
+        text = " ".join(args) if args else sys.stdin.read()
+
+    if not text.strip():
+        print("사용법: python token_count.py [텍스트] | -f 파일 | -c (chat형식)")
+        sys.exit(1)
+
+    tc = TokenCounter()
+    if chat_mode:
+        r = tc.count_messages([{"role": "user", "content": text}], detail=True)
+    else:
+        r = tc.count(text, detail=True)
+
+    print("모델       : %s" % tc.model)
+    print("토큰 수    : %s" % r.get("count"))
+    if "max_model_len" in r:
+        print("max_len    : %s" % r["max_model_len"])
+        print("남은 여유  : %s" % (r["max_model_len"] - r["count"]))
+    if r.get("method") == "fallback_usage":
+        print("(주의: /tokenize 차단됨 -> chat/completions usage로 계산)")
+
+
+if __name__ == "__main__":
+    main()
