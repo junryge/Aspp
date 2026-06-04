@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🛠 Harness MVP — 기능 정리</title>
+<style>
+  :root{ --bg:#0f1117; --card:#1a1d27; --line:#2a2f3d; --txt:#e6e9ef; --mut:#9aa3b2;
+         --accent:#6366f1; --accent2:#a855f7; --code:#0b0d13; --green:#22c55e; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+       font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Malgun Gothic',sans-serif;
+       line-height:1.6;padding:32px 16px;}
+  .wrap{max-width:1000px;margin:0 auto;}
+  h1{font-size:26px;margin:0 0 4px;}
+  h1 .badge{font-size:12px;background:var(--accent);color:#fff;padding:3px 10px;border-radius:20px;margin-left:8px;vertical-align:middle;font-weight:600;}
+  .sub{color:var(--mut);margin:0 0 24px;font-size:14px;}
+  h2{font-size:18px;margin:30px 0 12px;border-left:4px solid var(--accent2);padding-left:10px;}
+  table{width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;
+        box-shadow:0 2px 12px rgba(0,0,0,.3);font-size:14px;}
+  th,td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top;}
+  th{background:#222633;color:#c7cddb;font-weight:700;font-size:13px;}
+  tr:last-child td{border-bottom:none;}
+  tr:hover td{background:rgba(99,102,241,.06);}
+  td.mod{font-weight:700;color:var(--accent2);white-space:nowrap;font-family:'Consolas',monospace;}
+  td.fn code, code{background:var(--code);color:#9ecbff;padding:1px 6px;border-radius:5px;
+        font-family:'Consolas','Courier New',monospace;font-size:12.5px;}
+  .pill{display:inline-block;background:rgba(168,85,247,.15);color:#d8b4fe;border:1px solid rgba(168,85,247,.3);
+        border-radius:6px;padding:1px 8px;font-size:12px;margin:1px;}
+  .flow{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin:12px 0;
+        font-size:14px;}
+  .flow b{color:var(--green);}
+  .cmp{display:flex;gap:12px;flex-wrap:wrap;}
+  .cmp>div{flex:1;min-width:260px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;}
+  .cmp h3{margin:0 0 6px;font-size:15px;}
+  .foot{color:var(--mut);font-size:12px;margin-top:30px;text-align:center;border-top:1px solid var(--line);padding-top:16px;}
+  .arrow{color:var(--accent);font-weight:700;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>🛠 Harness MVP <span class="badge">도구 실행 하네스</span></h1>
+  <p class="sub">Python 도구 실행 하네스 — 도구를 등록하고 · 프롬프트로 알맞은 도구를 골라 · 권한 체크하며 ·
+     멀티턴으로 실행/스트리밍하고 · 세션·기록을 저장하고 · 피드백으로 개선한다.</p>
+
+  <h2>📦 모듈별 기능</h2>
+  <table>
+    <thead>
+      <tr><th style="width:130px;">모듈</th><th style="width:230px;">기능</th><th>핵심 API</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="mod">registry</td>
+        <td>도구 등록 / 관리 / 실행</td>
+        <td class="fn"><code>register</code> <code>unregister</code> <code>get</code> <code>list_all</code> <code>find</code> <code>filter</code> <code>execute</code></td>
+      </tr>
+      <tr>
+        <td class="mod">router</td>
+        <td>프롬프트 → 도구 매칭</td>
+        <td class="fn"><code>route</code> — 토큰 스코어링으로 알맞은 도구 선택</td>
+      </tr>
+      <tr>
+        <td class="mod">permissions</td>
+        <td>권한 차단(deny-list) + 코드 안전검사</td>
+        <td class="fn"><code>ToolPermissionContext.blocks</code>, <code>CodeGuard.check</code> / <code>is_safe</code> — 위험 패턴 차단</td>
+      </tr>
+      <tr>
+        <td class="mod">engine</td>
+        <td><b style="color:#fff">실행 엔진 (핵심)</b></td>
+        <td class="fn"><code>submit</code>(1턴) <code>run_loop</code>(멀티턴) <code>stream_submit</code>(스트리밍) · 예산관리 · <code>persist</code>(세션 저장) · <code>from_session</code>(복원)</td>
+      </tr>
+      <tr>
+        <td class="mod">session</td>
+        <td>세션 저장 / 로드</td>
+        <td class="fn"><code>StoredSession</code> — JSON 영속</td>
+      </tr>
+      <tr>
+        <td class="mod">history</td>
+        <td>이벤트 로그</td>
+        <td class="fn"><code>add</code>, <code>as_markdown</code> — 실행 기록</td>
+      </tr>
+      <tr>
+        <td class="mod">transcript</td>
+        <td>트랜스크립트 관리</td>
+        <td class="fn"><code>append</code> / <code>compact</code>(압축) / <code>replay</code>(재생) / <code>flush</code></td>
+      </tr>
+      <tr>
+        <td class="mod">context</td>
+        <td>워크스페이스 스캔</td>
+        <td class="fn"><code>WorkspaceContext</code>, <code>ProjectMap</code> — 프로젝트 파일 맥락 파악</td>
+      </tr>
+      <tr>
+        <td class="mod">expert_pool</td>
+        <td>에이전트 동적 선택</td>
+        <td class="fn">질문에 맞는 전문가 에이전트만 골라 배정 (<code>AgentAssignment</code>)</td>
+      </tr>
+      <tr>
+        <td class="mod">feedback</td>
+        <td>피드백 루프 (학습)</td>
+        <td class="fn"><code>add</code>(👍👎) / <code>get_summary</code> / <code>build_prompt_hint</code> / <code>add_mistake</code> / <code>get_mistakes</code> — 실수 회피</td>
+      </tr>
+      <tr>
+        <td class="mod">models</td>
+        <td>핵심 데이터 구조</td>
+        <td class="fn"><code>Tool</code> / <code>Task</code> / <code>ToolExecution</code> / <code>TurnResult</code> / <code>UsageSummary</code> 등</td>
+      </tr>
+      <tr>
+        <td class="mod">cli</td>
+        <td>커맨드라인</td>
+        <td class="fn"><code>python -m harness list / find / route</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>🔄 실행 흐름</h2>
+  <div class="flow">
+    <span class="pill">도구 등록</span> <span class="arrow">→</span>
+    <span class="pill">프롬프트 라우팅</span> <span class="arrow">→</span>
+    <span class="pill">권한 체크</span> <span class="arrow">→</span>
+    <span class="pill">멀티턴 실행 / 스트리밍</span> <span class="arrow">→</span>
+    <span class="pill">세션 · 기록 저장</span> <span class="arrow">→</span>
+    <span class="pill">피드백으로 개선</span>
+    <div style="margin-top:10px;color:var(--mut);font-size:13px;">
+      registry → router → permissions → engine(run_loop/stream) → session/history/transcript → feedback
+    </div>
+  </div>
+
+  <h2>⚖️ 하네스 vs 헤르메스</h2>
+  <div class="cmp">
+    <div>
+      <h3>🛠 하네스 (harness-mvp)</h3>
+      <div style="color:var(--mut);font-size:13px;">“무엇을 <b style="color:#fff">한다</b>” — 도구 실행</div>
+      <ul style="margin:8px 0 0;padding-left:18px;font-size:13px;">
+        <li>도구 등록·라우팅·실행</li>
+        <li>권한·멀티턴·세션</li>
+        <li>피드백 학습 · 전문가 선택</li>
+      </ul>
+    </div>
+    <div>
+      <h3>🔮 헤르메스 (hermes-engine)</h3>
+      <div style="color:var(--mut);font-size:13px;">“무엇을 <b style="color:#fff">안다</b>” — 기억·학습</div>
+      <ul style="margin:8px 0 0;padding-left:18px;font-size:13px;">
+        <li>사용자 사실/선호 기억</li>
+        <li>자기학습 스킬</li>
+        <li>되묻기 · 세션 회상</li>
+      </ul>
+    </div>
+  </div>
+  <p style="color:var(--mut);font-size:13px;margin-top:10px;">
+    💡 둘은 독립적이며, 합치면 <b style="color:var(--green)">“기억하고 도구도 쓰는 에이전트”</b> 가 됩니다 (통합은 개발자 몫).
+  </p>
+
+  <h2>▶ 빠른 실행</h2>
+  <div class="flow" style="font-family:'Consolas',monospace;font-size:13px;">
+    cd harness-mvp<br>
+    python -m harness list&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--mut)"># 등록된 도구 목록</span><br>
+    python -m harness route "echo hello"&nbsp;&nbsp;<span style="color:var(--mut)"># 라우팅 확인</span><br>
+    python -m unittest discover -s tests&nbsp;&nbsp;<span style="color:var(--mut)"># 테스트 80개</span>
+  </div>
+
+  <div class="foot">Harness MVP — 기능 요약 · agent-kits/harness-mvp</div>
+</div>
+</body>
+</html>
