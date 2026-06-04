@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-token_count.py - /tokenize 기반 토큰 수 계산
+token_count.py - /tokenize 토큰 카운터 (모델명 자동 해결)
 사용: python token_count.py "텍스트"
-      python token_count.py -f prompt.txt
+      python token_count.py -m 모델id "텍스트"
+      python token_count.py -l            # 모델 목록만 출력
 """
 import sys
 import requests
@@ -10,8 +11,6 @@ import requests
 with open("token.txt", "r") as f:
     token = f.read().strip()
 
-#    "http://dev.hcp.llm.skhynix.com"
-#    "http://common.llm.skhynix.com"
 BASE = "http://dev.hcp.llm.skhynix.com"
 
 headers = {
@@ -19,54 +18,79 @@ headers = {
     "Content-Type": "application/json"
 }
 
-# 모델 목록
-models = requests.get(f"{BASE}/v1/models", headers=headers).json()
-if isinstance(models, dict):
-    models = models.get("data", models)
-MODEL = models[0]["id"] if models else "Qwen3-Coder-480B"
+# ===== 1. 서버에 실제로 떠 있는 모델 id부터 확인 =====
+resp = requests.get(f"{BASE}/v1/models", headers=headers, timeout=30).json()
+model_ids = [m["id"] for m in resp.get("data", resp)] if resp else []
+
+if not model_ids:
+    print("모델 목록을 못 가져옴. /v1/models 응답:", resp)
+    sys.exit(1)
+
+MODEL = model_ids[0]  # 기본: 첫 번째 모델
 
 
-def count_text(text, model=MODEL):
-    """단순 텍스트 토큰 수"""
+def pick_model(name):
+    """대소문자/부분일치로 실제 모델 id 찾기"""
+    for mid in model_ids:
+        if name.lower() == mid.lower():
+            return mid
+    for mid in model_ids:
+        if name.lower() in mid.lower():
+            return mid
+    print(f"'{name}' 없음. 사용 가능: {model_ids}")
+    sys.exit(1)
+
+
+def count_text(text, model=None):
+    model = model or MODEL
     r = requests.post(f"{BASE}/tokenize", headers=headers,
                       json={"model": model, "prompt": text}, timeout=30)
-    if r.status_code in (403, 404, 405):
-        return _fallback([{"role": "user", "content": text}], model)
-    r.raise_for_status()
-    return r.json()  # {"count": N, "max_model_len": M, "tokens": [...]}
+    if r.status_code != 200:
+        return _fallback([{"role": "user", "content": text}], model,
+                         tokenize_err=f"{r.status_code} {r.text[:150]}")
+    return r.json()
 
 
-def count_messages(messages, model=MODEL):
-    """chat 형식 토큰 수 (chat template 적용 = 실제 요청과 동일)"""
+def count_messages(messages, model=None):
+    model = model or MODEL
     r = requests.post(f"{BASE}/tokenize", headers=headers,
                       json={"model": model,
                             "messages": messages,
                             "add_generation_prompt": True,
                             "add_special_tokens": False}, timeout=30)
-    if r.status_code in (403, 404, 405):
-        return _fallback(messages, model)
-    r.raise_for_status()
+    if r.status_code != 200:
+        return _fallback(messages, model,
+                         tokenize_err=f"{r.status_code} {r.text[:150]}")
     return r.json()
 
 
-def _fallback(messages, model):
-    """/tokenize 차단 시: max_tokens=1 요청으로 usage.prompt_tokens 확인"""
+def _fallback(messages, model, tokenize_err=""):
     r = requests.post(f"{BASE}/v1/chat/completions", headers=headers,
                       json={"model": model, "messages": messages,
                             "max_tokens": 1}, timeout=60)
-    r.raise_for_status()
+    if r.status_code != 200:
+        raise RuntimeError(
+            f"/tokenize 실패: {tokenize_err}\n"
+            f"/v1/chat/completions도 실패 ({r.status_code}): {r.text[:200]}\n"
+            f"사용한 모델명: {model}\n"
+            f"서버 모델 목록: {model_ids}")
     return {"count": r.json()["usage"]["prompt_tokens"], "method": "fallback"}
-
-
-def detokenize(tokens, model=MODEL):
-    r = requests.post(f"{BASE}/detokenize", headers=headers,
-                      json={"model": model, "tokens": tokens}, timeout=30)
-    r.raise_for_status()
-    return r.json()["prompt"]
 
 
 if __name__ == "__main__":
     args = sys.argv[1:]
+
+    if "-l" in args:
+        print("사용 가능 모델:")
+        for mid in model_ids:
+            print(f"  - {mid}")
+        sys.exit(0)
+
+    if "-m" in args:
+        i = args.index("-m")
+        MODEL = pick_model(args[i + 1])
+        del args[i:i + 2]
+
     if args and args[0] == "-f":
         with open(args[1], "r", encoding="utf-8") as f:
             text = f.read()
@@ -75,7 +99,7 @@ if __name__ == "__main__":
     else:
         text = sys.stdin.read()
 
-    print(f"사용 가능 모델: {[m['id'] for m in models]}")
+    print(f"서버 모델 목록: {model_ids}")
     print(f"선택 모델     : {MODEL}\n")
 
     r = count_text(text)
@@ -84,4 +108,4 @@ if __name__ == "__main__":
         print(f"max_model_len : {r['max_model_len']}")
         print(f"남은 여유     : {r['max_model_len'] - r['count']}")
     if r.get("method") == "fallback":
-        print("(주의: /tokenize 차단됨 -> usage.prompt_tokens로 계산)")
+        print("(주의: /tokenize 막혀서 usage.prompt_tokens로 계산)")
