@@ -26,7 +26,7 @@ if not model_ids:
     print("모델 목록을 못 가져옴. /v1/models 응답:", resp)
     sys.exit(1)
 
-MODEL = model_ids[0]  # 기본: 첫 번째 모델
+DEFAULT_MODEL = "Qwen3.5-397B-A17B-FP8"
 
 
 def pick_model(name):
@@ -39,6 +39,10 @@ def pick_model(name):
             return mid
     print(f"'{name}' 없음. 사용 가능: {model_ids}")
     sys.exit(1)
+
+
+# 서버 목록에서 실제 id로 매칭 (대소문자/표기 차이 자동 보정)
+MODEL = pick_model(DEFAULT_MODEL)
 
 
 def count_text(text, model=None):
