@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🔮 헤르메스 — 전체 기능/스킬</title>
+<style>
+  :root{ --bg:#0b0e16; --card:#161b27; --line:#26304180; --txt:#e8edf6; --mut:#93a0b5;
+         --cyan:#00e5ff; --violet:#a855f7; --lime:#4ade80; --amber:#fbbf24; --pink:#ff3ea5; }
+  *{box-sizing:border-box}
+  body{margin:0;background:
+        radial-gradient(1100px 700px at 8% -10%, rgba(0,229,255,.10), transparent 60%),
+        radial-gradient(1000px 700px at 110% 115%, rgba(168,85,247,.12), transparent 60%),
+        var(--bg);
+       color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Malgun Gothic',sans-serif;
+       line-height:1.6;padding:34px 16px;}
+  .wrap{max-width:1040px;margin:0 auto;}
+  h1{font-size:27px;margin:0 0 4px;}
+  h1 .pill{font-size:12px;background:linear-gradient(135deg,var(--cyan),var(--violet));color:#04121a;
+        padding:3px 11px;border-radius:20px;margin-left:8px;vertical-align:middle;font-weight:800;}
+  .sub{color:var(--mut);margin:0 0 26px;font-size:14px;}
+  h2{font-size:18px;margin:30px 0 6px;display:flex;align-items:center;gap:10px;}
+  h2 .day{font-size:11px;font-weight:800;padding:3px 10px;border-radius:8px;}
+  .day.y{background:rgba(168,85,247,.18);color:#d8b4fe;border:1px solid rgba(168,85,247,.4);}
+  .day.t{background:rgba(0,229,255,.16);color:#9beaff;border:1px solid rgba(0,229,255,.4);}
+  .note{color:var(--mut);font-size:12.5px;margin:0 0 12px;}
+  table{width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;
+        box-shadow:0 4px 18px rgba(0,0,0,.35);font-size:13.5px;margin-bottom:8px;}
+  th,td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top;}
+  th{background:#1c2331;color:#c7d2e3;font-weight:700;font-size:12.5px;}
+  tr:last-child td{border-bottom:none;}
+  tr:hover td{background:rgba(0,229,255,.05);}
+  td.id{font-weight:800;color:var(--cyan);white-space:nowrap;font-family:'Consolas',monospace;}
+  td.nm{font-weight:700;white-space:nowrap;}
+  .kw{color:var(--mut);font-size:12px;}
+  code{background:#0d1018;color:#9ecbff;padding:1px 6px;border-radius:5px;font-family:'Consolas',monospace;font-size:12.5px;}
+  .map{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;
+       font-family:'Consolas','Courier New',monospace;font-size:13px;white-space:pre;overflow:auto;margin-top:10px;}
+  .map .y{color:#d8b4fe} .map .t{color:#9beaff} .map .acc{color:var(--lime)}
+  .how{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;}
+  .how>div{flex:1;min-width:260px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;font-size:13px;}
+  .how h3{margin:0 0 6px;font-size:14px;color:var(--cyan);}
+  .foot{color:var(--mut);font-size:12px;margin-top:30px;text-align:center;border-top:1px solid var(--line);padding-top:16px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>🔮 헤르메스 <span class="pill">Hermes</span></h1>
+  <p class="sub">"쓸수록 잘 맞춰주는" 기억·학습 레이어 · 폐쇄망/GGUF/API 무관 · 텍스트 프로토콜(네이티브 툴콜 불필요)<br>
+     연결: 메인 데모스 채팅(🔮 헤르메스 조합) · 개인 에이전트 창 · 상단바 🔮 뷰어</p>
+
+  <h2>🧩 코어 기능 6 <span class="day y">어제 · 2026-06-04</span></h2>
+  <p class="note">엔진·저장계층·프로토콜·UI·납품본까지 헤르메스의 뼈대 전부.</p>
+  <table>
+    <thead><tr><th style="width:46px;">#</th><th style="width:150px;">기능</th><th style="width:200px;">발동/시점</th><th>하는 일</th></tr></thead>
+    <tbody>
+      <tr><td class="id">A1</td><td class="nm">🧠 장기 메모리</td><td class="kw">역할·환경·선호 드러낼 때</td><td>MEMORY(사실)/USER(선호) 자동 저장 → 새 세션·기기에도 유지</td></tr>
+      <tr><td class="id">A2</td><td class="nm">📚 자기학습 스킬</td><td class="kw">재사용 가치 절차 발견 시</td><td><code>SKILL.md</code> 생성/patch (확인형 — 승인 후 저장) + BM25 회상</td></tr>
+      <tr><td class="id">A3</td><td class="nm">❓ 되묻기 (clarify)</td><td class="kw">요청이 모호할 때</td><td>추측 말고 핵심 1~3개 먼저 질문</td></tr>
+      <tr><td class="id">A4</td><td class="nm">🔎 세션 회상</td><td class="kw">🔮 → 대화검색 탭</td><td>과거 대화 BM25 검색 (LLM 없이)</td></tr>
+      <tr><td class="id">A5</td><td class="nm">♻️ 백그라운드 리뷰</td><td class="kw">10턴마다 자동</td><td>놓친 기억을 백그라운드 API로 보충 (본 대화 안 막음)</td></tr>
+      <tr><td class="id">A6</td><td class="nm">🗂 큐레이터</td><td class="kw">앱 켤 때 1회</td><td>30일 미사용→stale, 90일→archived (pinned 면제)</td></tr>
+    </tbody>
+  </table>
+  <p class="note">+ 텍스트 프로토콜 파서 · 파일 저장계층(원자쓰기+인젝션 차단) · Flask 라우트 <code>/api/hermes/*</code> · 기억/스킬/검색 뷰어 UI · 독립 납품본</p>
+
+  <h2>🛠 빌트인 스킬 팩 4 <span class="day t">오늘 · 2026-06-05</span></h2>
+  <p class="note">Hermes(NousResearch)에서 가져온 폐쇄망 안전 프롬프트 스킬 — 질문 키워드 맞으면 자동 주입. (execute_code/web 등 위험·외부망 제외)</p>
+  <table>
+    <thead><tr><th style="width:46px;">#</th><th style="width:200px;">스킬명</th><th style="width:240px;">발동 키워드</th><th>하는 일</th></tr></thead>
+    <tbody>
+      <tr><td class="id">B1</td><td class="nm">🧭 task-planning</td><td class="kw">만들·구현·설계·프로그램·코드·연구·분석·계획·단계·아키텍처</td><td>다단계 작업 → 목표정의 → 3~6단계 계획 → 실행 → 자가점검</td></tr>
+      <tr><td class="id">B2</td><td class="nm">🐞 systematic-debugging</td><td class="kw">오류·에러·버그·디버·안돼·실패·exception·traceback</td><td>재현 → 가설2~3 → 최소수정 검증 → 환경vs코드 구분 → 재검증</td></tr>
+      <tr><td class="id">B3</td><td class="nm">📊 structured-data-analysis</td><td class="kw">데이터·분석·통계·반송·FAB·로그·수율·OHT·OHS·CSV·컬럼·추세</td><td>컬럼/단위 확인 → 가설 → 통계→이상치→추세 → 실제값만 → 시각화</td></tr>
+      <tr><td class="id">B4</td><td class="nm">✅ answer-verification</td><td class="kw">보고서·결론·정확·검증·요약</td><td>최종답 전 자가검증: 근거 실재? 누락? 불확실하면 명시</td></tr>
+    </tbody>
+  </table>
+
+  <h2>⚙️ 작동 방식 (공통)</h2>
+  <div class="how">
+    <div>
+      <h3>텍스트 프로토콜</h3>
+      모델이 답변에 펜스 블록 출력 → 백엔드 파싱<br>
+      <code>```hermes:memory</code> 기억 저장<br>
+      <code>```hermes:skill</code> 스킬 생성(확인형)<br>
+      <code>```hermes:ask</code> 되묻기<br>
+      <span style="color:var(--mut);font-size:12px;">네이티브 함수콜 불필요 → 폐쇄망/GGUF/API 무관</span>
+    </div>
+    <div>
+      <h3>파일 저장</h3>
+      <code>demos_data/agents/&lt;user_id&gt;/</code><br>
+      MEMORY.md / USER.md · skills/ · sessions/*.jsonl<br>
+      usage·counters·curator.json<br>
+      <span style="color:var(--mut);font-size:12px;">원자쓰기(tempfile→os.replace) · 인젝션 차단 · 저장소당 6,000자</span>
+    </div>
+  </div>
+
+  <h2>📂 코드 모듈 <code>hermes/</code></h2>
+  <table>
+    <thead><tr><th style="width:160px;">파일</th><th>역할</th><th style="width:80px;">만든 날</th></tr></thead>
+    <tbody>
+      <tr><td class="id">store.py</td><td>경로/원자쓰기/안전성</td><td class="kw">6/4</td></tr>
+      <tr><td class="id">memory.py</td><td>MEMORY/USER add·replace·remove·snapshot</td><td class="kw">6/4</td></tr>
+      <tr><td class="id">sessions.py</td><td>세션 로그 + BM25 회상</td><td class="kw">6/4</td></tr>
+      <tr><td class="id">protocol.py</td><td>텍스트 프로토콜 파싱</td><td class="kw">6/4</td></tr>
+      <tr><td class="id">skills.py</td><td>자기학습 스킬 생성/patch/회상</td><td class="kw">6/4</td></tr>
+      <tr><td class="id">counters.py</td><td>리뷰 트리거 카운터</td><td class="kw">6/4</td></tr>
+      <tr><td class="id">engine.py</td><td>프롬프트 조립 + 응답 블록 처리</td><td class="kw">6/4</td></tr>
+      <tr><td class="id">routes.py</td><td>Flask /api/hermes/*</td><td class="kw">6/4</td></tr>
+      <tr><td class="id">curator.py</td><td>앱 시작 시 스킬 정리</td><td class="kw">6/4</td></tr>
+      <tr><td class="id">review.py</td><td>백그라운드 리뷰</td><td class="kw">6/4</td></tr>
+      <tr><td class="id" style="color:var(--lime);">builtin.py</td><td><b>빌트인 스킬 팩 4종</b></td><td class="kw" style="color:var(--lime);">6/5</td></tr>
+    </tbody>
+  </table>
+
+  <h2>🗺 한눈에</h2>
+  <div class="map">🔮 헤르메스
+├─ <span class="y">[어제 6/4] 코어 기능 6</span>
+│    🧠 메모리 · 📚 자기학습스킬 · ❓ 되묻기 · 🔎 세션회상 · ♻️ 백그라운드리뷰 · 🗂 큐레이터
+└─ <span class="t">[오늘 6/5] 빌트인 스킬 4</span>
+     🧭 task-planning · 🐞 systematic-debugging · 📊 structured-data-analysis · ✅ answer-verification
+   <span class="acc">(+ 자기학습으로 사용자별 스킬이 0 → ∞ 누적)</span></div>
+  <p class="note" style="margin-top:14px;">※ 데모스 공용 388개 스킬(<code>scientific-skills/</code>)은 헤르메스가 아니라 <b>데모스</b> 거라 제외.</p>
+
+  <div class="foot">Hermes Engine — 기능 요약 · agent-kits/hermes-engine</div>
+</div>
+</body>
+</html>
