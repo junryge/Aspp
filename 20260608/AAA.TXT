@@ -145,7 +145,7 @@ def compute_lifter_hids(station_path, layout_input=None, nodes=None, lift=None):
                 for r in _csv.DictReader(f):
                     z = (r.get("근처HID4") or "").strip()
                     if z:
-                        out[r["Lifter"]] = [z]
+                        out[r["Lifter"]] = [z, (r.get("경계mm") or "").strip()]
             print(f"  리프터별 근처 HID4: {len(out)}기 (출처 {os.path.basename(cand)})")
             return out
 
@@ -196,7 +196,7 @@ def compute_lifter_hids(station_path, layout_input=None, nodes=None, lift=None):
                     if d < bd:
                         bd, best = d, z
         if best:
-            out[lf] = [best]
+            out[lf] = [best, str(round(math.sqrt(bd)))]
     print(f"  리프터별 근처 HID4: {len(out)}기 (출처 {os.path.basename(csv_path)})")
     return out
 
@@ -266,10 +266,11 @@ function draw(){{
     ctx.strokeStyle=col;ctx.setLineDash([5,3]);
     ctx.strokeRect(x1,y1,x2-x1,y2-y1);ctx.setLineDash([]);
     ctx.fillStyle=col;ctx.fillText(fab+'-'+lf,x1,y1-4);
-    // 근방 HID 번호 (박스 아래)
+    // 근처 HID + 경계(mm) (박스 아래)
     const hids=LHID[lf];
     if(hids&&hids.length){{ctx.fillStyle='#22d3ee';ctx.font='bold 11px monospace';
-      ctx.fillText('HID '+hids.join(','),x1,y2+13);ctx.font='bold 13px monospace';}}
+      const lab='HID'+hids[0]+(hids[1]?' ('+hids[1]+'mm)':'');
+      ctx.fillText(lab,x1,y2+13);ctx.font='bold 13px monospace';}}
   }}
   // 리프터 포트 강조: IN=노랑, OUT=초록
   for(const a in LIFT){{const p=NODES[a];if(!p)continue;const port=LIFT[a];
