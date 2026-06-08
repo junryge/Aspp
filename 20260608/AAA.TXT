@@ -134,9 +134,9 @@ def main():
 
     with open(out, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f)
-        w.writerow(["Lifter", "FAB", "근처HID4"])
+        w.writerow(["Lifter", "FAB", "근처HID4", "경계mm"])
         for lf, fab, z, d in rows:
-            w.writerow([lf, fab, z])
+            w.writerow([lf, fab, z, d])
 
     print(f"\n=== 생성됨: {out} (리프터 {len(rows)}기) ===")
     for lf, fab, z, d in rows:
