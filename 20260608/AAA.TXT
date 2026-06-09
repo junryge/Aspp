@@ -1,102 +1,491 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-count_lifter_inout.py - 리프터 근처 HID 결과 CSV (1분단위, 17기)
-  진입개수 + 점유 + MAX_VHL + 포화도 를 한 파일에 다 출력.
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🔮 헤르메스 DEMO — LLM API로 체험하기</title>
+<style>
+  :root{ --bg:#0b0e16; --card:#161b27; --line:#26304180; --txt:#e8edf6; --mut:#93a0b5;
+         --cyan:#00e5ff; --violet:#a855f7; --lime:#4ade80; --amber:#fbbf24; --pink:#ff3ea5; }
+  *{box-sizing:border-box}
+  body{margin:0;background:
+        radial-gradient(1100px 700px at 8% -10%, rgba(0,229,255,.10), transparent 60%),
+        radial-gradient(1000px 700px at 110% 115%, rgba(168,85,247,.12), transparent 60%),
+        var(--bg);
+       color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Malgun Gothic',sans-serif;
+       line-height:1.6;padding:22px 14px;}
+  .wrap{max-width:1180px;margin:0 auto;}
+  h1{font-size:24px;margin:0 0 2px;}
+  h1 .pill{font-size:11px;background:linear-gradient(135deg,var(--cyan),var(--violet));color:#04121a;
+        padding:3px 10px;border-radius:20px;margin-left:8px;font-weight:800;vertical-align:middle;}
+  .sub{color:var(--mut);margin:0 0 16px;font-size:13.5px;}
+  a{color:var(--cyan);text-decoration:none;} a:hover{text-decoration:underline;}
+  .grid{display:grid;grid-template-columns:1fr 340px;gap:14px;align-items:start;}
+  @media(max-width:880px){ .grid{grid-template-columns:1fr;} }
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;}
+  .card h2{font-size:14px;margin:0 0 10px;border-left:3px solid var(--cyan);padding-left:8px;}
+  .card h3{font-size:12.5px;margin:12px 0 6px;color:var(--violet);}
+  label{display:block;font-size:11.5px;color:var(--mut);margin:8px 0 3px;}
+  input,select,textarea{width:100%;background:#0d1018;border:1px solid var(--line);border-radius:7px;
+        color:var(--txt);padding:7px 9px;font-size:12.5px;font-family:inherit;}
+  textarea{resize:vertical;min-height:54px;}
+  .row{display:flex;gap:8px;} .row>*{flex:1;}
+  button{background:linear-gradient(135deg,var(--cyan),var(--violet));color:#04121a;border:none;
+        border-radius:8px;padding:8px 14px;font-weight:800;font-size:12.5px;cursor:pointer;}
+  button.sec{background:#222b3a;color:var(--txt);border:1px solid var(--line);}
+  button:disabled{opacity:.5;cursor:default;}
+  .chat{height:46vh;min-height:320px;overflow-y:auto;background:#0d1018;border:1px solid var(--line);
+        border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:10px;}
+  .msg{max-width:88%;padding:9px 12px;border-radius:12px;font-size:13px;white-space:pre-wrap;word-break:break-word;}
+  .msg.user{align-self:flex-end;background:#1d4ed8;color:#fff;}
+  .msg.assistant{align-self:flex-start;background:#1a2030;border:1px solid var(--line);}
+  .msg.sys{align-self:center;background:transparent;color:var(--mut);font-size:11.5px;border:1px dashed var(--line);}
+  .testbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px;}
+  .testbar .tlabel{font-size:11.5px;color:var(--mut);}
+  button.sm{padding:5px 9px;font-size:11px;}
+  .inrow{display:flex;gap:8px;margin-top:8px;}
+  .inrow textarea{flex:1;min-height:42px;}
+  .tag{display:inline-block;font-size:10.5px;border-radius:6px;padding:1px 7px;margin:2px 3px 0 0;}
+  .tag.mem{background:rgba(0,229,255,.14);color:#9beaff;border:1px solid rgba(0,229,255,.35);}
+  .tag.usr{background:rgba(168,85,247,.16);color:#d8b4fe;border:1px solid rgba(168,85,247,.35);}
+  .tag.sk{background:rgba(74,222,128,.14);color:#bbf7d0;border:1px solid rgba(74,222,128,.35);}
+  .item{font-size:12px;padding:5px 7px;background:#0d1018;border:1px solid var(--line);border-radius:7px;margin:5px 0;
+        display:flex;justify-content:space-between;gap:6px;align-items:flex-start;}
+  .item .x{color:var(--pink);cursor:pointer;font-weight:700;flex:0 0 auto;}
+  .muted{color:var(--mut);font-size:11.5px;}
+  pre{background:#0d1018;border:1px solid var(--line);border-radius:8px;padding:10px;overflow:auto;
+      font-family:'Consolas',monospace;font-size:11.5px;color:#cfe3ff;white-space:pre-wrap;}
+  code{background:#0d1018;color:#9ecbff;padding:1px 5px;border-radius:5px;font-family:'Consolas',monospace;font-size:12px;}
+  details{margin:8px 0;} summary{cursor:pointer;color:var(--cyan);font-size:12.5px;font-weight:700;}
+  .approve{background:#10261a;border:1px solid rgba(74,222,128,.4);border-radius:8px;padding:8px;margin:6px 0;font-size:12px;}
+  .approve .nm{color:var(--lime);font-weight:800;}
+  .approve button{padding:4px 10px;font-size:11.5px;margin-top:6px;}
+  .ask{background:#2a1f10;border:1px solid rgba(251,191,36,.4);border-radius:8px;padding:8px;margin:6px 0;font-size:12.5px;color:#fde68a;}
+  .ok{color:var(--lime);} .warn{color:var(--amber);}
+  table{width:100%;border-collapse:collapse;font-size:12px;margin:6px 0;}
+  th,td{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top;}
+  th{background:#1c2331;color:#c7d2e3;}
+  .steps{counter-reset:s;padding-left:0;list-style:none;margin:6px 0;}
+  .steps li{counter-increment:s;font-size:12.5px;margin:6px 0;padding-left:26px;position:relative;}
+  .steps li::before{content:counter(s);position:absolute;left:0;top:0;width:18px;height:18px;border-radius:50%;
+        background:linear-gradient(135deg,var(--cyan),var(--violet));color:#04121a;font-size:11px;font-weight:800;
+        display:flex;align-items:center;justify-content:center;}
+  .foot{color:var(--mut);font-size:11.5px;margin-top:18px;text-align:center;border-top:1px solid var(--line);padding-top:12px;}
+</style>
+</head>
+<body>
+<div class="wrap">
 
-입력:
-  LOGPRESSO_HID_INOUT_*.csv      (FROM_HIDID/TO_HIDID/VHL_ID/_time)
-  리프터_근처HID4.csv             (Lifter -> 근처HID4, 경계mm)
-  HID_Zone_Master_*.csv          (Zone_ID -> Vehicle_Max, Vehicle_Precaution)  ※용량/포화도용
+  <h1>🔮 헤르메스 DEMO <span class="pill">Hermes · LLM API</span></h1>
+  <p class="sub">키만 넣으면 바로 체험하는 헤르메스 — <b>기억하고 스스로 배우는</b> 에이전트 레이어.
+     이 페이지는 백엔드 없이 <b>브라우저에서 직접 LLM API를 호출</b>하고, 헤르메스 텍스트 프로토콜을 그대로 처리합니다.
+     <br>(실서비스 통합은 <a href="README.md">README.md</a> / <a href="HERMES_FEATURES.html">기능</a> / <a href="HERMES_SKILLS.html">스킬</a> 참고)</p>
 
-출력 컬럼:
-  시각, Lifter, FAB, 근처HID, 경계mm, 진입개수, 점유차량수, MAX_VHL, 포화도%
-   - 진입개수 = 그 1분에 그 HID로 들어온 차량(TO_HIDID, 중복제거)
-   - 점유차량수 = 그 시점 HID에 머무는 차량(IN-OUT 추적 peak)
-   - MAX_VHL = 그 HID 최대 수용(Vehicle_Max)
-   - 포화도% = 점유차량수 / MAX_VHL * 100
+  <!-- ===================== 사용법 ===================== -->
+  <div class="card" style="margin-bottom:14px;">
+    <h2>📖 사용법 (3단계)</h2>
+    <ol class="steps">
+      <li><b>접속 설정</b> — 오른쪽 패널에 LLM API 주소(OpenAI 호환 <code>/v1</code>)·API 키·모델명을 넣고 <b>저장</b>.
+          (예: 주소 <code>http://common.llm.skhynix.com/v1</code>, 모델 <code>Qwen3.6-35B-A3B</code>)</li>
+      <li><b>대화</b> — 아래 채팅에 평소처럼 질문. 헤르메스가 시스템 프롬프트에 <b>기억·스킬·지침</b>을 자동으로 끼워 LLM에 보냅니다.</li>
+      <li><b>학습 확인</b> — 모델이 답 끝에 숨은 블록(<code>```hermes:memory/skill/ask</code>)을 내면, 데모가 파싱해서
+          <b>기억 저장 · 스킬 승인 · 되묻기</b>를 처리. 오른쪽에서 기억/스킬이 쌓이는 걸 실시간으로 봅니다.</li>
+    </ol>
+    <p class="muted">💡 이렇게 말해보세요 → <code>"나는 M16 FAB의 OHT 반송 정체를 분석해. 답은 표로 줘."</code> 하면
+       헤르메스가 <b>담당 업무(MEMORY)</b>와 <b>표 선호(USER)</b>를 기억합니다. 다음 질문부터 자동 반영돼요.</p>
+    <details>
+      <summary>⚙️ 헤르메스가 내부적으로 하는 일 (작동 원리)</summary>
+      <p class="muted" style="margin:8px 0 4px;">매 질문마다 시스템 프롬프트를 이렇게 조립해서 LLM에 보냅니다:</p>
+      <pre>[기억 스냅샷]  MEMORY(사실) + USER(선호)
+[배운 스킬 목록]  이름 + 언제 쓰는지
+[관련 스킬 본문]  질문과 관련된 개인 스킬 (있으면)
+[빌트인 스킬]  질문 키워드에 맞는 권장 작업방식 상위 2개
+[프로토콜 지침]  "블록으로 기억/스킬/되묻기 하라"
 
-사용법:
-  python count_lifter_inout.py LOGPRESSO_HID_INOUT_*.csv 리프터_근처HID4.csv HID_Zone_Master_M16A_BR.csv 결과.csv
-  python count_lifter_inout.py ... HID_Zone_Master_M16A_BR.csv --at "2026-04-21 14:04"
-"""
-import sys, os, csv
-from collections import defaultdict
+→ LLM 답변 끝의 ```hermes:... 블록을 파싱 → 기억저장 / 스킬승인 / 되묻기
+→ 블록은 화면에서 제거(사용자에겐 깔끔한 답만 보임)</pre>
+      <p class="muted">※ <b>네이티브 함수콜(tool calling) 불필요</b> — 순수 텍스트 프로토콜이라 폐쇄망/GGUF/어떤 API든 동작합니다.</p>
+    </details>
+  </div>
 
+  <div class="grid">
+    <!-- ===================== 채팅 ===================== -->
+    <div class="card">
+      <h2>💬 대화</h2>
+      <div class="chat" id="chat">
+        <div class="msg sys">오른쪽에서 API를 설정한 뒤 대화를 시작하세요. 예: "나는 M16 FAB OHT 반송 정체를 분석해. 답은 표로."</div>
+      </div>
+      <div id="approveBox"></div>
+      <div class="testbar">
+        <span class="tlabel">🧪 빠른 테스트:</span>
+        <button class="sec sm" onclick="fillEx('mem')">예시① 기억</button>
+        <button class="sec sm" onclick="fillEx('skill')">예시② 스킬 학습</button>
+        <button class="sec sm" onclick="simulateSkill()" title="API 없이 스킬 승인→저장→회상 흐름을 바로 봅니다">스킬 흐름 시뮬레이트(무 API)</button>
+      </div>
+      <div class="inrow">
+        <textarea id="input" placeholder="질문을 입력하세요 (Enter 전송, Shift+Enter 줄바꿈)"></textarea>
+        <button id="sendBtn" onclick="onSend()">전송</button>
+      </div>
+      <p class="muted" id="status" style="margin:6px 0 0;">상태: 대기</p>
+    </div>
 
-def main():
-    if len(sys.argv) < 4:
-        print(__doc__); sys.exit(1)
-    inout, map_csv, hid_master = sys.argv[1:4]
-    at = None; out = "결과.csv"
-    if "--at" in sys.argv:
-        at = sys.argv[sys.argv.index("--at") + 1]
-    elif len(sys.argv) > 4 and not sys.argv[4].startswith("--"):
-        out = sys.argv[4]
+    <!-- ===================== 사이드 ===================== -->
+    <div>
+      <div class="card">
+        <h2>🔌 LLM API 설정</h2>
+        <label>API 주소 (OpenAI 호환, /v1)</label>
+        <input id="cfgBase" placeholder="http://common.llm.skhynix.com/v1">
+        <label>API 키 (Bearer 토큰)</label>
+        <input id="cfgKey" type="password" placeholder="token.txt 내용 붙여넣기">
+        <label>모델명 <span class="muted" style="cursor:pointer;color:var(--cyan);" onclick="loadModels()">↻ 목록 불러오기</span></label>
+        <input id="cfgModel" list="modelList" placeholder="Qwen3.6-35B-A3B">
+        <datalist id="modelList"></datalist>
+        <label style="display:flex;align-items:center;gap:6px;margin-top:8px;">
+          <input type="checkbox" id="cfgStream" style="width:auto;"> 스트리밍 사용 (서버 미지원 시 끄세요 — 기본 꺼짐)
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;">
+          <input type="checkbox" id="cfgFold" style="width:auto;"> system을 첫 user에 합치기 (gemma 계열)
+        </label>
+        <div class="row" style="margin-top:10px;">
+          <button onclick="saveCfg()">저장</button>
+          <button class="sec" onclick="testCfg()">연결 테스트</button>
+        </div>
+        <p class="muted" id="cfgMsg" style="margin:6px 0 0;"></p>
+      </div>
 
-    # 리프터 -> HID, 경계mm
-    lifter_zone = {}; lifter_mm = {}
-    with open(map_csv, encoding="utf-8-sig") as f:
-        for r in csv.DictReader(f):
-            lifter_zone[r["Lifter"]] = r["근처HID4"].strip()
-            lifter_mm[r["Lifter"]] = (r.get("경계mm") or "").strip()
+      <div class="card" style="margin-top:12px;">
+        <h2>🧠 기억 <span class="muted" id="memCount"></span></h2>
+        <h3>MEMORY — 사실(역할·환경·도구)</h3>
+        <div id="memList"><p class="muted">아직 없음. 역할·담당·시스템을 말하면 쌓입니다.</p></div>
+        <h3>USER — 선호(형식·말투·언어)</h3>
+        <div id="usrList"><p class="muted">아직 없음. "표로 줘" 같은 선호를 말해보세요.</p></div>
+      </div>
 
-    # HID -> 용량(Vehicle_Max)
-    zmax = {}
-    with open(hid_master, encoding="utf-8-sig") as f:
-        for r in csv.DictReader(f):
-            try: zmax[r["Zone_ID"].strip()] = int(r.get("Vehicle_Max") or 0)
-            except ValueError: pass
+      <div class="card" style="margin-top:12px;">
+        <h2>📚 배운 스킬 <span class="muted" id="skCount"></span></h2>
+        <div id="skList"><p class="muted">아직 없음. 재사용할 절차를 발견하면 승인 후 저장됩니다.</p></div>
+      </div>
 
-    # 이벤트 시간순 -> 진입개수(분별) + 점유 추적(peak)
-    events = []
-    with open(inout, encoding="utf-8-sig") as f:
-        for r in csv.DictReader(f):
-            events.append((r["_time"], r["FROM_HIDID"].strip(), r["TO_HIDID"].strip(), r["VHL_ID"]))
-    events.sort()
+      <div class="card" style="margin-top:12px;">
+        <h2>🧰 빌트인 스킬 4종 <span class="muted">(키워드 자동 주입)</span></h2>
+        <div class="muted" style="font-size:11.5px;">질문에 키워드가 맞으면 상위 2개가 자동으로 끼어듭니다.</div>
+        <div id="builtinList" style="margin-top:6px;"></div>
+        <button class="sec" style="margin-top:8px;width:100%;" onclick="resetAll()">🗑 데모 데이터 초기화</button>
+      </div>
+    </div>
+  </div>
 
-    in_veh = defaultdict(set)               # (minute, hid) -> 진입차량 집합
-    occ = defaultdict(set)                  # hid -> 현재 점유 차량
-    peak = defaultdict(lambda: defaultdict(int))  # minute -> hid -> peak 점유
-    for t, fr, to, v in events:
-        m = t[:16]
-        if to:
-            in_veh[(m, to)].add(v)
-            occ[to].add(v)
-        if fr:
-            occ[fr].discard(v)
-        for hid in (fr, to):
-            if hid:
-                c = len(occ[hid])
-                if c > peak[m][hid]:
-                    peak[m][hid] = c
+  <div class="foot">Hermes Engine — DEMO.html · 이 파일은 데모용 클라이언트 재현입니다. 실제 엔진(Python)은 hermes/ 패키지 참고.</div>
+</div>
 
-    minutes = sorted(set(m for m, _ in in_veh) | set(peak))
-    fab = lambda lf: "M16" if lf[0] == "6" else ("M14" if lf[0] == "4" else "?")
-    def sat(c, z):
-        mx = zmax.get(z, 0)
-        return round(100.0 * c / mx, 1) if mx else ""
+<script>
+// ============ 헤르메스 빌트인 스킬 4종 (hermes/builtin.py 와 동일) ============
+const BUILTIN = {
+  "task-planning": { desc:"복잡한 작업은 먼저 단계 계획을 세우고 실행",
+    keywords:["만들","구현","설계","프로그램","코드","연구","분석","계획","파이프라인","단계","아키텍처","build","design","research"],
+    body:"복잡·다단계 요청이면 바로 답하지 말고:\n1) 목표를 한 줄로 정의\n2) 3~6단계 실행 계획 제시(각 단계 산출물 명시)\n3) 계획대로 실행/작성\n4) 마지막에 빠진 단계가 없는지 자가점검" },
+  "systematic-debugging": { desc:"오류는 재현→가설→최소수정→검증 순서로",
+    keywords:["오류","에러","버그","디버","안돼","안 돼","실패","exception","traceback","고장","error","bug","fix"],
+    body:"오류 해결 순서:\n1) 증상/재현 조건 명확화\n2) 원인 가설 2~3개\n3) 가능성 높은 것부터 최소 변경으로 검증\n4) 환경 의존(패키지/권한) vs 코드 문제 구분\n5) 수정 후 재현 절차로 검증" },
+  "structured-data-analysis": { desc:"데이터는 컬럼/단위 확인 후 가설→통계→시각화",
+    keywords:["데이터","분석","통계","반송","fab","로그","수율","oht","ohs","csv","엑셀","컬럼","추세","이상","data","analysis"],
+    body:"데이터 분석 절차:\n1) 컬럼명·단위·기간을 먼저 확인(추측 금지)\n2) 분석 질문을 가설로 정의\n3) 기술통계 → 이상치 → 상관/추세 순\n4) 실제 값/컬럼만 인용(없는 값 만들지 말 것)\n5) 결론 + 표/차트 시각화 권고" },
+  "answer-verification": { desc:"최종 답 전 자가검증(근거·누락 확인)",
+    keywords:["보고서","결론","정확","검증","요약","report","verify"],
+    body:"최종 답 직전 자가검증:\n1) 인용한 수치·컬럼·함수가 실제 컨텍스트에 있는가?\n2) 단정 대신 근거를 붙였는가?\n3) 요청을 빠짐없이 다뤘는가?\n불확실하면 추측임을 명시한다." },
+};
 
-    with open(out, "w", newline="", encoding="utf-8-sig") as f:
-        w = csv.writer(f)
-        w.writerow(["시각", "Lifter", "FAB", "근처HID", "경계mm", "진입개수", "점유차량수", "MAX_VHL", "포화도%"])
-        for m in minutes:
-            for lf in sorted(lifter_zone):
-                z = lifter_zone[lf]
-                nin = len(in_veh.get((m, z), ()))
-                pk = peak[m].get(z, 0)
-                w.writerow([m, lf, fab(lf), z, lifter_mm.get(lf, ""), nin, pk, zmax.get(z, ""), sat(pk, z)])
+// ============ 프로토콜 지침 (hermes/engine.py PROTOCOL_GUIDE 와 동일 취지) ============
+const PROTOCOL_GUIDE = `=== 헤르메스 능력 (텍스트 프로토콜) ===
+너는 대화에서 배우고 기억하는 에이전트다. 아래 블록을 답변 끝에 덧붙여 사용한다.
+(블록은 사용자에게 안 보이게 시스템이 처리한다. 남발 금지 — 정말 가치 있을 때만.)
 
-    if at:
-        print(f"=== {at} · 리프터 근처 HID (진입개수 / 점유·포화도) ===")
-        rows = [(lf, lifter_zone[lf], len(in_veh.get((at, lifter_zone[lf]), ())),
-                 peak.get(at, {}).get(lifter_zone[lf], 0)) for lf in lifter_zone]
-        for lf, z, nin, pk in sorted(rows, key=lambda x: -x[2]):
-            print(f"  {lf:10} HID{z:3}  진입 {nin:3}대  점유 {pk:3}/{zmax.get(z,'?')} ({sat(pk,z)}%)")
-    else:
-        print(f"분 구간 {len(minutes)}개 ({minutes[0]} ~ {minutes[-1]}) · 리프터 {len(lifter_zone)}기")
-    print(f"\n저장: {os.path.abspath(out)}")
+1) 대화에서 기억할 정보가 나오면 저장한다. 두 종류를 구분한다:
+   · store: memory = 환경·프로젝트 "사실"(담당 FAB/라인, 시스템·도구, 데이터, 제약, 도메인 용어)
+   · store: user   = 사용자 "선호"(답변 형식/말투/언어/길이)
+   ★ 사용자가 역할·담당·사용 시스템·도구·데이터·도메인을 드러내면 → 반드시 store: memory 로 저장.
+\`\`\`hermes:memory
+store: memory
+action: add
+text: 사용자는 M16 FAB의 OHT 반송 정체를 분석한다
+\`\`\`
+\`\`\`hermes:memory
+store: user
+action: add
+text: 사용자는 답변을 표로 정리하는 것을 선호한다
+\`\`\`
+- 선언형 한 문장. action: add | replace(target=기존일부) | remove(target=기존일부). 중복/잡담 생략.
 
+2) 재사용 가치 있는 절차/해법을 발견하면(다단계 작업·까다로운 오류해결·비자명 워크플로):
+\`\`\`hermes:skill
+action: create
+name: <소문자-하이픈 이름>
+when: <언제 쓰는지 한 줄>
+body: |
+  1. ...
+  2. ...
+\`\`\`
+- 저장 전 사용자 승인을 받는다(시스템이 처리).
 
-if __name__ == "__main__":
-    main()
+3) 요청이 모호하면 추측 말고 먼저 되묻는다:
+\`\`\`hermes:ask
+- <핵심 질문1>
+- <핵심 질문2>
+\`\`\``;
+
+// ============ 저장 (localStorage = 데모 영속화) ============
+const LS = { mem:'hermesDemo_MEMORY', usr:'hermesDemo_USER', sk:'hermesDemo_SKILLS', cfg:'hermesDemo_CFG', hist:'hermesDemo_HIST' };
+const get = k => { try{ return JSON.parse(localStorage.getItem(k)||'[]'); }catch(e){ return []; } };
+const set = (k,v) => localStorage.setItem(k, JSON.stringify(v));
+const getCfg = () => { try{ return JSON.parse(localStorage.getItem(LS.cfg)||'{}'); }catch(e){ return {}; } };
+
+let history = get(LS.hist);
+
+// ============ 시스템 프롬프트 조립 ============
+function memorySnapshot(){
+  const mem=get(LS.mem), usr=get(LS.usr); let s='';
+  if(mem.length) s += '=== 기억된 사실 (MEMORY) ===\n' + mem.map(t=>'- '+t).join('\n') + '\n\n';
+  if(usr.length) s += '=== 사용자 선호 (USER) ===\n' + usr.map(t=>'- '+t).join('\n') + '\n\n';
+  return s.trim();
+}
+function skillIndex(){ const sk=get(LS.sk); return sk.length ? '=== 배운 스킬 (이름: 언제) ===\n'+sk.map(s=>`- ${s.name}: ${s.when}`).join('\n') : ''; }
+function recallSkills(q,k=2){
+  const sk=get(LS.sk), ql=(q||'').toLowerCase();
+  const scored = sk.map(s=>({s, h: ((s.name+' '+s.when).toLowerCase().split(/[\s-]+/).filter(w=>w&&ql.includes(w)).length)}))
+                   .filter(x=>x.h>0).sort((a,b)=>b.h-a.h);
+  return scored.slice(0,k).map(x=>x.s);
+}
+function recallBuiltin(q,k=2){
+  const ql=(q||'').toLowerCase();
+  return Object.entries(BUILTIN).map(([n,s])=>({n,s,h:s.keywords.filter(kw=>ql.includes(kw.toLowerCase())).length}))
+    .filter(x=>x.h>0).sort((a,b)=>b.h-a.h).slice(0,k);
+}
+function buildSystemPrompt(query){
+  const parts=[];
+  const mem=memorySnapshot(); if(mem) parts.push(mem);
+  const idx=skillIndex(); if(idx) parts.push(idx);
+  const rs=recallSkills(query); if(rs.length) parts.push('=== 관련 개인 스킬 본문 ===\n'+rs.map(s=>`--- 스킬: ${s.name} ---\n${s.body}`).join('\n\n'));
+  const bi=recallBuiltin(query); if(bi.length) parts.push('=== 권장 작업 방식 (헤르메스 빌트인 스킬) ===\n'+bi.map(x=>`[${x.n}] ${x.s.desc}\n${x.s.body}`).join('\n\n'));
+  parts.push(PROTOCOL_GUIDE);
+  return parts.join('\n\n');
+}
+
+// ============ 블록 파싱 (hermes/protocol.py 와 동일) ============
+const FENCE = /```[ \t]*hermes:(memory|skill|ask)[ \t]*\n([\s\S]*?)```/gi;
+function parseBlocks(text){
+  const blocks=[];
+  const clean = (text||'').replace(FENCE, (m,kind,body)=>{ blocks.push({kind:kind.toLowerCase(), body}); return ''; });
+  return { clean: clean.trim(), blocks };
+}
+function parseKV(body){
+  const out={}; const lines=body.split('\n'); const multi=['body','text'];
+  for(let i=0;i<lines.length;i++){
+    const m=lines[i].match(/^([a-zA-Z_]+)\s*:\s*(.*)$/); if(!m) continue;
+    const key=m[1].toLowerCase(), val=m[2];
+    if(multi.includes(key) && ['','|','|-','>'].includes(val.trim())){
+      out[key]=lines.slice(i+1).map(c=>c.startsWith('  ')?c.slice(2):c).join('\n').trim(); break;
+    }
+    out[key]=val.trim();
+  }
+  return out;
+}
+function parseAsk(body){
+  const qs=[]; for(const ln of body.split('\n')){ const s=ln.trim(); const m=s.match(/^[-*•]\s+(.+)$/);
+    if(m) qs.push(m[1].trim()); else if(s && !qs.length) qs.push(s); }
+  return qs.filter(Boolean).slice(0,5);
+}
+
+// ============ 블록 적용 (memory 저장 / skill 승인대기 / ask) ============
+function applyBlocks(blocks){
+  const memResults=[], pending=[], questions=[];
+  for(const b of blocks){
+    if(b.kind==='memory'){
+      const kv=parseKV(b.body); const store=(kv.store==='user')?LS.usr:LS.mem; const arr=get(store);
+      const act=(kv.action||'add').toLowerCase();
+      if(act==='add' && kv.text){ if(!arr.includes(kv.text)){ arr.push(kv.text); set(store,arr); memResults.push((store===LS.usr?'USER':'MEMORY')+' + '+kv.text); } }
+      else if(act==='remove' && kv.target){ const n=arr.filter(t=>!t.includes(kv.target)); set(store,n); memResults.push('제거: '+kv.target); }
+      else if(act==='replace' && kv.target && kv.text){ const n=arr.map(t=>t.includes(kv.target)?kv.text:t); set(store,n); memResults.push('교체: '+kv.text); }
+    } else if(b.kind==='skill'){
+      const kv=parseKV(b.body);
+      if(kv.name && kv.body){ pending.push({name:kv.name, when:kv.when||'', body:kv.body}); }
+    } else if(b.kind==='ask'){
+      parseAsk(b.body).forEach(q=>questions.push(q));
+    }
+  }
+  return { memResults, pending, questions };
+}
+
+// ============ LLM API 호출 (OpenAI 호환, 스트리밍) ============
+async function callLLM(messages, onToken){
+  const cfg=getCfg();
+  if(!cfg.base || !cfg.model){ throw new Error('먼저 API 주소·모델을 설정/저장하세요.'); }
+  let msgs = messages;
+  if(cfg.fold){ // gemma 등 system 미지원 → system을 첫 user 앞에 합침
+    const sys=msgs.filter(m=>m.role==='system').map(m=>m.content).join('\n\n');
+    const rest=msgs.filter(m=>m.role!=='system'); let done=false;
+    msgs=rest.map(m=>{ if(!done && m.role==='user'){ done=true; return {role:'user', content:sys+'\n\n'+m.content}; } return m; });
+    if(!done) msgs=[{role:'user',content:sys}].concat(rest);
+  }
+  const url = cfg.base.replace(/\/+$/,'') + '/chat/completions';
+  const headers={'Content-Type':'application/json'}; if(cfg.key) headers['Authorization']='Bearer '+cfg.key;
+  const body={model:cfg.model, messages:msgs, max_tokens:2048};
+  if(cfg.stream) body.stream=true;
+  let resp;
+  try{
+    resp=await fetch(url,{method:'POST',headers,body:JSON.stringify(body)});
+  }catch(e){ // 네트워크/CORS 실패 (Failed to fetch)
+    throw new Error('네트워크/CORS 차단 — 브라우저가 사내 API에 직접 접근 못 함. proxy.py 를 켜고 주소를 http://localhost:8000/v1 로 바꾸세요. ('+(e.message||e)+')');
+  }
+  if(!resp.ok){ const t=await resp.text().catch(()=> ''); throw new Error('HTTP '+resp.status+(t?(' '+t.slice(0,300)):'')); }
+  // 비스트리밍 (기본, 당신 Python 과 동일)
+  if(!cfg.stream){
+    const j=await resp.json();
+    const acc=(j.choices&&j.choices[0]&&(j.choices[0].message?.content||j.choices[0].text))||'';
+    onToken&&onToken(acc);
+    return acc;
+  }
+  // 스트리밍 (SSE)
+  if(!resp.body){ throw new Error('스트리밍 응답 없음 — 스트리밍 체크를 끄세요.'); }
+  const reader=resp.body.getReader(), dec=new TextDecoder(); let buf='', acc='';
+  while(true){
+    const {done,value}=await reader.read(); if(done) break;
+    buf+=dec.decode(value,{stream:true}); const lines=buf.split('\n'); buf=lines.pop()||'';
+    for(const ln of lines){ const s=ln.trim(); if(!s.startsWith('data:')) continue;
+      const pl=s.slice(5).trim(); if(pl==='[DONE]') continue;
+      try{ const j=JSON.parse(pl); const tok=j.choices&&j.choices[0]&&(j.choices[0].delta?.content||''); if(tok){ acc+=tok; onToken&&onToken(acc); } }catch(_){}
+    }
+  }
+  return acc;
+}
+
+// 모델 목록 불러오기 (/v1/models) → datalist 채움
+async function loadModels(){
+  const cfg=getCfg(); if(!cfg.base){ saveCfg(); }
+  const b=($('cfgBase').value.trim()||'').replace(/\/+$/,''); const key=$('cfgKey').value.trim();
+  if(!b){ $('cfgMsg').innerHTML='<span class="warn">먼저 API 주소를 입력하세요.</span>'; return; }
+  $('cfgMsg').textContent='모델 목록 불러오는 중…';
+  try{
+    const h={}; if(key) h['Authorization']='Bearer '+key;
+    const r=await fetch(b+'/models',{headers:h}); const j=await r.json();
+    const arr=(j.data||j||[]).map(m=>m.id||m).filter(Boolean);
+    $('modelList').innerHTML=arr.map(n=>`<option value="${esc(n)}">`).join('');
+    if(arr.length && !$('cfgModel').value) $('cfgModel').value=arr[0];
+    $('cfgMsg').innerHTML='<span class="ok">✅ 모델 '+arr.length+'개 — 입력칸에서 선택</span>';
+  }catch(e){ $('cfgMsg').innerHTML='<span class="warn">목록 실패(CORS 가능): '+esc(e.message||e)+' → proxy.py 사용</span>'; }
+}
+
+// ============ UI ============
+const $=id=>document.getElementById(id);
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function addMsg(role, text){ const d=document.createElement('div'); d.className='msg '+role; d.textContent=text; $('chat').appendChild(d); $('chat').scrollTop=$('chat').scrollHeight; return d; }
+function stripThink(t){ return String(t||'').replace(/<think>[\s\S]*?<\/think>\s*/gi,'').replace(/<think>[\s\S]*$/i,'').trim(); }
+
+function renderSide(){
+  const mem=get(LS.mem), usr=get(LS.usr), sk=get(LS.sk);
+  $('memCount').textContent = mem.length?`(${mem.length})`:'';
+  $('skCount').textContent = sk.length?`(${sk.length})`:'';
+  const li=(arr,store,cls)=> arr.length ? arr.map((t,i)=>`<div class="item"><span><span class="tag ${cls}">${cls==='usr'?'USER':'MEM'}</span>${esc(t)}</span><span class="x" onclick="delItem('${store}',${i})">✕</span></div>`).join('') : '<p class="muted">아직 없음.</p>';
+  $('memList').innerHTML=li(mem,LS.mem,'mem');
+  $('usrList').innerHTML=li(usr,LS.usr,'usr');
+  $('skList').innerHTML = sk.length ? sk.map((s,i)=>`<div class="item"><span><span class="tag sk">SKILL</span><b>${esc(s.name)}</b><div class="muted">${esc(s.when)}</div><details><summary>본문</summary><pre>${esc(s.body)}</pre></details></span><span class="x" onclick="delSkill(${i})">✕</span></div>`).join('') : '<p class="muted">아직 없음. 재사용 절차 발견 시 승인 후 저장.</p>';
+}
+function delItem(store,i){ const a=get(store); a.splice(i,1); set(store,a); renderSide(); }
+function delSkill(i){ const a=get(LS.sk); a.splice(i,1); set(LS.sk,a); renderSide(); }
+function renderBuiltin(){ $('builtinList').innerHTML = Object.entries(BUILTIN).map(([n,s])=>`<span class="tag sk" title="${esc(s.keywords.join(', '))}">${n}</span>`).join(' '); }
+
+// 스킬 승인 카드
+function showApproval(pending){
+  const box=$('approveBox');
+  pending.forEach(spec=>{
+    const d=document.createElement('div'); d.className='approve';
+    d.innerHTML=`💡 새 스킬 제안: <span class="nm">${esc(spec.name)}</span><div class="muted">${esc(spec.when)}</div>`+
+      `<details><summary>본문 보기</summary><pre>${esc(spec.body)}</pre></details>`+
+      `<button onclick='this.closest(".approve").remove(); approveSkill(${JSON.stringify(spec).replace(/'/g,"&#39;")})'>✅ 저장</button> `+
+      `<button class="sec" onclick='this.closest(".approve").remove()'>건너뛰기</button>`;
+    box.appendChild(d);
+  });
+}
+function approveSkill(spec){ const a=get(LS.sk); if(!a.find(s=>s.name===spec.name)){ a.push(spec); set(LS.sk,a); renderSide(); addMsg('sys','📚 스킬 저장됨: '+spec.name); } }
+
+// ============ 전송 ============
+let busy=false;
+async function onSend(){
+  if(busy) return;
+  const text=$('input').value.trim(); if(!text) return;
+  const cfg=getCfg(); if(!cfg.base||!cfg.model){ $('cfgMsg').innerHTML='<span class="warn">먼저 API를 설정/저장하세요.</span>'; return; }
+  $('input').value=''; addMsg('user',text);
+  busy=true; $('sendBtn').disabled=true; $('status').textContent='상태: 생성 중…';
+  const sys=buildSystemPrompt(text);
+  const msgs=[{role:'system',content:sys}].concat(history).concat([{role:'user',content:text}]);
+  const bubble=addMsg('assistant','…'); let acc='';
+  try{
+    acc=await callLLM(msgs,(p)=>{ bubble.textContent=stripThink(p)||'…'; $('chat').scrollTop=$('chat').scrollHeight; });
+    const {clean,blocks}=parseBlocks(stripThink(acc));
+    const {memResults,pending,questions}=applyBlocks(blocks);
+    let shown=clean;
+    if(questions.length) shown += (shown?'\n\n':'')+'❓ '+questions.join('\n❓ ');
+    bubble.textContent = shown || '(빈 응답)';
+    history.push({role:'user',content:text}); history.push({role:'assistant',content:clean});
+    if(history.length>16) history=history.slice(-16);
+    set(LS.hist,history);
+    if(memResults.length){ addMsg('sys','🧠 기억 갱신: '+memResults.join(' · ')); renderSide(); }
+    if(pending.length) showApproval(pending);
+    $('status').textContent='상태: 완료'+(blocks.length?` · 블록 ${blocks.length}개 처리`:'');
+  }catch(e){
+    bubble.textContent='❌ '+(e.message||e); $('status').textContent='상태: 오류';
+  }finally{ busy=false; $('sendBtn').disabled=false; }
+}
+
+// ============ 빠른 테스트 ============
+function fillEx(kind){
+  if(kind==='mem'){ $('input').value='나는 M16 FAB의 OHT 반송 정체를 분석해. 답은 표로 줘.'; }
+  else if(kind==='skill'){ $('input').value='방금 OHT 정체 추적하던 절차(구간 큐 확인 → 병목 OHT 가동률 비교 → 우회경로 검토)를 앞으로 재사용하게 "스킬"로 저장해줘.'; }
+  $('input').focus();
+}
+// API 없이 스킬 승인→저장→회상 흐름을 그대로 보여줌
+function simulateSkill(){
+  const fake = `OHT 반송 정체는 보통 합류 구간에서 발생합니다. 아래 절차로 추적하면 됩니다.
+
+\`\`\`hermes:skill
+action: create
+name: oht-jam-triage
+when: OHT 반송 정체 원인을 추적할 때
+body: |
+  1. 구간별 큐 길이 확인 (정체 시작 지점 특정)
+  2. 병목 구간 OHT 가동률·속도 비교
+  3. 합류/분기 포인트의 대기 시간 측정
+  4. 우회 경로 가용성 검토 후 재배분
+\`\`\``;
+  addMsg('user','(시뮬레이트) OHT 정체 추적 절차를 스킬로 저장');
+  const bubble=addMsg('assistant','…');
+  const {clean,blocks}=parseBlocks(fake);
+  const {pending}=applyBlocks(blocks);
+  bubble.textContent = clean;
+  addMsg('sys','🧪 모델이 hermes:skill 블록을 냈습니다 → 아래 승인 카드에서 "저장"을 눌러보세요. 저장하면 오른쪽 「배운 스킬」에 쌓이고, 다음 질문에 BM25로 본문이 회상됩니다.');
+  showApproval(pending);
+  $('status').textContent='상태: 스킬 시뮬레이트 — 승인 대기';
+}
+
+// ============ 설정/초기화 ============
+function saveCfg(){ const c={base:$('cfgBase').value.trim(), key:$('cfgKey').value.trim(), model:$('cfgModel').value.trim(), fold:$('cfgFold').checked, stream:$('cfgStream').checked}; localStorage.setItem(LS.cfg,JSON.stringify(c)); $('cfgMsg').innerHTML='<span class="ok">✅ 저장됨</span>'; }
+async function testCfg(){ saveCfg(); $('cfgMsg').textContent='연결 테스트 중…';
+  try{ const a=await callLLM([{role:'user',content:'한 단어로 "준비완료"라고만 답해.'}]); $('cfgMsg').innerHTML='<span class="ok">✅ 응답: '+esc(stripThink(a).slice(0,40))+'</span>'; }
+  catch(e){ $('cfgMsg').innerHTML='<span class="warn">❌ '+esc(e.message||e)+'</span>'; } }
+function resetAll(){ if(!confirm('데모 기억·스킬·대화를 모두 지울까요? (API 설정은 유지)')) return;
+  [LS.mem,LS.usr,LS.sk,LS.hist].forEach(k=>localStorage.removeItem(k)); history=[]; $('chat').innerHTML='<div class="msg sys">초기화됨. 다시 시작하세요.</div>'; $('approveBox').innerHTML=''; renderSide(); }
+
+// ============ 부트 ============
+(function(){
+  const c=getCfg();
+  // 최초 실행 시 기본값 자동 입력 (키만 넣으면 됨)
+  $('cfgBase').value = c.base || 'http://common.llm.skhynix.com/v1';
+  $('cfgKey').value  = c.key  || '';
+  $('cfgModel').value= c.model|| 'Qwen3.6-35B-A3B';
+  $('cfgFold').checked  = !!c.fold;
+  $('cfgStream').checked= !!c.stream;   // 기본 비스트리밍
+  renderBuiltin(); renderSide();
+  $('input').addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); onSend(); } });
+})();
+</script>
+</body>
+</html>
