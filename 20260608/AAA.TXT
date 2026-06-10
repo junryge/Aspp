@@ -3,488 +3,970 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🔮 헤르메스 DEMO — LLM API로 체험하기</title>
+<title>🤖 개인 에이전트</title>
 <style>
-  :root{ --bg:#0b0e16; --card:#161b27; --line:#26304180; --txt:#e8edf6; --mut:#93a0b5;
-         --cyan:#00e5ff; --violet:#a855f7; --lime:#4ade80; --amber:#fbbf24; --pink:#ff3ea5; }
-  *{box-sizing:border-box}
-  body{margin:0;background:
-        radial-gradient(1100px 700px at 8% -10%, rgba(0,229,255,.10), transparent 60%),
-        radial-gradient(1000px 700px at 110% 115%, rgba(168,85,247,.12), transparent 60%),
-        var(--bg);
-       color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Malgun Gothic',sans-serif;
-       line-height:1.6;padding:22px 14px;}
-  .wrap{max-width:1180px;margin:0 auto;}
-  h1{font-size:24px;margin:0 0 2px;}
-  h1 .pill{font-size:11px;background:linear-gradient(135deg,var(--cyan),var(--violet));color:#04121a;
-        padding:3px 10px;border-radius:20px;margin-left:8px;font-weight:800;vertical-align:middle;}
-  .sub{color:var(--mut);margin:0 0 16px;font-size:13.5px;}
-  a{color:var(--cyan);text-decoration:none;} a:hover{text-decoration:underline;}
-  .grid{display:grid;grid-template-columns:1fr 340px;gap:14px;align-items:start;}
-  @media(max-width:880px){ .grid{grid-template-columns:1fr;} }
-  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;}
-  .card h2{font-size:14px;margin:0 0 10px;border-left:3px solid var(--cyan);padding-left:8px;}
-  .card h3{font-size:12.5px;margin:12px 0 6px;color:var(--violet);}
-  label{display:block;font-size:11.5px;color:var(--mut);margin:8px 0 3px;}
-  input,select,textarea{width:100%;background:#0d1018;border:1px solid var(--line);border-radius:7px;
-        color:var(--txt);padding:7px 9px;font-size:12.5px;font-family:inherit;}
-  textarea{resize:vertical;min-height:54px;}
-  .row{display:flex;gap:8px;} .row>*{flex:1;}
-  button{background:linear-gradient(135deg,var(--cyan),var(--violet));color:#04121a;border:none;
-        border-radius:8px;padding:8px 14px;font-weight:800;font-size:12.5px;cursor:pointer;}
-  button.sec{background:#222b3a;color:var(--txt);border:1px solid var(--line);}
-  button:disabled{opacity:.5;cursor:default;}
-  .chat{height:46vh;min-height:320px;overflow-y:auto;background:#0d1018;border:1px solid var(--line);
-        border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:10px;}
-  .msg{max-width:88%;padding:9px 12px;border-radius:12px;font-size:13px;white-space:pre-wrap;word-break:break-word;}
-  .msg.user{align-self:flex-end;background:#1d4ed8;color:#fff;}
-  .msg.assistant{align-self:flex-start;background:#1a2030;border:1px solid var(--line);}
-  .msg.sys{align-self:center;background:transparent;color:var(--mut);font-size:11.5px;border:1px dashed var(--line);}
-  .testbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px;}
-  .testbar .tlabel{font-size:11.5px;color:var(--mut);}
-  button.sm{padding:5px 9px;font-size:11px;}
-  .inrow{display:flex;gap:8px;margin-top:8px;}
-  .inrow textarea{flex:1;min-height:42px;}
-  .tag{display:inline-block;font-size:10.5px;border-radius:6px;padding:1px 7px;margin:2px 3px 0 0;}
-  .tag.mem{background:rgba(0,229,255,.14);color:#9beaff;border:1px solid rgba(0,229,255,.35);}
-  .tag.usr{background:rgba(168,85,247,.16);color:#d8b4fe;border:1px solid rgba(168,85,247,.35);}
-  .tag.sk{background:rgba(74,222,128,.14);color:#bbf7d0;border:1px solid rgba(74,222,128,.35);}
-  .item{font-size:12px;padding:5px 7px;background:#0d1018;border:1px solid var(--line);border-radius:7px;margin:5px 0;
-        display:flex;justify-content:space-between;gap:6px;align-items:flex-start;}
-  .item .x{color:var(--pink);cursor:pointer;font-weight:700;flex:0 0 auto;}
-  .muted{color:var(--mut);font-size:11.5px;}
-  pre{background:#0d1018;border:1px solid var(--line);border-radius:8px;padding:10px;overflow:auto;
-      font-family:'Consolas',monospace;font-size:11.5px;color:#cfe3ff;white-space:pre-wrap;}
-  code{background:#0d1018;color:#9ecbff;padding:1px 5px;border-radius:5px;font-family:'Consolas',monospace;font-size:12px;}
-  details{margin:8px 0;} summary{cursor:pointer;color:var(--cyan);font-size:12.5px;font-weight:700;}
-  .approve{background:#10261a;border:1px solid rgba(74,222,128,.4);border-radius:8px;padding:8px;margin:6px 0;font-size:12px;}
-  .approve .nm{color:var(--lime);font-weight:800;}
-  .approve button{padding:4px 10px;font-size:11.5px;margin-top:6px;}
-  .ask{background:#2a1f10;border:1px solid rgba(251,191,36,.4);border-radius:8px;padding:8px;margin:6px 0;font-size:12.5px;color:#fde68a;}
-  .ok{color:var(--lime);} .warn{color:var(--amber);}
-  table{width:100%;border-collapse:collapse;font-size:12px;margin:6px 0;}
-  th,td{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top;}
-  th{background:#1c2331;color:#c7d2e3;}
-  .steps{counter-reset:s;padding-left:0;list-style:none;margin:6px 0;}
-  .steps li{counter-increment:s;font-size:12.5px;margin:6px 0;padding-left:26px;position:relative;}
-  .steps li::before{content:counter(s);position:absolute;left:0;top:0;width:18px;height:18px;border-radius:50%;
-        background:linear-gradient(135deg,var(--cyan),var(--violet));color:#04121a;font-size:11px;font-weight:800;
-        display:flex;align-items:center;justify-content:center;}
-  .foot{color:var(--mut);font-size:11.5px;margin-top:18px;text-align:center;border-top:1px solid var(--line);padding-top:12px;}
+  * { box-sizing: border-box; }
+  html, body { height:100%; }
+  body { margin:0; background:#16161f; color:#e2e8f0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Malgun Gothic',sans-serif; padding:16px; display:flex; flex-direction:column; }
+  h2 { margin:0 0 4px; color:#a855f7; font-size:17px; }
+  .hint { font-size:11px; color:#94a3b8; line-height:1.5; margin-bottom:10px; }
+  label { display:block; font-size:11.5px; color:#c4b5fd; font-weight:600; margin:8px 0 4px; }
+  input, select, textarea { width:100%; padding:8px; border:1px solid #444; border-radius:6px; background:#2a2a3e; color:#fff; font-size:13px; }
+  textarea { resize:vertical; }
+  .card { background:rgba(168,85,247,0.08); border:1px solid rgba(168,85,247,0.3); border-radius:10px; padding:12px; margin-bottom:12px; }
+  .row { display:flex; gap:10px; align-items:center; }
+  .chk { display:flex; align-items:center; gap:6px; font-weight:400; color:#e2e8f0; font-size:13px; margin-top:10px; }
+  .chk input { width:auto; }
+  button.primary { width:100%; padding:9px; background:#a855f7; color:#fff; border:none; border-radius:6px; font-weight:700; cursor:pointer; margin-top:10px; }
+  button.primary:hover { background:#9333ea; }
+  .sectitle { font-weight:700; margin:4px 0 8px; color:#a5b4fc; font-size:13px; }
+  .ag-item { border:1px solid #333; border-radius:8px; padding:9px; margin-bottom:7px; background:#23233a; }
+  .ag-run { background:#a855f7; color:#fff; border:none; border-radius:6px; padding:4px 12px; font-size:11px; font-weight:700; cursor:pointer; }
+  .ag-del { background:none; color:#f87171; border:1px solid #f87171; border-radius:6px; padding:4px 8px; font-size:11px; cursor:pointer; }
+  .meta { font-size:10.5px; color:#6b7280; font-family:monospace; }
+  .msg { font-size:12px; margin-top:6px; }
+  #notice { background:#3b1d1d; border:1px solid #f87171; color:#fca5a5; padding:9px; border-radius:8px; font-size:12px; display:none; margin-bottom:10px; }
+
+  /* 채팅 패널 */
+  #chatPanel { display:none; flex:1; min-height:0; flex-direction:column; border:1px solid #a855f7; border-radius:12px; overflow:hidden; margin-bottom:12px; }
+  #chatBar { background:#2a1840; padding:8px 12px; font-size:12px; display:flex; align-items:center; gap:8px; }
+  #chatBar .name { font-weight:700; color:#d8b4fe; }
+  #chatBar .env { color:#94a3b8; font-family:monospace; font-size:11px; }
+  #chatMsgs { flex:1; min-height:120px; overflow-y:auto; padding:12px; background:#14141c; }
+  .cm { margin-bottom:12px; }
+  .cm .who { font-size:10.5px; font-weight:700; margin-bottom:3px; }
+  .cm.user .who { color:#60a5fa; }
+  .cm.assistant .who { color:#c4b5fd; }
+  .cm .bubble { white-space:pre-wrap; font-size:13px; line-height:1.55; color:#e2e8f0; }
+  .cm.user .bubble { background:#1e293b; padding:8px 10px; border-radius:8px; }
+  #chatInputRow { display:flex; gap:8px; padding:10px; background:#1b1b26; border-top:1px solid #333; }
+  #chatInput { flex:1; min-height:40px; max-height:120px; }
+  #chatSend { background:#a855f7; color:#fff; border:none; border-radius:8px; padding:0 16px; font-weight:700; cursor:pointer; }
+  #chatSend:disabled { opacity:.5; cursor:default; }
+  details > summary { cursor:pointer; color:#a5b4fc; font-size:13px; font-weight:700; margin-bottom:8px; }
+
+  /* 답변 마크다운 렌더 (데모스 renderMd 출력용, 다크 테마) */
+  .bubble h1,.bubble h2,.bubble h3,.bubble h4{ margin:.5em 0 .3em; line-height:1.3; color:#f1f5f9; }
+  .bubble h1{font-size:18px} .bubble h2{font-size:16px} .bubble h3{font-size:14px} .bubble h4{font-size:13px}
+  .bubble p{ margin:.4em 0; }
+  .bubble ul,.bubble ol{ margin:.4em 0 .4em 1.2em; padding:0; }
+  .bubble li{ margin:.2em 0; }
+  .bubble code{ background:#2a2a3e; padding:1px 5px; border-radius:4px; font-family:monospace; font-size:12px; }
+  .bubble pre{ background:#0f0f17; border:1px solid #333; border-radius:8px; padding:10px; overflow-x:auto; }
+  .bubble pre code{ background:none; padding:0; }
+  .bubble table{ border-collapse:collapse; margin:.5em 0; font-size:12px; }
+  .bubble th,.bubble td{ border:1px solid #444; padding:4px 8px; }
+  .bubble blockquote{ border-left:3px solid #a855f7; margin:.4em 0; padding:.2em .8em; color:#cbd5e1; }
+  .bubble hr{ border:none; border-top:1px solid #333; margin:.6em 0; }
+  .think-box{ margin:8px 0; border:1px solid #4c3a6e; border-radius:8px; background:#221833; overflow:hidden; }
+  .think-box summary{ cursor:pointer; padding:7px 10px; font-size:11.5px; font-weight:600; color:#c4b5fd; background:#2a1f40; user-select:none; }
+  .think-content{ padding:9px 12px; font-size:11.5px; color:#9ca3af; line-height:1.6; max-height:300px; overflow-y:auto; }
+  /* 마크다운 문서 다운로드 (데모스 renderMd 인라인 블록 + 폴백 바 공용) */
+  .md-report-block{ margin:8px 0; border:1px solid #3a3a52; border-radius:10px; overflow:hidden; background:#15151f; }
+  .md-report-header{ display:flex; align-items:center; gap:8px; padding:8px 12px; background:#1e1e2e; }
+  .md-report-header > span:first-child{ font-weight:700; font-size:12.5px; color:#c4b5fd; }
+  .md-report-actions{ margin-left:auto; display:flex; gap:6px; }
+  .md-report-btn{ background:#2a2a3e; color:#e2e8f0; border:1px solid #3a3a52; border-radius:6px; padding:3px 10px; font-size:11.5px; cursor:pointer; }
+  .md-report-btn.md-download{ background:#a855f7; color:#fff; border-color:#a855f7; }
+  .md-report-btn:hover{ filter:brightness(1.15); }
+  .md-report-preview{ padding:10px 14px; font-size:12.5px; }
+  .md-raw-toggle{ padding:0 12px 8px; }
+  .md-raw-toggle pre{ max-height:240px; overflow:auto; }
+
+  /* ════ 테마 (다크 기본 / 라이트 / 블루 / 그린) ════ */
+  /* 라이트 */
+  body.theme-light{ background:#f4f4f8 !important; color:#1f2937 !important; }
+  body.theme-light h2{ color:#7c3aed !important; }
+  body.theme-light .hint,body.theme-light .meta{ color:#6b7280 !important; }
+  body.theme-light label,body.theme-light .sectitle,body.theme-light details>summary{ color:#7c3aed !important; }
+  body.theme-light input,body.theme-light select,body.theme-light textarea{ background:#fff !important; color:#1f2937 !important; border-color:#cbd5e1 !important; }
+  body.theme-light .card{ background:#fff !important; border-color:#e2d5f5 !important; }
+  body.theme-light .box{ background:#f7f7fb !important; border-color:#d6d6e0 !important; color:#374151 !important; }
+  body.theme-light .box.scr{ background:#fff8e8 !important; border-color:#e3c873 !important; }
+  body.theme-light .ag-item{ background:#fff !important; border-color:#e5e7eb !important; }
+  body.theme-light .ag-item span{ color:#1f2937 !important; }
+  body.theme-light .ag-item div{ color:#475569 !important; }
+  body.theme-light .chk{ color:#1f2937 !important; }
+  body.theme-light #chatMsgs{ background:#f7f7fb !important; }
+  body.theme-light #chatBar{ background:#ede9fe !important; }
+  body.theme-light #chatBar .name{ color:#7c3aed !important; }
+  body.theme-light .cm .bubble{ color:#1f2937 !important; }
+  body.theme-light .cm.user .bubble{ background:#e5edff !important; }
+  body.theme-light #chatInputRow{ background:#eef0f4 !important; border-color:#ddd !important; }
+  body.theme-light .bubble code{ background:#eef0f4 !important; color:#7c3aed !important; }
+  body.theme-light .bubble pre{ background:#f3f4f6 !important; border-color:#ddd !important; }
+
+  /* 블루 (다크) */
+  body.theme-blue{ background:#0f1722 !important; }
+  body.theme-blue h2{ color:#38bdf8 !important; }
+  body.theme-blue label,body.theme-blue .sectitle,body.theme-blue details>summary,body.theme-blue #chatBar .name{ color:#7dd3fc !important; }
+  body.theme-blue .card{ background:rgba(56,189,248,0.08) !important; border-color:rgba(56,189,248,0.3) !important; }
+  body.theme-blue button.primary,body.theme-blue .ag-run,body.theme-blue #chatSend,body.theme-blue #chatInput:focus{ background:#0ea5e9 !important; }
+  body.theme-blue button.primary:hover{ background:#0284c7 !important; }
+  body.theme-blue #chatPanel{ border-color:#0ea5e9 !important; }
+  body.theme-blue #chatBar{ background:#0c2a3e !important; }
+
+  /* 그린 (다크) */
+  body.theme-green{ background:#0e1a14 !important; }
+  body.theme-green h2{ color:#34d399 !important; }
+  body.theme-green label,body.theme-green .sectitle,body.theme-green details>summary,body.theme-green #chatBar .name{ color:#6ee7b7 !important; }
+  body.theme-green .card{ background:rgba(16,185,129,0.08) !important; border-color:rgba(16,185,129,0.3) !important; }
+  body.theme-green button.primary,body.theme-green .ag-run,body.theme-green #chatSend{ background:#10b981 !important; }
+  body.theme-green button.primary:hover{ background:#059669 !important; }
+  body.theme-green #chatPanel{ border-color:#10b981 !important; }
+  body.theme-green #chatBar{ background:#0c3225 !important; }
+
+  /* 테마 선택기 */
+  #themeBar{ display:flex; gap:5px; align-items:center; margin-bottom:8px; }
+  #themeBar .tbtn{ border:1px solid #555; background:#2a2a3e; color:#cbd5e1; border-radius:6px; padding:3px 9px; font-size:11px; cursor:pointer; }
+  #themeBar .tbtn.on{ outline:2px solid #a855f7; color:#fff; }
+  body.theme-light #themeBar .tbtn{ background:#fff; color:#475569; border-color:#cbd5e1; }
 </style>
 </head>
 <body>
-<div class="wrap">
-
-  <h1>🔮 헤르메스 DEMO <span class="pill">Hermes · LLM API</span></h1>
-  <p class="sub">키만 넣으면 바로 체험하는 헤르메스 — <b>기억하고 스스로 배우는</b> 에이전트 레이어.
-     이 페이지는 백엔드 없이 <b>브라우저에서 직접 LLM API를 호출</b>하고, 헤르메스 텍스트 프로토콜을 그대로 처리합니다.
-     <br>(실서비스 통합은 <a href="README.md">README.md</a> / <a href="HERMES_FEATURES.html">기능</a> / <a href="HERMES_SKILLS.html">스킬</a> 참고)</p>
-
-  <!-- ===================== 사용법 ===================== -->
-  <div class="card" style="margin-bottom:14px;">
-    <h2>📖 사용법 (3단계)</h2>
-    <ol class="steps">
-      <li><b>접속 설정</b> — 오른쪽 패널에 LLM API 주소(OpenAI 호환 <code>/v1</code>)·API 키·모델명을 넣고 <b>저장</b>.
-          (예: 주소 <code>http://common.llm.skhynix.com/v1</code>, 모델 <code>Qwen3.6-35B-A3B</code>)</li>
-      <li><b>대화</b> — 아래 채팅에 평소처럼 질문. 헤르메스가 시스템 프롬프트에 <b>기억·스킬·지침</b>을 자동으로 끼워 LLM에 보냅니다.</li>
-      <li><b>학습 확인</b> — 모델이 답 끝에 숨은 블록(<code>```hermes:memory/skill/ask</code>)을 내면, 데모가 파싱해서
-          <b>기억 저장 · 스킬 승인 · 되묻기</b>를 처리. 오른쪽에서 기억/스킬이 쌓이는 걸 실시간으로 봅니다.</li>
-    </ol>
-    <p class="muted">💡 이렇게 말해보세요 → <code>"나는 M16 FAB의 OHT 반송 정체를 분석해. 답은 표로 줘."</code> 하면
-       헤르메스가 <b>담당 업무(MEMORY)</b>와 <b>표 선호(USER)</b>를 기억합니다. 다음 질문부터 자동 반영돼요.</p>
-    <details>
-      <summary>⚙️ 헤르메스가 내부적으로 하는 일 (작동 원리)</summary>
-      <p class="muted" style="margin:8px 0 4px;">매 질문마다 시스템 프롬프트를 이렇게 조립해서 LLM에 보냅니다:</p>
-      <pre>[기억 스냅샷]  MEMORY(사실) + USER(선호)
-[배운 스킬 목록]  이름 + 언제 쓰는지
-[관련 스킬 본문]  질문과 관련된 개인 스킬 (있으면)
-[빌트인 스킬]  질문 키워드에 맞는 권장 작업방식 상위 2개
-[프로토콜 지침]  "블록으로 기억/스킬/되묻기 하라"
-
-→ LLM 답변 끝의 ```hermes:... 블록을 파싱 → 기억저장 / 스킬승인 / 되묻기
-→ 블록은 화면에서 제거(사용자에겐 깔끔한 답만 보임)</pre>
-      <p class="muted">※ <b>네이티브 함수콜(tool calling) 불필요</b> — 순수 텍스트 프로토콜이라 폐쇄망/GGUF/어떤 API든 동작합니다.</p>
-    </details>
+  <h2>🤖 개인 에이전트</h2>
+  <div class="hint">에이전트를 <b style="color:#c4b5fd;">가동</b>하면 아래에서 그 에이전트로 바로 질문/답변할 수 있습니다. (아이디별 저장)</div>
+  <div id="themeBar">
+    <span style="font-size:11px;color:#94a3b8;">🎨 테마</span>
+    <button class="tbtn" data-theme="dark" onclick="applyTheme('dark')">🌙 다크</button>
+    <button class="tbtn" data-theme="light" onclick="applyTheme('light')">☀️ 라이트</button>
+    <button class="tbtn" data-theme="blue" onclick="applyTheme('blue')">🔵 블루</button>
+    <button class="tbtn" data-theme="green" onclick="applyTheme('green')">🟢 그린</button>
   </div>
 
-  <div class="grid">
-    <!-- ===================== 채팅 ===================== -->
+  <div id="notice"></div>
+
+  <!-- 채팅 패널 (가동 시 표시) -->
+  <div id="chatPanel">
+    <div id="chatBar">
+      <span class="name" id="chatAgentName">-</span>
+      <span class="env" id="chatAgentEnv"></span>
+      <label style="display:flex;align-items:center;gap:3px;font-size:11px;color:#9aa;cursor:pointer;user-select:none;margin-left:10px;" title="ON: 입력이 길면 자동 트림. OFF: 트림 최소화. (API는 128K 네이티브라 OFF시 원문 전송 / GGUF는 n_ctx 물리한계라 OFF여도 토큰트림은 유지하고 과한 글자수캡만 끔)">
+        <input type="checkbox" id="agCtxGuard" checked onchange="try{localStorage.setItem('demos_ctxGuard', this.checked?'1':'0')}catch(e){}" style="margin:0;accent-color:#3F7D4F">🛡️컨텍스트보호
+      </label>
+      <label style="display:flex;align-items:center;gap:3px;font-size:11px;color:#9aa;cursor:pointer;user-select:none;margin-left:10px;" title="OFF(기본): /no_think 로 사고 끔 — 답만 깔끔. ON: 모델 사고 허용(느리고 사고과정 노출될 수 있음)">
+        <input type="checkbox" id="agThink" onchange="try{localStorage.setItem('demos_agThink', this.checked?'1':'0')}catch(e){}" style="margin:0;accent-color:#7c5cbf">💭사고
+      </label>
+      <span style="margin-left:auto;display:flex;gap:6px;">
+        <button onclick="newAgentSession()" title="현재 대화를 지우고 새 세션" style="background:none;border:1px solid #a855f7;color:#c4b5fd;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;">🆕 새 세션</button>
+        <button onclick="sendToDemos()" title="이 대화를 메인 데모스 채팅에 새 세션으로 보내기" style="background:none;border:1px solid #22c55e;color:#86efac;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;">📤 데모스로</button>
+        <button onclick="endChat()" style="background:none;border:1px solid #555;color:#aaa;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;">종료</button>
+      </span>
+    </div>
+    <div id="chatMsgs"></div>
+    <div id="agAttachBar" style="display:none;align-items:center;gap:8px;font-size:12px;color:#86efac;margin:4px 0;">
+      <span id="agAttachName"></span>
+      <span onclick="clearAgCsv()" style="color:#f87171;cursor:pointer;">✕ 제거</span>
+    </div>
+    <div id="chatInputRow">
+      <button id="agAttachBtn" onclick="document.getElementById('agCsvInput').click()" title="CSV 첨부" style="background:#2a2a3e;border:1px solid #555;color:#fbbf24;border-radius:8px;padding:0 12px;font-size:18px;cursor:pointer;">📎</button>
+      <input type="file" id="agCsvInput" accept=".csv,.tsv,.txt" style="display:none;" onchange="agCsvSelected(this)">
+      <textarea id="chatInput" placeholder="질문을 입력하세요 (📎로 CSV 첨부 후 '분석해줘')"></textarea>
+      <button id="chatSend" onclick="onSendBtn()">전송</button>
+    </div>
+  </div>
+
+  <!-- 관리 영역 (접이식) -->
+  <details id="manageBox" open>
+    <summary>⚙️ 에이전트 관리 (새로 만들기 / 목록)</summary>
+
     <div class="card">
-      <h2>💬 대화</h2>
-      <div class="chat" id="chat">
-        <div class="msg sys">오른쪽에서 API를 설정한 뒤 대화를 시작하세요. 예: "나는 M16 FAB OHT 반송 정체를 분석해. 답은 표로."</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <div id="agFormTitle" class="sectitle" style="color:#c4b5fd;margin:0;flex:1;">＋ 새 에이전트 만들기</div>
+        <button id="agNewBtn" onclick="resetAgentForm()" style="display:none;background:#475569;color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;">＋ 새로 만들기</button>
       </div>
-      <div id="approveBox"></div>
-      <div class="testbar">
-        <span class="tlabel">🧪 빠른 테스트:</span>
-        <button class="sec sm" onclick="fillEx('mem')">예시① 기억</button>
-        <button class="sec sm" onclick="fillEx('skill')">예시② 스킬 학습</button>
-        <button class="sec sm" onclick="simulateSkill()" title="API 없이 스킬 승인→저장→회상 흐름을 바로 봅니다">스킬 흐름 시뮬레이트(무 API)</button>
-      </div>
-      <div class="inrow">
-        <textarea id="input" placeholder="질문을 입력하세요 (Enter 전송, Shift+Enter 줄바꿈)"></textarea>
-        <button id="sendBtn" onclick="onSend()">전송</button>
-      </div>
-      <p class="muted" id="status" style="margin:6px 0 0;">상태: 대기</p>
-    </div>
+      <label>이름</label>
+      <input id="agName" placeholder="예: 보안 코드 리뷰어">
 
-    <!-- ===================== 사이드 ===================== -->
-    <div>
-      <div class="card">
-        <h2>🔌 LLM API 설정</h2>
-        <label>API 주소 (OpenAI 호환, /v1)</label>
-        <input id="cfgBase" placeholder="http://common.llm.skhynix.com/v1">
-        <label>API 키 (Bearer 토큰)</label>
-        <input id="cfgKey" type="password" placeholder="token.txt 내용 붙여넣기">
-        <label>모델명 <span class="muted" style="cursor:pointer;color:var(--cyan);" onclick="loadModels()">↻ 목록 불러오기</span></label>
-        <input id="cfgModel" list="modelList" placeholder="Qwen3.6-35B-A3B">
-        <datalist id="modelList"></datalist>
-        <label style="display:flex;align-items:center;gap:6px;margin-top:8px;">
-          <input type="checkbox" id="cfgStream" style="width:auto;"> 스트리밍 사용 (서버 미지원 시 끄세요 — 기본 꺼짐)
-        </label>
-        <label style="display:flex;align-items:center;gap:6px;">
-          <input type="checkbox" id="cfgFold" style="width:auto;"> system을 첫 user에 합치기 (gemma 계열)
-        </label>
-        <div class="row" style="margin-top:10px;">
-          <button onclick="saveCfg()">저장</button>
-          <button class="sec" onclick="testCfg()">연결 테스트</button>
+      <label>모델(환경) 선택 — API / GGUF</label>
+      <select id="agEnvSelect"><option value="auto">🤖 AUTO (자동 선택)</option></select>
+
+      <label>페르소나 / 시스템 프롬프트</label>
+      <textarea id="agPersona" style="min-height:70px;" placeholder="예: 당신은 깐깐한 보안 코드 리뷰어입니다. 취약점을 우선순위로 지적하세요."></textarea>
+
+      <div class="row" style="margin-top:6px;">
+        <div style="flex:1;">
+          <label>effort</label>
+          <select id="agEffort">
+            <option value="0">0 (정확)</option>
+            <option value="1">1</option>
+            <option value="2" selected>2 (균형)</option>
+            <option value="3">3 (창의)</option>
+          </select>
         </div>
-        <p class="muted" id="cfgMsg" style="margin:6px 0 0;"></p>
       </div>
 
-      <div class="card" style="margin-top:12px;">
-        <h2>🧠 기억 <span class="muted" id="memCount"></span></h2>
-        <h3>MEMORY — 사실(역할·환경·도구)</h3>
-        <div id="memList"><p class="muted">아직 없음. 역할·담당·시스템을 말하면 쌓입니다.</p></div>
-        <h3>USER — 선호(형식·말투·언어)</h3>
-        <div id="usrList"><p class="muted">아직 없음. "표로 줘" 같은 선호를 말해보세요.</p></div>
-      </div>
+      <label>📂 내 지식 문서 선택 (체크한 문서를 근거로 답변)</label>
+      <div id="agKnowList" style="max-height:150px;overflow:auto;border:1px solid #444;border-radius:6px;padding:8px;background:#23233a;font-size:12px;color:#94a3b8;">로딩 중…</div>
 
-      <div class="card" style="margin-top:12px;">
-        <h2>📚 배운 스킬 <span class="muted" id="skCount"></span></h2>
-        <div id="skList"><p class="muted">아직 없음. 재사용할 절차를 발견하면 승인 후 저장됩니다.</p></div>
-      </div>
+      <label>📜 내 스크립트 선택 (체크하면 데이터 첨부+트리거어 시 자동 실행)</label>
+      <div id="agScriptList" style="max-height:140px;overflow:auto;border:1px solid #b4862f;border-radius:6px;padding:8px;background:#2a2410;font-size:12px;color:#fbbf24;">로딩 중…</div>
 
-      <div class="card" style="margin-top:12px;">
-        <h2>🧰 빌트인 스킬 4종 <span class="muted">(키워드 자동 주입)</span></h2>
-        <div class="muted" style="font-size:11.5px;">질문에 키워드가 맞으면 상위 2개가 자동으로 끼어듭니다.</div>
-        <div id="builtinList" style="margin-top:6px;"></div>
-        <button class="sec" style="margin-top:8px;width:100%;" onclick="resetAll()">🗑 데모 데이터 초기화</button>
-      </div>
+      <label>🛠 스킬 조합 선택</label>
+      <select id="agComboSelect" style="width:100%;padding:8px;border:1px solid #444;border-radius:6px;background:#2a2a3e;color:#fff;font-size:13px;box-sizing:border-box;">
+        <option value="">+ 조합 추가…</option>
+      </select>
+      <div id="agComboChips" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;"></div>
+      <div id="agSkillCount" style="font-size:11px;color:#c4b5fd;margin-top:6px;"></div>
+
+      <button id="agSaveBtn" class="primary" onclick="saveAgent()">💾 에이전트 저장</button>
+      <div id="agSaveMsg" class="msg"></div>
     </div>
-  </div>
 
-  <div class="foot">Hermes Engine — DEMO.html · 이 파일은 데모용 클라이언트 재현입니다. 실제 엔진(Python)은 hermes/ 패키지 참고.</div>
-</div>
+    <div class="sectitle">📋 저장된 에이전트</div>
+    <div id="agList" style="font-size:12px;color:#888;">로딩 중...</div>
+  </details>
 
 <script>
-// ============ 헤르메스 빌트인 스킬 4종 (hermes/builtin.py 와 동일) ============
-const BUILTIN = {
-  "task-planning": { desc:"복잡한 작업은 먼저 단계 계획을 세우고 실행",
-    keywords:["만들","구현","설계","프로그램","코드","연구","분석","계획","파이프라인","단계","아키텍처","build","design","research"],
-    body:"복잡·다단계 요청이면 바로 답하지 말고:\n1) 목표를 한 줄로 정의\n2) 3~6단계 실행 계획 제시(각 단계 산출물 명시)\n3) 계획대로 실행/작성\n4) 마지막에 빠진 단계가 없는지 자가점검" },
-  "systematic-debugging": { desc:"오류는 재현→가설→최소수정→검증 순서로",
-    keywords:["오류","에러","버그","디버","안돼","안 돼","실패","exception","traceback","고장","error","bug","fix"],
-    body:"오류 해결 순서:\n1) 증상/재현 조건 명확화\n2) 원인 가설 2~3개\n3) 가능성 높은 것부터 최소 변경으로 검증\n4) 환경 의존(패키지/권한) vs 코드 문제 구분\n5) 수정 후 재현 절차로 검증" },
-  "structured-data-analysis": { desc:"데이터는 컬럼/단위 확인 후 가설→통계→시각화",
-    keywords:["데이터","분석","통계","반송","fab","로그","수율","oht","ohs","csv","엑셀","컬럼","추세","이상","data","analysis"],
-    body:"데이터 분석 절차:\n1) 컬럼명·단위·기간을 먼저 확인(추측 금지)\n2) 분석 질문을 가설로 정의\n3) 기술통계 → 이상치 → 상관/추세 순\n4) 실제 값/컬럼만 인용(없는 값 만들지 말 것)\n5) 결론 + 표/차트 시각화 권고" },
-  "answer-verification": { desc:"최종 답 전 자가검증(근거·누락 확인)",
-    keywords:["보고서","결론","정확","검증","요약","report","verify"],
-    body:"최종 답 직전 자가검증:\n1) 인용한 수치·컬럼·함수가 실제 컨텍스트에 있는가?\n2) 단정 대신 근거를 붙였는가?\n3) 요청을 빠짐없이 다뤘는가?\n불확실하면 추측임을 명시한다." },
-};
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-// ============ 프로토콜 지침 (hermes/engine.py PROTOCOL_GUIDE 와 동일 취지) ============
-const PROTOCOL_GUIDE = `=== 헤르메스 능력 (텍스트 프로토콜) ===
-너는 대화에서 배우고 기억하는 에이전트다. 아래 블록을 답변 끝에 덧붙여 사용한다.
-(블록은 사용자에게 안 보이게 시스템이 처리한다. 남발 금지 — 정말 가치 있을 때만.)
-
-1) 대화에서 기억할 정보가 나오면 저장한다. 두 종류를 구분한다:
-   · store: memory = 환경·프로젝트 "사실"(담당 FAB/라인, 시스템·도구, 데이터, 제약, 도메인 용어)
-   · store: user   = 사용자 "선호"(답변 형식/말투/언어/길이)
-   ★ 사용자가 역할·담당·사용 시스템·도구·데이터·도메인을 드러내면 → 반드시 store: memory 로 저장.
-\`\`\`hermes:memory
-store: memory
-action: add
-text: 사용자는 M16 FAB의 OHT 반송 정체를 분석한다
-\`\`\`
-\`\`\`hermes:memory
-store: user
-action: add
-text: 사용자는 답변을 표로 정리하는 것을 선호한다
-\`\`\`
-- 선언형 한 문장. action: add | replace(target=기존일부) | remove(target=기존일부). 중복/잡담 생략.
-
-2) 재사용 가치 있는 절차/해법을 발견하면(다단계 작업·까다로운 오류해결·비자명 워크플로):
-\`\`\`hermes:skill
-action: create
-name: <소문자-하이픈 이름>
-when: <언제 쓰는지 한 줄>
-body: |
-  1. ...
-  2. ...
-\`\`\`
-- 저장 전 사용자 승인을 받는다(시스템이 처리).
-
-3) 요청이 모호하면 추측 말고 먼저 되묻는다:
-\`\`\`hermes:ask
-- <핵심 질문1>
-- <핵심 질문2>
-\`\`\``;
-
-// ============ 저장 (localStorage = 데모 영속화) ============
-const LS = { mem:'hermesDemo_MEMORY', usr:'hermesDemo_USER', sk:'hermesDemo_SKILLS', cfg:'hermesDemo_CFG', hist:'hermesDemo_HIST' };
-const get = k => { try{ return JSON.parse(localStorage.getItem(k)||'[]'); }catch(e){ return []; } };
-const set = (k,v) => localStorage.setItem(k, JSON.stringify(v));
-const getCfg = () => { try{ return JSON.parse(localStorage.getItem(LS.cfg)||'{}'); }catch(e){ return {}; } };
-
-let history = get(LS.hist);
-
-// ============ 시스템 프롬프트 조립 ============
-function memorySnapshot(){
-  const mem=get(LS.mem), usr=get(LS.usr); let s='';
-  if(mem.length) s += '=== 기억된 사실 (MEMORY) ===\n' + mem.map(t=>'- '+t).join('\n') + '\n\n';
-  if(usr.length) s += '=== 사용자 선호 (USER) ===\n' + usr.map(t=>'- '+t).join('\n') + '\n\n';
-  return s.trim();
+function getUser(){
+  try{ var u=JSON.parse(sessionStorage.getItem('demos_user')||'null'); return (u&&u.id)?u:null; }catch(e){ return null; }
 }
-function skillIndex(){ const sk=get(LS.sk); return sk.length ? '=== 배운 스킬 (이름: 언제) ===\n'+sk.map(s=>`- ${s.name}: ${s.when}`).join('\n') : ''; }
-function recallSkills(q,k=2){
-  const sk=get(LS.sk), ql=(q||'').toLowerCase();
-  const scored = sk.map(s=>({s, h: ((s.name+' '+s.when).toLowerCase().split(/[\s-]+/).filter(w=>w&&ql.includes(w)).length)}))
-                   .filter(x=>x.h>0).sort((a,b)=>b.h-a.h);
-  return scored.slice(0,k).map(x=>x.s);
-}
-function recallBuiltin(q,k=2){
-  const ql=(q||'').toLowerCase();
-  return Object.entries(BUILTIN).map(([n,s])=>({n,s,h:s.keywords.filter(kw=>ql.includes(kw.toLowerCase())).length}))
-    .filter(x=>x.h>0).sort((a,b)=>b.h-a.h).slice(0,k);
-}
-function buildSystemPrompt(query){
-  const parts=[];
-  const mem=memorySnapshot(); if(mem) parts.push(mem);
-  const idx=skillIndex(); if(idx) parts.push(idx);
-  const rs=recallSkills(query); if(rs.length) parts.push('=== 관련 개인 스킬 본문 ===\n'+rs.map(s=>`--- 스킬: ${s.name} ---\n${s.body}`).join('\n\n'));
-  const bi=recallBuiltin(query); if(bi.length) parts.push('=== 권장 작업 방식 (헤르메스 빌트인 스킬) ===\n'+bi.map(x=>`[${x.n}] ${x.s.desc}\n${x.s.body}`).join('\n\n'));
-  parts.push(PROTOCOL_GUIDE);
-  return parts.join('\n\n');
-}
+var USER = getUser();
+function uid(){ return USER ? USER.id : ''; }
 
-// ============ 블록 파싱 (hermes/protocol.py 와 동일) ============
-const FENCE = /```[ \t]*hermes:(memory|skill|ask)[ \t]*\n([\s\S]*?)```/gi;
-function parseBlocks(text){
-  const blocks=[];
-  const clean = (text||'').replace(FENCE, (m,kind,body)=>{ blocks.push({kind:kind.toLowerCase(), body}); return ''; });
-  return { clean: clean.trim(), blocks };
-}
-function parseKV(body){
-  const out={}; const lines=body.split('\n'); const multi=['body','text'];
-  for(let i=0;i<lines.length;i++){
-    const m=lines[i].match(/^([a-zA-Z_]+)\s*:\s*(.*)$/); if(!m) continue;
-    const key=m[1].toLowerCase(), val=m[2];
-    if(multi.includes(key) && ['','|','|-','>'].includes(val.trim())){
-      out[key]=lines.slice(i+1).map(c=>c.startsWith('  ')?c.slice(2):c).join('\n').trim(); break;
-    }
-    out[key]=val.trim();
-  }
-  return out;
-}
-function parseAsk(body){
-  const qs=[]; for(const ln of body.split('\n')){ const s=ln.trim(); const m=s.match(/^[-*•]\s+(.+)$/);
-    if(m) qs.push(m[1].trim()); else if(s && !qs.length) qs.push(s); }
-  return qs.filter(Boolean).slice(0,5);
-}
-
-// ============ 블록 적용 (memory 저장 / skill 승인대기 / ask) ============
-function applyBlocks(blocks){
-  const memResults=[], pending=[], questions=[];
-  for(const b of blocks){
-    if(b.kind==='memory'){
-      const kv=parseKV(b.body); const store=(kv.store==='user')?LS.usr:LS.mem; const arr=get(store);
-      const act=(kv.action||'add').toLowerCase();
-      if(act==='add' && kv.text){ if(!arr.includes(kv.text)){ arr.push(kv.text); set(store,arr); memResults.push((store===LS.usr?'USER':'MEMORY')+' + '+kv.text); } }
-      else if(act==='remove' && kv.target){ const n=arr.filter(t=>!t.includes(kv.target)); set(store,n); memResults.push('제거: '+kv.target); }
-      else if(act==='replace' && kv.target && kv.text){ const n=arr.map(t=>t.includes(kv.target)?kv.text:t); set(store,n); memResults.push('교체: '+kv.text); }
-    } else if(b.kind==='skill'){
-      const kv=parseKV(b.body);
-      if(kv.name && kv.body){ pending.push({name:kv.name, when:kv.when||'', body:kv.body}); }
-    } else if(b.kind==='ask'){
-      parseAsk(b.body).forEach(q=>questions.push(q));
-    }
-  }
-  return { memResults, pending, questions };
-}
-
-// ============ LLM API 호출 (OpenAI 호환, 스트리밍) ============
-async function callLLM(messages, onToken){
-  const cfg=getCfg();
-  if(!cfg.base || !cfg.model){ throw new Error('먼저 API 주소·모델을 설정/저장하세요.'); }
-  let msgs = messages;
-  if(cfg.fold){ // gemma 등 system 미지원 → system을 첫 user 앞에 합침
-    const sys=msgs.filter(m=>m.role==='system').map(m=>m.content).join('\n\n');
-    const rest=msgs.filter(m=>m.role!=='system'); let done=false;
-    msgs=rest.map(m=>{ if(!done && m.role==='user'){ done=true; return {role:'user', content:sys+'\n\n'+m.content}; } return m; });
-    if(!done) msgs=[{role:'user',content:sys}].concat(rest);
-  }
-  const url = cfg.base.replace(/\/+$/,'') + '/chat/completions';
-  const headers={'Content-Type':'application/json'}; if(cfg.key) headers['Authorization']='Bearer '+cfg.key;
-  const body={model:cfg.model, messages:msgs, max_tokens:2048};
-  if(cfg.stream) body.stream=true;
-  let resp;
-  try{
-    resp=await fetch(url,{method:'POST',headers,body:JSON.stringify(body)});
-  }catch(e){ // 네트워크/CORS 실패 (Failed to fetch)
-    throw new Error('네트워크/CORS 차단 — 브라우저가 사내 API에 직접 접근 못 함. proxy.py 를 켜고 주소를 http://localhost:8000/v1 로 바꾸세요. ('+(e.message||e)+')');
-  }
-  if(!resp.ok){ const t=await resp.text().catch(()=> ''); throw new Error('HTTP '+resp.status+(t?(' '+t.slice(0,300)):'')); }
-  // 비스트리밍 (기본, 당신 Python 과 동일)
-  if(!cfg.stream){
-    const j=await resp.json();
-    const acc=(j.choices&&j.choices[0]&&(j.choices[0].message?.content||j.choices[0].text))||'';
-    onToken&&onToken(acc);
-    return acc;
-  }
-  // 스트리밍 (SSE)
-  if(!resp.body){ throw new Error('스트리밍 응답 없음 — 스트리밍 체크를 끄세요.'); }
-  const reader=resp.body.getReader(), dec=new TextDecoder(); let buf='', acc='';
-  while(true){
-    const {done,value}=await reader.read(); if(done) break;
-    buf+=dec.decode(value,{stream:true}); const lines=buf.split('\n'); buf=lines.pop()||'';
-    for(const ln of lines){ const s=ln.trim(); if(!s.startsWith('data:')) continue;
-      const pl=s.slice(5).trim(); if(pl==='[DONE]') continue;
-      try{ const j=JSON.parse(pl); const tok=j.choices&&j.choices[0]&&(j.choices[0].delta?.content||''); if(tok){ acc+=tok; onToken&&onToken(acc); } }catch(_){}
-    }
-  }
-  return acc;
-}
-
-// 모델 목록 불러오기 (/v1/models) → datalist 채움
-async function loadModels(){
-  const cfg=getCfg(); if(!cfg.base){ saveCfg(); }
-  const b=($('cfgBase').value.trim()||'').replace(/\/+$/,''); const key=$('cfgKey').value.trim();
-  if(!b){ $('cfgMsg').innerHTML='<span class="warn">먼저 API 주소를 입력하세요.</span>'; return; }
-  $('cfgMsg').textContent='모델 목록 불러오는 중…';
-  try{
-    const h={}; if(key) h['Authorization']='Bearer '+key;
-    const r=await fetch(b+'/models',{headers:h}); const j=await r.json();
-    const arr=(j.data||j||[]).map(m=>m.id||m).filter(Boolean);
-    $('modelList').innerHTML=arr.map(n=>`<option value="${esc(n)}">`).join('');
-    if(arr.length && !$('cfgModel').value) $('cfgModel').value=arr[0];
-    $('cfgMsg').innerHTML='<span class="ok">✅ 모델 '+arr.length+'개 — 입력칸에서 선택</span>';
-  }catch(e){ $('cfgMsg').innerHTML='<span class="warn">목록 실패(CORS 가능): '+esc(e.message||e)+' → proxy.py 사용</span>'; }
-}
-
-// ============ UI ============
-const $=id=>document.getElementById(id);
-function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function addMsg(role, text){ const d=document.createElement('div'); d.className='msg '+role; d.textContent=text; $('chat').appendChild(d); $('chat').scrollTop=$('chat').scrollHeight; return d; }
-function stripThink(t){ return String(t||'').replace(/<think>[\s\S]*?<\/think>\s*/gi,'').replace(/<think>[\s\S]*$/i,'').trim(); }
-
-function renderSide(){
-  const mem=get(LS.mem), usr=get(LS.usr), sk=get(LS.sk);
-  $('memCount').textContent = mem.length?`(${mem.length})`:'';
-  $('skCount').textContent = sk.length?`(${sk.length})`:'';
-  const li=(arr,store,cls)=> arr.length ? arr.map((t,i)=>`<div class="item"><span><span class="tag ${cls}">${cls==='usr'?'USER':'MEM'}</span>${esc(t)}</span><span class="x" onclick="delItem('${store}',${i})">✕</span></div>`).join('') : '<p class="muted">아직 없음.</p>';
-  $('memList').innerHTML=li(mem,LS.mem,'mem');
-  $('usrList').innerHTML=li(usr,LS.usr,'usr');
-  $('skList').innerHTML = sk.length ? sk.map((s,i)=>`<div class="item"><span><span class="tag sk">SKILL</span><b>${esc(s.name)}</b><div class="muted">${esc(s.when)}</div><details><summary>본문</summary><pre>${esc(s.body)}</pre></details></span><span class="x" onclick="delSkill(${i})">✕</span></div>`).join('') : '<p class="muted">아직 없음. 재사용 절차 발견 시 승인 후 저장.</p>';
-}
-function delItem(store,i){ const a=get(store); a.splice(i,1); set(store,a); renderSide(); }
-function delSkill(i){ const a=get(LS.sk); a.splice(i,1); set(LS.sk,a); renderSide(); }
-function renderBuiltin(){ $('builtinList').innerHTML = Object.entries(BUILTIN).map(([n,s])=>`<span class="tag sk" title="${esc(s.keywords.join(', '))}">${n}</span>`).join(' '); }
-
-// 스킬 승인 카드
-function showApproval(pending){
-  const box=$('approveBox');
-  pending.forEach(spec=>{
-    const d=document.createElement('div'); d.className='approve';
-    d.innerHTML=`💡 새 스킬 제안: <span class="nm">${esc(spec.name)}</span><div class="muted">${esc(spec.when)}</div>`+
-      `<details><summary>본문 보기</summary><pre>${esc(spec.body)}</pre></details>`+
-      `<button onclick='this.closest(".approve").remove(); approveSkill(${JSON.stringify(spec).replace(/'/g,"&#39;")})'>✅ 저장</button> `+
-      `<button class="sec" onclick='this.closest(".approve").remove()'>건너뛰기</button>`;
-    box.appendChild(d);
+// ── 테마 (다크/라이트/블루/그린) ──
+function applyTheme(name){
+  name = name || 'dark';
+  var b=document.body;
+  b.classList.remove('theme-light','theme-blue','theme-green');
+  if(name!=='dark') b.classList.add('theme-'+name);
+  try{ localStorage.setItem('demos_agTheme', name); }catch(e){}
+  document.querySelectorAll('#themeBar .tbtn').forEach(function(btn){
+    btn.classList.toggle('on', btn.getAttribute('data-theme')===name);
   });
 }
-function approveSkill(spec){ const a=get(LS.sk); if(!a.find(s=>s.name===spec.name)){ a.push(spec); set(LS.sk,a); renderSide(); addMsg('sys','📚 스킬 저장됨: '+spec.name); } }
+try{ applyTheme(localStorage.getItem('demos_agTheme')||'dark'); }catch(e){}
 
-// ============ 전송 ============
-let busy=false;
-async function onSend(){
-  if(busy) return;
-  const text=$('input').value.trim(); if(!text) return;
-  const cfg=getCfg(); if(!cfg.base||!cfg.model){ $('cfgMsg').innerHTML='<span class="warn">먼저 API를 설정/저장하세요.</span>'; return; }
-  $('input').value=''; addMsg('user',text);
-  busy=true; $('sendBtn').disabled=true; $('status').textContent='상태: 생성 중…';
-  const sys=buildSystemPrompt(text);
-  const msgs=[{role:'system',content:sys}].concat(history).concat([{role:'user',content:text}]);
-  const bubble=addMsg('assistant','…'); let acc='';
+var activeAgent = null;       // 현재 가동된 에이전트
+var chatHistory = [];         // [{role, content}]
+var chatAbort = null;
+var isStreaming = false;
+
+function openerCtx(){
   try{
-    acc=await callLLM(msgs,(p)=>{ bubble.textContent=stripThink(p)||'…'; $('chat').scrollTop=$('chat').scrollHeight; });
-    const {clean,blocks}=parseBlocks(stripThink(acc));
-    const {memResults,pending,questions}=applyBlocks(blocks);
-    let shown=clean;
-    if(questions.length) shown += (shown?'\n\n':'')+'❓ '+questions.join('\n❓ ');
-    bubble.textContent = shown || '(빈 응답)';
-    history.push({role:'user',content:text}); history.push({role:'assistant',content:clean});
-    if(history.length>16) history=history.slice(-16);
-    set(LS.hist,history);
-    if(memResults.length){ addMsg('sys','🧠 기억 갱신: '+memResults.join(' · ')); renderSide(); }
-    if(pending.length) showApproval(pending);
-    $('status').textContent='상태: 완료'+(blocks.length?` · 블록 ${blocks.length}개 처리`:'');
+    if(window.opener && !window.opener.closed && typeof window.opener.getCurrentAgentContext==='function'){
+      return window.opener.getCurrentAgentContext() || {};
+    }
+  }catch(e){}
+  return {};
+}
+
+function showNotice(msg){ var n=document.getElementById('notice'); n.textContent=msg; n.style.display='block'; }
+
+// 답변을 데모스 메인과 동일하게 렌더 (think 접이식 박스 + 마크다운).
+// opener.renderMd 재사용, 없으면 think 제거 + 줄바꿈만.
+function renderFinal(text){
+  var raw=String(text||'');
+  // gguf 등에서 여는 <think> 없이 닫는 </think>만 오는 경우 → 앞에 <think> 보충
+  if(raw.indexOf('</think>')>=0 && raw.indexOf('<think>')<0){ raw='<think>'+raw; }
+  try{
+    if(window.opener && !window.opener.closed && typeof window.opener.renderMd==='function'){
+      return window.opener.renderMd(raw);
+    }
+  }catch(e){}
+  var t=raw.replace(/<think>[\s\S]*?<\/think>\s*/g,'').replace(/<think>[\s\S]*$/g,'');
+  return '<div>'+esc(t).replace(/\n/g,'<br>')+'</div>';
+}
+
+// ── 마크다운 문서 다운로드 (데모스와 동일 동작, 자체 완결형) ──
+// opener.renderMd 가 닫힌 ```markdown 펜스를 인라인 블록(copyMdContent/downloadMarkdown 버튼)으로
+// 렌더하므로 그 핸들러를 여기서도 정의. 펜스가 없거나 안 닫힌 경우엔 _awAppendMdBar 폴백 바를 붙인다.
+function u2b(str){ var b=new TextEncoder().encode(str),s=''; for(var i=0;i<b.length;i++) s+=String.fromCharCode(b[i]); return btoa(s); }
+function b2u(b64){ var bin=atob(b64),b=new Uint8Array(bin.length); for(var i=0;i<bin.length;i++) b[i]=bin.charCodeAt(i); return new TextDecoder().decode(b); }
+function decodeMdB64(btn){ return b2u(btn.getAttribute('data-md')); }
+function copyMdContent(btn){
+  var md=decodeMdB64(btn);
+  navigator.clipboard.writeText(md).then(function(){ var o=btn.textContent; btn.textContent='✅ 복사됨'; setTimeout(function(){btn.textContent=o;},1500); });
+}
+function downloadMarkdown(btn){
+  var md=decodeMdB64(btn);
+  var m=md.match(/^#\s+(.+)$/m), fn='report.md';
+  if(m){ fn=m[1].replace(/[^\w가-힣\s-]/g,'').trim().replace(/\s+/g,'_').substring(0,50)+'.md'; }
+  var blob=new Blob([md],{type:'text/markdown;charset=utf-8'}), a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download=fn; a.click(); setTimeout(function(){URL.revokeObjectURL(a.href);},1000);
+}
+async function downloadHtmlDoc(btn){
+  var md=decodeMdB64(btn); btn.disabled=true; var o=btn.textContent; btn.textContent='⏳ 변환 중...';
+  try{
+    var res=await fetch('/api/generate_html',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({markdown:md,title:'문서'})});
+    var data=await res.json();
+    if(data.download_url){ var a=document.createElement('a'); a.href=data.download_url; a.download='document.html'; a.click(); }
+    else { alert(data.error||'HTML 변환 실패'); }
+  }catch(e){ alert('HTML 변환 실패: '+(e.message||e)); }
+  finally{ btn.disabled=false; btn.textContent=o; }
+}
+// md 계열 스킬이 켜져 있고, 닫힌 ```markdown 펜스가 없을 때만 하단 다운로드 바 폴백.
+function _awAppendMdBar(bubble, rawContent, skills){
+  try{
+    if(!bubble || !rawContent || !rawContent.trim()) return;
+    var active=(skills||[]).some(function(s){ return s==='markdown-mermaid-writing'||s==='md-to-html'; });
+    if(!active) return;
+    if(/```markdown\s*[\s\S]*?```/.test(rawContent)) return; // 인라인 블록이 이미 렌더됨
+    var mdB64=u2b(rawContent);
+    var bar=document.createElement('div');
+    bar.className='md-report-header'; bar.style.marginTop='10px'; bar.style.borderRadius='8px';
+    bar.innerHTML='<span>📋 마크다운 문서로 저장</span>'+
+      '<div class="md-report-actions">'+
+      '<button class="md-report-btn" onclick="copyMdContent(this)" data-md="'+mdB64+'">📋 복사</button>'+
+      '<button class="md-report-btn md-download" onclick="downloadMarkdown(this)" data-md="'+mdB64+'">📥 MD 다운로드</button>'+
+      '<button class="md-report-btn" style="background:#6366f1;color:#fff;border-color:#6366f1;" onclick="downloadHtmlDoc(this)" data-md="'+mdB64+'">📄 HTML 다운로드</button>'+
+      '</div>';
+    bubble.appendChild(bar);
+  }catch(e){}
+}
+
+// 추론(</think> 이전)을 제거하고 실제 답변만 추출
+function stripThink(acc){
+  var i=String(acc||'').lastIndexOf('</think>');
+  return i>=0 ? acc.slice(i+8).replace(/^\s+/,'') : acc;
+}
+
+// ── 대화 기록 영속화 (아이디+에이전트별 localStorage, 데모스와 같은 오리진) ──
+function chatKey(agentId){ return 'demos_agentChat_'+uid()+'_'+agentId; }
+function saveChat(){
+  if(!activeAgent) return;
+  try{ localStorage.setItem(chatKey(activeAgent.agent_id), JSON.stringify({messages:chatHistory, updatedAt:Date.now()})); }catch(e){}
+}
+function loadChatMessages(agentId){
+  try{ var d=JSON.parse(localStorage.getItem(chatKey(agentId))||'null'); return (d&&Array.isArray(d.messages))? d.messages : []; }catch(e){ return []; }
+}
+function renderHistory(messages){
+  var c=document.getElementById('chatMsgs'); c.innerHTML='';
+  (messages||[]).forEach(function(m){
+    if(m.role==='user'){ addChatMsg('user', m.content); }
+    else {
+      var b=addChatMsg('assistant',''); b.style.whiteSpace='normal'; b.innerHTML=renderFinal(m.content);
+      _awAppendMdBar(b, m.content, (activeAgent&&activeAgent.skills)||[]);
+    }
+  });
+  c.scrollTop=c.scrollHeight;
+}
+
+// ── 모델 드롭다운 (/api/config) ──
+async function loadEnvs(){
+  var sel=document.getElementById('agEnvSelect');
+  try{
+    var r=await fetch('/api/config');
+    var d=await r.json();
+    var envs=d.envs||{};
+    var apiGroup=document.createElement('optgroup'); apiGroup.label='API 모델';
+    var ggufGroup=document.createElement('optgroup'); ggufGroup.label='GGUF (로컬)';
+    Object.keys(envs).forEach(function(id){
+      var env=envs[id]||{};
+      var o=document.createElement('option');
+      o.value=id; o.textContent=(env.name||id)+(env.model?(' — '+env.model):'');
+      if(id.indexOf('gguf-')===0) ggufGroup.appendChild(o); else apiGroup.appendChild(o);
+    });
+    if(apiGroup.children.length) sel.appendChild(apiGroup);
+    if(ggufGroup.children.length) sel.appendChild(ggufGroup);
+  }catch(e){ showNotice('모델 목록 로드 실패: '+e.message); }
+}
+
+// ── 목록 ──
+// ── 스킬 조합 선택 ──
+var selectedSkillSet = new Set();
+
+function getCheckedSkills(){ return Array.from(selectedSkillSet); }
+
+var _comboNames=null;
+function comboSkillName(sid){
+  if(_comboNames===null){
+    try{ if(window.opener && !window.opener.closed && typeof window.opener.getComboSkillNames==='function') _comboNames=window.opener.getComboSkillNames()||{}; else _comboNames={}; }
+    catch(e){ _comboNames={}; }
+  }
+  return (_comboNames && _comboNames[sid]) || sid;
+}
+
+function getCombos(){
+  try{
+    if(window.opener && !window.opener.closed && typeof window.opener.getSkillCombos==='function'){
+      return (window.opener.getSkillCombos()||[]).filter(function(c){ return c.id!=='knowledge-domain'; });
+    }
+  }catch(e){}
+  return [];
+}
+
+// ── 드롭다운 기반 조합 선택 ──
+var activeComboIds = new Set();
+var _comboById = null;
+function comboById(id){
+  if(_comboById===null){ _comboById={}; getCombos().forEach(function(c){ _comboById[c.id]=c; }); }
+  return _comboById[id];
+}
+
+// 선택된 조합들의 스킬 합집합 = selectedSkillSet
+function recomputeSkills(){
+  selectedSkillSet = new Set();
+  activeComboIds.forEach(function(id){
+    var c=comboById(id);
+    if(c) (c.skills||[]).forEach(function(s){ selectedSkillSet.add(s); });
+  });
+}
+
+// 드롭다운 옵션 채우기 (이미 선택된 조합은 제외)
+function buildComboSelect(){
+  var sel=document.getElementById('agComboSelect');
+  if(!sel) return;
+  sel.innerHTML='<option value="">+ 조합 추가…</option>';
+  getCombos().forEach(function(c){
+    if(activeComboIds.has(c.id)) return;
+    var o=document.createElement('option');
+    o.value=c.id; o.textContent=(c.label||c.id);
+    sel.appendChild(o);
+  });
+  sel.value='';
+}
+
+// 선택된 조합 칩 (✕ 로 제거)
+function renderComboChips(){
+  var wrap=document.getElementById('agComboChips');
+  if(!wrap) return;
+  wrap.innerHTML='';
+  if(!activeComboIds.size){ wrap.innerHTML='<span style="color:#888;font-size:11px;">선택된 조합 없음 — 위에서 추가</span>'; return; }
+  activeComboIds.forEach(function(id){
+    var c=comboById(id); if(!c) return;
+    var col=c.color||'#6366f1';
+    var chip=document.createElement('span');
+    chip.style.cssText='display:inline-flex;align-items:center;gap:6px;background:'+col+'22;color:'+col+';border:1px solid '+col+'66;border-radius:14px;padding:3px 10px;font-size:11.5px;';
+    chip.innerHTML='<b>'+esc(c.label||id)+'</b><span style="opacity:.7;">'+((c.skills||[]).length)+'</span><span data-x="1" title="제거" style="cursor:pointer;font-weight:700;opacity:.8;">✕</span>';
+    chip.querySelector('[data-x]').onclick=function(){
+      activeComboIds.delete(id); recomputeSkills(); buildComboSelect(); renderComboChips(); updateSkillCount();
+    };
+    wrap.appendChild(chip);
+  });
+}
+
+function updateSkillCount(){
+  var el=document.getElementById('agSkillCount');
+  if(el) el.textContent = '🔗 조합 '+activeComboIds.size+'개 · 총 '+selectedSkillSet.size+'개 스킬';
+}
+
+function initSkills(){
+  buildComboSelect();
+  renderComboChips();
+  recomputeSkills();
+  updateSkillCount();
+  var sel=document.getElementById('agComboSelect');
+  if(sel){
+    sel.onchange=function(){
+      var id=sel.value;
+      if(!id) return;
+      activeComboIds.add(id);
+      recomputeSkills();
+      buildComboSelect();
+      renderComboChips();
+      updateSkillCount();
+    };
+  }
+}
+
+// ── 내 지식 문서 목록 (체크박스) ──
+async function loadKnowledgeFiles(selected){
+  var box=document.getElementById('agKnowList');
+  var sel=new Set(selected||[]);
+  try{
+    var r=await fetch('/api/knowledge/files?user_id='+encodeURIComponent(uid()));
+    var d=await r.json();
+    var files=d.files||[];
+    if(!files.length){ box.innerHTML='<span style="color:#888;">등록된 지식 문서가 없습니다. (메인 📚 내 지식에서 등록)</span>'; return; }
+    box.innerHTML='';
+    files.forEach(function(f){
+      var lbl=document.createElement('label');
+      lbl.style.cssText='display:flex;align-items:center;gap:8px;padding:3px 0;color:#e2e8f0;cursor:pointer;';
+      lbl.innerHTML='<input type="checkbox" value="'+esc(f.filename)+'" '+(sel.has(f.filename)?'checked':'')+' style="width:auto;margin:0;"> '
+        +'<span style="flex:1;">'+esc(f.filename)+'</span>'
+        +'<span style="color:#6b7280;font-size:10.5px;">'+Math.round((f.size||0)/1024)+'KB</span>';
+      box.appendChild(lbl);
+    });
+  }catch(e){ box.innerHTML='<span style="color:#f87171;">지식 목록 로드 실패: '+esc(e.message)+'</span>'; }
+}
+function getCheckedKnowledge(){
+  var out=[];
+  var els=document.querySelectorAll('#agKnowList input[type=checkbox]');
+  for(var i=0;i<els.length;i++){ if(els[i].checked) out.push(els[i].value); }
+  return out;
+}
+
+// ── 내 스크립트 목록 (체크박스) ──
+async function loadAgentScripts(selected){
+  var box=document.getElementById('agScriptList');
+  var sel=new Set(selected||[]);
+  try{
+    var r=await fetch('/api/knowledge/scripts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid()})});
+    var d=await r.json();
+    var scripts=d.scripts||[];
+    if(!scripts.length){ box.innerHTML='<span style="color:#9a7b3a;">등록된 스크립트가 없습니다. (메인 📚 내 지식 → 📜 스크립트 탭에서 등록)</span>'; return; }
+    box.innerHTML='';
+    scripts.forEach(function(s){
+      var lbl=document.createElement('label');
+      lbl.style.cssText='display:flex;align-items:center;gap:8px;padding:3px 0;color:#fbbf24;cursor:pointer;';
+      lbl.innerHTML='<input type="checkbox" value="'+esc(s.name)+'" '+(sel.has(s.name)?'checked':'')+' style="width:auto;margin:0;accent-color:#f59e0b;"> '
+        +'<span style="flex:1;">🐍 '+esc(s.name)+'</span>'
+        +'<span style="color:#9a7b3a;font-size:10.5px;">'+esc((s.trigger||[]).join(','))+'</span>';
+      box.appendChild(lbl);
+    });
+  }catch(e){ box.innerHTML='<span style="color:#f87171;">스크립트 목록 로드 실패: '+esc(e.message)+'</span>'; }
+}
+function getCheckedScripts(){
+  var out=[];
+  var els=document.querySelectorAll('#agScriptList input[type=checkbox]');
+  for(var i=0;i<els.length;i++){ if(els[i].checked) out.push(els[i].value); }
+  return out;
+}
+
+// ── CSV 첨부 (메인과 동일하게 /api/upload_csv → 글로벌 uploaded_csv_data) ──
+var _agCsvAttached = false;
+async function agCsvSelected(input){
+  var f = input.files && input.files[0];
+  if(!f) return;
+  var bar=document.getElementById('agAttachBar'), nm=document.getElementById('agAttachName');
+  nm.textContent='📎 업로드 중… '+f.name; bar.style.display='flex';
+  var fd=new FormData(); fd.append('file', f);
+  try{
+    var r=await fetch('/api/upload_csv',{method:'POST',body:fd});
+    var d=await r.json();
+    if(d.error){ nm.innerHTML='<span style="color:#f87171;">업로드 실패: '+esc(d.error)+'</span>'; _agCsvAttached=false; return; }
+    _agCsvAttached=true;
+    nm.textContent='📎 '+(d.filename||f.name)+' ('+(d.rows||'?')+'행 × '+(d.cols||'?')+'열) — "분석해줘" 입력';
+  }catch(e){ nm.innerHTML='<span style="color:#f87171;">업로드 오류: '+esc(e.message)+'</span>'; _agCsvAttached=false; }
+}
+function clearAgCsv(){
+  _agCsvAttached=false;
+  document.getElementById('agCsvInput').value='';
+  document.getElementById('agAttachBar').style.display='none';
+  fetch('/api/clear_csv',{method:'POST'}).catch(function(){});
+}
+
+// 선택한 지식 파일들의 내용을 가져와 시스템 프롬프트용 컨텍스트 블록 생성
+var _KCTX_PER_FILE = 4000, _KCTX_TOTAL = 14000;
+async function buildKnowledgeContext(files){
+  if(!files || !files.length) return '';
+  var parts=[], total=0;
+  for(var i=0;i<files.length;i++){
+    try{
+      var r=await fetch('/api/knowledge/view/'+encodeURIComponent(files[i])+'?user_id='+encodeURIComponent(uid()));
+      if(!r.ok) continue;
+      var d=await r.json();
+      var c=String(d.content||'').slice(0,_KCTX_PER_FILE);
+      if(total+c.length > _KCTX_TOTAL) c=c.slice(0, Math.max(0,_KCTX_TOTAL-total));
+      if(!c) break;
+      parts.push('--- 📄 '+files[i]+' ---\n'+c);
+      total+=c.length;
+      if(total>=_KCTX_TOTAL) break;
+    }catch(e){}
+  }
+  if(!parts.length) return '';
+  return '\n\n=== 선택한 내 지식 문서 ===\n'
+    +'아래 문서 내용을 우선 근거로 답하세요. 문서에 없는 내용은 추측하지 말고 일반 지식임을 밝히세요.\n\n'
+    +parts.join('\n\n');
+}
+
+async function loadAgents(){
+  var box=document.getElementById('agList');
+  box.innerHTML='로딩 중...';
+  try{
+    var r=await fetch('/api/agents?user_id='+encodeURIComponent(uid()));
+    var d=await r.json();
+    var agents=d.agents||[];
+    if(!agents.length){ box.innerHTML='<span style="color:#888;">저장된 에이전트가 없습니다.</span>'; return; }
+    box.innerHTML='';
+    agents.forEach(function(a){
+      var row=document.createElement('div');
+      row.className='ag-item';
+      var per=a.persona||'';
+      var nDoc=(a.knowledge_files&&a.knowledge_files.length)||0;
+      var nScr=(a.knowledge_scripts&&a.knowledge_scripts.length)||0;
+      var nSkl=(a.skills&&a.skills.length)||0;
+      row.innerHTML=
+        '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">'+
+          '<span style="flex:1;font-weight:700;color:#e2e8f0;font-size:13px;">🤖 '+esc(a.name)+'</span>'+
+          '<button class="ag-run" data-run="1">▶ 가동</button>'+
+          '<button class="ag-edit" data-edit="1" style="background:#6366f1;color:#fff;border:none;border-radius:6px;padding:2px 9px;font-size:11px;cursor:pointer;">✏️ 수정</button>'+
+          '<button class="ag-del" data-del="1">🗑</button>'+
+        '</div>'+
+        (per?'<div style="font-size:11px;color:#94a3b8;margin-bottom:4px;line-height:1.4;">'+esc(per.slice(0,90))+(per.length>90?'…':'')+'</div>':'')+
+        '<div class="meta" style="display:flex;flex-wrap:wrap;gap:5px;">'+
+          '<span style="background:#23233a;padding:1px 7px;border-radius:10px;">'+esc((a.envs||['auto']).join(', '))+'</span>'+
+          (nDoc?'<span style="background:#1e2b3a;color:#7dd3fc;padding:1px 7px;border-radius:10px;">📄 문서 '+nDoc+'</span>':'')+
+          (nScr?'<span style="background:#2a2410;color:#fbbf24;padding:1px 7px;border-radius:10px;">🐍 스크립트 '+nScr+'</span>':'')+
+          (nSkl?'<span style="background:#241e3a;color:#c4b5fd;padding:1px 7px;border-radius:10px;">🛠 스킬 '+nSkl+'</span>':'')+
+          '<span style="background:#23233a;padding:1px 7px;border-radius:10px;">effort '+(a.effort!=null?a.effort:2)+'</span>'+
+        '</div>';
+      row.querySelector('[data-run]').onclick=function(){ activate(a); };
+      row.querySelector('[data-edit]').onclick=function(){ editAgent(a); };
+      row.querySelector('[data-del]').onclick=function(){ del(a.agent_id, a.name); };
+      box.appendChild(row);
+    });
+  }catch(e){ box.innerHTML='<span style="color:#f87171;">로드 실패: '+esc(e.message)+'</span>'; }
+}
+
+// ── 수정/새로만들기 모드 ──
+var editingAgentId = null;
+function _setFormMode(editingName){
+  var t=document.getElementById('agFormTitle'), nb=document.getElementById('agNewBtn'), sb=document.getElementById('agSaveBtn');
+  if(editingName){
+    t.innerHTML='✏️ 수정 중: <span style="color:#fbbf24;">'+esc(editingName)+'</span>';
+    if(nb) nb.style.display='';
+    if(sb) sb.textContent='💾 수정 저장';
+  }else{
+    t.textContent='＋ 새 에이전트 만들기';
+    if(nb) nb.style.display='none';
+    if(sb) sb.textContent='💾 에이전트 저장';
+  }
+}
+function resetAgentForm(){
+  editingAgentId=null;
+  document.getElementById('agName').value='';
+  document.getElementById('agPersona').value='';
+  document.getElementById('agEffort').value='2';
+  var es=document.getElementById('agEnvSelect'); if(es) es.value='auto';
+  loadKnowledgeFiles([]);     // 문서 체크 해제
+  loadAgentScripts([]);       // 스크립트 체크 해제
+  activeComboIds=new Set(); recomputeSkills(); buildComboSelect(); renderComboChips(); updateSkillCount();
+  document.getElementById('agSaveMsg').innerHTML='';
+  _setFormMode(null);
+}
+function editAgent(a){
+  editingAgentId=a.agent_id;
+  document.getElementById('agName').value=a.name||'';
+  document.getElementById('agPersona').value=a.persona||'';
+  document.getElementById('agEffort').value=String(a.effort!=null?a.effort:2);
+  var es=document.getElementById('agEnvSelect'); if(es) es.value=(a.envs&&a.envs[0])||'auto';
+  loadKnowledgeFiles(a.knowledge_files||[]);      // 문서 체크 복원
+  loadAgentScripts(a.knowledge_scripts||[]);      // 스크립트 체크 복원
+  // 스킬조합 복원: 조합의 스킬이 모두 a.skills 에 있으면 그 조합 활성
+  activeComboIds=new Set();
+  getCombos().forEach(function(c){
+    var sk=c.skills||[];
+    if(sk.length && sk.every(function(s){ return (a.skills||[]).indexOf(s)>=0; })) activeComboIds.add(c.id);
+  });
+  recomputeSkills(); buildComboSelect(); renderComboChips(); updateSkillCount();
+  _setFormMode(a.name);
+  var mb=document.getElementById('manageBox'); if(mb) mb.open=true;
+  document.getElementById('agName').scrollIntoView({behavior:'smooth',block:'center'});
+}
+
+// ── 저장 (새로만들기 또는 수정) ──
+async function saveAgent(){
+  var msg=document.getElementById('agSaveMsg');
+  var name=document.getElementById('agName').value.trim();
+  if(!name){ msg.innerHTML='<span style="color:#f87171;">이름을 입력하세요</span>'; return; }
+  var payload={
+    user_id: uid(),
+    name: name,
+    persona: document.getElementById('agPersona').value.trim(),
+    envs: [document.getElementById('agEnvSelect').value || 'auto'],
+    skills: getCheckedSkills(),
+    knowledge: false,
+    knowledge_files: getCheckedKnowledge(),
+    knowledge_scripts: getCheckedScripts(),
+    effort: parseInt(document.getElementById('agEffort').value,10)
+  };
+  if(editingAgentId) payload.agent_id=editingAgentId;   // 있으면 그 에이전트 덮어쓰기(수정)
+  try{
+    var r=await fetch('/api/agents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    var d=await r.json();
+    if(!r.ok) throw new Error(d.error||('HTTP '+r.status));
+    msg.innerHTML='<span style="color:#22c55e;">✅ '+(editingAgentId?'수정':'저장')+'됨</span>';
+    resetAgentForm();
+    loadAgents();
+  }catch(e){ msg.innerHTML='<span style="color:#f87171;">저장 실패: '+esc(e.message)+'</span>'; }
+}
+
+async function del(aid, name){
+  if(!confirm('에이전트 "'+(name||'')+'" 을(를) 삭제할까요?')) return;
+  try{
+    var r=await fetch('/api/agents/'+encodeURIComponent(aid)+'?user_id='+encodeURIComponent(uid()),{method:'DELETE'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    loadAgents();
+  }catch(e){ alert('삭제 실패: '+e.message); }
+}
+
+// ── 가동: 이 창에서 채팅 시작 ──
+function activate(a){
+  if(!uid()){ alert('로그인이 필요합니다'); return; }
+  activeAgent = a;
+  chatHistory = loadChatMessages(a.agent_id);   // 이전 기록 복원
+  document.getElementById('chatAgentName').textContent = '🟢 가동: '+a.name;
+  document.getElementById('chatAgentEnv').textContent = '['+((a.envs||['auto']).join(', '))+(a.knowledge?' · 📚지식':'')+((a.knowledge_files&&a.knowledge_files.length)?(' · 📄'+a.knowledge_files.length+'개'):'')+' · effort '+(a.effort!=null?a.effort:2)+']';
+  renderHistory(chatHistory);
+  document.getElementById('chatPanel').style.display='flex';
+  var mb=document.getElementById('manageBox'); if(mb) mb.open=false;
+  // 메인 창에도 동기화(있을 때만, 비치명적)
+  try{ if(window.opener && !window.opener.closed && typeof window.opener.applyAgentPreset==='function') window.opener.applyAgentPreset(a); }catch(e){}
+  document.getElementById('chatInput').focus();
+}
+
+// 전송/중지 토글: 스트리밍 중이면 중지, 아니면 전송
+function onSendBtn(){
+  if(isStreaming) stopChat();
+  else sendChat();
+}
+function stopChat(){
+  if(isStreaming && chatAbort){ try{ chatAbort.abort(); }catch(e){} }
+}
+
+// ⏭ 이어서 보기: 직전 답변을 이어서 작성하게 함 (답이 잘렸을 때 특히 강조)
+function _awContinueBar(bubble, truncated){
+  try{
+    if(!bubble) return;
+    var bar=document.createElement('div');
+    bar.style.cssText='margin-top:8px;display:flex;gap:8px;align-items:center;';
+    var hint = truncated ? '<span style="font-size:11px;color:#fbbf24;">⚠️ 답변이 길이 제한으로 잘렸습니다.</span>' : '';
+    bar.innerHTML = '<button onclick="continueChat()" style="background:#6366f1;color:#fff;border:none;border-radius:6px;padding:4px 12px;font-size:12px;font-weight:700;cursor:pointer;">⏭ 이어서 보기</button>' + hint;
+    bubble.appendChild(bar);
+  }catch(e){}
+}
+// 직전 답변을 이어서 작성하도록 '계속' 메시지를 보내 스트리밍 재개
+function continueChat(){
+  if(isStreaming) return;
+  if(!activeAgent){ return; }
+  var inp=document.getElementById('chatInput');
+  inp.value='이어서 계속 작성해줘. (앞 답변에 바로 이어서, 같은 형식·한국어로, 중복 없이)';
+  sendChat();
+}
+
+function endChat(){
+  if(isStreaming && chatAbort){ try{ chatAbort.abort(); }catch(e){} }
+  document.getElementById('chatPanel').style.display='none';
+  activeAgent=null; chatHistory=[];
+  var mb=document.getElementById('manageBox'); if(mb) mb.open=true;
+}
+
+// 새 세션: 현재 에이전트 대화 기록 삭제 후 새로 시작
+function newAgentSession(){
+  if(!activeAgent) return;
+  if(chatHistory.length && !confirm('현재 대화를 지우고 새 세션을 시작할까요?')) return;
+  chatHistory=[];
+  try{ localStorage.removeItem(chatKey(activeAgent.agent_id)); }catch(e){}
+  document.getElementById('chatMsgs').innerHTML='';
+  document.getElementById('chatInput').focus();
+}
+
+// 데모스로 보내기: 현재 대화를 메인 데모스 채팅에 새 세션으로 불러옴
+function sendToDemos(){
+  if(!activeAgent || !chatHistory.length){ alert('보낼 대화가 없습니다.'); return; }
+  try{
+    if(window.opener && !window.opener.closed && typeof window.opener.importAgentConversation==='function'){
+      var ok=window.opener.importAgentConversation(activeAgent, chatHistory);
+      try{ window.opener.focus(); }catch(e){}
+      alert(ok ? '메인 데모스 채팅에 새 세션으로 불러왔습니다.' : '전송 실패');
+    } else {
+      alert('메인 데모스 창을 찾을 수 없습니다. 메인에서 🤖 버튼으로 다시 열어주세요.');
+    }
+  }catch(e){ alert('전송 실패: '+e.message); }
+}
+
+// ── 채팅 메시지 렌더 ──
+function addChatMsg(role, text){
+  var c=document.getElementById('chatMsgs');
+  var d=document.createElement('div');
+  d.className='cm '+role;
+  d.innerHTML='<div class="who">'+(role==='user'?'🙋 나':'🤖 '+esc(activeAgent?activeAgent.name:'Agent'))+'</div><div class="bubble"></div>';
+  d.querySelector('.bubble').textContent=text||'';
+  c.appendChild(d);
+  c.scrollTop=c.scrollHeight;
+  return d.querySelector('.bubble');
+}
+
+// ── 전송 (SSE 스트리밍) — 메인 send() 의 /api/chat 계약 그대로 ──
+// 🔮 헤르메스: 스킬 저장 제안 카드 (확인형)
+function _awSkillCards(pending){
+  if(!pending || !pending.length) return;
+  var c=document.getElementById('chatMsgs');
+  pending.forEach(function(sp){
+    var card=document.createElement('div');
+    card.className='cm assistant';
+    card.style.cssText='border:1px solid #a855f7;border-radius:8px;padding:9px;margin-bottom:10px;background:rgba(168,85,247,0.08);';
+    card.innerHTML='<div style="font-weight:700;color:#c4b5fd;font-size:12px;">🔮 스킬 저장 제안: '+esc(sp.name||'(이름없음)')+'</div>'
+      +'<div style="font-size:11px;color:#94a3b8;margin:2px 0;">'+esc(sp.when||'')+'</div>'
+      +'<pre style="font-size:11px;white-space:pre-wrap;color:#cbd5e1;max-height:140px;overflow:auto;margin:4px 0;">'+esc((sp.body||'').slice(0,400))+'</pre>'
+      +'<button data-save="1" style="background:#a855f7;color:#fff;border:none;border-radius:6px;padding:3px 12px;font-size:11px;cursor:pointer;">저장</button> '
+      +'<button data-rej="1" style="background:none;border:1px solid #555;color:#aaa;border-radius:6px;padding:3px 12px;font-size:11px;cursor:pointer;">거절</button>'
+      +' <span class="awres" style="font-size:11px;margin-left:6px;color:#22c55e;"></span>';
+    card.querySelector('[data-rej]').onclick=function(){ card.remove(); };
+    card.querySelector('[data-save]').onclick=async function(){
+      var btn=this, res=card.querySelector('.awres');
+      try{
+        var r=await fetch('/api/hermes/skill/confirm',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({user_id:uid(), spec:sp})});
+        var d=await r.json();
+        if(d.ok){ btn.disabled=true; btn.textContent='✅ 저장됨'; if(res) res.textContent=d.msg||''; }
+        else if(res){ res.style.color='#f87171'; res.textContent=d.msg||'실패'; }
+      }catch(e){ if(res){ res.style.color='#f87171'; res.textContent='실패: '+e.message; } }
+    };
+    c.appendChild(card);
+  });
+  c.scrollTop=c.scrollHeight;
+}
+
+async function sendChat(){
+  if(isStreaming) return;
+  if(!activeAgent){ return; }
+  var input=document.getElementById('chatInput');
+  var text=input.value.trim();
+  if(!text) return;
+  input.value='';
+
+  addChatMsg('user', text);
+  chatHistory.push({role:'user', content:text});
+  saveChat();
+
+  // 지식검색: knowledge(전체 자동검색) 켜져있으면 skills 에 knowledge-search 포함
+  var skills = Array.isArray(activeAgent.skills)? activeAgent.skills.slice() : [];
+  if(activeAgent.knowledge && skills.indexOf('knowledge-search')<0) skills.push('knowledge-search');
+
+  // 🔮 헤르메스: 마커 있으면 엔진 ON (마커는 /api/chat 전송에서 제거)
+  var hermesOn = skills.indexOf('hermes')>=0 && !!uid();
+  skills = skills.filter(function(s){ return s!=='hermes'; });
+
+  var sendBtn=document.getElementById('chatSend');
+  // 스트리밍 중엔 '중지' 버튼으로 (비활성화하지 않고 누르면 abort)
+  isStreaming=true; sendBtn.disabled=false; sendBtn.textContent='⏹ 중지';
+  sendBtn.style.background='#ef4444';
+  var bubble=addChatMsg('assistant','');
+  var acc='';
+  var truncatedFlag=false;
+
+  // 선택한 지식 문서 내용을 시스템 프롬프트에 주입 (Option A)
+  bubble.textContent='📚 선택한 지식 문서 불러오는 중…';
+  var sysPrompt = activeAgent.persona || '';
+  // 답변 규칙: 한국어로 + 영어 사고과정/<think> 누출 차단 (스킬 형식은 그대로 따름)
+  sysPrompt += (sysPrompt ? '\n\n' : '') +
+    '[답변 규칙] 반드시 한국어로 답하세요. 영어 사고과정("Here\'s a thinking process", "Analyze", "Let me think", "Draft" 등)이나 ' +
+    '<think>·<thinking> 태그를 절대 출력하지 말고, 바로 결론·핵심부터 명확하게 답하세요(고유명사·코드·명령어는 예외). ' +
+    '불필요한 서론·과정 설명은 빼고 결론 위주로. 스킬이 지정한 형식(표·문서·다이어그램 등)이 있으면 그 형식대로 작성하세요.';
+  var kctx = await buildKnowledgeContext(activeAgent.knowledge_files);
+  if(kctx) sysPrompt += kctx;
+  if(hermesOn){
+    bubble.textContent='🔮 헤르메스 기억 불러오는 중…';
+    try{
+      var _hpr=await fetch('/api/hermes/prep',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid(), query:text})});
+      var _hpd=await _hpr.json();
+      if(_hpd.system_addon) sysPrompt += (sysPrompt?'\n\n':'') + _hpd.system_addon;
+    }catch(e){}
+  }
+  bubble.textContent='';
+
+  // API로 보낼 메시지: 저장본은 그대로 두고, 마지막 user 메시지에만 '한국어/사고과정 차단' 지시만 덧붙임
+  // (보고서 스킬 형식은 건드리지 않음 — 영어 사고과정 누출만 막는다)
+  var _apiMsgs = chatHistory.map(function(m){ return {role:m.role, content:m.content}; });
+  for(var _i=_apiMsgs.length-1; _i>=0; _i--){
+    if(_apiMsgs[_i].role==='user'){
+      _apiMsgs[_i].content += '\n\n(지시: 한국어로 답하고, 영어 사고과정이나 <think> 태그는 출력하지 마라.)';
+      break;
+    }
+  }
+
+  var payload={
+    env: (Array.isArray(activeAgent.envs)&&activeAgent.envs.length)? activeAgent.envs : ['auto'],
+    messages: _apiMsgs,
+    skills: skills,
+    effort: (activeAgent.effort!=null)? activeAgent.effort : 2,
+    format: 'auto',
+    writing_style: 'auto',
+    system_prompt: sysPrompt,
+    think_mode: document.getElementById('agThink') ? document.getElementById('agThink').checked : false,
+    ctx_guard: document.getElementById('agCtxGuard') ? document.getElementById('agCtxGuard').checked : true,
+    knowledge_scripts: (activeAgent.knowledge_scripts || []),
+    user_id: uid(),
+    stream: true
+  };
+
+  chatAbort=new AbortController();
+
+  try{
+    var resp=await fetch('/api/chat',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      signal: chatAbort.signal, body: JSON.stringify(payload)
+    });
+    if(!resp.ok || !resp.body){
+      var det=''; try{ det=await resp.text(); }catch(_){}
+      bubble.textContent='❌ 요청 실패: HTTP '+resp.status+(det?('\n'+det.slice(0,300)):'');
+    } else {
+      var reader=resp.body.getReader();
+      var dec=new TextDecoder();
+      var buf='';
+      var errInfo=null;
+      outer: while(true){
+        var ch; try{ ch=await reader.read(); }catch(_){ break; }
+        if(ch.done) break;
+        buf+=dec.decode(ch.value,{stream:true});
+        var lines=buf.split('\n');
+        buf=lines.pop()||'';
+        for(var i=0;i<lines.length;i++){
+          var s=lines[i].trim();
+          if(s.indexOf('data:')!==0) continue;
+          var pl=s.slice(5).trim();
+          if(!pl) continue;
+          if(pl==='[DONE]') break outer;
+          try{
+            var obj=JSON.parse(pl);
+            if(obj.type==='token' && obj.t){
+              acc+=obj.t;
+              // 추론(</think> 이전)은 가리고, 아직 추론 중이면 안내만 표시
+              if(acc.indexOf('</think>')>=0){ bubble.textContent=stripThink(acc); }
+              else if(/<think>/.test(acc)){ bubble.textContent='💭 생각하는 중…'; }
+              else { bubble.textContent=acc; }
+              var c=document.getElementById('chatMsgs'); c.scrollTop=c.scrollHeight;
+            } else if(obj.type==='error'){ errInfo=obj; }
+              else if(obj.type==='end'){ if(obj.truncated) truncatedFlag=true; }
+          }catch(_){}
+        }
+      }
+      var errLine = errInfo ? ('\n\n❌ '+(errInfo.error||'')+(errInfo.detail?('\n'+errInfo.detail):'')) : '';
+      var disp = stripThink(acc);
+      var pending = null;
+      if(hermesOn && acc.trim()){
+        try{
+          var _por=await fetch('/api/hermes/post',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({user_id:uid(), answer:acc, user_message:text, session_id:(activeAgent.agent_id||'')})});
+          var _pod=await _por.json();
+          if(typeof _pod.clean==='string') disp=_pod.clean;
+          if(_pod.questions && _pod.questions.length) disp += (disp?'\n\n':'')+'❓ '+_pod.questions.join('\n❓ ');
+          if(_pod.pending_skills && _pod.pending_skills.length) pending=_pod.pending_skills;
+        }catch(e){}
+      }
+      bubble.style.whiteSpace='normal';
+      bubble.innerHTML = renderFinal(disp + errLine);
+      _awAppendMdBar(bubble, disp + errLine, skills);  // md 스킬 + 펜스 없으면 다운로드 바 폴백
+      chatHistory.push({role:'assistant', content: disp});
+      saveChat();
+      if(pending) _awSkillCards(pending);
+      _awContinueBar(bubble, truncatedFlag);  // ⏭ 이어서 보기 버튼
+    }
   }catch(e){
-    bubble.textContent='❌ '+(e.message||e); $('status').textContent='상태: 오류';
-  }finally{ busy=false; $('sendBtn').disabled=false; }
+    if(e && e.name==='AbortError'){
+      var _p=stripThink(acc);
+      bubble.innerHTML = renderFinal((_p?_p:'') + '\n\n⏹ 중단됨');
+      if(_p){ chatHistory.push({role:'assistant', content:_p}); saveChat(); }
+    }
+    else { bubble.textContent=acc+'\n\n❌ '+(e.message||e); }
+  } finally {
+    isStreaming=false; sendBtn.disabled=false; sendBtn.textContent='전송';
+    sendBtn.style.background=''; chatAbort=null;
+  }
 }
 
-// ============ 빠른 테스트 ============
-function fillEx(kind){
-  if(kind==='mem'){ $('input').value='나는 M16 FAB의 OHT 반송 정체를 분석해. 답은 표로 줘.'; }
-  else if(kind==='skill'){ $('input').value='방금 OHT 정체 추적하던 절차(구간 큐 확인 → 병목 OHT 가동률 비교 → 우회경로 검토)를 앞으로 재사용하게 "스킬"로 저장해줘.'; }
-  $('input').focus();
-}
-// API 없이 스킬 승인→저장→회상 흐름을 그대로 보여줌
-function simulateSkill(){
-  const fake = `OHT 반송 정체는 보통 합류 구간에서 발생합니다. 아래 절차로 추적하면 됩니다.
+// Enter 전송
+document.getElementById('chatInput').addEventListener('keydown', function(e){
+  if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendChat(); }
+});
 
-\`\`\`hermes:skill
-action: create
-name: oht-jam-triage
-when: OHT 반송 정체 원인을 추적할 때
-body: |
-  1. 구간별 큐 길이 확인 (정체 시작 지점 특정)
-  2. 병목 구간 OHT 가동률·속도 비교
-  3. 합류/분기 포인트의 대기 시간 측정
-  4. 우회 경로 가용성 검토 후 재배분
-\`\`\``;
-  addMsg('user','(시뮬레이트) OHT 정체 추적 절차를 스킬로 저장');
-  const bubble=addMsg('assistant','…');
-  const {clean,blocks}=parseBlocks(fake);
-  const {pending}=applyBlocks(blocks);
-  bubble.textContent = clean;
-  addMsg('sys','🧪 모델이 hermes:skill 블록을 냈습니다 → 아래 승인 카드에서 "저장"을 눌러보세요. 저장하면 오른쪽 「배운 스킬」에 쌓이고, 다음 질문에 BM25로 본문이 회상됩니다.');
-  showApproval(pending);
-  $('status').textContent='상태: 스킬 시뮬레이트 — 승인 대기';
-}
-
-// ============ 설정/초기화 ============
-function saveCfg(){ const c={base:$('cfgBase').value.trim(), key:$('cfgKey').value.trim(), model:$('cfgModel').value.trim(), fold:$('cfgFold').checked, stream:$('cfgStream').checked}; localStorage.setItem(LS.cfg,JSON.stringify(c)); $('cfgMsg').innerHTML='<span class="ok">✅ 저장됨</span>'; }
-async function testCfg(){ saveCfg(); $('cfgMsg').textContent='연결 테스트 중…';
-  try{ const a=await callLLM([{role:'user',content:'한 단어로 "준비완료"라고만 답해.'}]); $('cfgMsg').innerHTML='<span class="ok">✅ 응답: '+esc(stripThink(a).slice(0,40))+'</span>'; }
-  catch(e){ $('cfgMsg').innerHTML='<span class="warn">❌ '+esc(e.message||e)+'</span>'; } }
-function resetAll(){ if(!confirm('데모 기억·스킬·대화를 모두 지울까요? (API 설정은 유지)')) return;
-  [LS.mem,LS.usr,LS.sk,LS.hist].forEach(k=>localStorage.removeItem(k)); history=[]; $('chat').innerHTML='<div class="msg sys">초기화됨. 다시 시작하세요.</div>'; $('approveBox').innerHTML=''; renderSide(); }
-
-// ============ 부트 ============
+// ── 부트 ──
 (function(){
-  const c=getCfg();
-  // 최초 실행 시 기본값 자동 입력 (키만 넣으면 됨)
-  $('cfgBase').value = c.base || 'http://common.llm.skhynix.com/v1';
-  $('cfgKey').value  = c.key  || '';
-  $('cfgModel').value= c.model|| 'Qwen3.6-35B-A3B';
-  $('cfgFold').checked  = !!c.fold;
-  $('cfgStream').checked= !!c.stream;   // 기본 비스트리밍
-  renderBuiltin(); renderSide();
-  $('input').addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); onSend(); } });
+  if(!USER){ showNotice('로그인이 필요합니다. 메인 창에서 로그인 후 다시 열어주세요.'); }
+  var ctx=openerCtx();
+  if(ctx.effort!=null){ document.getElementById('agEffort').value=String(ctx.effort); }
+  try{ var _cg=localStorage.getItem('demos_ctxGuard'); if(_cg!==null) document.getElementById('agCtxGuard').checked=(_cg==='1'); }catch(e){}
+  try{ var _tk=localStorage.getItem('demos_agThink'); if(_tk!==null) document.getElementById('agThink').checked=(_tk==='1'); }catch(e){}
+  loadEnvs();
+  initSkills();
+  loadKnowledgeFiles();
+  loadAgentScripts();
+  loadAgents();
 })();
 </script>
 </body>
