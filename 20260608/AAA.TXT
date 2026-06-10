@@ -1,34 +1,29 @@
 # -*- coding: utf-8 -*-
 """
-llama-server GGUF Chat (tkinter, Vulkan) - Qwen3.5용
-- llama.cpp 본체 prebuilt(llama-server.exe)를 파이썬이 자동 실행
-- OpenAI 호환 API로 채팅, 스트리밍 출력
-- 필요: pip install requests
-- 준비: llama.cpp Releases에서 llama-*-bin-win-vulkan-x64.zip 받아 압축 해제
-        https://github.com/ggml-org/llama.cpp/releases
+llama-cpp-python GGUF Chat (tkinter, Vulkan)
+- GGUF 직접 로드 -> 채팅 -> 스트리밍 출력 (Ollama 불필요)
+- Windows + Ryzen 5700U(Vega iGPU) + Vulkan
+- 필요: pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/vulkan
 """
 
 import os
-import time
-import socket
-import subprocess
 import threading
 import queue
-import json
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
-import requests
+from llama_cpp import Llama
+
+DEFAULT_GGUF = "./Qwen3.5-2B-UD-Q8_K_XL.gguf"
+N_CTX = 8192
 
 
 class _StreamThinkFilter:
-    """스트리밍 중 사고과정(<think>) 실시간 제거. 토큰 경계로 태그가 쪼개져도 안전.
-    implicit=True(qwen3.x): 템플릿이 여는 <think>를 프롬프트에 미리 넣어 모델 출력이
-    사고로 바로 시작하고 닫는 </think>만 나온다 → 첫 </think> 전까지 전부 버린다."""
+    """qwen3.x: 닫는 </think>만 나오므로 implicit=True로 첫 </think> 전까지 전부 버림."""
     OPEN = "<think>"
     CLOSE = "</think>"
 
-    def __init__(self, implicit=False):
+    def __init__(self, implicit=True):
         self.buf = ""
         self.in_think = False
         self.implicit = implicit
@@ -88,53 +83,37 @@ class _StreamThinkFilter:
         return 0
 
 
-# ====== 경로 설정 (네 환경에 맞게 수정) ======
-LLAMA_SERVER_EXE = r"D:\llama\llama-server.exe"          # 압축 푼 위치
-DEFAULT_GGUF = r"D:\models\Qwen3.5-2B-UD-Q8_K_XL.gguf"   # GGUF 위치
-PORT = 8080
-N_GPU_LAYERS = 99
-N_CTX = 8192
-# =============================================
-
-BASE_URL = f"http://127.0.0.1:{PORT}"
-
-
-def port_open():
-    try:
-        with socket.create_connection(("127.0.0.1", PORT), timeout=1):
-            return True
-    except OSError:
-        return False
-
-
 class ChatApp:
     def __init__(self, root):
         self.root = root
-        root.title("Qwen3.5 Chat (llama-server / Vulkan)")
+        root.title("llama.cpp GGUF Chat (Vulkan)")
         root.geometry("760x660")
 
-        self.proc = None
-        self.history = []
+        self.llm = None            # 로드된 모델
+        self.history = []          # 대화 히스토리
         self.q = queue.Queue()
         self.busy = False
 
         self._build_ui()
         self._poll_queue()
-        root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     # ---------- UI ----------
     def _build_ui(self):
         top = tk.Frame(self.root)
         top.pack(fill="x", padx=8, pady=6)
+
         tk.Label(top, text="GGUF:").pack(side="left")
         self.gguf_var = tk.StringVar(value=DEFAULT_GGUF)
         tk.Entry(top, textvariable=self.gguf_var).pack(
             side="left", fill="x", expand=True, padx=4)
         tk.Button(top, text="찾기", command=self._pick_file).pack(side="left", padx=2)
-        tk.Button(top, text="서버 시작", command=self._start_server).pack(side="left", padx=2)
+        tk.Button(top, text="모델 로드", command=self._load).pack(side="left", padx=2)
 
         opt = tk.Frame(self.root)
         opt.pack(fill="x", padx=8)
+        tk.Label(opt, text="GPU layers:").pack(side="left")
+        self.ngl_var = tk.StringVar(value="-1")   # -1 = 전부 GPU
+        tk.Entry(opt, textvariable=self.ngl_var, width=6).pack(side="left", padx=4)
         tk.Label(opt, text="temp:").pack(side="left")
         self.temp_var = tk.StringVar(value="0.7")
         tk.Entry(opt, textvariable=self.temp_var, width=6).pack(side="left", padx=4)
@@ -160,10 +139,11 @@ class ChatApp:
                                   command=self._send, state="disabled")
         self.send_btn.pack(side="left", padx=4)
 
-        self.status = tk.Label(self.root, text="'서버 시작'을 누르세요",
+        self.status = tk.Label(self.root, text="모델을 먼저 로드하세요",
                                anchor="w", fg="#666")
         self.status.pack(fill="x", padx=8)
 
+    # ---------- 헬퍼 ----------
     def _append(self, text, tag=None):
         self.chat.config(state="normal")
         self.chat.insert("end", text, tag if tag else ())
@@ -183,75 +163,52 @@ class ChatApp:
         self.chat.config(state="disabled")
         self._append("[대화 초기화됨]\n\n", "sys")
 
-    # ---------- 서버 ----------
-    def _start_server(self):
-        if port_open():
-            self._append("[이미 떠 있는 서버에 연결]\n\n", "sys")
-            self.send_btn.config(state="normal")
-            self.status.config(text="준비됨")
-            return
+    # ---------- 모델 로드 ----------
+    def _load(self):
         gguf = self.gguf_var.get().strip()
-        if not os.path.exists(LLAMA_SERVER_EXE):
-            messagebox.showerror("오류",
-                f"llama-server.exe 없음:\n{LLAMA_SERVER_EXE}\n\n"
-                "코드 상단 LLAMA_SERVER_EXE 경로 수정하세요.")
-            return
         if not os.path.exists(gguf):
             messagebox.showerror("오류", f"GGUF 파일 없음:\n{gguf}")
             return
-
-        self.status.config(text="서버 시작 중... (모델 로딩, 수십 초)")
-        threading.Thread(target=self._server_worker, args=(gguf,), daemon=True).start()
-
-    def _server_worker(self, gguf):
         try:
-            cmd = [
-                LLAMA_SERVER_EXE,
-                "-m", gguf,
-                "-ngl", str(N_GPU_LAYERS),
-                "-c", str(N_CTX),
-                "--port", str(PORT),
-            ]
-            # 콘솔 창 같이 띄움 -> Vulkan 잡혔는지 로그로 확인 가능
-            self.proc = subprocess.Popen(cmd)
+            ngl = int(self.ngl_var.get())
+        except ValueError:
+            ngl = -1
+        self.status.config(text="모델 로딩 중... (콘솔에서 Vulkan 잡혔는지 확인)")
+        threading.Thread(target=self._load_worker,
+                         args=(gguf, ngl), daemon=True).start()
+
+    def _load_worker(self, gguf, ngl):
+        try:
+            self.llm = Llama(
+                model_path=gguf,
+                n_gpu_layers=ngl,   # -1 = 전부 GPU(Vulkan)
+                n_ctx=N_CTX,
+                verbose=True,       # 콘솔에 Vulkan0: AMD Radeon... 뜸
+            )
+            self.q.put(("sys", "[모델 로드 완료 — 콘솔에 Vulkan 떴는지 확인]\n\n"))
+            self.q.put(("ready", None))
         except Exception as e:
-            self.q.put(("status", f"서버 실행 실패: {e}"))
-            return
+            self.q.put(("status", f"로드 실패: {e}"))
 
-        # 뜰 때까지 대기 (모델 로딩 포함 최대 120초)
-        for _ in range(240):
-            if port_open():
-                try:
-                    r = requests.get(f"{BASE_URL}/health", timeout=2)
-                    if r.status_code == 200:
-                        self.q.put(("sys", "[서버 준비 완료 — 콘솔에서 Vulkan 확인]\n\n"))
-                        self.q.put(("ready", None))
-                        return
-                except requests.RequestException:
-                    pass
-            time.sleep(0.5)
-        self.q.put(("status", "서버가 시간 내에 안 떴습니다. 콘솔 로그 확인"))
-
-    # ---------- 채팅 ----------
+    # ---------- 전송 ----------
     def _on_enter(self, event):
-        if event.state & 0x0001:
+        if event.state & 0x0001:   # Shift+Enter = 줄바꿈
             return
         self._send()
         return "break"
 
     def _send(self):
-        if self.busy:
+        if self.busy or self.llm is None:
             return
         msg = self.entry.get("1.0", "end").strip()
         if not msg:
             return
         self.entry.delete("1.0", "end")
 
-        # qwen3.x: /no_think 로 사고 비활성화 (DEMOS 동일 패턴)
+        # qwen3.x: /no_think 로 사고 비활성화
         send_msg = msg
-        if not self.think_var.get():
-            if "/no_think" not in send_msg:
-                send_msg = send_msg.rstrip() + " /no_think"
+        if not self.think_var.get() and "/no_think" not in send_msg:
+            send_msg = send_msg.rstrip() + " /no_think"
 
         self.history.append({"role": "user", "content": send_msg})
         self._append("나: ", "user")
@@ -269,39 +226,21 @@ class ChatApp:
         except ValueError:
             temp = 0.7
         full = ""
-        # qwen3.x 는 닫는 </think> 만 나오므로 implicit 모드
-        tf = _StreamThinkFilter(implicit=True)
+        tf = _StreamThinkFilter(implicit=True)   # 사고과정 실시간 제거
         try:
-            r = requests.post(
-                f"{BASE_URL}/v1/chat/completions",
-                json={
-                    "model": "qwen3.5-2b",
-                    "messages": self.history,
-                    "temperature": temp,
-                    "stream": True,
-                },
+            stream = self.llm.create_chat_completion(
+                messages=self.history,
+                temperature=temp,
                 stream=True,
-                timeout=300,
             )
-            for line in r.iter_lines():
-                if not line:
-                    continue
-                line = line.decode("utf-8")
-                if not line.startswith("data: "):
-                    continue
-                payload = line[6:]
-                if payload.strip() == "[DONE]":
-                    break
-                try:
-                    obj = json.loads(payload)
-                    piece = obj["choices"][0]["delta"].get("content", "")
-                    if piece:
-                        vis = tf.feed(piece)        # 사고과정 실시간 제거
-                        if vis:
-                            full += vis
-                            self.q.put(("token", vis))
-                except (json.JSONDecodeError, KeyError, IndexError):
-                    continue
+            for chunk in stream:
+                delta = chunk["choices"][0]["delta"]
+                piece = delta.get("content", "")
+                if piece:
+                    vis = tf.feed(piece)
+                    if vis:
+                        full += vis
+                        self.q.put(("token", vis))
             tail = tf.flush()
             if tail:
                 full += tail
@@ -312,7 +251,7 @@ class ChatApp:
             self.q.put(("token", f"\n[오류] {e}\n"))
             self.q.put(("done", None))
 
-    # ---------- queue ----------
+    # ---------- queue 폴링 ----------
     def _poll_queue(self):
         try:
             while True:
@@ -334,12 +273,6 @@ class ChatApp:
         except queue.Empty:
             pass
         self.root.after(40, self._poll_queue)
-
-    def _on_close(self):
-        # 내가 띄운 서버면 같이 종료
-        if self.proc and self.proc.poll() is None:
-            self.proc.terminate()
-        self.root.destroy()
 
 
 if __name__ == "__main__":
