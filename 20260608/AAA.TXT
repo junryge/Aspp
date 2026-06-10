@@ -116,6 +116,39 @@
   body.theme-green #chatPanel{ border-color:#10b981 !important; }
   body.theme-green #chatBar{ background:#0c3225 !important; }
 
+  /* ════ 지식문서/스크립트 카드 선택기 ════ */
+  .picker{ border:1px solid #3a3a52; border-radius:10px; background:#1e1e2c; padding:8px; }
+  .picker.scr{ border-color:#7a5c1e; background:#241e10; }
+  .picker-bar{ display:flex; gap:6px; margin-bottom:8px; }
+  .picker-bar input{ flex:1; padding:6px 9px; font-size:12px; border-radius:6px; }
+  .picker-bar button{ background:#2a2a3e; color:#cbd5e1; border:1px solid #555; border-radius:6px; padding:0 11px; font-size:11px; cursor:pointer; }
+  .picker-bar button:hover{ border-color:#a855f7; color:#fff; }
+  .pick-grid{ display:flex; flex-direction:column; gap:6px; max-height:180px; overflow-y:auto; font-size:12px; color:#94a3b8; }
+  .kcard{ display:flex; align-items:center; gap:9px; padding:8px 10px; border:1px solid #3a3a52; border-radius:9px; background:#16161f; cursor:pointer; user-select:none; transition:border-color .12s, background .12s, transform .05s; }
+  .kcard:hover{ border-color:#7c6aa8; transform:translateX(2px); }
+  .kcard:active{ transform:scale(.99); }
+  .kcard .kchk{ width:17px; height:17px; border:2px solid #4b4b63; border-radius:5px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:900; color:transparent; flex:0 0 auto; transition:all .12s; }
+  .kcard .kic{ font-size:15px; flex:0 0 auto; }
+  .kcard .knm{ flex:1; min-width:0; font-size:12.5px; font-weight:600; color:#cbd5e1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .kcard .kmeta{ font-size:10px; color:#6b7280; flex:0 0 auto; }
+  .kcard.sel{ border-color:#a855f7; background:rgba(168,85,247,.13); box-shadow:0 0 0 1px rgba(168,85,247,.35); }
+  .kcard.sel .kchk{ background:#a855f7; border-color:#a855f7; color:#fff; }
+  .kcard.sel .knm{ color:#fff; }
+  .kcard.scard:hover{ border-color:#b4862f; }
+  .kcard.scard.sel{ border-color:#f59e0b; background:rgba(245,158,11,.13); box-shadow:0 0 0 1px rgba(245,158,11,.35); }
+  .kcard.scard.sel .kchk{ background:#f59e0b; border-color:#f59e0b; }
+  .trigchip{ background:#3a2e10; color:#fbbf24; border:1px solid #5c481a; border-radius:9px; padding:1px 7px; font-size:9.5px; margin-left:3px; }
+  .selcount{ color:#a855f7; font-size:11px; font-weight:700; margin-left:6px; }
+  .pick-empty{ color:#6b7280; padding:10px 6px; text-align:center; font-size:11.5px; }
+  /* 라이트 테마 대응 */
+  body.theme-light .picker{ background:#f7f7fb !important; border-color:#d6d6e0 !important; }
+  body.theme-light .picker.scr{ background:#fff8e8 !important; border-color:#e3c873 !important; }
+  body.theme-light .kcard{ background:#fff !important; border-color:#e5e7eb !important; }
+  body.theme-light .kcard .knm{ color:#1f2937 !important; }
+  body.theme-light .kcard.sel{ background:#f3e8ff !important; }
+  body.theme-light .kcard.scard.sel{ background:#fef3c7 !important; }
+  body.theme-light .picker-bar button{ background:#fff; color:#475569; border-color:#cbd5e1; }
+
   /* 테마 선택기 */
   #themeBar{ display:flex; gap:5px; align-items:center; margin-bottom:8px; }
   #themeBar .tbtn{ border:1px solid #555; background:#2a2a3e; color:#cbd5e1; border-radius:6px; padding:3px 9px; font-size:11px; cursor:pointer; }
@@ -196,11 +229,20 @@
         </div>
       </div>
 
-      <label>📂 내 지식 문서 선택 (체크한 문서를 근거로 답변)</label>
-      <div id="agKnowList" style="max-height:150px;overflow:auto;border:1px solid #444;border-radius:6px;padding:8px;background:#23233a;font-size:12px;color:#94a3b8;">로딩 중…</div>
+      <label>📂 내 지식 문서 선택 <span style="color:#94a3b8;font-weight:400;">(클릭해서 선택 — 체크한 문서를 근거로 답변)</span> <span id="agKnowCount" class="selcount"></span></label>
+      <div class="picker">
+        <div class="picker-bar">
+          <input id="agKnowSearch" placeholder="🔍 문서 검색…" oninput="filterPick('agKnowList', this.value)">
+          <button type="button" onclick="setAllPick('agKnowList', true)">전체</button>
+          <button type="button" onclick="setAllPick('agKnowList', false)">해제</button>
+        </div>
+        <div id="agKnowList" class="pick-grid">로딩 중…</div>
+      </div>
 
-      <label>📜 내 스크립트 선택 (체크하면 데이터 첨부+트리거어 시 자동 실행)</label>
-      <div id="agScriptList" style="max-height:140px;overflow:auto;border:1px solid #b4862f;border-radius:6px;padding:8px;background:#2a2410;font-size:12px;color:#fbbf24;">로딩 중…</div>
+      <label>📜 내 스크립트 선택 <span style="color:#9a7b3a;font-weight:400;">(선택하면 데이터 첨부 + 트리거어 시 자동 실행)</span> <span id="agScriptCount" class="selcount"></span></label>
+      <div class="picker scr">
+        <div id="agScriptList" class="pick-grid">로딩 중…</div>
+      </div>
 
       <label>🛠 스킬 조합 선택</label>
       <select id="agComboSelect" style="width:100%;padding:8px;border:1px solid #444;border-radius:6px;background:#2a2a3e;color:#fff;font-size:13px;box-sizing:border-box;">
@@ -463,6 +505,39 @@ function initSkills(){
 }
 
 // ── 내 지식 문서 목록 (체크박스) ──
+// ── 카드 선택기 공통 ──
+function _mkKcard(opts){  // {value, icon, name, metaHtml, scard, sel}
+  var d=document.createElement('div');
+  d.className='kcard'+(opts.scard?' scard':'')+(opts.sel?' sel':'');
+  d.dataset.value=opts.value;
+  d.title=opts.name;
+  d.innerHTML='<span class="kchk">✓</span><span class="kic">'+opts.icon+'</span>'
+    +'<span class="knm">'+esc(opts.name)+'</span>'+(opts.metaHtml||'');
+  d.onclick=function(){ d.classList.toggle('sel'); updPickCounts(); };
+  return d;
+}
+function updPickCounts(){
+  var kSel=document.querySelectorAll('#agKnowList .kcard.sel').length;
+  var kAll=document.querySelectorAll('#agKnowList .kcard').length;
+  var sSel=document.querySelectorAll('#agScriptList .kcard.sel').length;
+  var e1=document.getElementById('agKnowCount');  if(e1) e1.textContent = kSel ? ('✓ '+kSel+'/'+kAll+' 선택') : '';
+  var e2=document.getElementById('agScriptCount'); if(e2) e2.textContent = sSel ? ('✓ '+sSel+' 선택') : '';
+}
+function filterPick(listId, q){
+  q=(q||'').toLowerCase();
+  document.querySelectorAll('#'+listId+' .kcard').forEach(function(c){
+    c.style.display = (c.dataset.value||'').toLowerCase().indexOf(q)>=0 ? '' : 'none';
+  });
+}
+function setAllPick(listId, on){
+  document.querySelectorAll('#'+listId+' .kcard').forEach(function(c){
+    if(c.style.display==='none') return;   // 검색으로 숨긴 항목 제외
+    c.classList.toggle('sel', !!on);
+  });
+  updPickCounts();
+}
+
+// ── 내 지식 문서 (카드) ──
 async function loadKnowledgeFiles(selected){
   var box=document.getElementById('agKnowList');
   var sel=new Set(selected||[]);
@@ -470,26 +545,26 @@ async function loadKnowledgeFiles(selected){
     var r=await fetch('/api/knowledge/files?user_id='+encodeURIComponent(uid()));
     var d=await r.json();
     var files=d.files||[];
-    if(!files.length){ box.innerHTML='<span style="color:#888;">등록된 지식 문서가 없습니다. (메인 📚 내 지식에서 등록)</span>'; return; }
+    if(!files.length){ box.innerHTML='<div class="pick-empty">등록된 지식 문서가 없습니다.<br>(메인 📚 내 지식에서 등록)</div>'; updPickCounts(); return; }
     box.innerHTML='';
     files.forEach(function(f){
-      var lbl=document.createElement('label');
-      lbl.style.cssText='display:flex;align-items:center;gap:8px;padding:3px 0;color:#e2e8f0;cursor:pointer;';
-      lbl.innerHTML='<input type="checkbox" value="'+esc(f.filename)+'" '+(sel.has(f.filename)?'checked':'')+' style="width:auto;margin:0;"> '
-        +'<span style="flex:1;">'+esc(f.filename)+'</span>'
-        +'<span style="color:#6b7280;font-size:10.5px;">'+Math.round((f.size||0)/1024)+'KB</span>';
-      box.appendChild(lbl);
+      box.appendChild(_mkKcard({
+        value:f.filename, icon:'📄', name:f.filename,
+        metaHtml:'<span class="kmeta">'+Math.round((f.size||0)/1024)+'KB</span>',
+        sel:sel.has(f.filename)
+      }));
     });
-  }catch(e){ box.innerHTML='<span style="color:#f87171;">지식 목록 로드 실패: '+esc(e.message)+'</span>'; }
+    var srch=document.getElementById('agKnowSearch'); if(srch && srch.value) filterPick('agKnowList', srch.value);
+    updPickCounts();
+  }catch(e){ box.innerHTML='<div class="pick-empty" style="color:#f87171;">지식 목록 로드 실패: '+esc(e.message)+'</div>'; }
 }
 function getCheckedKnowledge(){
   var out=[];
-  var els=document.querySelectorAll('#agKnowList input[type=checkbox]');
-  for(var i=0;i<els.length;i++){ if(els[i].checked) out.push(els[i].value); }
+  document.querySelectorAll('#agKnowList .kcard.sel').forEach(function(c){ out.push(c.dataset.value); });
   return out;
 }
 
-// ── 내 스크립트 목록 (체크박스) ──
+// ── 내 스크립트 (카드) ──
 async function loadAgentScripts(selected){
   var box=document.getElementById('agScriptList');
   var sel=new Set(selected||[]);
@@ -497,22 +572,22 @@ async function loadAgentScripts(selected){
     var r=await fetch('/api/knowledge/scripts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid()})});
     var d=await r.json();
     var scripts=d.scripts||[];
-    if(!scripts.length){ box.innerHTML='<span style="color:#9a7b3a;">등록된 스크립트가 없습니다. (메인 📚 내 지식 → 📜 스크립트 탭에서 등록)</span>'; return; }
+    if(!scripts.length){ box.innerHTML='<div class="pick-empty">등록된 스크립트가 없습니다.<br>(메인 📚 내 지식 → 📜 스크립트 탭에서 등록)</div>'; updPickCounts(); return; }
     box.innerHTML='';
     scripts.forEach(function(s){
-      var lbl=document.createElement('label');
-      lbl.style.cssText='display:flex;align-items:center;gap:8px;padding:3px 0;color:#fbbf24;cursor:pointer;';
-      lbl.innerHTML='<input type="checkbox" value="'+esc(s.name)+'" '+(sel.has(s.name)?'checked':'')+' style="width:auto;margin:0;accent-color:#f59e0b;"> '
-        +'<span style="flex:1;">🐍 '+esc(s.name)+'</span>'
-        +'<span style="color:#9a7b3a;font-size:10.5px;">'+esc((s.trigger||[]).join(','))+'</span>';
-      box.appendChild(lbl);
+      var trig=(s.trigger||[]).slice(0,4).map(function(t){ return '<span class="trigchip">'+esc(t)+'</span>'; }).join('');
+      box.appendChild(_mkKcard({
+        value:s.name, icon:'🐍', name:s.name,
+        metaHtml:'<span class="kmeta" style="display:flex;align-items:center;">'+trig+'</span>',
+        scard:true, sel:sel.has(s.name)
+      }));
     });
-  }catch(e){ box.innerHTML='<span style="color:#f87171;">스크립트 목록 로드 실패: '+esc(e.message)+'</span>'; }
+    updPickCounts();
+  }catch(e){ box.innerHTML='<div class="pick-empty" style="color:#f87171;">스크립트 목록 로드 실패: '+esc(e.message)+'</div>'; }
 }
 function getCheckedScripts(){
   var out=[];
-  var els=document.querySelectorAll('#agScriptList input[type=checkbox]');
-  for(var i=0;i<els.length;i++){ if(els[i].checked) out.push(els[i].value); }
+  document.querySelectorAll('#agScriptList .kcard.sel').forEach(function(c){ out.push(c.dataset.value); });
   return out;
 }
 
