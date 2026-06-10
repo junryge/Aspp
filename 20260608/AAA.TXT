@@ -244,11 +244,10 @@
         <div id="agScriptList" class="pick-grid">로딩 중…</div>
       </div>
 
-      <label>🛠 스킬 조합 선택</label>
-      <select id="agComboSelect" style="width:100%;padding:8px;border:1px solid #444;border-radius:6px;background:#2a2a3e;color:#fff;font-size:13px;box-sizing:border-box;">
-        <option value="">+ 조합 추가…</option>
-      </select>
-      <div id="agComboChips" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;"></div>
+      <label>🛠 스킬 조합 선택 <span style="color:#94a3b8;font-weight:400;">(클릭해서 여러 개 선택)</span> <span id="agComboCount" class="selcount"></span></label>
+      <div class="picker">
+        <div id="agComboList" class="pick-grid">로딩 중…</div>
+      </div>
       <div id="agSkillCount" style="font-size:11px;color:#c4b5fd;margin-top:6px;"></div>
 
       <button id="agSaveBtn" class="primary" onclick="saveAgent()">💾 에이전트 저장</button>
@@ -447,61 +446,64 @@ function recomputeSkills(){
   });
 }
 
-// 드롭다운 옵션 채우기 (이미 선택된 조합은 제외)
-function buildComboSelect(){
-  var sel=document.getElementById('agComboSelect');
-  if(!sel) return;
-  sel.innerHTML='<option value="">+ 조합 추가…</option>';
-  getCombos().forEach(function(c){
-    if(activeComboIds.has(c.id)) return;
-    var o=document.createElement('option');
-    o.value=c.id; o.textContent=(c.label||c.id);
-    sel.appendChild(o);
-  });
-  sel.value='';
-}
-
-// 선택된 조합 칩 (✕ 로 제거)
-function renderComboChips(){
-  var wrap=document.getElementById('agComboChips');
-  if(!wrap) return;
-  wrap.innerHTML='';
-  if(!activeComboIds.size){ wrap.innerHTML='<span style="color:#888;font-size:11px;">선택된 조합 없음 — 위에서 추가</span>'; return; }
-  activeComboIds.forEach(function(id){
-    var c=comboById(id); if(!c) return;
+// 조합 카드 토글 (드롭다운 대체 — 여러 개 연속 클릭 가능)
+function renderComboCards(){
+  var box=document.getElementById('agComboList');
+  if(!box) return;
+  var combos=getCombos();
+  if(!combos.length){
+    box.innerHTML='<div class="pick-empty">조합 목록이 없습니다.<br>(메인 데모스 창에서 이 창을 열어야 조합을 불러옵니다)</div>';
+    updateSkillCount();
+    return;
+  }
+  box.innerHTML='';
+  combos.forEach(function(c){
     var col=c.color||'#6366f1';
-    var chip=document.createElement('span');
-    chip.style.cssText='display:inline-flex;align-items:center;gap:6px;background:'+col+'22;color:'+col+';border:1px solid '+col+'66;border-radius:14px;padding:3px 10px;font-size:11.5px;';
-    chip.innerHTML='<b>'+esc(c.label||id)+'</b><span style="opacity:.7;">'+((c.skills||[]).length)+'</span><span data-x="1" title="제거" style="cursor:pointer;font-weight:700;opacity:.8;">✕</span>';
-    chip.querySelector('[data-x]').onclick=function(){
-      activeComboIds.delete(id); recomputeSkills(); buildComboSelect(); renderComboChips(); updateSkillCount();
+    var on=activeComboIds.has(c.id);
+    var d=document.createElement('div');
+    d.className='kcard';
+    d.dataset.value=c.id;
+    d.title=(c.desc||c.label||c.id);
+    d.innerHTML='<span class="kchk">✓</span><span class="kic">🛠</span>'
+      +'<span class="knm">'+esc(c.label||c.id)+'</span>'
+      +'<span class="kmeta">'+((c.skills||[]).length)+'개 스킬</span>';
+    function paint(sel){
+      d.classList.toggle('sel', sel);
+      var chk=d.querySelector('.kchk');
+      if(sel){
+        d.style.borderColor=col; d.style.background=col+'21'; d.style.boxShadow='0 0 0 1px '+col+'59';
+        chk.style.background=col; chk.style.borderColor=col;
+      }else{
+        d.style.borderColor=''; d.style.background=''; d.style.boxShadow='';
+        chk.style.background=''; chk.style.borderColor='';
+      }
+    }
+    paint(on);
+    d.onclick=function(){
+      if(activeComboIds.has(c.id)) activeComboIds.delete(c.id);
+      else activeComboIds.add(c.id);
+      paint(activeComboIds.has(c.id));
+      recomputeSkills();
+      updateSkillCount();
     };
-    wrap.appendChild(chip);
+    box.appendChild(d);
   });
+  updateSkillCount();
 }
+// (구) 드롭다운/칩 렌더러 — 카드 방식으로 대체되어 미사용. 롤백 대비 보존.
+function buildComboSelect(){ renderComboCards(); }
+function renderComboChips(){}
 
 function updateSkillCount(){
   var el=document.getElementById('agSkillCount');
   if(el) el.textContent = '🔗 조합 '+activeComboIds.size+'개 · 총 '+selectedSkillSet.size+'개 스킬';
+  var cc=document.getElementById('agComboCount');
+  if(cc) cc.textContent = activeComboIds.size ? ('✓ '+activeComboIds.size+'개 선택') : '';
 }
 
 function initSkills(){
-  buildComboSelect();
-  renderComboChips();
   recomputeSkills();
-  updateSkillCount();
-  var sel=document.getElementById('agComboSelect');
-  if(sel){
-    sel.onchange=function(){
-      var id=sel.value;
-      if(!id) return;
-      activeComboIds.add(id);
-      recomputeSkills();
-      buildComboSelect();
-      renderComboChips();
-      updateSkillCount();
-    };
-  }
+  renderComboCards();
 }
 
 // ── 내 지식 문서 목록 (체크박스) ──
@@ -699,7 +701,7 @@ function resetAgentForm(){
   var es=document.getElementById('agEnvSelect'); if(es) es.value='auto';
   loadKnowledgeFiles([]);     // 문서 체크 해제
   loadAgentScripts([]);       // 스크립트 체크 해제
-  activeComboIds=new Set(); recomputeSkills(); buildComboSelect(); renderComboChips(); updateSkillCount();
+  activeComboIds=new Set(); recomputeSkills(); renderComboCards();
   document.getElementById('agSaveMsg').innerHTML='';
   _setFormMode(null);
 }
@@ -717,7 +719,7 @@ function editAgent(a){
     var sk=c.skills||[];
     if(sk.length && sk.every(function(s){ return (a.skills||[]).indexOf(s)>=0; })) activeComboIds.add(c.id);
   });
-  recomputeSkills(); buildComboSelect(); renderComboChips(); updateSkillCount();
+  recomputeSkills(); renderComboCards();
   _setFormMode(a.name);
   var mb=document.getElementById('manageBox'); if(mb) mb.open=true;
   document.getElementById('agName').scrollIntoView({behavior:'smooth',block:'center'});
