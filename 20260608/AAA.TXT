@@ -7,6 +7,9 @@ Ollama GGUF Chat (tkinter)
 """
 
 import os
+import time
+import socket
+import subprocess
 import threading
 import queue
 import tkinter as tk
@@ -16,6 +19,36 @@ import ollama
 
 MODEL_NAME = "qwen3.5-2b"          # 등록될 모델 이름
 DEFAULT_GGUF = "./Qwen3.5-2B-UD-Q8_K_XL.gguf"
+
+
+def ensure_ollama_server():
+    """Ollama 서버 안 떠 있으면 띄운다. 떠 있으면 그냥 통과."""
+    def is_up():
+        try:
+            with socket.create_connection(("127.0.0.1", 11434), timeout=1):
+                return True
+        except OSError:
+            return False
+
+    if is_up():
+        return True
+
+    # 서버 실행 (창 안 뜨게 백그라운드)
+    try:
+        flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        subprocess.Popen(["ollama", "serve"],
+                         stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL,
+                         creationflags=flags)
+    except FileNotFoundError:
+        return False  # ollama 설치 자체가 안 됨
+
+    # 뜰 때까지 최대 15초 대기
+    for _ in range(30):
+        if is_up():
+            return True
+        time.sleep(0.5)
+    return False
 
 
 class ChatApp:
@@ -189,6 +222,14 @@ class ChatApp:
 
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    ChatApp(root)
-    root.mainloop()
+    if not ensure_ollama_server():
+        import tkinter.messagebox as mb
+        r = tk.Tk(); r.withdraw()
+        mb.showerror("Ollama 없음",
+                     "Ollama 서버를 띄우지 못했습니다.\n"
+                     "ollama.com 에서 설치했는지 확인하세요.")
+        r.destroy()
+    else:
+        root = tk.Tk()
+        ChatApp(root)
+        root.mainloop()
