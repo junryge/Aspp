@@ -1,58 +1,24 @@
-import time
-import threading
-import cupy as cp
-import sys
+그리고 데모스 재시작.
 
-# 1. 설정 (V100 3장 맞춤 세팅)
-TARGET_UTILIZATION = 0.675  # 65% ~ 70%의 중간값 타겟
-NUM_GPUS = 3                # 사용할 GPU 개수
-MATRIX_SIZE = 16384         # 16K 대형 행렬 (V100용 부하 크기)
-NUM_LOOPS = 15              # 한 사이클당 연산 반복 횟수
+2단계 — 스크립트 등록 (딱 한 번)
+데모스에서 📚 내 지식 → 📜 스크립트 탭 열고:
 
-def gpu_worker(device_id):
-    """지정된 GPU에서 절대 멈추지 않고 루프를 도는 워커"""
-    try:
-        with cp.cuda.Device(device_id):
-            print(f"🔥 [GPU {device_id}] 무한 루프 가동 완료. (Ctrl+C 전까지 종료되지 않음)")
-            
-            # V100 메모리에 더미 텐서 고정 할당
-            a = cp.random.randn(MATRIX_SIZE, MATRIX_SIZE, dtype=cp.float16)
-            b = cp.random.randn(MATRIX_SIZE, MATRIX_SIZE, dtype=cp.float16)
-            
-            # 어떤 조건도 없는 진짜 생(生) 무한 루프
-            while True:
-                start_time = time.perf_counter()
-                
-                for _ in range(NUM_LOOPS):
-                    c = cp.matmul(a, b)
-                
-                # GPU 연산 완료 대기
-                cp.cuda.Device(device_id).synchronize()
-                
-                work_duration = time.perf_counter() - start_time
-                sleep_duration = work_duration * (1 - TARGET_UTILIZATION) / TARGET_UTILIZATION
-                
-                if sleep_duration > 0:
-                    time.sleep(sleep_duration)
-                    
-    except Exception as e:
-        print(f"❌ [GPU {device_id}] 에러 발생으로 루프 이탈: {e}")
+파일 선택 (한 번에 3개):
+count_lifter_inout.py
+리프터_근처HID4.csv
+HID_Zone_Master_M16A_BR.csv
+이름: m16-lifter-hid
+트리거어: 리프터, HID, 개수
+진입 .py: count_lifter_inout.py
+실행 인자 (한 줄에 하나, 4줄):
+{input}
+리프터_근처HID4.csv
+HID_Zone_Master_M16A_BR.csv
+{outdir}/결과.csv
+🐍 스크립트 등록 클릭
+3단계 — 쓰기
+개인에이전트(또는 메인 채팅)에서:
 
-if __name__ == "__main__":
-    print("🚀 [NVIDIA V100 x 3] 무한 부하 스크립트 시작")
-    print("📊 목표 사용률: 65% ~ 70% 유지")
-    print("🛑 종료하려면 터미널에서 [Ctrl + C]를 누르세요.\n")
-    
-    # 3장의 GPU에 각각 스레드 할당 후 출발
-    for i in range(NUM_GPUS):
-        t = threading.Thread(target=gpu_worker, args=(i,), daemon=True)
-        t.start()
-        time.sleep(0.2) # 컨텍스트 초기화 안정화를 위한 미세 딜레이
-        
-    # 메인 스레드도 절대 죽지 않고 무한 대기
-    try:
-        while True:
-            time.sleep(3600) # 1시간씩 대기하며 영원히 멈추지 않음
-    except KeyboardInterrupt:
-        print("\n🛑 사용자가 종료(Ctrl+C)를 입력했습니다. 프로세스를 안전하게 종료합니다.")
-        sys.exit(0)
+그 스크립트 선택
+LOGPRESSO 로그 CSV를 첨부하거나 붙여넣기
+보내면 → 데모스가 자동으로 count_lifter_inout.py 돌려서 결과 뽑고 → LLM이 해석
