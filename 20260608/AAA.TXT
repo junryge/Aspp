@@ -1,297 +1,58 @@
-# -*- coding: utf-8 -*-
-"""
-llama-cpp-python GGUF Chat (tkinter, Vulkan)
-- GGUF 직접 로드 -> 채팅 -> 스트리밍 출력 (Ollama 불필요)
-- Windows + Ryzen 5700U(Vega iGPU) + Vulkan
-- 필요: pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/vulkan
-"""
-
-import os
+import time
 import threading
-import queue
-import tkinter as tk
-from tkinter import filedialog, messagebox
+import cupy as cp
+import sys
 
-from llama_cpp import Llama
+# 1. 설정 (V100 3장 맞춤 세팅)
+TARGET_UTILIZATION = 0.675  # 65% ~ 70%의 중간값 타겟
+NUM_GPUS = 3                # 사용할 GPU 개수
+MATRIX_SIZE = 16384         # 16K 대형 행렬 (V100용 부하 크기)
+NUM_LOOPS = 15              # 한 사이클당 연산 반복 횟수
 
-DEFAULT_GGUF = "./Qwen3.5-2B-UD-Q8_K_XL.gguf"
-N_CTX = 8192
-
-
-class _StreamThinkFilter:
-    """qwen3.x: 닫는 </think>만 나오므로 implicit=True로 첫 </think> 전까지 전부 버림."""
-    OPEN = "<think>"
-    CLOSE = "</think>"
-
-    def __init__(self, implicit=True):
-        self.buf = ""
-        self.in_think = False
-        self.implicit = implicit
-        self.done = False
-
-    def feed(self, tok):
-        if self.done:
-            return tok
-        self.buf += tok
-        if self.implicit and not self.in_think:
-            i = self.buf.find(self.CLOSE)
-            if i != -1:
-                after = self.buf[i + len(self.CLOSE):]
-                self.buf = ""
-                self.done = True
-                return after.lstrip("\n")
-            return ""
-        out = ""
-        while self.buf:
-            if not self.in_think:
-                i = self.buf.find(self.OPEN)
-                if i == -1:
-                    cut = self._safe_emit_len(self.buf, self.OPEN)
-                    out += self.buf[:cut]
-                    self.buf = self.buf[cut:]
-                    break
-                out += self.buf[:i]
-                self.buf = self.buf[i + len(self.OPEN):]
-                self.in_think = True
-            else:
-                j = self.buf.find(self.CLOSE)
-                if j == -1:
-                    keep = self._tail_partial_len(self.buf, self.CLOSE)
-                    self.buf = self.buf[len(self.buf) - keep:] if keep else ""
-                    break
-                self.buf = self.buf[j + len(self.CLOSE):]
-                self.in_think = False
-        return out
-
-    def flush(self):
-        out = "" if self.in_think else self.buf
-        self.buf = ""
-        return out
-
-    @staticmethod
-    def _safe_emit_len(s, tag):
-        for k in range(min(len(tag) - 1, len(s)), 0, -1):
-            if s.endswith(tag[:k]):
-                return len(s) - k
-        return len(s)
-
-    @staticmethod
-    def _tail_partial_len(s, tag):
-        for k in range(min(len(tag) - 1, len(s)), 0, -1):
-            if s.endswith(tag[:k]):
-                return k
-        return 0
-
-
-class ChatApp:
-    def __init__(self, root):
-        self.root = root
-        root.title("llama.cpp GGUF Chat (Vulkan)")
-        root.geometry("760x660")
-
-        self.llm = None            # 로드된 모델
-        self.history = []          # 대화 히스토리
-        self.q = queue.Queue()
-        self.busy = False
-
-        self._build_ui()
-        self._poll_queue()
-
-    # ---------- UI ----------
-    def _build_ui(self):
-        top = tk.Frame(self.root)
-        top.pack(fill="x", padx=8, pady=6)
-
-        tk.Label(top, text="GGUF:").pack(side="left")
-        self.gguf_var = tk.StringVar(value=DEFAULT_GGUF)
-        tk.Entry(top, textvariable=self.gguf_var).pack(
-            side="left", fill="x", expand=True, padx=4)
-        tk.Button(top, text="찾기", command=self._pick_file).pack(side="left", padx=2)
-        tk.Button(top, text="모델 로드", command=self._load).pack(side="left", padx=2)
-
-        opt = tk.Frame(self.root)
-        opt.pack(fill="x", padx=8)
-        tk.Label(opt, text="GPU layers:").pack(side="left")
-        self.ngl_var = tk.StringVar(value="-1")   # -1 = 전부 GPU
-        tk.Entry(opt, textvariable=self.ngl_var, width=6).pack(side="left", padx=4)
-        tk.Label(opt, text="temp:").pack(side="left")
-        self.temp_var = tk.StringVar(value="0.7")
-        tk.Entry(opt, textvariable=self.temp_var, width=6).pack(side="left", padx=4)
-        self.think_var = tk.BooleanVar(value=False)   # 기본 OFF = /no_think
-        tk.Checkbutton(opt, text="사고모드(think)", variable=self.think_var).pack(side="left", padx=8)
-        tk.Button(opt, text="대화 초기화", command=self._reset).pack(side="left", padx=8)
-
-        self.chat = tk.Text(self.root, wrap="word", state="disabled",
-                            font=("Malgun Gothic", 11))
-        self.chat.pack(fill="both", expand=True, padx=8, pady=6)
-        self.chat.tag_config("user", foreground="#1565c0",
-                             font=("Malgun Gothic", 11, "bold"))
-        self.chat.tag_config("bot", foreground="#2e7d32",
-                             font=("Malgun Gothic", 11, "bold"))
-        self.chat.tag_config("sys", foreground="#9e9e9e")
-
-        bottom = tk.Frame(self.root)
-        bottom.pack(fill="x", padx=8, pady=6)
-        self.entry = tk.Text(bottom, height=3, font=("Malgun Gothic", 11))
-        self.entry.pack(side="left", fill="x", expand=True)
-        self.entry.bind("<Return>", self._on_enter)
-        self.send_btn = tk.Button(bottom, text="전송", width=8,
-                                  command=self._send, state="disabled")
-        self.send_btn.pack(side="left", padx=4)
-
-        self.status = tk.Label(self.root, text="모델을 먼저 로드하세요",
-                               anchor="w", fg="#666")
-        self.status.pack(fill="x", padx=8)
-
-    # ---------- 헬퍼 ----------
-    def _append(self, text, tag=None):
-        self.chat.config(state="normal")
-        self.chat.insert("end", text, tag if tag else ())
-        self.chat.see("end")
-        self.chat.config(state="disabled")
-
-    def _pick_file(self):
-        path = filedialog.askopenfilename(
-            title="GGUF 선택", filetypes=[("GGUF", "*.gguf"), ("All", "*.*")])
-        if path:
-            self.gguf_var.set(path)
-
-    def _reset(self):
-        self.history.clear()
-        self.chat.config(state="normal")
-        self.chat.delete("1.0", "end")
-        self.chat.config(state="disabled")
-        self._append("[대화 초기화됨]\n\n", "sys")
-
-    # ---------- 모델 로드 ----------
-    def _load(self):
-        gguf = self.gguf_var.get().strip()
-        if not os.path.exists(gguf):
-            messagebox.showerror("오류", f"GGUF 파일 없음:\n{gguf}")
-            return
-        try:
-            ngl = int(self.ngl_var.get())
-        except ValueError:
-            ngl = -1
-        self.status.config(text="모델 로딩 중... (콘솔에서 Vulkan 잡혔는지 확인)")
-        threading.Thread(target=self._load_worker,
-                         args=(gguf, ngl), daemon=True).start()
-
-    def _load_worker(self, gguf, ngl):
-        try:
-            self.llm = Llama(
-                model_path=gguf,
-                n_gpu_layers=ngl,   # -1 = 전부 GPU(Vulkan)
-                n_ctx=N_CTX,
-                verbose=True,       # 콘솔에 Vulkan0: AMD Radeon... 뜸
-            )
-            self.q.put(("sys", "[모델 로드 완료 — 콘솔에 Vulkan 떴는지 확인]\n\n"))
-            self.q.put(("ready", None))
-        except Exception as e:
-            self.q.put(("status", f"로드 실패: {e}"))
-
-    # ---------- 전송 ----------
-    def _on_enter(self, event):
-        if event.state & 0x0001:   # Shift+Enter = 줄바꿈
-            return
-        self._send()
-        return "break"
-
-    def _send(self):
-        if self.busy or self.llm is None:
-            return
-        msg = self.entry.get("1.0", "end").strip()
-        if not msg:
-            return
-        self.entry.delete("1.0", "end")
-
-        # qwen3.x: /no_think 로 사고 비활성화
-        send_msg = msg
-        if not self.think_var.get() and "/no_think" not in send_msg:
-            send_msg = send_msg.rstrip() + " /no_think"
-
-        self.history.append({"role": "user", "content": send_msg})
-        self._append("나: ", "user")
-        self._append(msg + "\n\n")   # 화면엔 /no_think 빼고 표시
-        self._append("AI: ", "bot")
-
-        self.busy = True
-        self.send_btn.config(state="disabled")
-        self.status.config(text="생성 중...")
-        threading.Thread(target=self._chat_worker, daemon=True).start()
-
-    def _chat_worker(self):
-        try:
-            temp = float(self.temp_var.get())
-        except ValueError:
-            temp = 0.7
-        full = ""
-        tf = _StreamThinkFilter(implicit=True)   # 사고과정 실시간 제거
-        try:
-            stream = self.llm.create_chat_completion(
-                messages=self.history,
-                temperature=temp,
-                top_p=0.8,
-                top_k=20,
-                min_p=0.0,
-                repeat_penalty=1.3,      # 반복 억제 (소형 모델 폭주 방지)
-                max_tokens=1024,         # 무한 생성 방지 상한
-                stream=True,
-            )
-            recent = []   # 최근 출력 조각 — 반복 폭주 감지용
-            for chunk in stream:
-                delta = chunk["choices"][0]["delta"]
-                piece = delta.get("content", "")
-                if piece:
-                    vis = tf.feed(piece)
-                    if vis:
-                        full += vis
-                        self.q.put(("token", vis))
-                        # 같은 문장 3회+ 반복되면 폭주로 보고 중단
-                        if len(full) > 200:
-                            tailtxt = full[-160:]
-                            for seg in ("반갑", "**\"", "→ "):
-                                if tailtxt.count(seg) >= 4:
-                                    self.q.put(("token", "\n\n[반복 감지 — 중단]"))
-                                    raise StopIteration
-            tail = tf.flush()
-            if tail:
-                full += tail
-                self.q.put(("token", tail))
-            self.history.append({"role": "assistant", "content": full})
-            self.q.put(("done", None))
-        except StopIteration:
-            self.history.append({"role": "assistant", "content": full})
-            self.q.put(("done", None))
-        except Exception as e:
-            self.q.put(("token", f"\n[오류] {e}\n"))
-            self.q.put(("done", None))
-
-    # ---------- queue 폴링 ----------
-    def _poll_queue(self):
-        try:
+def gpu_worker(device_id):
+    """지정된 GPU에서 절대 멈추지 않고 루프를 도는 워커"""
+    try:
+        with cp.cuda.Device(device_id):
+            print(f"🔥 [GPU {device_id}] 무한 루프 가동 완료. (Ctrl+C 전까지 종료되지 않음)")
+            
+            # V100 메모리에 더미 텐서 고정 할당
+            a = cp.random.randn(MATRIX_SIZE, MATRIX_SIZE, dtype=cp.float16)
+            b = cp.random.randn(MATRIX_SIZE, MATRIX_SIZE, dtype=cp.float16)
+            
+            # 어떤 조건도 없는 진짜 생(生) 무한 루프
             while True:
-                kind, val = self.q.get_nowait()
-                if kind == "token":
-                    self._append(val)
-                elif kind == "sys":
-                    self._append(val, "sys")
-                elif kind == "status":
-                    self.status.config(text=val)
-                elif kind == "ready":
-                    self.send_btn.config(state="normal")
-                    self.status.config(text="준비됨 — 입력하세요")
-                elif kind == "done":
-                    self._append("\n\n")
-                    self.busy = False
-                    self.send_btn.config(state="normal")
-                    self.status.config(text="준비됨")
-        except queue.Empty:
-            pass
-        self.root.after(40, self._poll_queue)
-
+                start_time = time.perf_counter()
+                
+                for _ in range(NUM_LOOPS):
+                    c = cp.matmul(a, b)
+                
+                # GPU 연산 완료 대기
+                cp.cuda.Device(device_id).synchronize()
+                
+                work_duration = time.perf_counter() - start_time
+                sleep_duration = work_duration * (1 - TARGET_UTILIZATION) / TARGET_UTILIZATION
+                
+                if sleep_duration > 0:
+                    time.sleep(sleep_duration)
+                    
+    except Exception as e:
+        print(f"❌ [GPU {device_id}] 에러 발생으로 루프 이탈: {e}")
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    ChatApp(root)
-    root.mainloop()
+    print("🚀 [NVIDIA V100 x 3] 무한 부하 스크립트 시작")
+    print("📊 목표 사용률: 65% ~ 70% 유지")
+    print("🛑 종료하려면 터미널에서 [Ctrl + C]를 누르세요.\n")
+    
+    # 3장의 GPU에 각각 스레드 할당 후 출발
+    for i in range(NUM_GPUS):
+        t = threading.Thread(target=gpu_worker, args=(i,), daemon=True)
+        t.start()
+        time.sleep(0.2) # 컨텍스트 초기화 안정화를 위한 미세 딜레이
+        
+    # 메인 스레드도 절대 죽지 않고 무한 대기
+    try:
+        while True:
+            time.sleep(3600) # 1시간씩 대기하며 영원히 멈추지 않음
+    except KeyboardInterrupt:
+        print("\n🛑 사용자가 종료(Ctrl+C)를 입력했습니다. 프로세스를 안전하게 종료합니다.")
+        sys.exit(0)
