@@ -1,159 +1,87 @@
-# 운영로그 파서 v2 — 고객 요구사항 대비 현황 / 변경 명세서
+좋은 질문이다. 명세서가 "메신저 파싱"만 다뤘는데, 이걸 V4 룰베이스/ML/스킬과 연결하면 가치가 폭증한다. 깐깐하게 점검해서 추가 후보 7개 골랐다.
 
-> 작성일: 2026-06-09
-> 대상 코드: `WORD_MODEL/OHS_DATA_MD/V4/운영로그_파서.py` (현재 189줄, v1)
-> 검증 데이터: `WORD_MODEL/OHS_DATA_MD/V4/AP/MA202605.txt` (실 메신저 로그 529건)
-> 결론: **고객 요구사항 전부 구현 가능.** 단, 핵심 계층(Episode)이 v1에 없어 신규 구현 필요.
+1순위 — 무조건 추가해야 할 3개
+A. 시스템(룰베이스) vs 운영자(메신저) 교차 매트릭스 ★★★
+이게 가장 큰 가치다. Episode CSV 만들고 끝나면 그냥 통계. V4 룰베이스 결과와 합치면 자동 false positive/negative 라벨이 나온다.
 
----
+시나리오	의미	활용
+룰베이스 S3 + Episode 일치	True Positive	룰베이스 신뢰
+룰베이스 S3 + Episode 없음	False Positive	임계 보정 후보
+룰베이스 정상 + Episode 있음	Miss (놓침)	룰 추가 후보
+운영자 메신저 13건 + 룰베이스 0건	작업 인폼 (가짜)	자동 구분
+입증된 사례: 5/8 사건 시스템 12:41 vs 운영자 16:16 → 3시간 35분 사전감지 (이미 5월_30일_검증결과.md에 있음). v2 Episode 가 자동으로 이 매트릭스를 뽑게 만들면 매달 자동 검증 가능.
 
-## 0. 한 줄 요약
+B. ML 라벨 B 품질 자동 연결 ★★★
+현재 messenger_to_incidents.py: 메시지 단위 카운트 → 라벨 부정확
+v2 Episode 출력 → XGBoost 학습 데이터 직접 품질↑
+추가 작업 거의 없음 (Episode CSV → JSON 변환만)
+C. 작업 인폼 vs 실제 사건 자동 구분 ★★★
+5/12 사례 (검증보고서 P.4): 메신저 13건 중 다 "AI Close 작업 사전 인폼". 룰베이스 S3 0% → 시스템과 교차하면 자동으로 "작업 인폼" 라벨링.
 
-| 구분 | 현재 (v1) | 고객 요구 (v2) |
-|---|---|---|
-| 처리 단위 | **메시지 단위** (글 1개 = 1행) | **Episode 단위** (장애 1건 = 여러 메시지 묶음) |
-| 출력 | 메시지별 event_type CSV | 장애 Episode 테이블 |
-| 핵심 누락 | Episode 묶기 로직 전체 | → 신규 구현 대상 |
+IF episode 키워드 = action(Close/Open) AND 룰베이스 score < 30:
+    episode_type = "MAINTENANCE_NOT_FAULT"
+    fault_count = 0  ← 라벨 B에서 제외
+→ 라벨 B 정확도 직접 향상.
 
-**v1은 "메시지 분류기", v2는 "장애 집계기".** 계층이 하나 더 필요하다.
+2순위 — 추가하면 활용도 큰 4개
+D. 장애 유형 자동 분류 (episode_type)
+실데이터에서 추출 가능한 카테고리:
 
----
+유형	키워드/패턴	예시 (실데이터)
+BRIDGE_ERROR	Bridge OHT Error	(있음)
+LIFTER_DOWN	4ABLD/6ABL Error	4ABLD131
+SORTER_ISSUE	Sorter 정체	(이미 룰 있음)
+CAPA_CHANGE	MAX CAPA 변경+원복	M14B Capa 1→원복
+MLUD	M16HUBTOM14MANUAL	(룰베이스 컬럼 있음)
+AI_PORT_CLOSE	작업 인폼	(5/12 사례)
+COMMUNICATION	TIMEOUT/통신	(실데이터 적음)
+→ V4의 RULES_04_시나리오.csv 그대로 매핑 재사용.
 
-## 1. 고객 명세 14항목 — 현황 대조표
+E. severity 자동 추정 (지속시간 기반)
+명세서엔 키워드만 있지만 실데이터 키워드 단서 20건뿐. 지속시간으로 자동 추정:
 
-| # | 고객 요구 항목 | v1 상태 | v2 작업 | 난이도 |
-|---|---|---|---|---|
-| 1 | 헤더 기준 메시지 분리 | ✅ 있음 | 재사용 | - |
-| 2 | Message/Episode 단위 분리 | ❌ Message만 | **Episode 계층 신규** | 중 |
-| 3 | 데이터 구조 (Message/Episode 객체) | ⚠️ dict만 | 객체 필드 확장 | 하 |
-| 4 | 메시지 역할 분류 (8종) | ⚠️ event_type 17종 (성격 다름) | **role 8종 재정의** | 하 |
-| 5 | 역할 우선순위 (복구>장애) | ❌ 없음 | **우선순위 룰 구현** | 하 |
-| 6 | 키워드 그룹 | ⚠️ 일부 있음 | 보강 (아래 §3) | 하 |
-| 7 | Episode 묶기 조건 A~E | ❌ 없음 | **신규 구현** | 중 |
-| 8 | Episode Clustering 루프 | ❌ 없음 | **신규 구현** | 중 |
-| 9 | find_open_episode (score) | ❌ 없음 | **신규 구현** | 중 |
-| 10 | Episode 상태 업데이트 | ❌ 없음 | **신규 구현** | 중 |
-| 11 | Episode 생성 | ❌ 없음 | **신규 구현** | 하 |
-| 12 | 예외 처리 4 Case | ❌ 없음 | **신규 구현** (아래 §4) | 중 |
-| 13 | Output 테이블 | ⚠️ 메시지 CSV만 | **Episode CSV 신규** | 하 |
-| 14 | 12스텝 파이프라인 | ⚠️ 5스텝까지만 | 전체 연결 | 중 |
+duration < 15분  → LOW
+duration 15~60분 → MEDIUM  
+duration > 60분  → HIGH
+영향 영역 ≥ 2개   → +1 등급
+→ 운영자 키워드 의존 없이 객관적 severity.
 
-**요약**: 1번(파싱)만 재사용, 나머지 대부분 신규 또는 재정의.
+F. 운영자 KPI 자동 (MTTD/MTTR)
+Episode 한 번 만들면 다음 KPI 무료로 나온다:
 
----
+MTTD (Mean Time To Detect): detect_time - start_time — 운영자 인지 지연
+MTTR (Mean Time To Recover): end_time - start_time — 복구 소요 시간
+장비별/팀별/시간대별 평균
+→ 운영팀 성과 평가/개선 도구.
 
-## 2. 실데이터(529건) 검증으로 확정된 사실
+G. 반복/만성 장애 패턴 자동 감지
+같은 장비가 7일 내 ≥ 3회 Episode → CHRONIC_DEVICE
+같은 라인이 24시간 내 ≥ 5회       → HOTSPOT_LINE
+같은 시간대 반복                    → SCHEDULED_ISSUE 후보
+4ABLD131 사례: 5월에 8일 간격 2회 → 만성 X / 더 모으면 만성 패턴 자동 감지.
 
-| 검증 항목 | 결과 | 의미 |
-|---|---|---|
-| 헤더 파싱 | 529/529 성공 | 1단계 전제 100% 성립 |
-| 장비명 추출 | 82건(16%) | 장애 메시지가 정확히 이 부분집합 |
-| 라인명 추출 | 222건(42%) | M14/M16A 등 추출 가능 |
-| **에러코드 추출** | **0건** | ⚠️ 실데이터에 TIMEOUT_504 류 정형 코드 없음. 'Error' 단어만 존재 |
-| 역할 분류 분포 | fault 54 / recovery 23 / rollback 5 / cancel 5 / normal 432 | 의미있는 장애 ~80건 |
-| orphan recovery | 1건 (112호기 05-12) | Case1 제외 로직 실제 필요 |
-| 원복 시퀀스 | 44건 | Case2 처리 실제 필요 |
-| 재발생 분리 | 4ABLD131 8일 간격 | Case3 정상 분리 확인 |
-| session_window 30분 | 30분내 9쌍 vs 초과 19쌍 | 깔끔히 갈라짐, 30분 타당 |
+→ 정비/교체 우선순위 자동 제안.
 
----
+추가로 사용할 자산 (V4에 이미 있음)
+자산	활용
+AP/d.txt	5월 30일치 발동이벤트 (시간축 매칭용)
+AP/5월_30일_검증결과.md	5/8, 5/12, 5/25 사례 — 그대로 검증 데이터
+RULES_03_임계값.csv	룰베이스 임계와 episode_type 매핑
+RULES_04_시나리오.csv	장애 유형 분류 매핑 (D번)
+스킬/일반_에이전트_스킬.md	LLM 챗봇 — "지난주 4ABLD131 몇 번?" 류 질의
+ml/messenger_to_incidents.py	v2 Episode → 라벨 B 자동 연결
+MAXCAPA_NORMAL (hubroom_predictor.py)	운영자 Capa 변경 추적
+우선순위 추천
+단계	작업	결과물
+Phase 1 (필수)	A + B + C	Episode + 라벨 B 향상 + 작업인폼 자동 구분
+Phase 2 (활용 ↑)	D + E	episode_type + severity 자동 분류
+Phase 3 (운영 KPI)	F + G	MTTD/MTTR + 만성 장애 감지
+Phase 4 (LLM 연결)	스킬 확장	"지난주 장애 요약" 류 자연어 응답
+추천: 명세서에 §10~13 추가 후 단계별 진행
+지금 명세서에 §10(시스템 vs 운영자 교차), §11(ML 라벨 자동), §12(작업인폼 구분), §13(severity/KPI/만성) 4개 섹션 추가하면 고객한테 "단순 파서가 아니라 운영 분석 시스템"으로 보여줄 수 있다.
 
-## 3. 변경 필요 ① — 키워드 그룹 (실데이터 반영)
+어떻게 할까:
 
-### 신규 발견 누락 (실데이터에서 잡힘)
-
-| 문제 | 누락 사례 | 수정 |
-|---|---|---|
-| **원복 띄어쓰기 변형** | "MAX CAPA 원복 했습니다" → normal_share로 샘 | `원복 했`, `원복하였`, `원복 하겠` 추가 |
-| **에러코드 가정 폐기** | 실데이터 에러코드 0건 | error_code 매칭(+5점) → 장비명+라인+시간 기반으로 대체 |
-
-### v2 역할 키워드 (고객 8종 + 실데이터 보강)
-
-```
-cancel_or_false_alarm : 오탐, 취소, 무시, 해당 없음, 장애 아님, 이슈 없음, 정상 확인
-recovery_done         : 복구 완료, 정상화, 정상 동작, 해소, clear, 조치되어,
-                        조치 완료, 처리 완료, 복구되, Open 하겠, Open 했, OPEN 했
-rollback_done         : 원복 완료, 원복했, 원복 했, 원복하였, 원복 하였  ★보강
-rollback_request      : 원복 요청, 원복 예정, 원복하겠, 원복 하겠         ★보강
-action_in_progress    : 확인중, 조치중, 점검중, 재기동, reset, Close 하겠, Close 했
-action_request        : 확인 요청, 조치 요청, 확인 부탁, 대응 필요, 점검 부탁
-fault_start           : 장애, 이상, 에러, Error, fail, 다운, 멈춤, 통신불량,
-                        timeout, alarm, 인터락, 정지, 발생
-normal_share          : (위 어디에도 안 걸림)
-```
-
----
-
-## 4. 변경 필요 ② — 예외 처리 4 Case (실데이터 기준)
-
-| Case | 고객 요구 | v2 처리 | 실데이터 근거 |
-|---|---|---|---|
-| 1. 복구 단독 등장 | orphan_recovery 분류, 카운트 제외 | open episode 없으면 orphan | 112호기 05-12 23:56 |
-| 2. 요청→완료→원복 | 1 Episode로 묶음, status=rollback_done | 상태머신으로 연결 | 44건 원복 |
-| 3. 복구 후 재발생 | gap > reopen_window면 새 Episode | session_window 30분 | 4ABLD131 8일 |
-| 4. 장애 키워드+복구 의미 | recovery 우선 | 우선순위 룰 | "Error 조치되어" → recovery |
-| **5. (신규) 장애+액션 공존** | — | **'발생' 포함 시 fault 우선** | "Error 발생으로 Close 하겠" |
-
-★ Case 5는 고객 명세에 없으나 실데이터에서 발견 — fault_start와 action이 한 문장에 공존하면 고객 우선순위상 action이 먼저 잡혀 Episode 생성 실패 → '발생' 키워드 있으면 fault_start 우선 처리 필요.
-
----
-
-## 5. 변경 필요 ③ — find_open_episode score (에러코드 제외판)
-
-고객 명세 score 체계에서 **에러코드(+5)를 실데이터 기준으로 재배분**:
-
-| 조건 | 고객 명세 | v2 (에러코드 0건 반영) |
-|---|---|---|
-| 동일 장비 | +5 | **+6** (가중 ↑) |
-| 동일 라인 | +3 | +3 |
-| 동일 에러코드 | +5 | **삭제** (실데이터 없음) |
-| 키워드 그룹 겹침 | +2 | +2 |
-| 역할 흐름 자연스러움 | +2 | +3 |
-| **threshold** | (미명시) | **6** (장비 일치 = 최소 묶음) |
-
----
-
-## 6. 변경 필요 ④ — Output 테이블 (고객 13번 형식)
-
-### v2 Episode CSV 컬럼
-```
-episode_id, start_time, detect_time, end_time, duration_min,
-equipment, line, error_code, episode_type,
-final_severity, final_status,
-message_count, fault_count, message_ids, evidence_texts
-```
-
-### 기존 ML 파이프라인 연결 (보너스)
-- 현재 `messenger_to_incidents.py` = 메시지 단위 → 장애 과대 계산
-- v2 Episode 출력 → **라벨 B (메신저 사건) 품질 향상**
-  - "메시지 4개 = 장애 4건" → "장애 1건" 정확 집계
-
----
-
-## 7. 작업 체크리스트
-
-- [ ] v1 파싱 함수 재사용 (`parse_log` 1단계)
-- [ ] 역할 분류 8종 + 우선순위 룰 구현 (§3, Case 4·5)
-- [ ] 장비/라인 추출 정규식 (에러코드 제외)
-- [ ] Episode 객체 + 생성/상태업데이트/find_open (§5)
-- [ ] Clustering 메인 루프 (시간순, open episode 매칭)
-- [ ] 예외 4+1 Case 처리 (§4)
-- [ ] Episode CSV 출력 (§6)
-- [ ] MA202605.txt 529건 전체 돌려 최종 장애 건수 검증
-- [ ] (선택) messenger_to_incidents.py 연결
-
----
-
-## 8. 예상 산출물
-
-| 파일 | 내용 |
-|---|---|
-| `운영로그_파서_v2.py` | Episode 단위 파서 (신규) |
-| `{날짜}_episode.csv` | 장애 Episode 테이블 |
-| 검증 리포트 | 529건 → 약 N건 장애로 집계 (실행 후 확정) |
-
----
-
-## 9. 한 줄 결론
-
-**전부 구현 가능. v1은 메시지 분류까지만 했고, 고객이 원하는 "장애 1건 단위 집계(Episode)"가 통째로 빠져있어 신규 구현이 필요하다. 실데이터 검증으로 에러코드 부재·키워드 누락 2건·신규 엣지케이스 1건을 발견했으며 모두 반영 예정.**
+(a) 명세서에 §10~13 추가 (Phase 1만)
+(b) §1013 전부 추가 (Phase 13)
+(c) 의견 더 받기
