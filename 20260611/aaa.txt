@@ -136,7 +136,7 @@ def analyze(r):
         print(f"{sum(vals):>5.0f}")
 
     # 발동 룰 → 원본 컬럼 + 실측값 + 임계 + 판정마크
-    print(f"\n  [발동 룰 → 원본 컬럼 / 실측값 / 임계 / 판정]")
+    print(f"\n  [발동 룰 → 원본 컬럼 / 실측값 / 임계]   ▶▶  {_verdict(r)}")
     for a in AREAS5:
         lines = []
         if f(r,f'{a}_pts_RA')>0 or f(r,f'{a}_pts_RA_sus')>0:
