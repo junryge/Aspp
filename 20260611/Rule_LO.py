@@ -109,9 +109,20 @@ _fail_count = 0
 # ============================================================
 # Logpresso 쿼리 빌더 (json "{...}" | import <table>)
 # ============================================================
+# ★ URL 길이 한계 우회 — 긴 한글 텍스트 컬럼은 잘라서 적재
+#   (한글은 URL 인코딩 시 1글자=9바이트로 부풀어서 큰 사건은 URL 수KB 초과 → 405/끊김)
+_LONG_TEXT_COLS = {
+    'reason', 'relation', 'propagation_chain', 'flow_signals',
+    'maxcapa_signals', 'risk_factors', 'triggered_rules', 'maxcapa_changes',
+    'M16HUB_rev_lids',
+}
+_MAX_LEN_LONG = int(CFG.get("max_long_text", 150))   # 긴 텍스트 컬럼 자르는 길이
+_MAX_LEN_ANY  = int(CFG.get("max_any_text",  500))   # 안전망: 모든 컬럼 절대 상한
+
+
 def _to_maru_literal(row_dict):
     """dict → Maru object literal: {k = 'v', k2 = 'v2'}.
-       ★ 0/null/빈값 컬럼은 아예 제외 (Logpresso 글자수 한계 우회).
+       ★ 0/null/빈값 제외 + 긴 텍스트 자르기로 URL 길이 한계 우회.
        Logpresso 에서는 누락된 컬럼 = null = SQL 에서 0과 동일 처리."""
     parts = []
     for k, v in row_dict.items():
@@ -121,7 +132,12 @@ def _to_maru_literal(row_dict):
         # 0/null/빈값 제외 — 쿼리 길이 단축
         if v is None or v == '' or v == 0 or v == '0' or v == 0.0:
             continue
-        s = str(v).replace("'", "\\'")
+        s = str(v)
+        # ★ 긴 텍스트 컬럼 잘라내기 (URL 폭발 방지)
+        max_len = _MAX_LEN_LONG if k in _LONG_TEXT_COLS else _MAX_LEN_ANY
+        if len(s) > max_len:
+            s = s[:max_len] + '…'
+        s = s.replace("'", "\\'")
         parts.append(f"{k} = '{s}'")
     return "{" + ", ".join(parts) + "}"
 
@@ -134,13 +150,11 @@ def _build_query(row_dict):
 
 
 def _post_query(q):
-    """Logpresso 쿼리 실행.
-    ★ GET(URL 에 쿼리) → POST(본문에 쿼리) 로 변경.
-      reason/relation 등 긴 한글 컬럼이 URL 길이 한계를 넘겨
-      RemoteDisconnected 로 끊기던 문제 해결."""
+    """Logpresso 쿼리 실행 (GET httpexport — POST 는 서버가 405 반환).
+       URL 길이 한계는 _to_maru_literal 에서 긴 텍스트 잘라 우회."""
     qs = " ".join(q.split())
-    url = f"{INSERT_URL}?_apikey={API_KEY}"
-    r = requests.post(url, data={"_q": qs}, verify=False, timeout=HTTP_TIMEOUT)
+    url = f"{INSERT_URL}?_apikey={API_KEY}&_q={urllib.parse.quote(qs, safe='')}"
+    r = requests.get(url, verify=False, timeout=HTTP_TIMEOUT)
     if r.status_code != 200 or r.text.strip().startswith("<"):
         raise RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")
     return r
