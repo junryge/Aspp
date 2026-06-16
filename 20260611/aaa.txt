@@ -74,7 +74,18 @@ OHT_COL = {a:f'{a}.QUE.OHT.OHTUTIL' for a in AREAS5}
 TH_RA = {'M16HUB':9.0,'M14':3.3,'M14B':5.0,'M16A':3.2,'M16B':3.5}
 TH_RB = {'M16HUB':100,'M14':80,'M14B':150,'M16A':84,'M16B':32}
 TH_SLA = {'M16HUB':5.0,'M14':25.45,'M16A':14.05,'M16B':22.05}
+TH_SORTER = {'M14':148,'M14B':109,'M16A':180,'M16B':90,'M16HUB':30}
 TH_FAB, TH_STB, TH_OHT, TH_RC = 25.75, 99.3, 95.0, 4
+
+
+def _mark(val, th):
+    """실측 vs 임계 판정 마크."""
+    if th is None or th == 0:
+        return ""
+    if val >= th:
+        ratio = val / th if th > 0 else 0
+        return f"  🔴 초과 ({ratio:.1f}배)"
+    return f"  🟢 정상 (임계의 {val/th*100:.0f}%)"
 
 
 def f(r, k):
@@ -83,7 +94,21 @@ def f(r, k):
     except: return 0
 
 
+def _verdict(r):
+    """점수 → 정상/문제 한 줄 판정."""
+    sc = f(r, 'unified_risk_score')
+    cont = f(r, 'continuity_min')
+    cont_s = f" / {int(cont)}분째 지속" if cont >= 1 else ""
+    if sc >= 220:   return f"⚫ 발동 — 점수 {int(sc)}{cont_s}"
+    if sc >= 160:   return f"🔴 위험 — 점수 {int(sc)}{cont_s}"
+    if sc >= 130:   return f"🟠 경계 — 점수 {int(sc)}{cont_s}"
+    if sc >= 120:   return f"🟡 주의 — 점수 {int(sc)}{cont_s}"
+    if sc >= 100:   return f"🔵 관심 — 점수 {int(sc)}{cont_s}"
+    return f"🟢 정상 — 점수 {int(sc)} (알람 X)"
+
+
 def analyze(r):
+    print("\n" + _verdict(r))
     print("=" * 74)
     print(f"  {r.get('datetime','?')} | 점수 {r.get('unified_risk_score','?')} "
           f"[{r.get('unified_risk_level','?')}] | hot={r.get('hot_area','?')} "
@@ -110,27 +135,37 @@ def analyze(r):
         for v in vals: print(f"{(int(v) if v else '·'):>8}", end='')
         print(f"{sum(vals):>5.0f}")
 
-    # 발동 룰 → 원본 컬럼 + 실측값 + 임계
-    print(f"\n  [발동 룰 → 원본 컬럼 / 실측값 / 임계]")
+    # 발동 룰 → 원본 컬럼 + 실측값 + 임계 + 판정마크
+    print(f"\n  [발동 룰 → 원본 컬럼 / 실측값 / 임계 / 판정]")
     for a in AREAS5:
         lines = []
         if f(r,f'{a}_pts_RA')>0 or f(r,f'{a}_pts_RA_sus')>0:
-            v=f(r,f'{a}_ra'); lines.append(f"반송지연  {RA_COL[a]} = {v:.2f}분 (임계 {TH_RA[a]})")
+            v=f(r,f'{a}_ra'); th=TH_RA[a]
+            lines.append(f"반송지연  {RA_COL[a]} = {v:.2f}분 (임계 {th}){_mark(v,th)}")
         if f(r,f'{a}_pts_RB')>0 or f(r,f'{a}_pts_RB_fast')>0:
-            v=f(r,f'{a}_rb_diff30'); lines.append(f"큐누적    {RB_COL[a]} = +{int(v)}/30분 (임계 {TH_RB[a]})")
+            v=f(r,f'{a}_rb_diff30'); th=TH_RB[a]
+            lines.append(f"큐누적    {RB_COL[a]} = +{int(v)}/30분 (임계 {th}){_mark(v,th)}")
         if f(r,f'{a}_pts_RC')>0 and a=='M16HUB':
-            v=f(r,'M16HUB_rev_count'); lines.append(f"리프터역증가  역증가 {int(v)}개 (임계 {TH_RC}) [{r.get('M16HUB_rev_lids','')}]")
+            v=f(r,'M16HUB_rev_count')
+            lines.append(f"리프터역증가  역증가 {int(v)}개 (임계 {TH_RC}){_mark(v,TH_RC)} [{r.get('M16HUB_rev_lids','')}]")
         if f(r,f'{a}_pts_RD')>0:
             if a=='M16HUB':
-                lines.append(f"FAB/STB   FABSTORAGERATIO={f(r,'M16HUB_rd_fab'):.1f}% / STB.3F_STORAGE_UTIL={f(r,'M16HUB_stb_util'):.1f}% (임계 FAB{TH_FAB}/STB{TH_STB})")
+                fab=f(r,'M16HUB_rd_fab'); stb=f(r,'M16HUB_stb_util')
+                fab_m = "🔴 초과" if fab>=TH_FAB else "🟢 정상"
+                stb_m = "🔴 초과" if stb>=TH_STB else "🟢 정상"
+                lines.append(f"FAB저장   FABSTORAGERATIO = {fab:.1f}% (임계 {TH_FAB})  {fab_m}")
+                lines.append(f"STB저장   STB.3F_STORAGE_UTIL = {stb:.1f}% (임계 {TH_STB})  {stb_m}")
             else:
-                v=f(r,f'{a}_rd_oht'); lines.append(f"OHT정체   {OHT_COL[a]} = {v:.1f}% (임계 {TH_OHT})")
+                v=f(r,f'{a}_rd_oht')
+                lines.append(f"OHT정체   {OHT_COL[a]} = {v:.1f}% (임계 {TH_OHT}){_mark(v,TH_OHT)}")
         if f(r,f'{a}_pts_SLA')>0:
-            v=f(r,f'sla_{a}'); lines.append(f"SLA초과   {SLA_COL[a]} = {v:.1f}% (임계 {TH_SLA.get(a,'-')})")
+            v=f(r,f'sla_{a}'); th=TH_SLA.get(a)
+            lines.append(f"SLA초과   {SLA_COL[a]} = {v:.1f}% (임계 {th}){_mark(v,th) if th else ''}")
         if f(r,f'{a}_pts_SORT')>0:
-            v=f(r,f'sorter_{a}'); lines.append(f"Sorter    {SORT_COL[a]} = {int(v)}LOT 대기")
+            v=f(r,f'sorter_{a}'); th=TH_SORTER.get(a)
+            lines.append(f"Sorter    {SORT_COL[a]} = {int(v)}LOT 대기 (임계 {th}){_mark(v,th) if th else ''}")
         if f(r,f'{a}_pts_MAXCAPA')>0:
-            lines.append(f"MAXCAPA   {a}.QUE.CNV.3F_CNV_MAXCAPA 변경")
+            lines.append(f"MAXCAPA   {a}.QUE.CNV.3F_CNV_MAXCAPA 변경  🟡 운영자조치")
         if lines:
             print(f"\n   ▶ {a}")
             for ln in lines: print(f"      · {ln}")
