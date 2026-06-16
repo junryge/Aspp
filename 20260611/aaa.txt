@@ -452,12 +452,29 @@ function saveChat(){
     var idx0=_loadSessIdx(aid).filter(function(s){return s.sid!==activeSessionId;}); _saveSessIdx(aid,idx0);
     return;
   }
-  try{ localStorage.setItem(_sessKey(aid,activeSessionId), JSON.stringify({messages:chatHistory})); }catch(e){}
+  var ok=_trySaveSession(aid, activeSessionId, chatHistory);   // 용량초과 시 오래된 세션 정리 후 재시도
   var idx=_loadSessIdx(aid), now=Date.now();
   var e=idx.filter(function(s){return s.sid===activeSessionId;})[0];
   if(!e){ e={sid:activeSessionId,created:now}; idx.push(e); }
-  e.title=_sessTitle(chatHistory); e.updated=now; e.count=chatHistory.length;
+  e.title=(ok?'':'⚠️저장실패 ')+_sessTitle(chatHistory); e.updated=now; e.count=chatHistory.length; e.saved=ok;
   _saveSessIdx(aid,idx);
+  if(!ok && !saveChat._warned){ saveChat._warned=true; try{ alert('⚠️ 브라우저 저장공간이 가득 찼습니다.\n오래된 세션을 정리했지만 일부 대화가 저장되지 않을 수 있어요.\n(큰 CSV를 채팅에 붙여넣으면 빨리 참 — 데이터는 📎첨부를 권장)'); }catch(_){} }
+}
+// 세션 저장(용량초과 방어): 실패하면 이 에이전트의 '가장 오래된 다른 세션'부터 지우고 재시도
+function _trySaveSession(aid, sid, history){
+  var payload=JSON.stringify({messages:history});
+  for(var attempt=0; attempt<8; attempt++){
+    try{ localStorage.setItem(_sessKey(aid,sid), payload); return true; }
+    catch(err){
+      var others=_loadSessIdx(aid).filter(function(s){return s.sid!==sid;});
+      if(!others.length) return false;               // 더 지울 게 없음
+      others.sort(function(x,y){return (x.updated||0)-(y.updated||0);});  // 오래된 순
+      var victim=others[0];
+      try{ localStorage.removeItem(_sessKey(aid,victim.sid)); }catch(_){}
+      _saveSessIdx(aid, _loadSessIdx(aid).filter(function(s){return s.sid!==victim.sid;}));
+    }
+  }
+  return false;
 }
 // 에이전트 가동 시: 구버전 흡수 후 가장 최근 세션 복원(없으면 새 세션)
 function _restoreLatestSession(aid){
