@@ -138,8 +138,11 @@ def main():
     peak_all = max(minutes, key=lambda x: (x["lvl_n"], x["score"])) if minutes else None
     busy = Counter(m["dt"].strftime("%H") + "시" for m in risk_mins).most_common(5)
     busy_str = ", ".join(f"{h}({c}분)" for h, c in busy) or "-"
+    # 보고서 제목용 날짜 (데이터에서 가장 흔한 날짜)
+    day_str = Counter(m["dt"].strftime("%Y-%m-%d") for m in minutes).most_common(1)[0][0] if minutes else "-"
 
     stats_rows = [{
+        "날짜": day_str,
         "총분": n_total,
         "정상분": grade_ct.get("정상", 0),
         "정체분(100+)": len(risk_mins),
@@ -191,7 +194,7 @@ def main():
         return p
 
     p1 = _wcsv("발동이벤트_1_일일통계.csv",
-               ["총분", "정상분", "정체분(100+)", "관심", "주의", "경계", "위험", "발동",
+               ["날짜", "총분", "정상분", "정체분(100+)", "관심", "주의", "경계", "위험", "발동",
                 "최고점수", "최고시각", "최고진원지", "정체집중시간대"], stats_rows)
     p2 = _wcsv("발동이벤트_2_시간프로파일.csv",
                ["시간", "최고점수", "최고등급", "정체분", "진원지", "대표_전파경로", "발동룰"],
