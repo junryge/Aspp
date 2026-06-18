@@ -1,199 +1,206 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-발동이벤트_요약.py — M16 HUBROOM 발동이벤트.csv(분당 1행, 하루 1440행)를
-'위험 구간 묶음'(수~수십 행)으로 압축한다.
+---
+name: m16_hub_결과해석
+description: hubroom_predictor.py(M16 HUBROOM 룰베이스) 가 출력한 발동이벤트.csv(24시간 전체) / 사건단위.csv(문제 발생 시) 의 컬럼·등급·장애유형·점수를 해석하는 가이드. CSV 결과를 어떻게 읽는지, 무슨 컬럼이 무슨 뜻인지, 사건이 진짜인지·얼마나 미리 맞췄는지 판단하는 법을 묻거나 결과 분석을 도울 때 사용. "결과 해석", "이 컬럼 뭐야", "사건단위 읽는 법", "이게 진짜 장애야", "하루 추이" 요청 시.
+---
 
-목적: 발동이벤트 원본은 1440행 × 100여 열이라 LLM 컨텍스트(128K)를 넘김.
-      이 스크립트가 샌드박스에서 미리 요약 → 데모스 LLM 은 작은 요약표만 보고
-      하루 보고서를 작성. (데모스 스크립트 실행 기능으로 자동 호출)
+# m16_hub 결과해석 — 발동이벤트/사건단위 읽는 법 (v6 / 배포 V2)
 
-입력: 발동이벤트.csv (16열 축약본도, 131열 원본도 모두 OK — 헤더 이름으로 읽음)
-출력: <outdir>/발동이벤트_요약.csv  (주의 이상 위험 구간을 시간순으로 묶은 표)
+> 배경 개념은 `m16_hub_카파시`, 실행법은 `m16_hub_일반`, 임계 의미는 `m16_hub_임계값` 참조.
 
-규칙:
-- '주의' 이상(점수 >=120) 인 분(minute)만 위험으로 보고, 30분 이내로 가까운
-  위험 분들은 한 구간으로 병합(짧은 진동 흡수). 이게 하루 보고서의 시간대 표가 됨.
-- 구간마다: 시간대 / 지속 / 최고위험레벨 / 최고점수 / 진원지 / 대표 전파경로 / 발동룰 / 특이신호
-- stdlib 만 사용 (pandas 불필요).
-"""
-import sys
-import os
-import csv
-import re
-import argparse
-from collections import Counter
-from datetime import datetime
+## 0. 입력 두 가지 케이스
+- **(A) 결과 CSV 직접** — 발동이벤트.csv / 사건단위.csv 를 주면 → 바로 이 문서로 해석.
+- **(B) 원본 데이터만** — 수집 원본(M16A_HUBROOM_PR.csv)을 주면 → 스크립트(hubroom_predictor.py)가 먼저 두 CSV 를 만들고 → 그걸 해석.
 
-LEVEL_ORDER = {"정상": 0, "관심": 1, "주의": 2, "경계": 3, "위험": 4, "발동": 5}
-RISK_LEVEL_MIN = 2          # '주의' 이상만 위험 구간으로
-MERGE_GAP_MIN = 30          # 이 분(min) 이내로 떨어진 위험 분은 한 구간으로 병합
+## 1. 두 출력 파일 — 역할이 다름
+| | 발동이벤트.csv | 사건단위.csv |
+|---|---|---|
+| 범위 | **24시간 전체** (매분 1행, 하루 ≈ 1440행) | **문제 발생 시만** (사건당 1행) |
+| 기록 | 즉시(매분) | 사건 종료 + 60분 후, **점수 100+ 만** |
+| 용도 | 하루 흐름·추이·언제 위험했나 | 터진 사건의 요약·원인·선행시간 |
+| 분석 관점 | "하루 중 위험 구간 언제? 추이?" | "이 사건 진짜냐? 어디서? 얼마나 미리 맞췄나?" |
+| 컬럼 | 135 (※ 일부 배포본 131 — 운영자가 컬럼 조정) | 170 |
 
+→ **둘을 같이 본다**: 발동이벤트로 하루 그림 → 사건단위로 사건 깊이.
 
-def _norm_key(k):
-    return (k or "").lstrip("﻿").strip()
+---
 
+## 2. 발동이벤트.csv — 핵심 컬럼 (사람이 읽는 앞부분)
+| 컬럼 | 뜻 | 해석 |
+|---|---|---|
+| `datetime` / `date` / `time` | 시각 | 그 분 |
+| `stage` / `stage_name` | 단계 (1 조기경보 / 2 주의보 / 3 ⭐확정) | 3단계 = 여러 룰 동시 충족 |
+| `prev_stage` / **`transition`** | 직전 단계 / 전이 (예: `2→3`) | **단계가 올라간 순간 = 악화 시점 포착** |
+| `unified_risk_score` | 그 분 종합 점수 (0~500) | 높을수록 위험 |
+| `unified_risk_level` | 그 분 등급 (정상~발동) | §5 등급표 |
+| `hot_area` / **`hot_score`** | 가장 강한 영역 / 그 영역 점수 | 진원지 + 얼마나 셌나 |
+| `affected_areas` | 영향 영역들 (`;` 구분) | 광역인지(4+영역) |
+| **`propagation_chain`** | **전파 경로** (영역→영역 시각순) | **정체가 어디서 시작해 어디로 번졌나 — 해석 핵심** |
+| **`flow_signals`** | 흐름 신호 (노드=배수x(등급)) | 어느 반송 흐름이 평소 대비 몇 배인지 |
+| **`maxcapa_signals`** | 운영자 CAPA 변경 흔적 | 사람이 설비 한계를 만진 신호 |
+| `M16HUB_score`…`M16_WT_score` | **8영역 각 점수** | 영역별 기여 |
+| `{영역}_signals` | 영역별 발동 룰 (예: `RA+RC+RD`) | 어떤 룰이 켜졌나 |
+| `incident_state` | IDLE / IN_INCIDENT | 사건 진행 중인지 |
+| `continuity_min` | 사건 시작부터 N분째 | 얼마나 오래 |
+| `refire_count` | 재발 횟수(진동) | 껐다 켜졌나 |
+| `predicted_fault_type` | 장애유형 라벨 | §6 |
+| `layer1_total`·`flow_score`·`sla_score`·`sorter_score`·`mc_score` | 점수 5구성 | **이 5개 합 = unified_risk_score** |
+| `{영역}_pts_{룰}` | 영역×룰별 기여 점수 (45컬럼) | 어떤 룰이 점수 얼마 보탰나 |
+| `reason` | 사람이 읽는 사유 요약 | 한 줄 설명 |
 
-def _level_from(level_str, score):
-    """레벨 문자열 우선, 없으면 점수로 등급 산출."""
-    lv = (level_str or "").strip()
-    if lv in LEVEL_ORDER:
-        return lv
-    try:
-        s = float(score)
-    except (TypeError, ValueError):
-        return "정상"
-    if s >= 220: return "발동"
-    if s >= 160: return "위험"
-    if s >= 130: return "경계"
-    if s >= 120: return "주의"
-    if s >= 100: return "관심"
-    return "정상"
+**발동이벤트 활용**: `unified_risk_score` 최댓값 행 → 하루 최고 위험 시각. `transition`에 `2→3` 뜬 분 → 확정 진입 순간.
 
+---
 
-def _parse_dt(row):
-    """datetime 컬럼(YYYY-MM-DD HH:MM) 우선, 없으면 date+time 조합."""
-    dt = (row.get("datetime") or "").strip()
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
-        try:
-            return datetime.strptime(dt, fmt)
-        except ValueError:
-            pass
-    d = (row.get("date") or "").strip()
-    t = (row.get("time") or "").strip()
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
-        try:
-            return datetime.strptime(f"{d} {t}", fmt)
-        except ValueError:
-            pass
-    return None
+## 3. 사건단위.csv — 핵심 컬럼 (사건당 1행)
+| 컬럼 | 뜻 | 해석 |
+|---|---|---|
+| `predict_time` | 룰이 **사건을 처음 예측**한 시각 (조기신호 소급) | 가장 빠른 경고 |
+| `start_time` | S3 **확정** 시각 | 실제 확정 |
+| `end_time` | 종료 | |
+| **`lead_min`** | **예측 선행시간** = start − predict (분) | **얼마나 미리 맞췄나 — 핵심 KPI** (예: 60분 미리) |
+| `duration_min` | 지속 시간 | 사건 길이 |
+| `refire_count` | 재발생 횟수(진동) | 0이면 단발 |
+| `max_risk_score` / `max_risk_level` | 사건 **최고** 점수/등급 | 심각도 |
+| `predicted_fault_type` | 대표 장애유형 | §6 |
+| `hot_area` / `affected_areas` | 진원지 / 영향 영역 | 광역 여부 |
+| **`propagation_chain`** | 전파 경로 | 시작→확산 |
+| `triggered_rules` | 영역별 발동 룰 (예: `M16HUB:RA+RC+RD; M14:SLA`) | 무슨 룰로 잡혔나 |
+| **`risk_factors`** | **핵심 위험요인 (실측값 vs 임계)** | **왜 발동했나의 증거** (예: `AVGTOTALTIME1MIN=47.03분(>=9.45)`) |
+| **`maxcapa_changes`** | 사건 내 운영자 변수 변경 | 사람 개입 |
+| `relation` | 영역별 컬럼-값-임계 상세 | risk_factors 풀이 |
+| `{영역}_max_pts_{룰}` / `{영역}_sum_pts_{룰}` | 룰별 점수 최대/누적 | 분석·ML 피처 |
+| `max_*` / `sum_*` (score_raw·ra_count·rd_oht·sla_cnt 등) | 진단키 최대/누적 | 깊은 분석용 |
 
+> ⚠️ **`predict_time` ≠ `max_risk_score` 시각**. "16:57 시작, 최고점 162" 라면 162는 16:57이 아니라 사건 중 다른 분에 찍힘. 최고점 시각은 발동이벤트.csv 의 `unified_risk_score` 최댓값 행에서 확인.
+> ⚠️ **사건단위의 `max_*` 컬럼은 각자 다른 분의 최고값** → 더하면 max_risk_score 와 안 맞음 (발동이벤트는 한 줄에서 정확히 더해짐).
 
-# propagation_chain 예: "M16(23:05,RB+RB_fast) → M16HUB(23:07,RC+RD)"
-_RULE_RE = re.compile(r"\(([^)]*?)\)")
-_RULE_TOKEN_RE = re.compile(r"R[A-D](?:_sus)?|RB_fast|SLA|SORT|MAXCAPA\*?\d*|RC|RD|RA")
+---
 
+## 4. 점수 검증 공식 (발동이벤트 한 줄 기준)
+```
+unified_risk_score = layer1_total + flow_score + sla_score + sorter_score + mc_score   (최대 500)
+```
 
-def _rules_in_chain(chain):
-    rules = []
-    for inside in _RULE_RE.findall(chain or ""):
-        # inside 예: "23:07,RC+RD"  → 룰 토큰만
-        parts = inside.split(",", 1)
-        if len(parts) == 2:
-            for tok in re.split(r"[+\s]+", parts[1]):
-                tok = tok.strip()
-                if tok:
-                    rules.append(tok)
-    return rules
+## 5. 등급 → 대응
+| 등급 | 점수 | 대응 |
+|---|---|---|
+| 정상 | <100 | 알람 X (세부 룰 🔴여도 통합 미달이면 대응 불요) |
+| 관심 | 100~119 | 참고 |
+| 주의 | 120~129 | 모니터링 |
+| 경계 | 130~159 | 원인 확인 |
+| 위험 | 160~219 | **즉시 조치** |
+| 발동 | 220+ | **즉시 개입** |
 
+## 6. 장애유형 라벨 (`predicted_fault_type`) — 전체
+`{영역}-{증상}` 형식. **발동이벤트용**과 **사건단위용**이 일부 다름:
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("input", help="발동이벤트.csv 경로")
-    ap.add_argument("-o", "--outdir", default=".", help="출력 폴더")
-    args = ap.parse_args()
+| 라벨 | 의미 | 발동이벤트 | 사건단위 |
+|---|---|:---:|:---:|
+| `광역정체` | 영향 영역 4개 이상 동시 | ✅ | ✅ |
+| `HUB-MLUD` | 수동이동(MLUD) 잡 적체 | ✅ | — |
+| `HUB-CNV가득` | M16HUB CNV 충만 | ✅ | — |
+| `HUB-리프터역증가` | 리프터 큐 역증가 | ✅ | ✅ |
+| `HUB-FAB정체` | FAB 저장 과다 | ✅ | ✅ |
+| `HUB-STB정체` | STB 저장 100% | ✅ | ✅ |
+| `HUB-큐누적` | M14→M16 큐 누적(R-B) | ✅ | ✅ |
+| `HUB-반송지연` | 반송시간 초과(R-A) | ✅ | ✅ |
+| `HUB-신호` | 그 외 HUB 신호 | ✅ | ✅ |
+| `{영역}-Sorter대기` | 분류기 대기(M14/M16A 등) | ✅ | ✅ |
+| `{영역}-SLA초과` | 4분초과 비율↑ | ✅ | ✅ |
+| `{영역}-OHT정체` | OHT 가동률↑ | ✅ | ✅ |
+| `M14-CNV쏠림` | M14 CNV 편향 | ✅ | ✅ |
+| `{영역}-반송지연`/`-큐누적`/`-신호` | 영역별 R-A/R-B/기타 | ✅ | ✅ |
 
-    # 입력 읽기 (utf-8-sig 로 BOM 흡수)
-    with open(args.input, "r", encoding="utf-8-sig", newline="") as f:
-        reader = csv.DictReader(f)
-        reader.fieldnames = [_norm_key(k) for k in (reader.fieldnames or [])]
-        rows = []
-        for r in reader:
-            rows.append({_norm_key(k): v for k, v in r.items()})
+## 7. "이게 진짜 장애인가" 판단 팁
+- **위험(160+)** → 신뢰도 높음. 즉시 조치.
+- **`risk_factors` 에 STB/FAB 100% + 반송시간 임계초과** → 점수 낮아도 실제 정체 신호.
+- **`continuity_min` 큼 + 점수 낮음** → 작은 정체 지속, 저절로 풀릴 수도.
+- **`lead_min` 큼** → 그만큼 일찍 경고 (조기 대응 가능했음).
+- **`propagation_chain` 시작 영역** → 진짜 원인 영역 (hot_area 와 같이 보면 진원지 확정).
 
-    # 분 단위 정보 추출 + 시간순 정렬
-    minutes = []
-    for r in rows:
-        dt = _parse_dt(r)
-        if dt is None:
-            continue
-        try:
-            score = float(r.get("unified_risk_score") or 0)
-        except ValueError:
-            score = 0.0
-        level = _level_from(r.get("unified_risk_level"), score)
-        minutes.append({
-            "dt": dt,
-            "time": (r.get("time") or dt.strftime("%H:%M")).strip(),
-            "score": score,
-            "level": level,
-            "lvl_n": LEVEL_ORDER.get(level, 0),
-            "hot_area": (r.get("hot_area") or "").strip(),
-            "chain": (r.get("propagation_chain") or "").strip(),
-            "flow": (r.get("flow_signals") or "").strip(),
-            "maxcapa": (r.get("maxcapa_signals") or "").strip(),
-            "affected": (r.get("affected_areas") or "").strip(),
-        })
-    minutes.sort(key=lambda m: m["dt"])
+## 8. 빠른 분석 순서 (실전)
+1. **사건단위** 먼저 → `max_risk_level=위험/발동` 행만 추림 → `predicted_fault_type`·`hot_area`·`lead_min`·`risk_factors` 읽기
+2. 그 사건의 `propagation_chain` 으로 "어디서 시작→어디로 번짐" 설명
+3. **발동이벤트**에서 그 시간대 `unified_risk_score` 추이 → 최고점 시각·`transition`(2→3) 확인
+4. `relation`/`reason` 으로 실측값-임계 근거 인용해 보고
 
-    # 위험(주의 이상) 분만 골라 30분 갭으로 병합 → 구간
-    windows = []
-    cur = None
-    last_risk_dt = None
-    for m in minutes:
-        is_risk = m["lvl_n"] >= RISK_LEVEL_MIN
-        if not is_risk:
-            continue
-        if cur is not None and last_risk_dt is not None and \
-                (m["dt"] - last_risk_dt).total_seconds() / 60.0 <= MERGE_GAP_MIN:
-            cur["mins"].append(m)
-        else:
-            cur = {"mins": [m]}
-            windows.append(cur)
-        last_risk_dt = m["dt"]
+---
 
-    # 구간별 요약 행 생성
-    out_rows = []
-    for w in windows:
-        mins = w["mins"]
-        peak = max(mins, key=lambda x: x["score"])
-        start = mins[0]
-        end = mins[-1]
-        dur = int((end["dt"] - start["dt"]).total_seconds() / 60.0) + 1
-        hot = Counter(m["hot_area"] for m in mins if m["hot_area"]).most_common(1)
-        hot_area = hot[0][0] if hot else (peak["hot_area"] or "-")
-        # 발동 룰 집계 (전 구간 전파경로에서)
-        rule_ct = Counter()
-        for m in mins:
-            for rr in _rules_in_chain(m["chain"]):
-                rule_ct[rr] += 1
-        top_rules = ", ".join(f"{r}" for r, _ in rule_ct.most_common(6)) or "-"
-        # 특이신호 (flow/maxcapa 가 잡힌 게 있으면 대표 하나)
-        flow = next((m["flow"] for m in mins if m["flow"]), "")
-        maxcapa = next((m["maxcapa"] for m in mins if m["maxcapa"]), "")
-        sig = "; ".join(s for s in [flow and f"흐름:{flow}", maxcapa and f"CAPA:{maxcapa}"] if s) or "-"
-        out_rows.append({
-            "시간대": f"{start['time']}~{end['time']}",
-            "지속분": dur,
-            "최고위험레벨": peak["level"],
-            "최고점수": int(peak["score"]),
-            "진원지": hot_area,
-            "대표_전파경로": peak["chain"] or "-",
-            "발동룰": top_rules,
-            "특이신호": sig,
-        })
+## 9. 출력 예시 (이 톤·형식으로 답할 것)
 
-    # 출력
-    os.makedirs(args.outdir, exist_ok=True)
-    out_path = os.path.join(args.outdir, "발동이벤트_요약.csv")
-    cols = ["시간대", "지속분", "최고위험레벨", "최고점수", "진원지",
-            "대표_전파경로", "발동룰", "특이신호"]
-    with open(out_path, "w", encoding="utf-8-sig", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=cols)
-        w.writeheader()
-        for r in out_rows:
-            w.writerow(r)
+> ⚠️ **표 출력 규칙 (필수) — 표는 반드시 마크다운 파이프(`|`) 형식으로.**
+> 데모스 화면은 `| 컬럼 | 컬럼 |` + 구분선 `|---|---|` 형식만 표로 그린다.
+> 셀을 줄바꿈으로 나열하면(파이프 없이) **표가 안 그려지고 글자만 쏟아진다.** 반드시 아래처럼:
+> ```
+> | 시각 | 등급 | 점수 | 진원지 |
+> |---|---|---|---|
+> | 23:51 | 🟡 관심 | 114 | M16A |
+> | 01:47 | 🟡 관심 | 114 | M16HUB |
+> ```
+> → 각 행은 `|` 로 시작·끝나고, 머리행 바로 아래 `|---|` 구분선을 꼭 넣는다.
+>
+> ⚠️ **수식·기호는 LaTeX 금지 — 평문으로.** `\%`·`\geq`·`$...$`·`\times` 쓰지 말 것.
+> 퍼센트는 그냥 `%`, 이상은 그냥 `≥` 또는 `>=`, 곱은 `x`. **백슬래시(`\`)를 기호 앞에 붙이지 마라** (`99\%` ✕ → `99%` ○).
 
-    # 콘솔 요약(데모스가 csv 없을 때 stdout 도 읽음)
-    n_risk = sum(1 for m in minutes if m["lvl_n"] >= RISK_LEVEL_MIN)
-    peak_all = max(minutes, key=lambda x: x["score"]) if minutes else None
-    print(f"[발동이벤트 요약] 총 {len(minutes)}분 중 위험(주의↑) {n_risk}분 "
-          f"→ {len(out_rows)}개 구간으로 압축")
-    if peak_all:
-        print(f"하루 최고: {peak_all['time']} {peak_all['level']} "
-              f"{int(peak_all['score'])}점 (진원지 {peak_all['hot_area']})")
-    print(f"출력: {out_path}")
+> 두 파일은 **따로** 들어온다 — 발동이벤트만 주면 ①형식, 사건단위만 주면 ②형식. **통합 1부/2부 금지.**
+> 핵심: 표·숫자 나열이 아니라 **R-A~R-D 인과로 "진짜 원인·연결·조치"** 를 짚는다 (저장포화 R-D → 리프터 역증가 R-C → 큐 역류 → 반송지연 R-A 의 연쇄를 설명).
 
+### ① 발동이벤트.csv → "하루 보고서" (4섹션 구조)
+> 발동이벤트는 24시간 전체(분당 1행)다. **새벽만 보지 말고 00시~24시 전 시간대를 훑어**
+> 주의 이상 등급이 발생한 모든 시간 구간을 빠짐없이 시간순 표로 정리한다.
+> 설비 이벤트(호기 Error, AI Close/Open 등)가 함께 주어지면 교차분석해 원인에 반영한다.
+>
+> ※ 발동이벤트가 **요약 스크립트(hubroom-evt-summary)** 를 거치면
+> `시간대 / 최고위험레벨 / 최고점수 / 진원지 / 대표_전파경로 / 발동룰 / 특이신호` 표로 들어온다.
+> 이 표의 **각 행 = 하루의 한 위험구간**. 그대로 아래 §2 시간대별 표에 채우고 나머지 섹션을 풀어쓴다.
+```
+# 📅 YYYY-MM-DD M16 HUBROOM 물류 이동 및 정체 분석 보고서
 
-if __name__ == "__main__":
-    main()
+> (한 줄 총평 — 예: 설비 장애발 정체가 M16HUB 포화로 번진 '장애 유발형' 하루)
+
+## 1. 종합 진단 결과
+- 주요 정체 영역(Hot Area): M16HUB(기점) → M14 → M16A → M16B(확산)
+- 위험 단계: 주의 → 3단계(확정) 수준 반복
+- 핵심 원인: (R-D STB 100% 포화 → R-C 리프터 역류 → R-B 큐 적체 → R-A 반송지연 연쇄로 서술)
+
+## 2. 시간대별 정체 전이 분석
+| 시간대 | 위험레벨 | 핵심 정체경로(propagation_chain) | 주요 특이사항 |
+|---|---|---|---|
+| 00:33~03:47 | 주의→3단계 | M16HUB → M14 → M16A | R-A 13.63분(≥9.0), STB 100% |
+| 03:58~06:03 | 주의→3단계 | M16HUB → M14 → M16A → M16B | M16A SLA 22.9%, OHT 98.5% |
+(하루 전체 위험 구간을 빠짐없이 — 새벽~밤)
+
+## 3. 룰베이스 상세 분석
+- R-A(지연): M16HUB 체류 최대 14.81분(≥9.0)
+- R-B(적체): M16A 6F_TO_HUB_JOB +147건(≥80)
+- R-C(역류): 리프터 역증가 최대 10개(≥2)
+- R-D(포화): M16HUB STB_STORAGE_UTIL 100%
+- SLA: M16A 4분초과 22.9%(≥13.0)
+
+## 4. 감독관 최종 의견
+- 정체 경로 한 줄 요약(장애→포화→폭주→연쇄)
+- 가장 주목할 특이점(예: AI Open 후 2차 충격)
+- 향후 대응 전략(STB 점유 선확인 → 단계적 유입제어 등)
+```
+
+### ② 사건단위.csv → "사건 분석" (등급 표 + 위험 상세)
+```
+# 🚨 YYYY-MM-DD 사건 분석 — 총 N건   (위험 n · 주의 m, 🚨 실제 터진 사건)
+
+> 총평 — 진원지 집중도(산발 고장 vs 한 곳 재발) + 선행시간(lead_min) 정상 여부
+
+| # | 시각 | 등급(max_risk_level) | 점수 | 진원지(hot_area) | 선행(lead_min) | 장애유형 |
+  (★ 등급 = 위험🔴/주의🟡 아이콘으로 점수보다 앞 컬럼. 위험→주의 순 정렬)
+
+🔴 위험 N건 상세 — 사건마다:
+  · 실측 vs 임계 인용 ("반송 47.03분 = 임계 9.45의 5배")
+  · risk_factors 로 인과 ("STB 100% → 리프터 못 내려놓음 → 큐 역류 → 반송 정체")
+  · propagation_chain 으로 전파("M16B→HUB→M16A→M14")
+  · 사건 간 연결 여부 (별개냐, 한 덩어리냐)
+
+🟡 주의 m건 = 위험의 빌드업인지(전조) 독립인지 한 줄 해석
+
+👉 결론. (개별로 보지 말고 공통 뿌리 하나로 대응하면 N건이 한 번에 잡힌다)
+```
+
+> **공통 4원칙**: ⑴맨 위 한 줄 진단 ⑵항상 실측값 vs 임계 인용(근거) ⑶룰 인과로 "왜"를 설명 ⑷맨 끝 조치 한 줄.
