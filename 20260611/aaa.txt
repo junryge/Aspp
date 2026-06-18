@@ -34,10 +34,10 @@ def _norm_key(k):
 
 
 def _level_from(level_str, score):
-    """레벨 문자열 우선, 없으면 점수로 등급 산출."""
-    lv = (level_str or "").strip()
-    if lv in LEVEL_ORDER:
-        return lv
+    """★ 점수(unified_risk_score) 기준으로 등급 산출.
+    회사 기준: 100점 미만은 전부 '정상', 100점 이상부터 문제 가능.
+    데이터의 unified_risk_level 글자는 기준이 달라(점수 57인데 '관심' 등) 신뢰하지 않고
+    무조건 점수로 판정한다."""
     try:
         s = float(score)
     except (TypeError, ValueError):
@@ -125,85 +125,86 @@ def main():
         })
     minutes.sort(key=lambda m: m["dt"])
 
-    # 1) 시간(hour) 버킷으로 묶고, 각 시간의 '최고 등급'을 구한다
     from collections import defaultdict
+
+    # ───────────────────────────────────────────────────────────
+    # 일일 보고서용 자료 추출 (스킬이 이걸로 보고서를 쓴다)
+    #   ① 하루 통계  ② 24시간 시간대별 프로파일(정상 시간 포함)
+    #   ※ '정체' 판정 = unified_risk_score >= 100 (100 미만은 전부 정상)
+    # ───────────────────────────────────────────────────────────
+    n_total = len(minutes)
+    grade_ct = Counter(m["level"] for m in minutes)
+    risk_mins = [m for m in minutes if m["score"] >= 100]
+    peak_all = max(minutes, key=lambda x: (x["lvl_n"], x["score"])) if minutes else None
+    busy = Counter(m["dt"].strftime("%H") + "시" for m in risk_mins).most_common(5)
+    busy_str = ", ".join(f"{h}({c}분)" for h, c in busy) or "-"
+
+    stats_rows = [{
+        "총분": n_total,
+        "정상분": grade_ct.get("정상", 0),
+        "정체분(100+)": len(risk_mins),
+        "관심": grade_ct.get("관심", 0),
+        "주의": grade_ct.get("주의", 0),
+        "경계": grade_ct.get("경계", 0),
+        "위험": grade_ct.get("위험", 0),
+        "발동": grade_ct.get("발동", 0),
+        "최고점수": int(peak_all["score"]) if peak_all else 0,
+        "최고시각": peak_all["time"] if peak_all else "-",
+        "최고진원지": peak_all["hot_area"] if peak_all else "-",
+        "정체집중시간대": busy_str,
+    }]
+
+    # 24시간 시간대별 프로파일 (조용한 시간도 '정상'으로 그대로 — 하루 모양이 보이게)
     hour_buckets = defaultdict(list)
     for m in minutes:
-        hour_buckets[m["dt"].strftime("%Y-%m-%d %H")].append(m)
-
-    hourly = []
-    for hkey in sorted(hour_buckets):
-        hm = hour_buckets[hkey]
-        peak = max(hm, key=lambda x: x["score"])
-        if peak["lvl_n"] < RISK_LEVEL_MIN:        # 그 시간의 최고가 '관심' 미만이면 조용한 시간 → 스킵
-            continue
-        # 시간키의 시작 datetime (병합 시 연속 시간 판정용)
-        hdt = datetime.strptime(hkey, "%Y-%m-%d %H")
-        hourly.append({"hdt": hdt, "lvl_n": peak["lvl_n"], "mins": hm})
-
-    # 2) 연속된 시간 + 같은 최고등급끼리 병합 → 에피소드 구간
-    windows = []
-    for h in hourly:
-        prev = windows[-1] if windows else None
-        contiguous = prev and (h["hdt"] - prev["_last_hdt"]).total_seconds() <= 3600 + 1
-        if prev and contiguous and h["lvl_n"] == prev["_lvl_n"]:
-            prev["mins"].extend(h["mins"])
-            prev["_last_hdt"] = h["hdt"]
-        else:
-            windows.append({"mins": list(h["mins"]), "_lvl_n": h["lvl_n"], "_last_hdt": h["hdt"]})
-
-    # 구간별 요약 행 생성
-    out_rows = []
-    for w in windows:
-        mins = w["mins"]
-        # 대표 분 = '최고 등급' 우선, 같으면 최고 점수 (레벨·점수 일관성)
-        peak = max(mins, key=lambda x: (x["lvl_n"], x["score"]))
-        start = mins[0]
-        end = mins[-1]
-        dur = int((end["dt"] - start["dt"]).total_seconds() / 60.0) + 1
-        hot = Counter(m["hot_area"] for m in mins if m["hot_area"]).most_common(1)
-        hot_area = hot[0][0] if hot else (peak["hot_area"] or "-")
-        # 발동 룰 집계 (전 구간 전파경로에서)
+        hour_buckets[m["dt"].strftime("%H")].append(m)
+    profile_rows = []
+    for hh in sorted(hour_buckets):
+        hm = hour_buckets[hh]
+        peak = max(hm, key=lambda x: (x["lvl_n"], x["score"]))
+        risk = [x for x in hm if x["score"] >= 100]
+        hot = Counter(x["hot_area"] for x in risk if x["hot_area"]).most_common(1)
         rule_ct = Counter()
-        for m in mins:
-            for rr in _rules_in_chain(m["chain"]):
+        for x in risk:
+            for rr in _rules_in_chain(x["chain"]):
                 rule_ct[rr] += 1
-        top_rules = ", ".join(f"{r}" for r, _ in rule_ct.most_common(6)) or "-"
-        # 특이신호 (flow/maxcapa 가 잡힌 게 있으면 대표 하나)
-        flow = next((m["flow"] for m in mins if m["flow"]), "")
-        maxcapa = next((m["maxcapa"] for m in mins if m["maxcapa"]), "")
-        sig = "; ".join(s for s in [flow and f"흐름:{flow}", maxcapa and f"CAPA:{maxcapa}"] if s) or "-"
-        out_rows.append({
-            "시간대": f"{start['time']}~{end['time']}",
-            "지속분": dur,
-            "최고위험레벨": peak["level"],
+        profile_rows.append({
+            "시간": f"{hh}시",
             "최고점수": int(peak["score"]),
-            "진원지": hot_area,
-            "대표_전파경로": peak["chain"] or "-",
-            "발동룰": top_rules,
-            "특이신호": sig,
+            "최고등급": peak["level"],
+            "정체분": len(risk),
+            "진원지": hot[0][0] if hot else "-",
+            "대표_전파경로": (peak["chain"] if peak["score"] >= 100 else "-") or "-",
+            "발동룰": ", ".join(r for r, _ in rule_ct.most_common(6)) or "-",
         })
 
-    # 출력
+    # 출력 2개 (이름 앞 1_,2_ 로 정렬 순서 고정 — 데모스가 통계 먼저 읽게)
     os.makedirs(args.outdir, exist_ok=True)
-    out_path = os.path.join(args.outdir, "발동이벤트_요약.csv")
-    cols = ["시간대", "지속분", "최고위험레벨", "최고점수", "진원지",
-            "대표_전파경로", "발동룰", "특이신호"]
-    with open(out_path, "w", encoding="utf-8-sig", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=cols)
-        w.writeheader()
-        for r in out_rows:
-            w.writerow(r)
 
-    # 콘솔 요약(데모스가 csv 없을 때 stdout 도 읽음)
-    n_risk = sum(1 for m in minutes if m["lvl_n"] >= RISK_LEVEL_MIN)
-    peak_all = max(minutes, key=lambda x: x["score"]) if minutes else None
-    print(f"[발동이벤트 요약] 총 {len(minutes)}분 중 위험(주의↑) {n_risk}분 "
-          f"→ {len(out_rows)}개 구간으로 압축")
+    def _wcsv(fname, cols, rows):
+        p = os.path.join(args.outdir, fname)
+        with open(p, "w", encoding="utf-8-sig", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=cols)
+            w.writeheader()
+            for r in rows:
+                w.writerow(r)
+        return p
+
+    p1 = _wcsv("발동이벤트_1_일일통계.csv",
+               ["총분", "정상분", "정체분(100+)", "관심", "주의", "경계", "위험", "발동",
+                "최고점수", "최고시각", "최고진원지", "정체집중시간대"], stats_rows)
+    p2 = _wcsv("발동이벤트_2_시간프로파일.csv",
+               ["시간", "최고점수", "최고등급", "정체분", "진원지", "대표_전파경로", "발동룰"],
+               profile_rows)
+
+    # 콘솔 요약
+    print(f"[발동이벤트 일일자료] 총 {n_total}분 중 정체(100점↑) {len(risk_mins)}분 "
+          f"| 정상 {grade_ct.get('정상', 0)}분")
     if peak_all:
         print(f"하루 최고: {peak_all['time']} {peak_all['level']} "
               f"{int(peak_all['score'])}점 (진원지 {peak_all['hot_area']})")
-    print(f"출력: {out_path}")
+    print(f"정체집중: {busy_str}")
+    print(f"출력: {p1} / {p2}")
 
 
 if __name__ == "__main__":
