@@ -1,38 +1,210 @@
-[최우선 규칙 — 순서대로 반드시 지킨다]
-1. 선택한 지식문서(스킬)의 출력 형식·규칙을 가장 먼저 따른다. 페르소나와 충돌하면 지식문서가 우선.
-2. 표는 마크다운 파이프(|)로만 작성한다.
-   - 각 행은 |로 시작·끝나고, 머리행 바로 아래 |---|---| 구분선을 넣는다.
-   - 셀을 공백·탭으로 나열하지 마라(그러면 표가 안 그려진다).
-3. 기호·수식은 평문으로 쓴다. \% \geq \_ $...$ \times 같은 LaTeX·이스케이프 금지.
-   퍼센트는 %, 이상은 ≥ 또는 >=, 곱은 x, 언더스코어는 그냥 _ (M16_PKT ○ / M16\_PKT ✕).
-4. 가짜 데이터·없는 컬럼 금지. 업로드된 CSV의 실제 컬럼·값만 사용한다.
-[입력 종류 자동 판별 — 컬럼을 먼저 보고 결정]
-· max_risk_score · predict_time · lead_min 컬럼이 있으면
-   → '사건단위'(실제 터진 사건). 등급 표 + 위험사건 상세로 분석.
-· unified_risk_score · stage · datetime(분단위) 컬럼이 있으면
-   → '발동이벤트'(24시간 전체). 하루 추이 서술 + 시간대 표로 분석.
-   · 발동이벤트 분석 시: 새벽만 보지 말고 00시~24시 전 시간대를 훑어,
-     주의 이상 등급이 발생한 모든 시간 구간을 시간순 표로 빠짐없이 정리한다.
-     (들어온 데이터 범위 전체를 대상으로 — 앞부분만 보지 말 것)
-· 결과가 '시간대 · 최고위험레벨 · 진원지 · 전파경로 · 발동룰' 표로 오면
-   (= 요약 스크립트를 거친 발동이벤트) → 발동이벤트 하루 보고서(4섹션)로 작성.
-   각 행 = 하루의 한 위험구간이므로 그대로 시간대별 표에 채운다.
-두 경우 모두 결과해석 지식문서의 해당 출력형식을 따른다.
-[역할 — 반송정체 감독관]
-너는 반도체 FAB AMHS(자동물류) 반송정체 룰베이스의 분석 감독관이다.
-M16 HUBROOM 룰베이스(8영역 9룰: R-A 반송지연 / R-B 큐누적 / R-C 리프터역증가 /
-R-D 저장·OHT정체 / SLA / Sorter / MAXCAPA)를 완전히 이해하고 있다.
-주어진 결과 데이터를 읽고, 표면 숫자가 아니라 룰 인과로 "진짜 원인"을 짚는다.
-저장포화(R-D STB 100%) → 리프터 역증가(R-C) → 큐 역류(R-B) → 반송지연(R-A) 의
-연쇄 메커니즘을 항상 염두에 두고 해석한다.
-[분석 출력 구성]
-· 사건단위: 한 줄 총평 → 등급 표 → 위험사건 상세(실측 vs 임계) → 감독관 제언.
-· 발동이벤트: 4섹션 보고서 = 1.종합 진단 / 2.시간대별 정체 전이 표 /
-  3.룰베이스 상세(R-A~R-D·SLA) / 4.감독관 최종 의견.
-공통: 맨 위 한 줄 진단, risk_factors의 실측값 vs 임계 인용, propagation_chain으로 전파 설명,
-      맨 끝 근본원인 1가지 + 구체 조치.
-[필수]
-- 반드시 한국어로만 답한다.
-- <think> 태그 쓰지 않는다.
-- 사건단위는 lead_min(선행)·duration_min(지속)·max_risk_level(등급)을 꼭 언급.
-- 등급은 위험🔴 / 주의🟡 아이콘으로 표시한다.
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+발동이벤트_요약.py — M16 HUBROOM 발동이벤트.csv(분당 1행, 하루 1440행)를
+'위험 구간 묶음'(수~수십 행)으로 압축한다.
+
+목적: 발동이벤트 원본은 1440행 × 100여 열이라 LLM 컨텍스트(128K)를 넘김.
+      이 스크립트가 샌드박스에서 미리 요약 → 데모스 LLM 은 작은 요약표만 보고
+      하루 보고서를 작성. (데모스 스크립트 실행 기능으로 자동 호출)
+
+입력: 발동이벤트.csv (16열 축약본도, 131열 원본도 모두 OK — 헤더 이름으로 읽음)
+출력: <outdir>/발동이벤트_요약.csv  (주의 이상 위험 구간을 시간순으로 묶은 표)
+
+규칙:
+- '주의' 이상(점수 >=120) 인 분(minute)만 위험으로 보고, 30분 이내로 가까운
+  위험 분들은 한 구간으로 병합(짧은 진동 흡수). 이게 하루 보고서의 시간대 표가 됨.
+- 구간마다: 시간대 / 지속 / 최고위험레벨 / 최고점수 / 진원지 / 대표 전파경로 / 발동룰 / 특이신호
+- stdlib 만 사용 (pandas 불필요).
+"""
+import sys
+import os
+import csv
+import re
+import argparse
+from collections import Counter
+from datetime import datetime
+
+LEVEL_ORDER = {"정상": 0, "관심": 1, "주의": 2, "경계": 3, "위험": 4, "발동": 5}
+RISK_LEVEL_MIN = 1          # '관심' 이상(100점↑)을 활동 구간으로 — 조용한 날도 하루 전체가 잡히게
+
+
+def _norm_key(k):
+    return (k or "").lstrip("﻿").strip()
+
+
+def _level_from(level_str, score):
+    """레벨 문자열 우선, 없으면 점수로 등급 산출."""
+    lv = (level_str or "").strip()
+    if lv in LEVEL_ORDER:
+        return lv
+    try:
+        s = float(score)
+    except (TypeError, ValueError):
+        return "정상"
+    if s >= 220: return "발동"
+    if s >= 160: return "위험"
+    if s >= 130: return "경계"
+    if s >= 120: return "주의"
+    if s >= 100: return "관심"
+    return "정상"
+
+
+def _parse_dt(row):
+    """datetime 컬럼(YYYY-MM-DD HH:MM) 우선, 없으면 date+time 조합."""
+    dt = (row.get("datetime") or "").strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(dt, fmt)
+        except ValueError:
+            pass
+    d = (row.get("date") or "").strip()
+    t = (row.get("time") or "").strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(f"{d} {t}", fmt)
+        except ValueError:
+            pass
+    return None
+
+
+# propagation_chain 예: "M16(23:05,RB+RB_fast) → M16HUB(23:07,RC+RD)"
+_RULE_RE = re.compile(r"\(([^)]*?)\)")
+_RULE_TOKEN_RE = re.compile(r"R[A-D](?:_sus)?|RB_fast|SLA|SORT|MAXCAPA\*?\d*|RC|RD|RA")
+
+
+def _rules_in_chain(chain):
+    rules = []
+    for inside in _RULE_RE.findall(chain or ""):
+        # inside 예: "23:07,RC+RD"  → 룰 토큰만
+        parts = inside.split(",", 1)
+        if len(parts) == 2:
+            for tok in re.split(r"[+\s]+", parts[1]):
+                tok = tok.strip()
+                if tok:
+                    rules.append(tok)
+    return rules
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("input", help="발동이벤트.csv 경로")
+    ap.add_argument("-o", "--outdir", default=".", help="출력 폴더")
+    args = ap.parse_args()
+
+    # 입력 읽기 (utf-8-sig 로 BOM 흡수)
+    with open(args.input, "r", encoding="utf-8-sig", newline="") as f:
+        reader = csv.DictReader(f)
+        reader.fieldnames = [_norm_key(k) for k in (reader.fieldnames or [])]
+        rows = []
+        for r in reader:
+            rows.append({_norm_key(k): v for k, v in r.items()})
+
+    # 분 단위 정보 추출 + 시간순 정렬
+    minutes = []
+    for r in rows:
+        dt = _parse_dt(r)
+        if dt is None:
+            continue
+        try:
+            score = float(r.get("unified_risk_score") or 0)
+        except ValueError:
+            score = 0.0
+        level = _level_from(r.get("unified_risk_level"), score)
+        minutes.append({
+            "dt": dt,
+            "time": (r.get("time") or dt.strftime("%H:%M")).strip(),
+            "score": score,
+            "level": level,
+            "lvl_n": LEVEL_ORDER.get(level, 0),
+            "hot_area": (r.get("hot_area") or "").strip(),
+            "chain": (r.get("propagation_chain") or "").strip(),
+            "flow": (r.get("flow_signals") or "").strip(),
+            "maxcapa": (r.get("maxcapa_signals") or "").strip(),
+            "affected": (r.get("affected_areas") or "").strip(),
+        })
+    minutes.sort(key=lambda m: m["dt"])
+
+    # 1) 시간(hour) 버킷으로 묶고, 각 시간의 '최고 등급'을 구한다
+    from collections import defaultdict
+    hour_buckets = defaultdict(list)
+    for m in minutes:
+        hour_buckets[m["dt"].strftime("%Y-%m-%d %H")].append(m)
+
+    hourly = []
+    for hkey in sorted(hour_buckets):
+        hm = hour_buckets[hkey]
+        peak = max(hm, key=lambda x: x["score"])
+        if peak["lvl_n"] < RISK_LEVEL_MIN:        # 그 시간의 최고가 '관심' 미만이면 조용한 시간 → 스킵
+            continue
+        # 시간키의 시작 datetime (병합 시 연속 시간 판정용)
+        hdt = datetime.strptime(hkey, "%Y-%m-%d %H")
+        hourly.append({"hdt": hdt, "lvl_n": peak["lvl_n"], "mins": hm})
+
+    # 2) 연속된 시간 + 같은 최고등급끼리 병합 → 에피소드 구간
+    windows = []
+    for h in hourly:
+        prev = windows[-1] if windows else None
+        contiguous = prev and (h["hdt"] - prev["_last_hdt"]).total_seconds() <= 3600 + 1
+        if prev and contiguous and h["lvl_n"] == prev["_lvl_n"]:
+            prev["mins"].extend(h["mins"])
+            prev["_last_hdt"] = h["hdt"]
+        else:
+            windows.append({"mins": list(h["mins"]), "_lvl_n": h["lvl_n"], "_last_hdt": h["hdt"]})
+
+    # 구간별 요약 행 생성
+    out_rows = []
+    for w in windows:
+        mins = w["mins"]
+        # 대표 분 = '최고 등급' 우선, 같으면 최고 점수 (레벨·점수 일관성)
+        peak = max(mins, key=lambda x: (x["lvl_n"], x["score"]))
+        start = mins[0]
+        end = mins[-1]
+        dur = int((end["dt"] - start["dt"]).total_seconds() / 60.0) + 1
+        hot = Counter(m["hot_area"] for m in mins if m["hot_area"]).most_common(1)
+        hot_area = hot[0][0] if hot else (peak["hot_area"] or "-")
+        # 발동 룰 집계 (전 구간 전파경로에서)
+        rule_ct = Counter()
+        for m in mins:
+            for rr in _rules_in_chain(m["chain"]):
+                rule_ct[rr] += 1
+        top_rules = ", ".join(f"{r}" for r, _ in rule_ct.most_common(6)) or "-"
+        # 특이신호 (flow/maxcapa 가 잡힌 게 있으면 대표 하나)
+        flow = next((m["flow"] for m in mins if m["flow"]), "")
+        maxcapa = next((m["maxcapa"] for m in mins if m["maxcapa"]), "")
+        sig = "; ".join(s for s in [flow and f"흐름:{flow}", maxcapa and f"CAPA:{maxcapa}"] if s) or "-"
+        out_rows.append({
+            "시간대": f"{start['time']}~{end['time']}",
+            "지속분": dur,
+            "최고위험레벨": peak["level"],
+            "최고점수": int(peak["score"]),
+            "진원지": hot_area,
+            "대표_전파경로": peak["chain"] or "-",
+            "발동룰": top_rules,
+            "특이신호": sig,
+        })
+
+    # 출력
+    os.makedirs(args.outdir, exist_ok=True)
+    out_path = os.path.join(args.outdir, "발동이벤트_요약.csv")
+    cols = ["시간대", "지속분", "최고위험레벨", "최고점수", "진원지",
+            "대표_전파경로", "발동룰", "특이신호"]
+    with open(out_path, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=cols)
+        w.writeheader()
+        for r in out_rows:
+            w.writerow(r)
+
+    # 콘솔 요약(데모스가 csv 없을 때 stdout 도 읽음)
+    n_risk = sum(1 for m in minutes if m["lvl_n"] >= RISK_LEVEL_MIN)
+    peak_all = max(minutes, key=lambda x: x["score"]) if minutes else None
+    print(f"[발동이벤트 요약] 총 {len(minutes)}분 중 위험(주의↑) {n_risk}분 "
+          f"→ {len(out_rows)}개 구간으로 압축")
+    if peak_all:
+        print(f"하루 최고: {peak_all['time']} {peak_all['level']} "
+              f"{int(peak_all['score'])}점 (진원지 {peak_all['hot_area']})")
+    print(f"출력: {out_path}")
+
+
+if __name__ == "__main__":
+    main()
