@@ -43,6 +43,7 @@ PORT    = 8888
 API_KEY = "db1d2335-49cf-e859-3519-1ca132922e38"
 
 # 원격 노드명 (쿼리에서 remote <NODE> [ ... ] 로 감쌀 때 사용)
+# 비우면 remote 감싸지 않고 로컬 쿼리로 동작.
 REMOTE_NODE = "icamcslogdt01"
 
 FMT = "%Y%m%d%H%M%S"
@@ -50,9 +51,12 @@ MAX_BYTES = 30 * 1024 * 1024   # 30MB
 
 
 def _build_query(from_dt: str, to_dt: str, table: str) -> str:
-    """remote <NODE> [ ... ] 로 감싼 쿼리 문자열 생성."""
+    """remote <NODE> [ ... ] 로 감싼 쿼리 문자열 생성.
+       REMOTE_NODE 가 빈 문자열이면 감싸지 않고 원본 쿼리만 반환."""
     inner = f'table from={from_dt} to={to_dt} {table} | sort _time'
-    return f'remote {REMOTE_NODE} [ {inner} ]'
+    if REMOTE_NODE:
+        return f'remote {REMOTE_NODE} [ {inner} ]'
+    return inner
 
 
 def _fetch(from_dt: str, to_dt: str, table: str):
@@ -61,9 +65,18 @@ def _fetch(from_dt: str, to_dt: str, table: str):
     encoded = urllib.parse.quote(q, safe="")
     url = f"http://{HOST}:{PORT}/logpresso/httpexport/query.csv?_apikey={API_KEY}&_q={encoded}"
 
+    # 디버그: 어떤 쿼리가 나가는지 콘솔에 표시 (오류 발생 시 진단용)
+    print(f"  [Q] {q}")
+
     resp = requests.get(url, verify=False, timeout=300)
     if resp.status_code != 200:
-        raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:300]}")
+        # Logpresso 가 HTML 페이지를 반환하는 경우(대시보드 응답) 가독성 위해 앞부분만 추림
+        body = resp.text[:500]
+        raise RuntimeError(
+            f"HTTP {resp.status_code} from {HOST}:{PORT}\n"
+            f"  실패 쿼리: {q}\n"
+            f"  응답(앞 500자): {body}"
+        )
 
     size = len(resp.content)
     df = (pd.read_csv(StringIO(resp.text), low_memory=False, dtype=str)
