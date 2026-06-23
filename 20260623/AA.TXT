@@ -1099,22 +1099,27 @@ function drawMap() {
   }
 
   // 2. 차량 (보간된 위치) — 카테고리별 색상 + 카테고리별 도형 (설정 가능: ⚙ 설정)
-  const r = Math.max(1.5, Math.min(8, mapSettings.vehicleRadius*mapZoom));
+  // 반경 = vehicleRadius × mapZoom. 최소 0.5px, 최대 30px.
+  const r = Math.max(0.5, Math.min(30, mapSettings.vehicleRadius*mapZoom));
+  // 모든 도형의 시각 면적이 원과 비슷해지도록 도형별 보정 계수 적용.
+  // 원 면적 πr² 기준: triangle r×1.56, square s≈1.77r, diamond r×1.25
   function _drawShape(sx, sy, rr, shape) {
     mapCtx.beginPath();
     if (shape === 'triangle') {
-      mapCtx.moveTo(sx,           sy - rr);
-      mapCtx.lineTo(sx + rr*0.866, sy + rr*0.5);
-      mapCtx.lineTo(sx - rr*0.866, sy + rr*0.5);
+      const tr = rr * 1.56;
+      mapCtx.moveTo(sx,            sy - tr);
+      mapCtx.lineTo(sx + tr*0.866, sy + tr*0.5);
+      mapCtx.lineTo(sx - tr*0.866, sy + tr*0.5);
       mapCtx.closePath();
     } else if (shape === 'square') {
       const s = rr * 1.77;
       mapCtx.rect(sx - s/2, sy - s/2, s, s);
     } else if (shape === 'diamond') {
-      mapCtx.moveTo(sx,      sy - rr);
-      mapCtx.lineTo(sx + rr, sy);
-      mapCtx.lineTo(sx,      sy + rr);
-      mapCtx.lineTo(sx - rr, sy);
+      const dr = rr * 1.25;
+      mapCtx.moveTo(sx,      sy - dr);
+      mapCtx.lineTo(sx + dr, sy);
+      mapCtx.lineTo(sx,      sy + dr);
+      mapCtx.lineTo(sx - dr, sy);
       mapCtx.closePath();
     } else {
       mapCtx.arc(sx, sy, rr, 0, 6.283);  // circle (기본)
@@ -2491,7 +2496,7 @@ async function applyFab(fab, prefix) {
       <div style="grid-column:1/-1;color:#9ad;margin-top:8px;border-bottom:1px solid #333;padding-bottom:4px;">차량 (움직이는 점)</div>
 
       <label>차량 반경 (배수)</label>
-      <input type="number" id="ms-vehicleRadius" step="0.1" min="0.5" max="10" style="background:#222;color:#eee;border:1px solid #444;padding:4px 6px;width:80px;">
+      <input type="number" id="ms-vehicleRadius" step="0.1" min="0.1" max="10" title="실제 px = (배수) × (현재 줌). 최종 0.5~30px 로 클램프됨." style="background:#222;color:#eee;border:1px solid #444;padding:4px 6px;width:80px;">
 
       <label>공차운행</label>
       <span style="display:inline-flex;gap:8px;align-items:center;">
