@@ -231,8 +231,9 @@ canvas.chart { width:100%; flex:1; }
 </div>
 
 <div id="main">
-  <div id="sidebar-toggle" onclick="toggleSidebar()" title="사이드바 열기/닫기">&#9654;</div>
-  <div id="sidebar" class="collapsed">
+  <!-- 왼쪽 사이드바 + 토글 버튼 숨김. DOM 유지하여 관련 JS 무사. -->
+  <div id="sidebar-toggle" onclick="toggleSidebar()" title="사이드바 열기/닫기" style="display:none;">&#9654;</div>
+  <div id="sidebar" class="collapsed" style="display:none;">
     <!-- 상태 패널 (차량 현황 + 스타 지표 + 10분 후 예측 + 위험 Zone + 레일 차단 + 데이터 소스) -->
     <div class="panel">
       <h3>차량 현황</h3>
@@ -306,8 +307,8 @@ canvas.chart { width:100%; flex:1; }
     <div style="display:flex;flex:1;overflow:hidden;">
       <div id="map-container" style="flex:1;">
         <canvas id="map-canvas"></canvas>
-        <!-- 상단 통계 배지 -->
-        <div id="stat-badges">
+        <!-- 상단 통계 배지(공차운행/적재/OBS/정지/레일차단) — 숨김 처리. DOM 유지하여 cnt-* 갱신 JS 무사. -->
+        <div id="stat-badges" style="display:none;">
           <div class="stat-badge idle"><span class="dot" style="background:#22c55e;"></span><span class="lbl">공차운행</span><span class="val" id="cnt-idle">0</span></div>
           <div class="stat-badge loaded"><span class="dot" style="background:#3b82f6;"></span><span class="lbl">적재</span><span class="val" id="cnt-loaded">0</span></div>
           <div class="stat-badge obs"><span class="dot" style="background:#f59e0b;"></span><span class="lbl">OBS</span><span class="val" id="cnt-obs">0</span></div>
