@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>loop_engine 사용설명서</title>
+<style>
+  :root{
+    --ink:#14191C;
+    --paper:#F5F6F3;
+    --paper-2:#FFFFFF;
+    --console:#0E1518;
+    --console-2:#172227;
+    --signal:#E0912F;     /* 앰버 = 가동/자동화/유일한 강조 */
+    --verify:#2F9E73;     /* 그린 = verifier 통과 의미로만 */
+    --steel:#3D5A6C;      /* 페트롤 = 링크/보조 */
+    --line:#DBDFD9;
+    --line-dark:#2A363B;
+    --muted:#6B7570;
+    --muted-dark:#8A968F;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Consolas,"Liberation Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Pretendard","Apple SD Gothic Neo","Segoe UI",Roboto,"Malgun Gothic","Noto Sans KR",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+  body{
+    margin:0;background:var(--paper);color:var(--ink);
+    font-family:var(--sans);font-size:16px;line-height:1.62;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{display:grid;grid-template-columns:268px minmax(0,1fr);}
+  /* ---------- 사이드바 (계기판) ---------- */
+  aside{
+    position:sticky;top:0;height:100vh;overflow-y:auto;
+    background:var(--console);color:#C9D2CE;
+    border-right:1px solid var(--line-dark);padding:26px 20px 60px;
+  }
+  .brand{display:flex;align-items:baseline;gap:9px;margin-bottom:4px}
+  .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--signal);
+    box-shadow:0 0 0 3px rgba(224,145,47,.18);transform:translateY(-1px)}
+  .brand b{font-family:var(--mono);font-size:15px;letter-spacing:.02em;color:#F2F5F2}
+  .brand b span{color:var(--signal)}
+  .ver{font-family:var(--mono);font-size:11px;color:var(--muted-dark);
+    letter-spacing:.08em;margin:0 0 24px 18px}
+  nav a{
+    display:block;color:#AEB8B3;text-decoration:none;font-size:13.5px;
+    padding:5px 10px;border-radius:6px;border-left:2px solid transparent;
+    transition:background .15s,color .15s,border-color .15s;
+  }
+  nav a:hover{background:var(--console-2);color:#fff}
+  nav a.active{color:#fff;border-left-color:var(--signal);background:var(--console-2)}
+  nav .grp{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--muted-dark);margin:22px 0 7px 10px}
+  nav a .n{font-family:var(--mono);color:var(--signal);font-size:11px;margin-right:7px}
+  /* ---------- 본문 ---------- */
+  main{max-width:884px;margin:0 auto;padding:0 40px 120px}
+  section{padding-top:64px;margin-top:-24px}
+  .eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.18em;
+    text-transform:uppercase;color:var(--signal);font-weight:600;margin:0 0 10px}
+  h1{font-size:46px;line-height:1.04;letter-spacing:-.022em;font-weight:800;margin:0 0 16px}
+  h2{font-size:27px;letter-spacing:-.015em;font-weight:750;margin:0 0 4px;
+    padding-bottom:0}
+  h3{font-size:17.5px;font-weight:700;margin:30px 0 8px;letter-spacing:-.01em}
+  h2 + .rule{height:2px;background:var(--ink);width:46px;margin:14px 0 22px;border-radius:2px}
+  p{margin:0 0 14px}
+  .lead{font-size:18.5px;line-height:1.55;color:#2C3439;max-width:62ch}
+  .muted{color:var(--muted)}
+  a.link{color:var(--steel);text-decoration:none;border-bottom:1px solid #BFD0DA}
+  a.link:hover{color:var(--ink)}
+  code{font-family:var(--mono);font-size:.86em;background:#E9ECE7;
+    padding:1.5px 6px;border-radius:5px;color:#1d2b22;border:1px solid #DDE2DC}
+  strong{font-weight:700}
+  ul.tight{margin:8px 0 16px;padding-left:0;list-style:none}
+  ul.tight li{position:relative;padding-left:20px;margin:6px 0}
+  ul.tight li::before{content:"";position:absolute;left:2px;top:11px;width:7px;height:1px;background:var(--signal)}
+  /* ---------- 히어로 ---------- */
+  .hero{padding-top:54px}
+  .hero-grid{display:grid;grid-template-columns:1fr 420px;gap:38px;align-items:center}
+  .facts{display:flex;flex-wrap:wrap;gap:10px;margin-top:26px}
+  .fact{border:1px solid var(--line);background:var(--paper-2);border-radius:9px;
+    padding:11px 15px;min-width:120px}
+  .fact .k{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;color:var(--muted);text-transform:uppercase}
+  .fact .v{font-size:19px;font-weight:750;margin-top:2px;letter-spacing:-.01em}
+  .fact .v em{font-style:normal;color:var(--signal)}
+  /* 루프 다이어그램 카드 */
+  .diagram{background:var(--console);border-radius:16px;padding:18px;
+    border:1px solid var(--line-dark);box-shadow:0 18px 50px -28px rgba(14,21,24,.6)}
+  .diagram figcaption{font-family:var(--mono);font-size:11px;color:var(--muted-dark);
+    text-align:center;letter-spacing:.04em;margin-top:6px}
+  @media (prefers-reduced-motion:no-preference){
+    .spin{transform-origin:210px 178px;animation:spin 16s linear infinite}
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+  /* ---------- 콜아웃 ---------- */
+  .note{border:1px solid var(--line);border-left:3px solid var(--signal);
+    background:#FBF6EF;border-radius:0 9px 9px 0;padding:14px 18px;margin:18px 0}
+  .note.v{border-left-color:var(--verify);background:#F0F8F4}
+  .note .tag{font-family:var(--mono);font-size:11px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--signal);font-weight:700;display:block;margin-bottom:4px}
+  .note.v .tag{color:var(--verify)}
+  .note p{margin:0}
+  /* ---------- 코드 (콘솔) ---------- */
+  pre{background:var(--console);color:#D7E0DB;border-radius:11px;margin:16px 0;
+    overflow:auto;border:1px solid var(--line-dark);font-size:13px;line-height:1.65}
+  pre .bar{display:flex;align-items:center;gap:7px;padding:9px 14px;
+    border-bottom:1px solid var(--line-dark);background:var(--console-2)}
+  pre .bar i{width:9px;height:9px;border-radius:50%;background:#3a484e;display:inline-block}
+  pre .bar i:first-child{background:var(--signal)}
+  pre .bar .fn{font-family:var(--mono);font-size:11px;color:var(--muted-dark);margin-left:6px;letter-spacing:.03em}
+  pre code{display:block;background:none;border:none;padding:16px 18px;color:inherit;font-size:13px}
+  .c-kw{color:#E0912F}.c-st{color:#9FCFB4}.c-cm{color:#5d6e74;font-style:italic}
+  .c-fn{color:#7FB3D5}.c-nu{color:#D5A6BD}
+  /* ---------- 테이블 ---------- */
+  .tbl{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px}
+  .tbl th{text-align:left;font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--muted);font-weight:600;
+    border-bottom:1.5px solid var(--ink);padding:8px 12px 8px 0}
+  .tbl td{border-bottom:1px solid var(--line);padding:9px 12px 9px 0;vertical-align:top}
+  .tbl td code{font-size:.82em;white-space:nowrap}
+  .tbl tr:last-child td{border-bottom:none}
+  .tbl td.d{color:var(--muted)}
+  /* ---------- 부품 카드 ---------- */
+  .comp{display:grid;grid-template-columns:54px 1fr;gap:18px;padding:22px 0;
+    border-top:1px solid var(--line)}
+  .comp:first-of-type{border-top:none}
+  .comp .num{font-family:var(--mono);font-size:30px;font-weight:700;color:var(--signal);
+    line-height:1;padding-top:2px}
+  .comp h3{margin:0 0 4px}
+  .comp .meta{font-family:var(--mono);font-size:11.5px;color:var(--steel);margin:0 0 8px}
+  .comp p{margin:0 0 10px}
+  /* ---------- 푸터 ---------- */
+  footer{border-top:1px solid var(--line);margin-top:80px;padding-top:28px;
+    font-size:13px;color:var(--muted)}
+  footer b{font-family:var(--mono);color:var(--ink)}
+  /* ---------- 모바일 ---------- */
+  .menu-btn{display:none}
+  @media (max-width:920px){
+    .wrap{grid-template-columns:1fr}
+    aside{position:fixed;z-index:50;width:280px;left:-300px;transition:left .25s ease;
+      box-shadow:0 0 60px rgba(0,0,0,.4)}
+    aside.open{left:0}
+    .menu-btn{display:flex;position:fixed;z-index:60;top:14px;left:14px;
+      align-items:center;gap:8px;background:var(--console);color:#fff;border:none;
+      font-family:var(--mono);font-size:12px;padding:9px 13px;border-radius:8px;cursor:pointer}
+    main{padding:0 22px 90px}
+    .hero-grid{grid-template-columns:1fr;gap:26px}
+    .diagram{order:-1}
+    h1{font-size:34px}
+    .facts{gap:8px}
+  }
+  .scrim{display:none}
+  .scrim.open{display:block;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:40}
+</style>
+</head>
+<body>
+<button class="menu-btn" id="menuBtn">☰ 목차</button>
+<div class="scrim" id="scrim"></div>
+<div class="wrap">
+
+<!-- ================= 사이드바 ================= -->
+<aside id="side">
+  <div class="brand"><span class="dot"></span><b>loop<span>_</span>engine</b></div>
+  <div class="ver">v0.1.0 · 폐쇄망 · stdlib only</div>
+  <nav id="nav">
+    <a href="#intro"><span class="n">00</span>개요</a>
+    <a href="#concept"><span class="n">01</span>핵심 개념</a>
+    <a href="#install"><span class="n">02</span>설치 &amp; 빠른 시작</a>
+    <div class="grp">6 부품</div>
+    <a href="#components"><span class="n">03</span>부품 한눈에</a>
+    <a href="#c-auto">① 오토메이션</a>
+    <a href="#c-run">② 워크트리</a>
+    <a href="#c-skill">③ 스킬</a>
+    <a href="#c-conn">④ 커넥터 · 도구</a>
+    <a href="#c-agent">⑤ 서브에이전트</a>
+    <a href="#c-state">⑥ 상태 · 기억</a>
+    <div class="grp">조립</div>
+    <a href="#loop"><span class="n">04</span>루프 만들기</a>
+    <a href="#tools"><span class="n">05</span>도구 쓰는 루프</a>
+    <a href="#discover"><span class="n">06</span>discover 단계</a>
+    <a href="#system"><span class="n">07</span>멀티루프 · 공유두뇌</a>
+    <div class="grp">레퍼런스</div>
+    <a href="#cli"><span class="n">08</span>CLI 명령어</a>
+    <a href="#api"><span class="n">09</span>API 레퍼런스</a>
+    <a href="#deploy"><span class="n">10</span>실전 연결</a>
+  </nav>
+</aside>
+
+<!-- ================= 본문 ================= -->
+<main>
+
+<!-- ---- 히어로 ---- -->
+<section id="intro" class="hero">
+  <div class="hero-grid">
+    <div>
+      <p class="eyebrow">Loop Engineering Framework</p>
+      <h1>AI한테 매번 시키지 말고,<br>AI를 시키는 <span style="color:var(--signal)">루프</span>를 짠다.</h1>
+      <p class="lead">프롬프트를 짜던 자리에서 빠져나와 트랙(루프)을 설계한다.
+        반도체 FAB 폐쇄망에서 그대로 도는, 외부 의존성 0개의 파이썬 프레임워크.</p>
+      <div class="facts">
+        <div class="fact"><div class="k">의존성</div><div class="v"><em>0</em> 개 · stdlib</div></div>
+        <div class="fact"><div class="k">구성</div><div class="v">6 부품 완비</div></div>
+        <div class="fact"><div class="k">전송</div><div class="v">base64 1덩어리</div></div>
+        <div class="fact"><div class="k">필요 없음</div><div class="v">Docker·Git·pip</div></div>
+      </div>
+    </div>
+    <figure class="diagram" style="margin:0">
+      <svg viewBox="0 0 420 360" width="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="루프 사이클: discover, plan, execute, verify 반복">
+        <defs>
+          <marker id="ah" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 Z" fill="#E0912F"/>
+          </marker>
+          <marker id="ahg" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 Z" fill="#2F9E73"/>
+          </marker>
+        </defs>
+        <!-- 회전 점선 링 (가동중 표시) -->
+        <circle class="spin" cx="210" cy="178" r="150" fill="none"
+                stroke="#2A363B" stroke-width="1.5" stroke-dasharray="3 11"/>
+        <!-- 흐름 화살표 (앰버) -->
+        <path d="M210,86 A92,92 0 0,1 296,150" fill="none" stroke="#E0912F" stroke-width="2" marker-end="url(#ah)"/>
+        <path d="M300,205 A92,92 0 0,1 245,283" fill="none" stroke="#E0912F" stroke-width="2" marker-end="url(#ah)"/>
+        <path d="M175,283 A92,92 0 0,1 119,205" fill="none" stroke="#E0912F" stroke-width="2" marker-end="url(#ah)"/>
+        <!-- verify -> discover : 미달 재시도 -->
+        <path d="M124,150 A92,92 0 0,1 196,86" fill="none" stroke="#E0912F" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#ah)"/>
+        <!-- 노드 -->
+        <g font-family="ui-monospace,monospace" text-anchor="middle">
+          <!-- discover top -->
+          <circle cx="210" cy="60" r="40" fill="#172227" stroke="#3a484e" stroke-width="1.5"/>
+          <text x="210" y="58" fill="#fff" font-size="12.5" font-weight="700">DISCOVER</text>
+          <text x="210" y="73" fill="#8A968F" font-size="9">맥락 수집</text>
+          <!-- plan right -->
+          <circle cx="330" cy="178" r="40" fill="#172227" stroke="#3a484e" stroke-width="1.5"/>
+          <text x="330" y="176" fill="#fff" font-size="13" font-weight="700">PLAN</text>
+          <text x="330" y="191" fill="#8A968F" font-size="9">계획(선택)</text>
+          <!-- execute bottom -->
+          <circle cx="210" cy="296" r="40" fill="#172227" stroke="#3a484e" stroke-width="1.5"/>
+          <text x="210" y="294" fill="#fff" font-size="12.5" font-weight="700">EXECUTE</text>
+          <text x="210" y="309" fill="#8A968F" font-size="9">짓는 AI</text>
+          <!-- verify left (게이트, 그린) -->
+          <circle cx="90" cy="178" r="42" fill="#11251c" stroke="#2F9E73" stroke-width="2.5"/>
+          <text x="90" y="174" fill="#fff" font-size="13" font-weight="700">VERIFY</text>
+          <text x="90" y="189" fill="#7FCBA8" font-size="8.5">검사 · 병목</text>
+        </g>
+        <!-- 출시 출구 -->
+        <path d="M48,178 L14,178" fill="none" stroke="#2F9E73" stroke-width="2.5" marker-end="url(#ahg)"/>
+        <text x="30" y="170" fill="#2F9E73" font-family="ui-monospace,monospace" font-size="9" text-anchor="middle">SHIP</text>
+        <text x="156" y="120" fill="#E0912F" font-family="ui-monospace,monospace" font-size="8.5">미달↻재시도</text>
+      </svg>
+      <figcaption>discover → plan → execute → verify → 조건까지 반복</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ---- 핵심 개념 ---- -->
+<section id="concept">
+  <h2>핵심 개념</h2><div class="rule"></div>
+  <p class="lead" style="margin-bottom:22px">루프는 <strong>짓는 AI(generator)</strong> 와
+    <strong>검사하는 AI(verifier)</strong> 를 엮어 ‘조건 만족까지’ 자동 반복한다.</p>
+
+  <h3>verifier 가 병목이다</h3>
+  <p>generator(모델)는 이제 충분히 좋고 거의 공짜로 반복된다. 그 결과가 가치 있는지
+    <em>판정</em>하는 verifier 가 루프의 전부다. verifier 가 약하면 루프는 조용히 망하는 게 아니라
+    <strong>쓰레기를 자신있게 수백 번 생산</strong>한다. 그래서 “verifier 작성”이 새로운 프롬프트 엔지니어링이고,
+    당신의 도메인 지식이 곧 보상함수(reward function)다.</p>
+
+  <div class="note v">
+    <span class="tag">self-bias 경고</span>
+    <p>코드를 짠 모델은 자기 결과를 후하게 본다(실측: 자기채점 9.04 vs 독립채점 7.43).
+      그래서 generator 와 verifier 를 <strong>다른 모델</strong>로 강제 분리하고, 같은 계열이면
+      <code>self_bias_warning</code> 플래그를 자동으로 단다.</p>
+  </div>
+
+  <h3>Open vs Closed 루프</h3>
+  <ul class="tight">
+    <li><strong>Closed</strong> — 성공기준을 미리 못박고 매 스텝 평가 + 명시적 stop. 예측 가능·안전.</li>
+    <li><strong>Open</strong> — 목표 + 느슨한 조건으로 넓게 탐색. 참신하지만 토큰 태우고 슬롭 위험.</li>
+    <li><strong>실전 트릭</strong> — closed 하드체크를 ‘바닥’으로 깔고 그 위에 open 지시 하나 얹기. 기준 밑으로는 안 떨어지는 탐색.</li>
+  </ul>
+</section>
+
+<!-- ---- 설치 ---- -->
+<section id="install">
+  <h2>설치 &amp; 빠른 시작</h2><div class="rule"></div>
+  <p>pip 설치가 필요 없다. 압축을 풀고 <code>import</code> 하면 끝. 폐쇄망에는 zip을 base64로 옮긴 뒤 풀면 된다.</p>
+  <pre><div class="bar"><i></i><i></i><i></i><span class="fn">bash · 폐쇄망 반입</span></div><code><span class="c-cm"># 외부망에서</span>
+base64 loop_engine_pkg.zip &gt; pkg.b64
+
+<span class="c-cm"># 폐쇄망에서</span>
+base64 -d pkg.b64 &gt; loop_engine_pkg.zip
+unzip loop_engine_pkg.zip
+cd loop_engine_pkg</code></pre>
+
+  <h3>오프라인 시연 (엔드포인트 없이)</h3>
+  <p>목(mock) LLM으로 루프가 도는 걸 바로 확인한다 — 라운드가 진행될수록 점수가 올라 통과(SHIP)한다.</p>
+  <pre><div class="bar"><i></i><i></i><i></i><span class="fn">bash</span></div><code>python -m loop_engine.cli demo
+python examples/skillharness_loop.py --mock
+python examples/tool_loop.py --mock</code></pre>
+
+  <h3>실제 내부 LLM에 붙이기</h3>
+  <ul class="tight">
+    <li><code>TOKEN.TXT</code> 를 실행 위치(CWD)에 둔다 — 없으면 환경변수 <code>LLM_TOKEN</code>.</li>
+    <li><code>loop_engine/config.py</code> 의 <code>DEFAULT_ENDPOINTS</code> 를 사내 URL로 확인/수정.</li>
+    <li>사내 self-signed 인증서면 <code>LLMConfig(verify_ssl=False)</code> (기본값).</li>
+  </ul>
+</section>
+
+<!-- ---- 부품 개요 ---- -->
+<section id="components">
+  <h2>6 부품 — 무엇을 하나</h2><div class="rule"></div>
+  <p>루프 엔지니어링의 6부품이 각 모듈로 1:1 매핑된다. 아래는 한눈 표, 이어서 부품별 상세.</p>
+  <table class="tbl">
+    <thead><tr><th>부품</th><th>역할</th><th>모듈 · 핵심 클래스</th></tr></thead>
+    <tbody>
+      <tr><td><strong>① 오토메이션</strong></td><td class="d">‘시작’을 알아서 누름</td><td><code>triggers</code> · Scheduler / CronTrigger</td></tr>
+      <tr><td><strong>② 워크트리</strong></td><td class="d">실행마다 격리 작업공간</td><td><code>state</code> · RunContext</td></tr>
+      <tr><td><strong>③ 스킬</strong></td><td class="d">매번 다시 안 설명하게</td><td><code>skills</code> · SkillRegistry</td></tr>
+      <tr><td><strong>④ 커넥터·도구</strong></td><td class="d">LLM·외부도구에 손발</td><td><code>llm</code>·<code>tools</code> · LLMClient / ToolAgent</td></tr>
+      <tr><td><strong>⑤ 서브에이전트</strong></td><td class="d">짓는 AI vs 검사 AI 분리</td><td><code>agents</code> · Generator / VerifierAgent</td></tr>
+      <tr><td><strong>⑥ 상태·기억</strong></td><td class="d">저장소는 안 잊는다</td><td><code>state</code> · Artifact / Signal / WorkLog</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- 부품 상세 -->
+<section id="c-auto" style="padding-top:40px">
+  <div class="comp">
+    <div class="num">01</div>
+    <div>
+      <h3>오토메이션 — 정해진 주기에 알아서 돈다</h3>
+      <p class="meta">triggers.py · Scheduler · CronTrigger · IntervalTrigger · ManualTrigger</p>
+      <p>외부 cron이 없는 폐쇄망 prod를 위해 <strong>내장 스레드 스케줄러</strong>를 돈다.
+        표준 5필드 cron(<code>분 시 일 월 요일</code>, <code>*</code>·리스트·범위·스텝 + 일/요일 OR 시맨틱), N초 간격, 수동 발화 지원.</p>
+      <pre><div class="bar"><i></i><i></i><i></i><span class="fn">python</span></div><code><span class="c-kw">from</span> loop_engine <span class="c-kw">import</span> Scheduler
+
+sch = Scheduler()
+sch.cron(<span class="c-st">"morning"</span>, <span class="c-st">"0 9 * * 1-5"</span>, run_job)   <span class="c-cm"># 평일 9시</span>
+sch.every(<span class="c-st">"poll"</span>, <span class="c-nu">1800</span>, run_job)            <span class="c-cm"># 30분마다</span>
+sch.start()                                  <span class="c-cm"># 백그라운드 스레드</span></code></pre>
+    </div>
+  </div>
+</section>
+
+<section id="c-run" style="padding-top:24px">
+  <div class="comp">
+    <div class="num">02</div>
+    <div>
+      <h3>워크트리 — 실행마다 격리, 충돌 없음</h3>
+      <p class="meta">state.py · RunContext</p>
+      <p>git worktree 없이 <code>runs/&lt;run-id&gt;/</code> 폴더로 실행을 분리한다. 동시에 여러 개 돌려도 서로 안 닿는다.
+        모든 산출물이 그 폴더에 박혀 추적된다.</p>
+      <pre><div class="bar"><i></i><i></i><i></i><span class="fn">python</span></div><code><span class="c-kw">from</span> loop_engine <span class="c-kw">import</span> RunContext
+
+run = RunContext(<span class="c-st">"loop_workspace/runs"</span>, prefix=<span class="c-st">"idc"</span>)
+run.write_json(<span class="c-st">"spec.json"</span>, {<span class="c-st">"goal"</span>: <span class="c-st">"..."</span>})
+run.set_status(<span class="c-st">"shipped"</span>, rounds=<span class="c-nu">2</span>)
+print(run.dir)   <span class="c-cm"># .../runs/idc_20260623_..._a1b2c3</span></code></pre>
+    </div>
+  </div>
+</section>
+
+<section id="c-skill" style="padding-top:24px">
+  <div class="comp">
+    <div class="num">03</div>
+    <div>
+      <h3>스킬 — 매번 처음부터 설명 안 하게</h3>
+      <p class="meta">skills.py · Skill · SkillRegistry · SKILL.md</p>
+      <p>세션이 바뀌면 맥락이 백지가 되고, AI는 빈칸을 추측으로 메운다. 스킬은 프로젝트 지식을
+        <code>SKILL.md</code>(프론트매터 + 본문)에 박아두고, 루프가 매번 다시 읽게 한다.</p>
+      <pre><div class="bar"><i></i><i></i><i></i><span class="fn">python</span></div><code><span class="c-kw">from</span> loop_engine <span class="c-kw">import</span> SkillRegistry
+
+reg = SkillRegistry(<span class="c-st">"loop_workspace/skills"</span>)   <span class="c-cm"># */SKILL.md 자동 로드</span>
+print(reg.names())
+ctx = reg.bundle([<span class="c-st">"logpresso_query"</span>])        <span class="c-cm"># 프롬프트 블록으로</span></code></pre>
+    </div>
+  </div>
+</section>
+
+<section id="c-conn" style="padding-top:24px">
+  <div class="comp">
+    <div class="num">04</div>
+    <div>
+      <h3>커넥터 · 도구 — LLM과 ‘실제 일’에 손발</h3>
+      <p class="meta">llm.py · LLMClient &nbsp;|&nbsp; tools.py · Tool · ToolRegistry · ToolAgent</p>
+      <p>OpenAI 호환 <code>/chat/completions</code> 를 urllib만으로 호출한다(목 transport 교체로 오프라인 테스트 가능).
+        도구는 파이썬 콜러블 — 내부 API, Logpresso 쿼리, 파일 작업. native function-calling 미지원 모델도
+        <strong>텍스트 JSON 프로토콜</strong>로 도구를 쓴다.</p>
+      <pre><div class="bar"><i></i><i></i><i></i><span class="fn">python</span></div><code><span class="c-kw">from</span> loop_engine <span class="c-kw">import</span> LLMClient, LLMConfig, ToolRegistry
+
+client = LLMClient(LLMConfig(endpoint=<span class="c-st">"DEV"</span>, generator_model=<span class="c-st">"qwen3.5-397b"</span>))
+print(client.complete(<span class="c-st">"안녕"</span>))
+
+tools = ToolRegistry()
+<span class="c-kw">@tools.tool</span>(<span class="c-st">"query_lpql"</span>, <span class="c-st">"Logpresso 쿼리 실행"</span>, {<span class="c-st">"lpql"</span>: <span class="c-st">"쿼리문"</span>})
+<span class="c-kw">def</span> <span class="c-fn">q</span>(args): <span class="c-kw">return</span> run_internal_lpql(args[<span class="c-st">"lpql"</span>])</code></pre>
+    </div>
+  </div>
+</section>
+
+<section id="c-agent" style="padding-top:24px">
+  <div class="comp">
+    <div class="num">05</div>
+    <div>
+      <h3>서브에이전트 — 짓는 AI ↔ 검사하는 AI</h3>
+      <p class="meta">agents.py · Generator · VerifierAgent · same_family</p>
+      <p>둘을 <strong>반드시 다른 에이전트(가능하면 다른 모델)</strong>로 분리한다. VerifierAgent는
+        하드체크(<code>CheckSuite</code>) + LLM 루브릭(<code>Rubric</code>)으로 <code>Verdict</code>를 내고,
+        모델 계열이 같으면 self-bias 경고를 자동으로 단다.</p>
+      <pre><div class="bar"><i></i><i></i><i></i><span class="fn">python</span></div><code><span class="c-kw">from</span> loop_engine <span class="c-kw">import</span> Generator, VerifierAgent, CheckSuite, Rubric, check_min_length
+
+gen = Generator(client)                                   <span class="c-cm"># 짓는 AI</span>
+ver = VerifierAgent(client,
+    check_suite=CheckSuite([check_min_length(<span class="c-nu">300</span>)]),    <span class="c-cm"># 하드 바닥</span>
+    rubric=Rubric(<span class="c-st">"정확성·명료성 엄격 채점"</span>, pass_score=<span class="c-nu">8.0</span>),
+    generator_model=<span class="c-st">"qwen3.5-397b"</span>, verifier_model=<span class="c-st">"glm-5"</span>)  <span class="c-cm"># 다른 모델</span></code></pre>
+    </div>
+  </div>
+</section>
+
+<section id="c-state" style="padding-top:24px">
+  <div class="comp">
+    <div class="num">06</div>
+    <div>
+      <h3>상태 · 기억 — 에이전트는 잊어도 저장소는 안 잊는다</h3>
+      <p class="meta">state.py · Artifact · Signal · WorkLog · Contract</p>
+      <p><strong>Signal</strong> 은 루프를 복리로 만드는 단위(마찰·아이디어·기회 + 출처).
+        <strong>WorkLog</strong> 는 세션 간 기억(작업 전 tail 읽고, 끝나면 append).
+        <strong>Contract</strong> 는 루프당 계약(목표·워크플로·경계·백로그), 매 실행 전 읽힌다.</p>
+      <pre><div class="bar"><i></i><i></i><i></i><span class="fn">python</span></div><code><span class="c-kw">from</span> loop_engine <span class="c-kw">import</span> WorkLog, ArtifactStore, Signal
+
+log = WorkLog(<span class="c-st">"loop_workspace/WORKLOG.md"</span>)
+log.append(<span class="c-st">"idc_loop"</span>, <span class="c-st">"shipped"</span>, <span class="c-st">"round 2, score 8.5"</span>)
+print(log.tail(<span class="c-nu">5</span>))                <span class="c-cm"># 최근 5개</span></code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ---- 루프 만들기 ---- -->
+<section id="loop">
+  <h2>루프 만들기</h2><div class="rule"></div>
+  <p><code>LoopSpec</code> 으로 루프 한 벌을 정의하고 <code>Loop(spec).run()</code> 으로 돌린다.
+    <strong>stop 조건</strong>은 <em>(모든 critical 체크 통과 AND 루브릭 통과)</em> 또는 <code>max_rounds</code> 도달.
+    미달이어도 최고점 라운드는 보존된다.</p>
+  <pre><div class="bar"><i></i><i></i><i></i><span class="fn">python · closed loop 전체</span></div><code><span class="c-kw">from</span> loop_engine <span class="c-kw">import</span> (LLMClient, LLMConfig, Generator, VerifierAgent,
+    CheckSuite, Rubric, LoopSpec, LoopMode, Loop,
+    check_min_length, check_contains, check_no_placeholder)
+
+client = LLMClient(LLMConfig(endpoint=<span class="c-st">"DEV"</span>,
+    generator_model=<span class="c-st">"qwen3.5-397b"</span>, verifier_model=<span class="c-st">"glm-5"</span>))
+
+spec = LoopSpec(
+    name=<span class="c-st">"amhs_brief"</span>,
+    goal=<span class="c-st">"AMHS 물류 혼잡 예측을 보고용 300자 이상으로 요약. 'AMHS' 포함, 미완성 표현 금지."</span>,
+    generator=Generator(client),
+    verifier=VerifierAgent(client,
+        check_suite=CheckSuite([check_min_length(<span class="c-nu">300</span>),
+                                check_contains(<span class="c-st">"AMHS"</span>),
+                                check_no_placeholder()]),
+        rubric=Rubric(<span class="c-st">"정확성·구조·실무성 엄격 채점"</span>, pass_score=<span class="c-nu">8.0</span>),
+        generator_model=<span class="c-st">"qwen3.5-397b"</span>, verifier_model=<span class="c-st">"glm-5"</span>),
+    mode=LoopMode.CLOSED,
+    max_rounds=<span class="c-nu">4</span>)
+
+result = Loop(spec).run()
+print(result.report())          <span class="c-cm"># 라운드별 done/score</span>
+print(result.final_artifact)    <span class="c-cm"># 최종 산출물</span></code></pre>
+  <div class="note">
+    <span class="tag">탐색을 얹고 싶을 때</span>
+    <p><code>mode=LoopMode.OPEN</code> 과 <code>open_instruction="제목은 더 도발적으로"</code> 를 주면
+      하드체크 바닥은 유지한 채 탐색 지시가 얹힌다.</p>
+  </div>
+</section>
+
+<!-- ---- 도구 루프 ---- -->
+<section id="tools">
+  <h2>도구 쓰는 루프</h2><div class="rule"></div>
+  <p>LLM이 글만 쓰는 게 아니라 <strong>실제로 일을 하게</strong> 한다. <code>ToolUsingGenerator</code> 를
+    <code>Loop</code> 의 generator 자리에 끼우면 끝 — Loop/LoopSpec은 그대로다.</p>
+  <pre><div class="bar"><i></i><i></i><i></i><span class="fn">python</span></div><code><span class="c-kw">from</span> loop_engine <span class="c-kw">import</span> ToolRegistry, ToolUsingGenerator
+
+tools = ToolRegistry()
+<span class="c-kw">@tools.tool</span>(<span class="c-st">"query_idc"</span>, <span class="c-st">"FAB 구역 IDC 개수 조회"</span>, {<span class="c-st">"zone"</span>: <span class="c-st">"구역명"</span>})
+<span class="c-kw">def</span> <span class="c-fn">query_idc</span>(args):
+    <span class="c-kw">return</span> run_internal_query(args[<span class="c-st">"zone"</span>])
+
+<span class="c-cm"># native=False(기본): 텍스트 JSON 프로토콜 → 모든 모델 호환</span>
+gen = ToolUsingGenerator(client, tools, model=<span class="c-st">"gpt-oss-20b"</span>, max_steps=<span class="c-nu">6</span>)
+
+<span class="c-cm"># 단독 사용도 가능</span>
+<span class="c-kw">from</span> loop_engine <span class="c-kw">import</span> ToolAgent
+out = ToolAgent(client, tools).run(<span class="c-st">"M16A_3F IDC 보고서 작성"</span>)
+print(out.final)            <span class="c-cm"># 최종 산출물</span>
+print([s.tool <span class="c-kw">for</span> s <span class="c-kw">in</span> out.steps])  <span class="c-cm"># 호출한 도구들</span></code></pre>
+  <p class="muted">서버가 OpenAI tool-calling을 지원하면 <code>native=True</code> 로 네이티브 <code>tool_calls</code> 를 쓴다.
+    없는 도구 호출·프로토콜 위반은 자동 방어된다.</p>
+</section>
+
+<!-- ---- discover ---- -->
+<section id="discover">
+  <h2>discover 단계 — 맥락 자동 주입</h2><div class="rule"></div>
+  <p>루프의 첫 동작은 discover: 무엇을 할지/어떤 맥락이 필요한지 모은다.
+    <code>DiscoverContext</code> 가 <strong>스킬 + 공유 시그널 + 워크로그 + triage</strong> 를 한 덩어리로 묶어
+    <code>context_provider</code> 로 넘긴다.</p>
+  <pre><div class="bar"><i></i><i></i><i></i><span class="fn">python</span></div><code><span class="c-kw">from</span> loop_engine <span class="c-kw">import</span> LoopSystem, TriageItem
+
+system = LoopSystem()
+spec = LoopSpec(..., context_provider=system.discover_context(
+    skill_names=[<span class="c-st">"logpresso_query"</span>],     <span class="c-cm"># 스킬 자동 주입</span>
+    include_open_signals=<span class="c-kw">True</span>,           <span class="c-cm"># 공유 두뇌 시그널</span>
+    worklog_tail=<span class="c-nu">8</span>,                      <span class="c-cm"># 세션 간 기억</span>
+    triage_provider=<span class="c-kw">lambda</span>: [TriageItem(<span class="c-st">"긴급버그"</span>, <span class="c-nu">0</span>)],  <span class="c-cm"># 우선순위</span>
+).as_provider())</code></pre>
+
+  <h3>plan 단계 분리 (선택)</h3>
+  <p>generator가 plan+execute를 동시에 하지만, 명시적 Planner를 끼울 수 있다.
+    <code>plan_once=True</code> 면 첫 라운드만, <code>False</code> 면 매 라운드 재계획.</p>
+  <pre><div class="bar"><i></i><i></i><i></i><span class="fn">python</span></div><code><span class="c-kw">from</span> loop_engine <span class="c-kw">import</span> Agent
+
+planner = Agent(<span class="c-st">"planner"</span>, <span class="c-st">"너는 계획가다"</span>, client, model=<span class="c-st">"glm-5"</span>)
+spec = LoopSpec(..., planner=planner, plan_once=<span class="c-kw">True</span>)</code></pre>
+</section>
+
+<!-- ---- 시스템 ---- -->
+<section id="system">
+  <h2>멀티루프 · 공유 두뇌(복리)</h2><div class="rule"></div>
+  <p><code>LoopSystem</code> 이 작업공간·스킬·도구·시그널·워크로그·스케줄러를 한 번에 연결한다.
+    여러 루프가 같은 <code>artifacts/signals/</code> 를 읽고 쓰면 서로의 발견을 이어받아 <strong>복리</strong>로 쌓인다.</p>
+  <pre><div class="bar"><i></i><i></i><i></i><span class="fn">python</span></div><code><span class="c-kw">from</span> loop_engine <span class="c-kw">import</span> LoopSystem, LoopConfig, LLMConfig
+
+system = LoopSystem(LoopConfig(llm=LLMConfig(endpoint=<span class="c-st">"DEV"</span>)))
+system.register(spec_a)
+system.register(spec_b)
+
+system.schedule_cron(<span class="c-st">"loop_a"</span>, <span class="c-st">"0 9 * * 1-5"</span>)   <span class="c-cm"># 평일 9시</span>
+system.schedule_every(<span class="c-st">"loop_b"</span>, <span class="c-nu">1800</span>)           <span class="c-cm"># 30분마다</span>
+system.start()                                   <span class="c-cm"># 백그라운드</span>
+
+<span class="c-cm"># 한 루프의 발견 → 다른 루프가 픽업</span>
+system.emit_signal(<span class="c-st">"이 키워드 전환되는데 콘텐츠 없음"</span>, kind=<span class="c-st">"opportunity"</span>)
+
+<span class="c-cm"># 단발 실행(격리 run 디렉토리에서)</span>
+result = system.run_once(<span class="c-st">"loop_a"</span>)</code></pre>
+</section>
+
+<!-- ---- CLI ---- -->
+<section id="cli">
+  <h2>CLI 명령어</h2><div class="rule"></div>
+  <p><code>python -m loop_engine.cli &lt;명령&gt;</code> · 공통 옵션 <code>-w/--workspace</code> (기본 <code>./loop_workspace</code>).</p>
+  <table class="tbl">
+    <thead><tr><th>명령</th><th>하는 일</th><th>옵션</th></tr></thead>
+    <tbody>
+      <tr><td><code>init</code></td><td class="d">작업공간(runs·artifacts·skills·contracts) 생성</td><td>—</td></tr>
+      <tr><td><code>skills</code></td><td class="d">등록된 스킬 목록</td><td>—</td></tr>
+      <tr><td><code>runs</code></td><td class="d">실행 이력 (상태·시각)</td><td><code>-n</code> 개수</td></tr>
+      <tr><td><code>worklog</code></td><td class="d">작업로그 tail</td><td><code>-n</code> 개수</td></tr>
+      <tr><td><code>signals</code></td><td class="d">open 시그널 목록</td><td>—</td></tr>
+      <tr><td><code>demo</code></td><td class="d">목 LLM으로 closed loop 1회 시연</td><td>—</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ---- API ---- -->
+<section id="api">
+  <h2>API 레퍼런스</h2><div class="rule"></div>
+
+  <h3>설정 · 커넥터</h3>
+  <table class="tbl"><tbody>
+    <tr><td><code>LoopConfig</code></td><td class="d">작업공간 루트 + LLM 설정. <code>.ensure_dirs()</code>, <code>.runs_dir</code> 등 경로 프로퍼티</td></tr>
+    <tr><td><code>LLMConfig</code></td><td class="d">endpoint·base_url·token·generator_model·verifier_model·temperature·verify_ssl·retries</td></tr>
+    <tr><td><code>LLMClient</code></td><td class="d"><code>.chat(messages, model, …)</code> → LLMResponse · <code>.complete(prompt, system)</code></td></tr>
+    <tr><td><code>make_mock_transport</code></td><td class="d">엔드포인트 없이 동작시키는 목 transport 빌더</td></tr>
+    <tr><td><code>load_token</code></td><td class="d">TOKEN.TXT(CWD) → 환경변수 순으로 토큰 로딩</td></tr>
+  </tbody></table>
+
+  <h3>에이전트 · 검증</h3>
+  <table class="tbl"><tbody>
+    <tr><td><code>Agent</code></td><td class="d">역할 시스템프롬프트 + 모델. <code>.run(prompt)</code></td></tr>
+    <tr><td><code>Generator</code></td><td class="d">짓는 AI. <code>.generate(goal, context, prior_feedback)</code></td></tr>
+    <tr><td><code>VerifierAgent</code></td><td class="d">검사 AI. <code>.verify(artifact, goal)</code> → Verdict · self-bias 자동감지</td></tr>
+    <tr><td><code>CheckSuite</code> / <code>Check</code></td><td class="d">하드 패스 묶음(closed 바닥)</td></tr>
+    <tr><td><code>check_*</code></td><td class="d">min_length · contains · regex · valid_json · python_syntax · no_placeholder · callable</td></tr>
+    <tr><td><code>Rubric</code></td><td class="d">LLM 0~10 채점. <code>.judge(client, artifact, goal)</code> → RubricResult</td></tr>
+    <tr><td><code>Verdict</code></td><td class="d"><code>.done</code>·<code>.critical_failures</code>·<code>.summary()</code>·<code>.feedback_for_retry()</code></td></tr>
+  </tbody></table>
+
+  <h3>도구</h3>
+  <table class="tbl"><tbody>
+    <tr><td><code>Tool</code> / <code>ToolRegistry</code></td><td class="d">도구 정의·등록(<code>@reg.tool(name, desc, params)</code> 데코레이터)</td></tr>
+    <tr><td><code>ToolAgent</code></td><td class="d">도구 사용 루프. <code>.run(task, context)</code> → ToolRunResult · native/텍스트 프로토콜</td></tr>
+    <tr><td><code>ToolUsingGenerator</code></td><td class="d">Loop의 generator 자리에 끼우는 어댑터</td></tr>
+  </tbody></table>
+
+  <h3>루프 · 시스템</h3>
+  <table class="tbl"><tbody>
+    <tr><td><code>LoopSpec</code></td><td class="d">name·goal·generator·verifier·mode·max_rounds·context_provider·open_instruction·planner·plan_once</td></tr>
+    <tr><td><code>Loop</code></td><td class="d"><code>.run(run_ctx)</code> → LoopResult(<code>.report()</code>·<code>.final_artifact</code>)</td></tr>
+    <tr><td><code>LoopMode</code> / <code>LoopStatus</code></td><td class="d">OPEN·CLOSED / SHIPPED·EXHAUSTED·ERROR</td></tr>
+    <tr><td><code>LoopSystem</code></td><td class="d">register·run_once·schedule_cron·schedule_every·emit_signal·register_tool·discover_context</td></tr>
+    <tr><td><code>DiscoverContext</code></td><td class="d">스킬+시그널+워크로그+triage → context_provider</td></tr>
+  </tbody></table>
+
+  <h3>상태 · 자동화</h3>
+  <table class="tbl"><tbody>
+    <tr><td><code>RunContext</code></td><td class="d">runs/&lt;id&gt;/ 격리. write_json·write_text·set_status</td></tr>
+    <tr><td><code>ArtifactStore</code> / <code>Signal</code></td><td class="d">공유 두뇌. emit_signal·read_signals(status)</td></tr>
+    <tr><td><code>WorkLog</code> / <code>Contract</code></td><td class="d">append·tail / save·load·to_markdown</td></tr>
+    <tr><td><code>Scheduler</code></td><td class="d">cron·every·manual·fire·start·stop</td></tr>
+    <tr><td><code>CronTrigger</code> 외</td><td class="d">CronTrigger·IntervalTrigger·ManualTrigger·TriageItem·triage</td></tr>
+  </tbody></table>
+</section>
+
+<!-- ---- 실전 ---- -->
+<section id="deploy">
+  <h2>실전 연결 (DEMOS · Logpresso)</h2><div class="rule"></div>
+  <p>형 환경에 붙이는 세 갈래. 모두 Loop/LoopSpec은 그대로 두고 부품만 갈아끼운다.</p>
+  <ul class="tight">
+    <li><strong>DEMOS 117 에이전트 어댑터</strong> — 기존 에이전트를 <code>Generator</code>/<code>VerifierAgent</code> 인터페이스로 래핑. SkillHarness의 Evaluate를 다른 모델 verifier로 강제 분리.</li>
+    <li><strong>Logpresso 도구 등록</strong> — <code>query_carrier</code>/<code>query_oht</code> 를 <code>@tools.tool</code> 로 감싸 루프가 직접 조회. (캐리어/필드 조건은 <code>fulltext</code> + <code>ts_data_view_*</code> 규칙 그대로)</li>
+    <li><strong>BGE-M3 + FAISS RAG</strong> — 시방서/사내문서 검색을 <code>discover_context(extra_provider=…)</code> 로 discover 단계에 주입.</li>
+  </ul>
+  <div class="note v">
+    <span class="tag">SkillHarness 적용 핵심</span>
+    <p>Draft→Test→Evaluate→Improve에서 <strong>Evaluate를 generator와 다른 모델</strong>로 분리하면,
+      9.04 vs 7.43 점수 갭이 스킬 품질에 그대로 실리는 걸 막는다. 이게 이 프레임워크가 강제하는 한 가지다.</p>
+  </div>
+</section>
+
+<footer>
+  <p><b>loop_engine v0.1.0</b> · 13개 모듈 · 외부 의존성 0개(Python stdlib) · 폐쇄망 전용 설계.<br>
+  부품 ①~⑥ + generator/verifier 분리 + 도구 루프 + discover 배선 전부 동작 검증됨.</p>
+</footer>
+
+</main>
+</div>
+
+<script>
+  // 모바일 목차 토글
+  const side=document.getElementById('side'), btn=document.getElementById('menuBtn'), scrim=document.getElementById('scrim');
+  function toggle(open){side.classList.toggle('open',open);scrim.classList.toggle('open',open);}
+  btn.addEventListener('click',()=>toggle(!side.classList.contains('open')));
+  scrim.addEventListener('click',()=>toggle(false));
+  document.querySelectorAll('#nav a').forEach(a=>a.addEventListener('click',()=>toggle(false)));
+
+  // 스크롤 스파이
+  const links=[...document.querySelectorAll('#nav a')];
+  const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a]));
+  const obs=new IntersectionObserver((entries)=>{
+    entries.forEach(e=>{
+      if(e.isIntersecting){
+        links.forEach(l=>l.classList.remove('active'));
+        const a=map.get(e.target.id); if(a)a.classList.add('active');
+      }
+    });
+  },{rootMargin:'-20% 0px -72% 0px',threshold:0});
+  document.querySelectorAll('main section').forEach(s=>obs.observe(s));
+</script>
+</body>
+</html>
