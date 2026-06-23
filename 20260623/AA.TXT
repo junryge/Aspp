@@ -405,6 +405,7 @@ const DEFAULT_MAP_SETTINGS = {
   nodeColor:      '#2a4a6a',
   nodeSize:       1,              // 정사각 한 변(px)
   vehicleRadius:  1.5,            // mapZoom 에 곱해짐
+  vehicleShape:   'circle',       // 'circle' | 'triangle' | 'square' | 'diamond'
   colorEmpty:     '#22c55e',      // 공차
   colorLoaded:    '#3b82f6',      // 적재
   colorObs:       '#f59e0b',      // OBS
@@ -1092,14 +1093,36 @@ function drawMap() {
     mapCtx.globalAlpha = 1.0;
   }
 
-  // 2. 차량 (보간된 위치) — 카테고리별 색상 (설정 가능: ⚙ 설정)
+  // 2. 차량 (보간된 위치) — 카테고리별 색상 + 도형 모양 (설정 가능: ⚙ 설정)
   const r = Math.max(1.5, Math.min(8, mapSettings.vehicleRadius*mapZoom));
+  const shape = mapSettings.vehicleShape || 'circle';
   for (const vid in vehicleDisplay) {
     const v = vehicleDisplay[vid];
     const [sx,sy] = toS(v.dx, v.dy);
     if (sx<-5||sx>w+5||sy<-5||sy>h+5) continue;
+
     mapCtx.beginPath();
-    mapCtx.arc(sx, sy, r, 0, 6.283);
+    if (shape === 'triangle') {
+      // 위로 향한 정삼각형 (외접원 반경 r)
+      mapCtx.moveTo(sx,        sy - r);
+      mapCtx.lineTo(sx + r*0.866, sy + r*0.5);
+      mapCtx.lineTo(sx - r*0.866, sy + r*0.5);
+      mapCtx.closePath();
+    } else if (shape === 'square') {
+      // 변 길이를 원 시각면적과 비슷하게: 한 변 ≈ r*sqrt(π) ≈ 1.77r
+      const s = r * 1.77;
+      mapCtx.rect(sx - s/2, sy - s/2, s, s);
+    } else if (shape === 'diamond') {
+      mapCtx.moveTo(sx,     sy - r);
+      mapCtx.lineTo(sx + r, sy);
+      mapCtx.lineTo(sx,     sy + r);
+      mapCtx.lineTo(sx - r, sy);
+      mapCtx.closePath();
+    } else {
+      // circle (기본)
+      mapCtx.arc(sx, sy, r, 0, 6.283);
+    }
+
     let color;
     if (v.state === 6) color = mapSettings.colorObs;                                                   // OBS
     else if (v.state === 7) color = mapSettings.colorJam;                                              // JAM
@@ -2462,6 +2485,14 @@ async function applyFab(fab, prefix) {
       <input type="number" id="ms-nodeSize" step="0.5" min="0.5" max="20" style="background:#222;color:#eee;border:1px solid #444;padding:4px 6px;width:80px;">
 
       <div style="grid-column:1/-1;color:#9ad;margin-top:8px;border-bottom:1px solid #333;padding-bottom:4px;">차량 (움직이는 점)</div>
+
+      <label>차량 도형</label>
+      <select id="ms-vehicleShape" style="background:#222;color:#eee;border:1px solid #444;padding:4px 6px;">
+        <option value="circle">● 원 (기본)</option>
+        <option value="triangle">▲ 세모</option>
+        <option value="square">■ 사각형</option>
+        <option value="diamond">◆ 마름모</option>
+      </select>
 
       <label>차량 반경 (배수)</label>
       <input type="number" id="ms-vehicleRadius" step="0.1" min="0.5" max="10" style="background:#222;color:#eee;border:1px solid #444;padding:4px 6px;width:80px;">
