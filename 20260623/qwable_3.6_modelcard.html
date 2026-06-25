@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Qwable-3.6 · Model Card</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b0a10;
+    --surface:#14121c;
+    --surface-2:#1b1827;
+    --border:#2a2538;
+    --border-bright:#3a3350;
+    --text:#ece9f5;
+    --muted:#9a92b0;
+    --faint:#675f7d;
+    --violet:#a981ff;     /* Fable */
+    --violet-dim:#7a5bc8;
+    --amber:#ffaa3c;      /* Qwen */
+    --amber-dim:#c87e22;
+    --vwash:rgba(169,129,255,.10);
+    --awash:rgba(255,170,60,.10);
+    --green:#54c48f;
+    --red:#ef6a55;
+    --mono:"JetBrains Mono",ui-monospace,monospace;
+    --disp:"Space Grotesk",sans-serif;
+    --sans:"Pretendard",system-ui,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    background:
+      radial-gradient(900px 500px at 12% -8%,var(--vwash),transparent 60%),
+      radial-gradient(900px 500px at 90% -4%,var(--awash),transparent 60%),
+      var(--bg);
+    color:var(--text);font-family:var(--sans);line-height:1.62;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1060px;margin:0 auto;padding:0 24px}
+  .mono{font-family:var(--mono)}
+
+  /* header */
+  .hero{padding:62px 0 30px;border-bottom:1px solid var(--border)}
+  .eyebrow{
+    font-family:var(--mono);font-size:11px;letter-spacing:.3em;text-transform:uppercase;
+    margin-bottom:20px;color:var(--muted);
+  }
+  .eyebrow b{color:var(--violet)} .eyebrow i{color:var(--amber);font-style:normal}
+  .title{font-family:var(--disp);font-weight:700;font-size:clamp(40px,8vw,76px);line-height:.95;letter-spacing:-.03em}
+  .title .v{color:var(--violet)} .title .a{color:var(--amber)}
+  .equation{
+    font-family:var(--mono);font-size:clamp(13px,2.4vw,17px);margin-top:18px;color:var(--muted);letter-spacing:.02em;
+  }
+  .equation .qw{color:var(--amber)} .equation .fb{color:var(--violet)}
+  .lede{font-size:clamp(15px,2.4vw,18px);color:var(--text);max-width:680px;margin-top:22px}
+  .lede b{color:var(--text);font-weight:700}
+  .badges{display:flex;flex-wrap:wrap;gap:8px;margin-top:24px}
+  .b{font-family:var(--mono);font-size:11px;padding:5px 11px;border-radius:3px;border:1px solid var(--border-bright);color:var(--muted)}
+  .b.v{color:var(--violet);border-color:var(--violet-dim);background:var(--vwash)}
+  .b.a{color:var(--amber);border-color:var(--amber-dim);background:var(--awash)}
+
+  /* sections */
+  section{padding:50px 0 4px}
+  .sh{display:flex;align-items:baseline;gap:14px;margin-bottom:26px}
+  .sh .n{font-family:var(--mono);font-weight:800;font-size:13px;color:var(--violet)}
+  .sh h2{font-family:var(--disp);font-size:24px;font-weight:700;letter-spacing:-.01em}
+  .sh .meta{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--faint);letter-spacing:.05em}
+
+  .prose p{font-size:15px;color:var(--text);max-width:760px}
+  .prose p+p{margin-top:12px}
+  .prose code{font-family:var(--mono);font-size:13px;background:var(--surface);border:1px solid var(--border);border-radius:3px;padding:1px 6px;color:var(--amber)}
+
+  /* lineage */
+  .chain{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:8px 0 4px;font-family:var(--mono);font-size:13px}
+  .chain .box{padding:9px 14px;border:1px solid var(--border-bright);border-radius:4px;background:var(--surface)}
+  .chain .box.qw{border-color:var(--amber-dim);color:var(--amber);background:var(--awash)}
+  .chain .box.fb{border-color:var(--violet-dim);color:var(--violet);background:var(--vwash)}
+  .chain .arr{color:var(--faint)}
+
+  /* variant cards */
+  .variants{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .vc{border:1px solid var(--border);background:var(--surface);border-radius:6px;overflow:hidden;display:flex;flex-direction:column}
+  .vc-top{padding:16px 18px;border-bottom:1px solid var(--border);background:var(--surface-2)}
+  .vc-name{font-family:var(--mono);font-weight:700;font-size:15px;color:var(--text)}
+  .vc-arch{font-family:var(--mono);font-size:11px;margin-top:4px;letter-spacing:.04em}
+  .vc-arch.moe{color:var(--amber)} .vc-arch.dense{color:var(--violet)}
+  .vc-body{padding:14px 18px;flex:1}
+  .vc-row{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px dashed var(--border);font-size:13px}
+  .vc-row:last-child{border-bottom:none}
+  .vc-row span:first-child{color:var(--faint);font-family:var(--mono);font-size:11px;letter-spacing:.04em;text-transform:uppercase;padding-top:2px}
+  .vc-row span:last-child{text-align:right;font-family:var(--mono);font-size:12.5px}
+  .pin{font-family:var(--mono);font-size:10.5px;padding:2px 8px;border-radius:2px;margin:14px 18px 0;display:inline-block}
+  .pin.best{background:var(--vwash);border:1px solid var(--violet-dim);color:var(--violet)}
+  .pin.fast{background:var(--awash);border:1px solid var(--amber-dim);color:var(--amber)}
+
+  /* bench */
+  .bench{border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--surface)}
+  .bench-row{display:grid;grid-template-columns:170px 1fr 1fr;align-items:center;border-bottom:1px solid var(--border)}
+  .bench-row:last-child{border-bottom:none}
+  .bench-row.head{background:var(--surface-2);font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+  .bench-row.head>div{padding:11px 16px}
+  .bl{padding:13px 16px;font-family:var(--mono);font-size:12.5px;border-right:1px solid var(--border)}
+  .bl b{color:var(--text)} .bl small{color:var(--faint);display:block;font-size:10.5px;margin-top:2px}
+  .barcell{padding:11px 16px;border-right:1px solid var(--border)}
+  .barcell:last-child{border-right:none}
+  .bar{height:9px;border-radius:5px;background:var(--surface-2);overflow:hidden;position:relative}
+  .bar i{display:block;height:100%;border-radius:5px}
+  .bar.acc i{background:linear-gradient(90deg,var(--violet-dim),var(--violet))}
+  .bar.spd i{background:linear-gradient(90deg,var(--amber-dim),var(--amber))}
+  .barval{font-family:var(--mono);font-size:11.5px;color:var(--muted);margin-top:5px;display:block}
+  .insight{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:14px}
+  .ins{border:1px solid var(--border);background:var(--surface);border-radius:5px;padding:14px 16px}
+  .ins h4{font-family:var(--mono);font-size:11px;letter-spacing:.05em;text-transform:uppercase;margin-bottom:6px}
+  .ins.v h4{color:var(--violet)} .ins.a h4{color:var(--amber)}
+  .ins p{font-size:13px;color:var(--muted)} .ins p b{color:var(--text)}
+
+  /* preset table */
+  .kv{border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--surface)}
+  .kv-row{display:grid;grid-template-columns:180px 1fr;border-bottom:1px solid var(--border)}
+  .kv-row:last-child{border-bottom:none}
+  .kv-k{padding:13px 18px;font-family:var(--mono);font-size:12px;color:var(--violet);background:var(--surface-2);border-right:1px solid var(--border);display:flex;align-items:center}
+  .kv-v{padding:13px 18px;font-family:var(--mono);font-size:13px;color:var(--text)}
+  .kv-v .dim{color:var(--faint)}
+
+  /* notes */
+  .note{border-left:2px solid var(--amber);background:var(--surface);padding:15px 19px;margin-bottom:11px;border-radius:0 5px 5px 0}
+  .note.v{border-left-color:var(--violet)}
+  .note.alert{border-left-color:var(--red)}
+  .note h4{font-family:var(--mono);font-size:12px;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px;color:var(--amber)}
+  .note.v h4{color:var(--violet)} .note.alert h4{color:var(--red)}
+  .note p{font-size:14px;color:var(--text)} .note code{font-family:var(--mono);font-size:12.5px;color:var(--amber);background:var(--bg);border:1px solid var(--border);border-radius:3px;padding:1px 5px}
+
+  footer{margin-top:54px;padding:26px 0 46px;border-top:1px solid var(--border)}
+  footer p{font-family:var(--mono);font-size:11px;color:var(--faint);letter-spacing:.05em;line-height:1.8}
+
+  @media(max-width:760px){
+    .variants{grid-template-columns:1fr}
+    .bench-row,.bench-row.head{grid-template-columns:120px 1fr 1fr}
+    .kv-row{grid-template-columns:1fr}
+    .kv-k{border-right:none;border-bottom:1px solid var(--border)}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hero">
+    <div class="eyebrow">Open-weights local LLM · <b>Fable</b> reasoning × <i>Qwen</i> base</div>
+    <div class="title"><span class="a">Qw</span><span class="v">able</span>-3.6</div>
+    <div class="equation"><span class="qw">Qwen 3.6</span> &nbsp;+&nbsp; <span class="fb">Fable 5</span> &nbsp;=&nbsp; Qwable</div>
+    <p class="lede">Mia-AiLab이 <b>Qwen3.6 베이스에 Fable 5 스타일 추론·instruction 데이터로 LoRA 없이 풀 파인튜닝</b>한 오픈웨이트 모델. Anthropic Fable 5의 신중하고 구조적인 사고 흐름을 로컬에서 재현하는 게 목표다.</p>
+    <div class="badges">
+      <span class="b a">BASE · Qwen3.6</span>
+      <span class="b v">STYLE · Fable 5</span>
+      <span class="b">FULL FINE-TUNE · no LoRA</span>
+      <span class="b">GGUF · local</span>
+      <span class="b">LICENSE · MIT*</span>
+    </div>
+  </div>
+
+  <!-- 01 정체성 -->
+  <section>
+    <div class="sh"><span class="n">01</span><h2>정체성 · 계보</h2><span class="meta">WHAT IT IS</span></div>
+    <div class="prose">
+      <p>이름 그대로 <b>Qwable = Qwen + Fable</b>. 알리바바 Qwen3.6을 베이스로 두고, Fable 5 스타일의 reasoning/instruction trace로 전체 가중치를 재학습했다. base의 지식·속도는 가져가되 응답 구조를 더 단계적·설명적으로 끌어올린 거다.</p>
+      <div class="chain">
+        <span class="box qw">Qwen3.6 (base)</span>
+        <span class="arr">──SFT──▶</span>
+        <span class="box fb">Fable 5 style traces</span>
+        <span class="arr">──▶</span>
+        <span class="box">Qwable-3.6</span>
+      </div>
+      <p style="margin-top:14px">실험적 파인튜닝 모델이라 연구·로컬 실험 용도. 프로덕션 투입 전 별도 검증 필수다. base 모델은 자체 라이선스가 있어 재배포 시 그쪽도 확인해야 한다.</p>
+    </div>
+  </section>
+
+  <!-- 02 라인업 -->
+  <section>
+    <div class="sh"><span class="n">02</span><h2>3종 라인업</h2><span class="meta">VARIANTS</span></div>
+    <div class="variants">
+      <div class="vc">
+        <div class="vc-top"><div class="vc-name">35b</div><div class="vc-arch moe">MoE · 35B params</div></div>
+        <div class="vc-body">
+          <div class="vc-row"><span>base</span><span>Qwen3.6-35b</span></div>
+          <div class="vc-row"><span>구조</span><span>Mixture-of-Experts</span></div>
+          <div class="vc-row"><span>GGUF</span><span>q4_k_m · q5_k_m<br>q6_k · q8_0</span></div>
+          <div class="vc-row"><span>q8_0</span><span>36.9 GB</span></div>
+          <div class="vc-row"><span>태그</span><span>arm64 · dgx-spark</span></div>
+        </div>
+        <span class="pin fast">속도 최강</span>
+      </div>
+      <div class="vc">
+        <div class="vc-top"><div class="vc-name">27b</div><div class="vc-arch dense">Dense · standard</div></div>
+        <div class="vc-body">
+          <div class="vc-row"><span>base</span><span>Qwen3.6-27B</span></div>
+          <div class="vc-row"><span>구조</span><span>Dense (no MTP)</span></div>
+          <div class="vc-row"><span>특징</span><span>전 파라미터<br>매 추론 사용</span></div>
+          <div class="vc-row"><span>장점</span><span>저VRAM 고정확</span></div>
+          <div class="vc-row"><span>한계</span><span>look-ahead 없음<br>순차 생성</span></div>
+        </div>
+        <span class="pin">저VRAM 정확</span>
+      </div>
+      <div class="vc">
+        <div class="vc-top"><div class="vc-name">27b-MTP</div><div class="vc-arch dense">Dense + MTP</div></div>
+        <div class="vc-body">
+          <div class="vc-row"><span>base</span><span>Qwen3.6-27B</span></div>
+          <div class="vc-row"><span>구조</span><span>Dense + MTP layers</span></div>
+          <div class="vc-row"><span>가속</span><span>speculative<br>decoding</span></div>
+          <div class="vc-row"><span>효과</span><span>속도 약 2×</span></div>
+          <div class="vc-row"><span>엔진</span><span>llama.cpp</span></div>
+        </div>
+        <span class="pin best">밸런스 1위</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 03 벤치 -->
+  <section>
+    <div class="sh"><span class="n">03</span><h2>벤치마크</h2><span class="meta">zephel01 · RTX5090 · 40-task</span></div>
+    <div class="bench">
+      <div class="bench-row head"><div>변형 · 양자화</div><div>정확도</div><div>속도 (tok/s)</div></div>
+      <div class="bench-row">
+        <div class="bl"><b>27b-MTP</b> Q5<small>VRAM 18.2GB</small></div>
+        <div class="barcell"><div class="bar acc"><i style="width:95%"></i></div><span class="barval">95% · 최고 정확</span></div>
+        <div class="barcell"><div class="bar spd"><i style="width:56%"></i></div><span class="barval">141</span></div>
+      </div>
+      <div class="bench-row">
+        <div class="bl"><b>27b-MTP</b> Q8<small>VRAM 28GB</small></div>
+        <div class="barcell"><div class="bar acc"><i style="width:95%"></i></div><span class="barval">95%</span></div>
+        <div class="barcell"><div class="bar spd"><i style="width:48%"></i></div><span class="barval">119</span></div>
+      </div>
+      <div class="bench-row">
+        <div class="bl"><b>27b</b> Q4<small>standard · 저VRAM</small></div>
+        <div class="barcell"><div class="bar acc"><i style="width:92.5%"></i></div><span class="barval">92.5%</span></div>
+        <div class="barcell"><div class="bar spd"><i style="width:30%"></i></div><span class="barval">74</span></div>
+      </div>
+      <div class="bench-row">
+        <div class="bl"><b>27b-MTP</b> Q6<small>역전 주의</small></div>
+        <div class="barcell"><div class="bar acc"><i style="width:87.5%"></i></div><span class="barval">87.5% ↓</span></div>
+        <div class="barcell"><div class="bar spd"><i style="width:58%"></i></div><span class="barval">≈146</span></div>
+      </div>
+      <div class="bench-row">
+        <div class="bl"><b>35b</b> Q6<small>MoE</small></div>
+        <div class="barcell"><div class="bar acc"><i style="width:90%"></i></div><span class="barval">90%</span></div>
+        <div class="barcell"><div class="bar spd"><i style="width:92%"></i></div><span class="barval">230</span></div>
+      </div>
+      <div class="bench-row">
+        <div class="bl"><b>35b</b> Q4<small>MoE · 최속</small></div>
+        <div class="barcell"><div class="bar acc"><i style="width:88%"></i></div><span class="barval">~88%</span></div>
+        <div class="barcell"><div class="bar spd"><i style="width:100%"></i></div><span class="barval">250</span></div>
+      </div>
+    </div>
+
+    <div class="insight">
+      <div class="ins v"><h4>정확도 27b &gt; 35b</h4><p><b>파라미터 더 많은 35b MoE가 27b dense한테 정확도로 짐.</b> Fable 5 파인튜닝이 dense에 더 잘 먹은 것으로 보임.</p></div>
+      <div class="ins a"><h4>속도 35b MoE 압승</h4><p>35b Q4 <b>250 tok/s</b> vs 27b-MTP Q5 141 tok/s. 처리량이 중요하면 35b.</p></div>
+      <div class="ins a"><h4>MTP = 속도 2배</h4><p>같은 크기·양자화에서 standard Q4 74 → MTP Q4 146 tok/s. <b>speculative decoding</b> 효과.</p></div>
+      <div class="ins v"><h4>Q6 ≠ 항상 우위</h4><p>27b-MTP Q6(87.5%)가 <b>Q5(95%)보다 낮음.</b> 양자화 올린다고 무조건 정확해지지 않음.</p></div>
+    </div>
+  </section>
+
+  <!-- 04 추론 설정 -->
+  <section>
+    <div class="sh"><span class="n">04</span><h2>추론 프리셋</h2><span class="meta">SAMPLING</span></div>
+    <div class="kv">
+      <div class="kv-row"><div class="kv-k">기본 / 일반</div><div class="kv-v">temp 0.6 · top_p 0.95 · min_p 0.02 <span class="dim">· max_new 1024–4096</span></div></div>
+      <div class="kv-row"><div class="kv-k">코드 / 정밀</div><div class="kv-v">temp 0.2–0.4 · top_p 0.9</div></div>
+      <div class="kv-row"><div class="kv-k">창작 / 장문</div><div class="kv-v">temp 0.7–0.9 · top_p 0.95 <span class="dim">· max_new 2048–8192</span></div></div>
+      <div class="kv-row"><div class="kv-k">포맷</div><div class="kv-v">GGUF 변환 후 LM Studio · llama.cpp <span class="dim">(MTP는 변환 시 검증 필수)</span></div></div>
+    </div>
+  </section>
+
+  <!-- 05 약점 / 주의 -->
+  <section>
+    <div class="sh"><span class="n">05</span><h2>약점 · 주의</h2><span class="meta">CAVEATS</span></div>
+    <div class="note alert">
+      <h4>전 모델 공통 실패 태스크</h4>
+      <p><code>t020</code> 연산자 우선순위/계산기 — 8개 양자화 전부 실패. <code>t034</code> event bus 비동기·race condition — 27b-MTP Q5 외 거의 실패. <code>t027</code> 코인 카운트 — 통과는 하나 구현 품질 낮음. 비동기·정밀 계산은 다른 모델로 보완하거나 보조 프롬프트 필요.</p>
+    </div>
+    <div class="note v">
+      <h4>VRAM별 선택 가이드</h4>
+      <p>16GB↓ → 27b standard Q4(느려도 92.5%) · ~20GB → 27b-MTP Q5(밸런스 1위) · ~30GB 속도우선 → 35b Q6(230 tok/s) · 정확도 최우선 28GB → 27b-MTP Q8(95%, 119 tok/s).</p>
+    </div>
+    <div class="note alert">
+      <h4>Fable 5 업스트림 동결</h4>
+      <p>Fable 5는 <code>2026-06-22</code> 미국 수출통제 지시로 글로벌 중단. cleartext trace corpus가 동결돼 추가 학습 소스 성장 경로가 보장되지 않음 — 현재 버전이 사실상 마지막일 수 있음.</p>
+    </div>
+    <div class="note">
+      <h4>파생 / 변형 버전</h4>
+      <p>huihui-ai가 abliteration으로 refusal을 제거한 <code>Huihui-Qwable-3.6-27b-abliterated</code> 존재. 별개로 lordx64의 <code>Qwable-v1</code>은 Qwen3.6-35B-A3B에 Opus 4.7 distill + Fable-5 agentic tool-use를 얹은 다른 계보(AGPL-3.0)다. 같은 이름이라도 제작자·라이선스·구성이 다르니 구분할 것.</p>
+    </div>
+  </section>
+
+  <footer>
+    <p>SOURCES · huggingface.co/Mia-AiLab (Qwable-3.6-35b / 27b / 27b-MTP) · zephel01 40-task benchmark (RTX5090) · Decrypt<br>
+    * MIT는 Mia-AiLab repo의 메타데이터·학습·익스포트 파일 기준 · base 모델은 별도 라이선스 · REV 2026-06-25</p>
+  </footer>
+
+</div>
+</body>
+</html>
