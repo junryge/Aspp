@@ -214,7 +214,6 @@ def render_hub_evt_24h(rows, title=None, width=900):
         out.append(f'<line x1="{L}" y1="{yy}" x2="{L+pw}" y2="{yy}" stroke="#e2e8f0" stroke-width=".5" stroke-dasharray="2 3"/>')
         out.append(f'<text x="{L-6}" y="{yy+3}" font-size="9" fill="#94a3b8" text-anchor="end">{v}</text>')
     xticks(top, H_SCORE)
-    out.append(f'<text x="14" y="{top-6}" font-size="11.5" font-weight="700" fill="#334155">① 종합 위험점수 (24시간)</text>')
     sd = _downsample([(t, s) for t, s, _ in data])
     d = "M" + " L".join(f"{X(t)},{Y1(s)}" for t, s in sd)
     out.append(f'<path d="{d}" fill="none" stroke="{_SCORE_COLOR}" stroke-width="1.7"/>')
@@ -229,7 +228,7 @@ def render_hub_evt_24h(rows, title=None, width=900):
     # ② 지표 스택 패널
     if series:
         out.append(f'<text x="14" y="{y-6}" font-size="11.5" font-weight="700" fill="#334155">'
-                   f'② 최고점({peak_t.strftime("%H:%M")} · {int(peak_v)}점 · {_esc(peak_r.get("hot_area") or "")}) 발동 지표 — 실제 raw 컬럼 24시간 추이</text>')
+                   f'최고점({peak_t.strftime("%H:%M")} · {int(peak_v)}점 · {_esc(peak_r.get("hot_area") or "")}) 발동 지표 — 실제 raw 컬럼 24시간 추이</text>')
 
     # ② 지표 스택 패널
     for i, s in enumerate(series):
