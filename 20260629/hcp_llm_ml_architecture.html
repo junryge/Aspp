@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HCP 기반 LLM × ML 하이브리드 모니터링 시스템</title>
+<style>
+  :root{
+    --bg:#0a0d13;
+    --panel:#11161f;
+    --panel-2:#0e131b;
+    --line:#222c3a;
+    --line-soft:#1a2230;
+    --ink:#cdd6e3;
+    --ink-dim:#7e8a9c;
+    --ink-faint:#56616f;
+    /* 분류별 컬러 */
+    --c-data:#5aa9ff;     /* 데이터 */
+    --c-llm:#b392f6;      /* LLM */
+    --c-know:#46d6b4;     /* 지식 */
+    --c-script:#f2b441;   /* 스크립트 */
+    --c-report:#7ee787;   /* 레포트 */
+    --c-rule:#f2b441;     /* 룰베이스 */
+    --c-ml:#46d6b4;       /* ML / 망원경 */
+    --mono:"SF Mono","Cascadia Code","D2Coding",Consolas,"Courier New",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html{ -webkit-text-size-adjust:100%; }
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:var(--sans); line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+    background-image:
+      linear-gradient(var(--line-soft) 1px,transparent 1px),
+      linear-gradient(90deg,var(--line-soft) 1px,transparent 1px);
+    background-size:46px 46px;
+    background-position:center top;
+  }
+  .wrap{ max-width:1040px; margin:0 auto; padding:0 26px 90px; }
+
+  /* ---------- Header ---------- */
+  header{ padding:56px 0 30px; border-bottom:1px solid var(--line); }
+  .eyebrow{
+    font-family:var(--mono); font-size:11.5px; letter-spacing:.22em;
+    text-transform:uppercase; color:var(--ink-faint);
+    display:flex; gap:14px; align-items:center; flex-wrap:wrap;
+  }
+  .eyebrow .tag{
+    color:var(--c-ml); border:1px solid #244038; background:#0f1a17;
+    padding:2px 8px; border-radius:3px; letter-spacing:.14em;
+  }
+  h1{
+    font-size:clamp(26px,4.4vw,40px); line-height:1.18; margin:18px 0 8px;
+    font-weight:700; letter-spacing:-.01em;
+  }
+  h1 .x{ color:var(--ink-faint); font-weight:400; padding:0 4px; }
+  .thesis{ color:var(--ink-dim); max-width:680px; font-size:15px; }
+  .thesis b{ color:var(--ink); font-weight:600; }
+
+  /* ---------- Section scaffold ---------- */
+  section{ padding:46px 0 6px; border-bottom:1px solid var(--line-soft); }
+  .sec-head{ display:flex; align-items:baseline; gap:14px; margin-bottom:24px; }
+  .sec-no{ font-family:var(--mono); font-size:13px; color:var(--ink-faint); letter-spacing:.1em; }
+  .sec-title{ font-size:19px; font-weight:650; letter-spacing:-.01em; }
+  .sec-sub{ font-family:var(--mono); font-size:11px; color:var(--ink-faint); margin-left:auto; letter-spacing:.14em; }
+
+  /* ---------- Component register (table) ---------- */
+  .reg{ border:1px solid var(--line); border-radius:8px; overflow:hidden; background:var(--panel-2); }
+  .reg-row{
+    display:grid; grid-template-columns:46px 110px 140px 110px 1fr;
+    align-items:center; border-top:1px solid var(--line-soft);
+  }
+  .reg-row:first-child{ border-top:0; }
+  .reg-head{
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ink-faint); background:var(--panel);
+  }
+  .reg-head > div{ padding:11px 14px; }
+  .reg-row > div{ padding:13px 14px; font-size:13.5px; }
+  .reg-row .no{ font-family:var(--mono); color:var(--ink-faint); font-size:12px; }
+  .reg-row .cat{ font-weight:600; }
+  .reg-row .use{ font-family:var(--mono); font-size:12.5px; color:var(--ink); }
+  .reg-row .sys{ color:var(--ink-dim); font-size:12.5px; }
+  .reg-row .desc{ color:var(--ink-dim); }
+  .reg-body .reg-row{ position:relative; }
+  .reg-body .reg-row::before{
+    content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--accent,transparent);
+  }
+  .dot{ display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:8px; vertical-align:middle; background:var(--accent); }
+  /* category accents */
+  .k-data{ --accent:var(--c-data); }
+  .k-llm{ --accent:var(--c-llm); }
+  .k-know{ --accent:var(--c-know); }
+  .k-script{ --accent:var(--c-script); }
+  .k-report{ --accent:var(--c-report); }
+  .k-data .cat{ color:var(--c-data); }
+  .k-llm .cat{ color:var(--c-llm); }
+  .k-know .cat{ color:var(--c-know); }
+  .k-script .cat{ color:var(--c-script); }
+  .k-report .cat{ color:var(--c-report); }
+  .legend{ display:flex; gap:18px; flex-wrap:wrap; margin-top:14px; font-family:var(--mono); font-size:11px; color:var(--ink-dim); }
+  .legend span{ display:inline-flex; align-items:center; }
+
+  /* ---------- Flow schematic ---------- */
+  .flow{ margin-top:6px; }
+  .node{
+    background:var(--panel); border:1px solid var(--line); border-radius:7px;
+    padding:13px 16px; position:relative;
+  }
+  .node .nlabel{ font-weight:650; font-size:14px; }
+  .node .nsub{ font-family:var(--mono); font-size:11px; color:var(--ink-dim); margin-top:3px; letter-spacing:.02em; }
+  .node .ntag{ font-family:var(--mono); font-size:9.5px; letter-spacing:.16em; color:var(--ink-faint); position:absolute; top:10px; right:12px; }
+  .chain{ display:flex; flex-direction:column; align-items:stretch; gap:0; }
+  .row3{ display:grid; grid-template-columns:1fr; gap:0; }
+  .arrow-v{ display:flex; justify-content:center; align-items:center; height:30px; color:var(--ink-faint); font-family:var(--mono); font-size:16px; }
+  .arrow-v::before{ content:"▼"; font-size:11px; }
+
+  /* branch */
+  .branch{ margin-top:0; }
+  .branch-grid{
+    display:grid; grid-template-columns:1fr 16px 1fr; align-items:stretch; gap:14px 0;
+  }
+  .lane{ display:flex; flex-direction:column; gap:12px; }
+  .lane-tag{ font-family:var(--mono); font-size:10px; letter-spacing:.16em; text-transform:uppercase; margin-bottom:2px; }
+  .lane.rule .lane-tag{ color:var(--c-rule); }
+  .lane.ml .lane-tag{ color:var(--c-ml); }
+  .lane.rule .node{ border-color:#3a3320; }
+  .lane.ml .node{ border-color:#1f3a34; }
+  .lane.rule .node::before, .lane.ml .node::before{
+    content:""; position:absolute; left:0; top:10px; bottom:10px; width:3px; border-radius:3px;
+  }
+  .lane.rule .node::before{ background:var(--c-rule); }
+  .lane.ml .node::before{ background:var(--c-ml); }
+  .converge{ display:flex; justify-content:center; align-items:center; height:34px; color:var(--ink-faint); font-family:var(--mono); font-size:12px; gap:8px; }
+  .converge::before{ content:"└─▶"; }
+  .report-node{
+    background:#0f160f; border:1px solid #29402a; border-radius:7px; padding:14px 16px;
+    text-align:center;
+  }
+  .report-node .nlabel{ color:var(--c-report); }
+
+  /* ---------- Principles ---------- */
+  .grid-p{ display:grid; grid-template-columns:repeat(2,1fr); gap:14px; }
+  .pcard{
+    background:var(--panel-2); border:1px solid var(--line); border-radius:8px; padding:18px 18px 16px;
+    position:relative;
+  }
+  .pcard .pno{ font-family:var(--mono); font-size:11px; color:var(--ink-faint); letter-spacing:.12em; }
+  .pcard h3{ margin:6px 0 7px; font-size:15px; font-weight:650; }
+  .pcard p{ margin:0; font-size:13.5px; color:var(--ink-dim); }
+  .pcard code{ font-family:var(--mono); font-size:12px; color:var(--c-know); background:#0f1a17; border:1px solid #1c3530; padding:1px 6px; border-radius:4px; }
+
+  /* governance highlight */
+  .gov{ grid-column:1 / -1; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:20px 20px 18px; }
+  .gov h3{ margin:0 0 14px; font-size:15px; font-weight:650; }
+  .gov h3 .pno{ color:var(--ink-faint); margin-right:10px; }
+  .wbar{ display:flex; height:34px; border-radius:6px; overflow:hidden; border:1px solid var(--line); }
+  .wbar .rule{ flex:0 0 70%; background:linear-gradient(90deg,#3a2f12,#52400f); color:var(--c-rule); display:flex; align-items:center; padding-left:14px; font-family:var(--mono); font-size:12px; font-weight:600; }
+  .wbar .ml{ flex:0 0 30%; background:linear-gradient(90deg,#102b26,#15352f); color:var(--c-ml); display:flex; align-items:center; padding-left:12px; font-family:var(--mono); font-size:12px; font-weight:600; }
+  .hier{ margin-top:14px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; font-size:13.5px; }
+  .chip{ font-family:var(--mono); font-size:12px; padding:4px 10px; border-radius:5px; border:1px solid var(--line); }
+  .chip.rule{ color:var(--c-rule); border-color:#3a3320; background:#15120a; }
+  .chip.ml{ color:var(--c-ml); border-color:#1f3a34; background:#0c1714; }
+  .hier .rel{ color:var(--ink-dim); font-family:var(--mono); font-size:12px; }
+  .note{ margin-top:12px; font-size:12.5px; color:var(--ink-faint); border-left:2px solid var(--line); padding-left:12px; }
+
+  footer{ padding:34px 0 0; color:var(--ink-faint); font-family:var(--mono); font-size:11px; letter-spacing:.04em; display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+
+  @media (max-width:720px){
+    .reg-row{ grid-template-columns:38px 1fr; row-gap:0; }
+    .reg-head{ display:none; }
+    .reg-row > div{ padding:9px 14px; }
+    .reg-row .no{ grid-row:span 4; align-self:start; padding-top:13px; border-right:1px solid var(--line-soft); }
+    .reg-row .sys::before{ content:"SYS · "; color:var(--ink-faint); font-family:var(--mono); font-size:10px; }
+    .grid-p{ grid-template-columns:1fr; }
+    .branch-grid{ grid-template-columns:1fr; }
+    .branch-grid .gutter{ display:none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">
+      <span>SYSTEM ARCHITECTURE</span>
+      <span class="tag">CLOSED · 폐쇄망</span>
+      <span>v1</span>
+    </div>
+    <h1>HCP 기반 LLM <span class="x">×</span> ML 하이브리드 모니터링 시스템</h1>
+    <p class="thesis">
+      HCP 서버를 진입점으로, <b>지식·페르소나·스킬을 주입한 LLM API</b>와
+      <b>ML/DL 예측(예측 망원경)</b>을 결합해 CUBE 로그를 분석하고 HTML 레포트로 출력한다.
+      판단은 <b>룰베이스 우선</b>, ML은 보조·교차검증.
+    </p>
+  </header>
+
+  <!-- 01 구성요소 -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-no">01</span>
+      <span class="sec-title">구성요소</span>
+      <span class="sec-sub">9 COMPONENTS</span>
+    </div>
+
+    <div class="reg">
+      <div class="reg-row reg-head">
+        <div>NO</div><div>분류</div><div>이용</div><div>시스템</div><div>내용</div>
+      </div>
+      <div class="reg-body">
+        <div class="reg-row k-data">
+          <div class="no">1</div><div class="cat"><span class="dot"></span>데이터</div>
+          <div class="use">smartSTAR_DATA</div><div class="sys">DB</div><div class="desc">smartSTAR</div>
+        </div>
+        <div class="reg-row k-llm">
+          <div class="no">2</div><div class="cat"><span class="dot"></span>LLM</div>
+          <div class="use">자연어</div><div class="sys">API</div><div class="desc">QWEN(80B 이상 모델), GPT</div>
+        </div>
+        <div class="reg-row k-llm">
+          <div class="no">3</div><div class="cat"><span class="dot"></span>LLM</div>
+          <div class="use">SKILL</div><div class="sys">페르소나</div><div class="desc">LLM 성격 부여</div>
+        </div>
+        <div class="reg-row k-llm">
+          <div class="no">4</div><div class="cat"><span class="dot"></span>LLM</div>
+          <div class="use">SKILL</div><div class="sys">스킬 4종</div><div class="desc">우째 하는지 상황 설명 / 이해</div>
+        </div>
+        <div class="reg-row k-know">
+          <div class="no">5</div><div class="cat"><span class="dot"></span>지식</div>
+          <div class="use">Knowledge</div><div class="sys">지식</div><div class="desc">BR / 현업담당자님</div>
+        </div>
+        <div class="reg-row k-data">
+          <div class="no">6</div><div class="cat"><span class="dot"></span>데이터</div>
+          <div class="use">Labeled Data</div><div class="sys">CUBE</div><div class="desc">CUBE 내용 ALL 에피소드화</div>
+        </div>
+        <div class="reg-row k-script">
+          <div class="no">7</div><div class="cat"><span class="dot"></span>스크립트</div>
+          <div class="use">SCORING</div><div class="sys">PYTHON</div><div class="desc">스코어 제작</div>
+        </div>
+        <div class="reg-row k-script">
+          <div class="no">8</div><div class="cat"><span class="dot"></span>스크립트</div>
+          <div class="use">ML/DL</div><div class="sys">PYTHON</div><div class="desc">모델 제작</div>
+        </div>
+        <div class="reg-row k-report">
+          <div class="no">9</div><div class="cat"><span class="dot"></span>레포트</div>
+          <div class="use">보고서</div><div class="sys">HTML</div><div class="desc">보고서 작성 구현</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span><span class="dot" style="--accent:var(--c-data)"></span>데이터</span>
+      <span><span class="dot" style="--accent:var(--c-llm)"></span>LLM</span>
+      <span><span class="dot" style="--accent:var(--c-know)"></span>지식</span>
+      <span><span class="dot" style="--accent:var(--c-script)"></span>스크립트</span>
+      <span><span class="dot" style="--accent:var(--c-report)"></span>레포트</span>
+    </div>
+  </section>
+
+  <!-- 02 데이터 흐름 -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-no">02</span>
+      <span class="sec-title">데이터 흐름</span>
+      <span class="sec-sub">PIPELINE</span>
+    </div>
+
+    <div class="flow">
+      <div class="chain">
+        <div class="node">
+          <span class="ntag">ENTRY</span>
+          <div class="nlabel">HCP 서버</div>
+          <div class="nsub">진입점</div>
+        </div>
+        <div class="arrow-v"></div>
+        <div class="node" style="border-color:#2e2746">
+          <span class="ntag">LLM</span>
+          <div class="nlabel">LLM API</div>
+          <div class="nsub">지식 / 페르소나 / 스킬 주입</div>
+        </div>
+        <div class="arrow-v"></div>
+        <div class="node" style="border-color:#23384a">
+          <span class="ntag">LOG</span>
+          <div class="nlabel">CUBE</div>
+          <div class="nsub">로그 확인</div>
+        </div>
+        <div class="arrow-v"></div>
+      </div>
+
+      <!-- branch -->
+      <div class="branch">
+        <div class="branch-grid">
+          <div class="lane rule">
+            <div class="lane-tag">RULE · 룰베이스</div>
+            <div class="node">
+              <div class="nlabel">LLM 자동 / 수동 응답</div>
+              <div class="nsub">rule-based response</div>
+            </div>
+          </div>
+          <div class="gutter"></div>
+          <div class="lane ml">
+            <div class="lane-tag">ML · 예측 망원경</div>
+            <div class="node">
+              <div class="nlabel">ML/DL 예측 확인</div>
+              <div class="nsub">forecast / detection</div>
+            </div>
+          </div>
+        </div>
+        <div class="converge">두 경로 수렴</div>
+        <div class="report-node">
+          <div class="nlabel">레포트 확인 · HTML</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 03 운영 원칙 -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-no">03</span>
+      <span class="sec-title">운영 원칙</span>
+      <span class="sec-sub">PRINCIPLES</span>
+    </div>
+
+    <div class="grid-p">
+      <div class="pcard">
+        <div class="pno">PR-1</div>
+        <h3>자동 레포트</h3>
+        <p>룰베이스 / ML 예측이 감지되면 자동으로 레포트를 생성한다.</p>
+      </div>
+      <div class="pcard">
+        <div class="pno">PR-2</div>
+        <h3>문제점 파악</h3>
+        <p>LLM으로 질문을 던질 때 문제점을 파악한다. (LLM 기본 기능)</p>
+      </div>
+      <div class="pcard">
+        <div class="pno">PR-3</div>
+        <h3>컨텍스트 압축</h3>
+        <p>과거 데이터 기록을 <code>하네스 + 헤르메스</code>를 통해 압축해 보관한다.</p>
+      </div>
+      <div class="pcard">
+        <div class="pno">PR-4</div>
+        <h3>상호 검증</h3>
+        <p>룰베이스 ↔ ML 이 서로가 서로를 확인하는 작업을 수행한다.</p>
+      </div>
+
+      <div class="gov">
+        <h3><span class="pno">PR-5</span>의사결정 가중치 &amp; 위계</h3>
+        <div class="wbar">
+          <div class="rule">룰베이스 70%</div>
+          <div class="ml">ML 30%</div>
+        </div>
+        <div class="hier">
+          <span class="chip rule">룰베이스 (부)</span>
+          <span class="rel">─ 절대 거역 불가 ▶</span>
+          <span class="chip ml">ML (자)</span>
+          <span class="rel">· 단, 의견은 존중</span>
+        </div>
+        <div class="note">
+          가중치는 룰베이스 70% / ML 30%. 위계상 룰베이스(부)는 ML(자)의 판단을 거역하지 못하며, 의견은 존중한다.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>HCP · LLM × ML HYBRID</span>
+    <span>존이 정의한 내용만 정리 / 추가 해석 없음</span>
+  </footer>
+
+</div>
+</body>
+</html>
