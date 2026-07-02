@@ -61,6 +61,16 @@ body: |
 """
 
 
+# 회상 의도 키워드 — 이게 있으면 검색 매칭과 무관하게 '최근 대화 원문'을 넣는다.
+_RECALL_HINTS = ("지난", "이전", "전에", "저번", "방금", "아까", "기억", "예전",
+                 "지난번", "말해준", "말했", "얘기했", "얘기한", "물어봤", "직전")
+
+
+def _wants_recall(q: str) -> bool:
+    q = q or ""
+    return any(h in q for h in _RECALL_HINTS)
+
+
 def build_system_prompt(user_id: str, query: str = "") -> str:
     """기존 시스템 프롬프트 뒤에 붙일 헤르메스 블록. 비었으면 빈 문자열."""
     parts = []
@@ -107,6 +117,27 @@ def build_system_prompt(user_id: str, query: str = "") -> str:
                     "=== 지난 대화 관련 기록 (과거 세션 검색) ===\n"
                     + "\n".join(lines[:20])
                     + "\n(참고용 과거 대화다. 사용자가 '지난 대화/전에 얘기한 것'을 물으면 이 기록을 근거로 답한다.)"
+                )
+
+        # 회상 의도('지난 대화 말해줘' 등)면 검색 매칭과 무관하게 최근 대화 '원문'을 주입한다.
+        # (BM25 검색은 일반적 회상 질문에선 0건이라, 이 경로가 실제 "지난 대화 기억"을 담당.)
+        if _wants_recall(query):
+            try:
+                recent = sessions._load_all(user_id)[-14:]
+            except Exception:
+                recent = []
+            rlines = []
+            for m in recent:
+                c = (m.get("content") or "").strip().replace("\n", " ")
+                if c:
+                    who = "사용자" if m.get("role") == "user" else "에이전트"
+                    rlines.append(f"[{m.get('date','')}] {who}: {c[:200]}")
+            if rlines:
+                parts.append(
+                    "=== 최근 대화 기록 (이 사용자와 직전에 나눈 대화 원문) ===\n"
+                    + "\n".join(rlines)
+                    + "\n★ 위는 실제 과거 대화다. 사용자가 지난 대화를 물으면 이 기록을 근거로 "
+                      "구체적으로 답하라. '이전 대화를 기억하지 못한다'고 답하지 마라."
                 )
 
     parts.append(PROTOCOL_GUIDE)
