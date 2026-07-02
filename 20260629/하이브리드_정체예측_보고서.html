@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>하이브리드 정체 30분 사전예측 1차 보고서</title>
+<style>
+  :root{
+    --surface:#fcfcfb; --plane:#f9f9f7; --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
+    --grid:#e1e0d9; --base:#c3c2b7; --ring:rgba(11,11,11,.10);
+    --rule:#eb6834; --normal:#2a78d6; --abn:#e87ba4; --judge:#1baf7a; --llm:#4a3aa7;
+    --good:#0ca30c; --warn:#fab219; --crit:#d03b3b;
+    --seq1:#cde2fb; --seq4:#3987e5;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--surface:#1a1a19;--plane:#0d0d0d;--ink:#fff;--ink2:#c3c2b7;--muted:#898781;
+      --grid:#2c2c2a;--base:#383835;--ring:rgba(255,255,255,.10);
+      --rule:#d95926;--normal:#3987e5;--abn:#d55181;--judge:#199e70;--llm:#9085e9;}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--plane);color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI","Malgun Gothic",sans-serif;line-height:1.6;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1000px;margin:0 auto;padding:44px 26px 80px}
+  header.hero{text-align:center;padding:20px 0 8px}
+  .kick{color:var(--judge);font-weight:700;font-size:14px;letter-spacing:.08em}
+  h1{font-size:34px;margin:8px 0 6px;font-weight:800;letter-spacing:-.01em}
+  .tag{color:var(--ink2);font-size:17px;margin:0}
+  .tag b{color:var(--judge)}
+  .date{color:var(--muted);font-size:13.5px;margin:6px 0 0}
+  section{background:var(--surface);border:1px solid var(--ring);border-radius:16px;
+    padding:26px 28px;margin:26px 0;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+  h2{font-size:20px;margin:0 0 4px;font-weight:750}
+  .sub{color:var(--muted);font-size:13.5px;margin:0 0 20px}
+  svg{display:block;width:100%;height:auto}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;margin-top:14px;font-size:13px;color:var(--ink2)}
+  .legend span{display:inline-flex;align-items:center;gap:7px}
+  .dot{width:11px;height:11px;border-radius:3px;display:inline-block}
+  /* 판정 행 */
+  .rows{display:flex;flex-direction:column;gap:8px}
+  .row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:14px;
+    padding:12px 16px;border-radius:10px;background:var(--plane);border:1px solid var(--ring)}
+  .row.hl{background:color-mix(in srgb,var(--warn) 14%,var(--surface));border-color:var(--warn)}
+  .combo{font-size:14px;color:var(--ink2)}
+  .combo b{color:var(--ink)}
+  .verdict{font-size:14.5px;font-weight:700;white-space:nowrap}
+  .v-crit{color:var(--crit)} .v-warn{color:#b45309} .v-good{color:var(--good)} .v-mute{color:var(--muted)}
+  .pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;
+    color:#fff;margin-right:2px}
+  /* 기술 카드 */
+  .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+  .card{border:1px solid var(--ring);border-radius:12px;padding:16px 18px;background:var(--plane)}
+  .card h3{margin:0 0 6px;font-size:15px}
+  .card p{margin:0;font-size:13px;color:var(--ink2)}
+  .note{text-align:center;font-size:14px;color:var(--ink2);margin-top:18px;
+    padding:14px;border-radius:10px;background:color-mix(in srgb,var(--judge) 10%,var(--surface))}
+  .note code{background:var(--surface);padding:2px 8px;border-radius:5px;color:var(--judge);font-weight:700}
+  .flow{display:flex;flex-direction:column;gap:0;margin:4px 0 22px}
+  .flow .step{display:flex;align-items:center;gap:14px;padding:11px 15px;border-radius:10px;
+    background:var(--plane);border:1px solid var(--ring)}
+  .flow .lbl{flex:0 0 62px;text-align:center;font-size:12.5px;font-weight:700;color:#fff;
+    padding:5px 0;border-radius:7px}
+  .flow .arw{text-align:center;color:var(--muted);font-size:15px;line-height:1;padding:3px 0}
+  .flow .txt{font-size:14px;color:var(--ink)}
+  footer{text-align:center;color:var(--muted);font-size:12px;margin-top:30px}
+  @media(max-width:680px){.cards{grid-template-columns:1fr}h1{font-size:26px}}
+  @media print{body{background:#fff}section{break-inside:avoid;box-shadow:none;
+    border-color:#ddd}.wrap{max-width:none;padding:0}@page{margin:14mm}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <div class="kick">M16A HUBROOM · AMHS 반송 정체 예측</div>
+    <h1>하이브리드 정체 30분 사전예측 1차 보고서</h1>
+    <p class="tag">운영자가 알기 <b>30분 전</b>, 세 개의 탐지기가 합의해 미리 알린다</p>
+    <p class="date">2026년 07월 03일 작성 · 제작 John Forest</p>
+  </header>
+
+  <!-- 1. 아키텍처 -->
+  <section>
+    <h2>아키텍처 — 캐스케이드 흐름 (하이브리드) 방식</h2>
+    <p class="sub">탐지(룰 + TSPulse <b style="color:var(--ink)">캐스케이드</b>) → 하이브리드 판정(합의) → <b style="color:var(--ink)">LLM 진단</b>(어디서·왜) → 실시간·일일 리포트</p>
+    <svg viewBox="0 0 820 440" role="img" aria-label="캐스케이드 흐름 하이브리드 아키텍처 + LLM 진단">
+      <defs><marker id="ar" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto">
+        <path d="M0,0 L6,3 L0,6 Z" fill="var(--base)"/></marker>
+        <marker id="arB" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto">
+        <path d="M0,0 L6,3 L0,6 Z" fill="var(--normal)"/></marker>
+        <marker id="arL" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto">
+        <path d="M0,0 L6,3 L0,6 Z" fill="var(--llm)"/></marker></defs>
+      <g font-family="system-ui,sans-serif">
+        <!-- 방식 뱃지 -->
+        <rect x="278" y="4" width="264" height="28" rx="14" fill="var(--judge)"/>
+        <text x="410" y="23" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="750">캐스케이드 흐름 (하이브리드) 방식</text>
+
+        <!-- 룰베이스 기둥 -->
+        <rect x="34" y="58" width="212" height="106" rx="12" fill="color-mix(in srgb,var(--rule) 12%,var(--surface))" stroke="var(--rule)" stroke-width="1.5"/>
+        <rect x="34" y="58" width="212" height="28" rx="12" fill="var(--rule)"/>
+        <text x="140" y="78" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">룰베이스</text>
+        <text x="140" y="112" text-anchor="middle" fill="var(--ink)" font-size="13.5" font-weight="600">규칙 기반 탐지</text>
+        <text x="140" y="134" text-anchor="middle" fill="var(--muted)" font-size="12">독립 실행 · 설명가능</text>
+
+        <!-- TSPulse 엔진 (정상 → 비정상 캐스케이드) -->
+        <rect x="290" y="46" width="500" height="130" rx="14" fill="color-mix(in srgb,var(--normal) 6%,var(--surface))" stroke="var(--normal)" stroke-width="1.5" stroke-dasharray="6 4"/>
+        <text x="305" y="66" fill="var(--normal)" font-size="12.5" font-weight="700">TSPulse 엔진 — ML 탐지 (같은 엔진, 2역할)</text>
+        <!-- 정상 -->
+        <rect x="305" y="78" width="210" height="82" rx="10" fill="color-mix(in srgb,var(--normal) 14%,var(--surface))" stroke="var(--normal)" stroke-width="1.3"/>
+        <rect x="305" y="78" width="210" height="24" rx="10" fill="var(--normal)"/>
+        <text x="410" y="95" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">정상 모델</text>
+        <text x="410" y="124" text-anchor="middle" fill="var(--ink)" font-size="12.5" font-weight="600">정상만 학습</text>
+        <text x="410" y="144" text-anchor="middle" fill="var(--muted)" font-size="11.5">전조 포착 · 30분 선행</text>
+        <!-- 비정상 -->
+        <rect x="565" y="78" width="210" height="82" rx="10" fill="color-mix(in srgb,var(--abn) 16%,var(--surface))" stroke="var(--abn)" stroke-width="1.3"/>
+        <rect x="565" y="78" width="210" height="24" rx="10" fill="var(--abn)"/>
+        <text x="670" y="95" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="700">비정상 모델</text>
+        <text x="670" y="124" text-anchor="middle" fill="var(--ink)" font-size="12.5" font-weight="600">진짜 정체? 확인</text>
+        <text x="670" y="144" text-anchor="middle" fill="var(--muted)" font-size="11.5">정체 학습</text>
+        <!-- 캐스케이드 화살표 -->
+        <text x="540" y="112" text-anchor="middle" fill="var(--normal)" font-size="11" font-weight="700">이상시 통보</text>
+        <path d="M515,119 L562,119" stroke="var(--normal)" stroke-width="2.2" fill="none" marker-end="url(#arB)"/>
+
+        <!-- 판정으로 합류 -->
+        <g stroke="var(--base)" stroke-width="2" fill="none">
+          <path d="M140,164 L140,198 L410,198"/>
+          <path d="M540,176 L540,198 L410,198"/>
+          <path d="M410,198 L410,222" marker-end="url(#ar)"/>
+        </g>
+
+        <!-- 하이브리드 판정 -->
+        <rect x="185" y="222" width="450" height="48" rx="12" fill="var(--judge)"/>
+        <text x="410" y="243" text-anchor="middle" fill="#fff" font-size="15.5" font-weight="750">하이브리드 판정</text>
+        <text x="410" y="261" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">룰 + TSPulse 합의 → 신뢰도 등급</text>
+        <path d="M410,270 L410,288" stroke="var(--base)" stroke-width="2" marker-end="url(#ar)"/>
+        <!-- LLM 진단 -->
+        <rect x="185" y="290" width="450" height="50" rx="12" fill="var(--llm)"/>
+        <text x="410" y="312" text-anchor="middle" fill="#fff" font-size="15.5" font-weight="750">LLM 진단 — 어디서 · 왜 · 어떻게</text>
+        <text x="410" y="330" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">인과 분석 (설비·리프터 HID) · 권장 조치</text>
+        <!-- 분기: 두 리포트 -->
+        <g stroke="var(--base)" stroke-width="2" fill="none">
+          <path d="M410,340 L410,352 L245,352 L245,364" marker-end="url(#ar)"/>
+          <path d="M410,352 L575,352 L575,364" marker-end="url(#ar)"/>
+        </g>
+        <!-- 실시간 이상 리포트 -->
+        <rect x="95" y="366" width="300" height="58" rx="11" fill="color-mix(in srgb,var(--llm) 13%,var(--surface))" stroke="var(--llm)" stroke-width="1.3"/>
+        <text x="245" y="391" text-anchor="middle" fill="var(--ink)" font-size="13.5" font-weight="700">실시간 이상 리포트</text>
+        <text x="245" y="411" text-anchor="middle" fill="var(--muted)" font-size="11.5">정체 감지 즉시 · 원인·조치 자동 작성</text>
+        <!-- 일일 보고서 -->
+        <rect x="425" y="366" width="300" height="58" rx="11" fill="color-mix(in srgb,var(--llm) 13%,var(--surface))" stroke="var(--llm)" stroke-width="1.3"/>
+        <text x="575" y="391" text-anchor="middle" fill="var(--ink)" font-size="13.5" font-weight="700">일일 종합 보고서</text>
+        <text x="575" y="411" text-anchor="middle" fill="var(--muted)" font-size="11.5">하루 요약 · 매일 자동 생성</text>
+        <!-- 룰·TSPulse 단독 리포트 피드 (점선) -->
+        <g stroke="var(--llm)" stroke-width="1.6" fill="none" stroke-dasharray="5 4">
+          <path d="M34,118 L14,118 L14,314 L182,314" marker-end="url(#arL)"/>
+          <path d="M790,118 L806,118 L806,314 L638,314" marker-end="url(#arL)"/>
+        </g>
+        <text x="24" y="212" fill="var(--llm)" font-size="10.5" font-weight="700" transform="rotate(-90,24,212)" text-anchor="middle">룰 단독 리포트</text>
+        <text x="797" y="212" fill="var(--llm)" font-size="10.5" font-weight="700" transform="rotate(90,797,212)" text-anchor="middle">TSPulse 단독 리포트</text>
+      </g>
+    </svg>
+    <p style="text-align:center;font-size:12.5px;color:var(--muted);margin:12px 0 0">
+      <span style="color:var(--llm);font-weight:700">┈ 점선</span> = 룰베이스·TSPulse <b style="color:var(--ink)">각각 단독으로도</b> LLM 리포트 생성 가능
+    </p>
+    <!-- LLM 진단 예시 -->
+    <div style="margin:20px 0 18px;border:1px solid var(--llm);border-radius:12px;overflow:hidden">
+      <div style="background:var(--llm);color:#fff;font-size:12.5px;font-weight:700;padding:8px 16px">LLM 진단 예시 — 실시간 이상 리포트</div>
+      <div style="padding:16px 18px;background:var(--plane)">
+        <p style="margin:0 0 10px;font-size:14.5px;color:var(--ink)">
+          <b style="color:var(--rule)">M16HUB STB 저장 100%</b> → 리프터가 못 내려놓음 → <b>큐 역류</b> → <b style="color:var(--crit)">M16A 반송 정체</b>
+        </p>
+        <p style="margin:0;font-size:13.5px;color:var(--ink2)">
+          <b style="color:var(--judge)">권장 조치</b> : 6ABL0121 Port 개방 &nbsp;+&nbsp; Maxcapa 조정
+        </p>
+      </div>
+    </div>
+    <div class="flow">
+      <div class="step"><span class="lbl" style="background:var(--normal)">탐지</span>
+        <span class="txt">룰베이스 + TSPulse (정상 → 비정상 캐스케이드)</span></div>
+      <div class="arw">↓</div>
+      <div class="step"><span class="lbl" style="background:var(--judge)">판정</span>
+        <span class="txt">하이브리드 판정 (합의 · 신뢰도)</span></div>
+      <div class="arw">↓</div>
+      <div class="step"><span class="lbl" style="background:var(--llm)">진단</span>
+        <span class="txt">LLM — 어디서 · 왜 · 어떻게 (인과 · 리프터 HID · 조치)</span></div>
+      <div class="arw">↓</div>
+      <div class="step"><span class="lbl" style="background:var(--llm)">리포트</span>
+        <span class="txt">실시간 이상 리포트 (정체 감지 즉시) · 일일 종합 보고서 (매일 자동)</span></div>
+    </div>
+  </section>
+
+  <!-- 2. ★ 30분 선행 그래프 -->
+  <section>
+    <h2>★ 핵심 — 정체보다 30분 먼저 오르는 이상점수</h2>
+    <p class="sub">정상만 학습한 AI는 평소와 달라지면 점수가 급증한다. 이 급증이 정체보다 <b style="color:var(--ink)">30분 앞선다.</b></p>
+    <svg viewBox="0 0 820 360" role="img" aria-label="이상점수가 정체 30분 전 상승하는 그래프">
+      <!-- gridlines -->
+      <g stroke="var(--grid)" stroke-width="1">
+        <line x1="62" y1="40" x2="780" y2="40"/><line x1="62" y1="170" x2="780" y2="170"/><line x1="62" y1="300" x2="780" y2="300"/>
+      </g>
+      <!-- y축 라벨 -->
+      <g fill="var(--muted)" font-size="12" font-family="system-ui" text-anchor="end">
+        <text x="54" y="44">1.0</text><text x="54" y="174">0.5</text><text x="54" y="304">0</text>
+      </g>
+      <text x="20" y="175" fill="var(--ink2)" font-size="12.5" font-weight="600" transform="rotate(-90,20,175)" text-anchor="middle">이상점수</text>
+      <!-- x축 -->
+      <line x1="62" y1="300" x2="780" y2="300" stroke="var(--base)" stroke-width="1.5"/>
+      <g fill="var(--muted)" font-size="12" font-family="system-ui" text-anchor="middle">
+        <text x="62" y="320">0</text><text x="228" y="320">30</text><text x="393" y="320">60</text>
+        <text x="559" y="320">90</text><text x="725" y="320">120</text>
+        <text x="770" y="338" text-anchor="end">시간 (분)</text>
+      </g>
+      <!-- 임계선 -->
+      <line x1="62" y1="170" x2="780" y2="170" stroke="var(--crit)" stroke-width="1.3" stroke-dasharray="5 4" opacity=".7"/>
+      <text x="70" y="163" fill="var(--crit)" font-size="11.5" font-weight="600">임계 (이상 판정)</text>
+      <!-- area + line -->
+      <path d="M62,269 L117,274 L173,258 L228,264 L283,251 L338,248 L393,238 L449,214 L504,188 L559,165 L614,126 L670,89 L725,63 L780,56 L780,300 L62,300 Z"
+            fill="var(--seq1)" opacity=".35"/>
+      <path d="M62,269 L117,274 L173,258 L228,264 L283,251 L338,248 L393,238 L449,214 L504,188 L559,165 L614,126 L670,89 L725,63 L780,56"
+            fill="none" stroke="var(--seq4)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+      <!-- 이상 감지 marker (t=90) -->
+      <line x1="559" y1="165" x2="559" y2="300" stroke="var(--warn)" stroke-width="1.5" stroke-dasharray="4 3"/>
+      <circle cx="559" cy="165" r="6" fill="var(--warn)" stroke="var(--surface)" stroke-width="2"/>
+      <text x="559" y="150" text-anchor="middle" fill="#b45309" font-size="12.5" font-weight="700">이상 감지</text>
+      <!-- 정체 발생 marker (t=120) -->
+      <line x1="725" y1="63" x2="725" y2="300" stroke="var(--crit)" stroke-width="1.5" stroke-dasharray="4 3"/>
+      <circle cx="725" cy="63" r="6" fill="var(--crit)" stroke="var(--surface)" stroke-width="2"/>
+      <text x="725" y="50" text-anchor="middle" fill="var(--crit)" font-size="12.5" font-weight="700">정체 발생</text>
+      <!-- 30분 선행 bracket -->
+      <g stroke="var(--judge)" stroke-width="1.6" fill="none">
+        <path d="M559,28 L725,28"/><path d="M559,24 L559,32"/><path d="M725,24 L725,32"/>
+      </g>
+      <rect x="600" y="14" width="84" height="24" rx="12" fill="var(--judge)"/>
+      <text x="642" y="31" text-anchor="middle" fill="#fff" font-size="13" font-weight="750">30분 선행</text>
+    </svg>
+    <div class="legend">
+      <span><i class="dot" style="background:var(--seq4)"></i>이상점수(정상 AI)</span>
+      <span><i class="dot" style="background:var(--warn)"></i>이상 감지 시점</span>
+      <span><i class="dot" style="background:var(--crit)"></i>정체 발생</span>
+    </div>
+  </section>
+
+  <!-- 3. 하이브리드 판정 -->
+  <section>
+    <h2>하이브리드 판정 로직</h2>
+    <p class="sub">세 탐지기의 조합으로 최종 판정. <b style="color:var(--ink)">3번째 줄</b>이 이 시스템의 진짜 가치.</p>
+    <div class="rows">
+      <div class="row">
+        <span class="combo"><b>룰:위험</b> + <b>정상:이상</b> + <b>비정상:정체</b></span>
+        <span class="verdict v-crit"><span class="pill" style="background:var(--crit)">확실</span>확실 정체 · 즉시 대응</span>
+      </div>
+      <div class="row">
+        <span class="combo"><b>룰:위험</b> + 정상:정상</span>
+        <span class="verdict">정체 (룰 근거)</span>
+      </div>
+      <div class="row hl">
+        <span class="combo">룰:정상 + <b>정상:이상</b> + <b>비정상:정체</b></span>
+        <span class="verdict v-warn"><span class="pill" style="background:var(--warn);color:#3a2a00">⭐</span>전조 경보 · 30분 선행</span>
+      </div>
+      <div class="row">
+        <span class="combo">룰:정상 + 정상:이상 + <b>비정상:정체 아님</b></span>
+        <span class="verdict v-mute">무시 (설비작업·센서)</span>
+      </div>
+      <div class="row">
+        <span class="combo">룰:정상 + 정상:정상</span>
+        <span class="verdict v-good"><span class="pill" style="background:var(--good)">안전</span>안전</span>
+      </div>
+    </div>
+    <div class="note">
+      ⭐ 룰은 아직 조용한데 AI 둘이 "곧 정체" → <b style="color:var(--ink)">룰보다 30분 먼저 경보</b>.
+      그리고 4번째 줄로 <b style="color:var(--ink)">정체 아닌 이상(오탐)을 걸러낸다.</b><br>
+      핵심 — <code>세 개가 합의하면 진짜다.</code>
+    </div>
+  </section>
+
+  <!-- 4. 핵심 기술 -->
+  <section>
+    <h2>핵심 기술</h2>
+    <p class="sub">재구성 이상탐지 (TSPulse R1, 1M 초경량)</p>
+    <div class="cards">
+      <div class="card"><h3>① 정상만 학습</h3><p>정상 패턴을 재구성하도록 학습 → 평소와 다른 급증(전조)은 재구성 실패 → <b style="color:var(--ink)">오차 큼 = 이상</b>. 라벨 불필요.</p></div>
+      <div class="card"><h3>② 대칭 확인관</h3><p>비정상 모델은 정체를 재구성. 후보가 <b style="color:var(--ink)">정체모델서 오차 낮으면 = 정체 확정</b>. 둘 다 높으면 = 정체 아닌 이상.</p></div>
+      <div class="card"><h3>③ 초경량·폐쇄망</h3><p>1.08M 파라미터. CPU로도 동작, 오프라인 반입 가능. 시계열 네이티브(롤링·델타 수작업 불필요).</p></div>
+      <div class="card"><h3>④ 누수 차단</h3><p>학습창은 시각 t까지 과거만. 작업일정·정체 구간을 <b style="color:var(--ink)">데이터에서 제거</b>한 순수 정상만 학습.</p></div>
+    </div>
+  </section>
+
+  <footer>하이브리드 정체 30분 사전예측 1차 보고서 · 2026년 07월 03일 · 제작 John Forest · M16A HUBROOM</footer>
+</div>
+</body>
+</html>
