@@ -1,62 +1,9 @@
-Bash
-cd /home/user/ASAS/scientific-assistant
-python3 - <<'PY'
-from ctx_compress import compress_detailed, _rough_tokens
-import io, csv
+1. 에이전트가 SQL을 "쓰는" 경우 (Text-to-SQL / DB 조회)
+LangGraph는 오케스트레이션 프레임워크라서 SQL 실행은 노드나 툴로 그냥 붙이면 된다. 방법은 대략:
 
-# H-AP SQL 결과 흉내: 3500행 (timestamp, device, hid, qcnt, status, latency)
-rows=[]
-buf=io.StringIO(); w=csv.writer(buf)
-w.writerow(["datetime","device","hid","qcnt","status","latency_ms"])
-for i in range(3500):
-    w.writerow([f"2026-07-02 {i//60%24:02d}:{i%60:02d}:00", f"6ABL{i%40:04d}",
-                f"HID{i%120}", i%15, "OK" if i%13 else "ERROR", i%300])
-csv_text = buf.getvalue()
+노드에서 직접 실행 — 노드 함수 안에서 cursor.execute(query) 돌리고 결과를 state에 넣는다. 제일 단순하고 통제 잘 됨.
+LangChain SQL 툴킷 활용 — SQLDatabase, SQLDatabaseToolkit, create_sql_agent. LLM이 스키마 보고 쿼리 생성 → 실행 → 결과 해석하는 흐름. 폐쇄망에서도 SQLAlchemy 드라이버만 있으면 Oracle/MySQL 다 붙는다.
+Text-to-SQL 커스텀 그래프 — generate_query → validate → execute → (에러 나면) self-correction 루프. 이게 존이 이미 하던 LangGraph Self-Correction 패턴이랑 딱 맞는다. SQL 문법 에러나 빈 결과를 verifier가 잡아서 다시 생성시키는 식.
 
-print(f"■ SQL 결과 3500행 CSV")
-print(f"  크기: {len(csv_text):,}자,  LLM 토큰 추정: {_rough_tokens(csv_text):,} 토큰")
-print(f"  (참고: 일반 모델 컨텍스트 32K~128K 토큰)")
-
-r = compress_detailed(csv_text)
-print(f"\n■ ctx_compress 적용")
-print(f"  타입={r.content_type} 전략={r.strategy}")
-print(f"  {r.original_tokens:,} → {r.compressed_tokens:,} 토큰  (압축률 {r.ratio:.0%}, {r.saved_tokens:,} 절감)")
-print(f"  버린 행 복구맵: {len(r.refs)}개")
-
-# JSON 형태(레코드 배열)로 주면?
-import json
-recs=[{"datetime":f"2026-07-02 {i//60%24:02d}:{i%60:02d}", "device":f"6ABL{i%40:04d}",
-       "hid":f"HID{i%120}","qcnt":i%15,"status":"OK" if i%13 else "ERR"} for i in range(3500)]
-js=json.dumps(recs, ensure_ascii=False)
-rj=compress_detailed(js)
-print(f"\n■ 같은 데이터 JSON 배열로 줄 때")
-print(f"  {rj.original_tokens:,} → {rj.compressed_tokens:,} 토큰 (전략={rj.strategy}, 압축률 {rj.ratio:.0%})")
-PY
-■ SQL 결과 3500행 CSV
-  크기: 158,479자,  LLM 토큰 추정: 39,620 토큰
-  (참고: 일반 모델 컨텍스트 32K~128K 토큰)
-
-■ ctx_compress 적용
-  타입=build 전략=log
-  39,620 → 778 토큰  (압축률 2%, 38,842 절감)
-  버린 행 복구맵: 1개
-
-■ 같은 데이터 JSON 배열로 줄 때
-  87,054 → 11,476 토큰 (전략=json-columnar, 압축률 13%)
-
-
-
-⚠️ 하지만 중요한 함정
-ctx_compress가 3500행을 778토큰으로 줄이는 건 행을 버리고 대표/요약만 남기는 압축입니다. 그래서:
-
-"대충 추이·패턴만 보면 됨" → ✅ 압축본으로 충분
-"모든 행의 정확한 값을 하나하나 계산·분석" → ❌ 압축이 행을 버려서 손실 (LLM이 안 버려진 일부만 봄)
-✅ 권장 패턴 (데모스가 이미 쓰는 방식)
-3~4천 행은 LLM에 raw로 던지지 말고, 파이썬/SQL에서 먼저 집계·요약한 뒤 결과(수 행 / 통계 / 그룹별 요약)만 LLM에 주세요.
-
-실제로 데모스는 발동이벤트 CSV(1440행)에 대해 🐍 BUILTIN-SUMMARY로 요약만 주입(raw 미전송) 하고 있습니다 — 정확히 이 방식이에요.
-정리
-로딩: 파이썬 3.10+ SQL로 3~4천 행 → 문제없음
-H-AP 접속: 사내망 드라이버·권한 확인 필요
-LLM 투입: raw로 던지면 39K 토큰(무거움) → 집계·요약 후 주기가 정석. ctx_compress는 "끊김 방지 안전망"이지 정밀분석용 무손실은 아님
-원하시면 "H-AP SQL 조회 → 3~4천 행 로드 → 파이썬으로 요약 → LLM에 요약만 전달" 하는 샘플 코드를 짜드릴게요. H-AP 접속 방식(pyodbc? JDBC? Hive/Impala/Presto?)만 알려주시면 그에 맞춰 드리겠습니다.
+2. LangGraph "자체"가 SQL을 쓰는 경우 (체크포인트/메모리)
+LangGraph의 상태 영속화에 SQL 백엔드를 쓴다. SqliteSaver, PostgresSaver 같은 체크포인터로 그래프 실행 상태를 DB에 저장. 세션 이어가기나 장기 메모리에 쓴다.
