@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>6월 정체 사전예측 검증</title>
+<style>
+  :root{
+    --surface:#fcfcfb; --plane:#f9f9f7; --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
+    --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,.10);
+    --tp:#0ca30c; --fp:#d03b3b; --fn:#fab219; --tn:#b8b6ad; --thr:#4a3aa7;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--surface:#1a1a19;--plane:#0d0d0d;--ink:#fff;--ink2:#c3c2b7;--muted:#898781;
+      --grid:#2c2c2a;--axis:#383835;--border:rgba(255,255,255,.10);
+      --tp:#0ca30c;--fp:#e05656;--fn:#fab219;--tn:#6a6862;--thr:#9085e9;}
+  }
+  :root[data-theme=dark]{--surface:#1a1a19;--plane:#0d0d0d;--ink:#fff;--ink2:#c3c2b7;--muted:#898781;
+    --grid:#2c2c2a;--axis:#383835;--border:rgba(255,255,255,.10);--tp:#0ca30c;--fp:#e05656;--fn:#fab219;--tn:#6a6862;--thr:#9085e9;}
+  :root[data-theme=light]{--surface:#fcfcfb;--plane:#f9f9f7;--ink:#0b0b0b;--ink2:#52514e;--muted:#898781;
+    --grid:#e1e0d9;--axis:#c3c2b7;--border:rgba(11,11,11,.10);--tp:#0ca30c;--fp:#d03b3b;--fn:#fab219;--tn:#b8b6ad;--thr:#4a3aa7;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--plane);color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.5}
+  .wrap{max-width:960px;margin:0 auto;padding:28px 20px 48px}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:var(--ink2);font-size:14px;margin:0 0 22px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px}
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+  .tile{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px}
+  .tile .k{font-size:12px;color:var(--ink2);margin-bottom:4px}
+  .tile .v{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+  .tile .v small{font-size:13px;font-weight:600;color:var(--ink2)}
+  .chart-title{font-size:15px;font-weight:600;margin:0 0 2px}
+  .chart-note{font-size:12.5px;color:var(--ink2);margin:0 0 14px}
+  svg{width:100%;height:auto;display:block;overflow:visible}
+  .legend{display:flex;flex-wrap:wrap;gap:16px;margin-top:14px;font-size:13px;color:var(--ink2)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+  .verdict{display:flex;gap:14px;align-items:flex-start}
+  .verdict .big{font-size:40px;line-height:1}
+  .verdict h2{margin:0 0 6px;font-size:18px}
+  .verdict p{margin:0;color:var(--ink2);font-size:14px}
+  .bar-val{font-size:10.5px;font-variant-numeric:tabular-nums}
+  @media(max-width:640px){.tiles{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>하이브리드 정체 30분 사전예측 — 6월 검증</h1>
+  <p class="sub">2026-06-01 ~ 06-18 · 정답: M16A HUBROOM 운영 메신저 실제 반송정체 신고 · 예측: TSPulse R1 (고정 기준선)</p>
+
+  <div class="tiles">
+    <div class="tile"><div class="k">주요 정체 탐지율</div><div class="v" style="color:var(--tp)">100<small>% (4/4)</small></div></div>
+    <div class="tile"><div class="k">평균 사전 리드타임</div><div class="v">212<small>분</small></div></div>
+    <div class="tile"><div class="k">정밀도 (경보중 진짜)</div><div class="v" style="color:var(--fp)">50<small>% (4/8)</small></div></div>
+    <div class="tile"><div class="k">과탐지 개선</div><div class="v">25→6<small>%</small></div></div>
+  </div>
+
+  <div class="card">
+    <p class="chart-title">일자별 위험 비율 & 판정</p>
+    <p class="chart-note">막대 높이 = 하루 중 위험(≥0.7) 시간 비율. 색 = 판정. 점선 = 경보 임계(6%). ★ = 실제 정체 발생일.</p>
+    <svg id="chart" viewBox="0 0 900 380" role="img" aria-label="일자별 위험 비율 막대그래프"></svg>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--tp)"></i>정탐 (실제 정체 잡음)</span>
+      <span><i class="sw" style="background:var(--fp)"></i>오탐 (정체 아닌 이상)</span>
+      <span><i class="sw" style="background:var(--fn)"></i>미탐 (경미정체 놓침)</span>
+      <span><i class="sw" style="background:var(--tn)"></i>정상판정 (조용한 날)</span>
+    </div>
+  </div>
+
+  <div class="card verdict">
+    <div class="big">✅</div>
+    <div>
+      <h2>잘 됐다 — 단, TSPulse 단독은 절반의 성공</h2>
+      <p><b>대형 반송정체(6/2·5·16·18)는 4/4 전부 사전 탐지</b>했고, 특히 6/16 Storage Full은 운영자 인지(08:08)보다 <b>30분+ 앞서</b> 위험 진입 → 30분 사전예측 실증. 놓친 대형사건 0건. <br>
+      다만 <b>경보 8일 중 4일이 오탐</b>(정밀도 50%) — 6/4처럼 저장률·설비가 흔들렸지만 <b>반송시간은 정상(소화됨)</b>인 "정체 아닌 이상". TSPulse는 '평소와 다름'을 잡지 '정체'를 직접 안 잡기 때문. <br>
+      → <b>반송시간 2차확인(하이브리드)</b>을 걸면 오탐 4일이 걸러져 <b>정밀도 50%→~100%</b>, 탐지율 100% 유지. 이 결과가 캐스케이드 설계의 근거다.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+const DATA=[
+ {d:1,v:0.4,r:'tn'},{d:2,v:6.9,r:'tp',e:1,lead:186},{d:3,v:3.5,r:'fn',e:1},
+ {d:4,v:22.8,r:'fp'},{d:5,v:9.0,r:'tp',e:1,lead:240},{d:6,v:1.6,r:'tn'},
+ {d:7,v:1.9,r:'tn'},{d:8,v:5.3,r:'tn'},{d:9,v:6.1,r:'fp'},{d:10,v:8.8,r:'fp'},
+ {d:11,v:4.2,r:'fn',e:1},{d:12,v:2.9,r:'tn'},{d:13,v:3.7,r:'tn'},{d:14,v:3.8,r:'tn'},
+ {d:15,v:7.3,r:'fp'},{d:16,v:8.5,r:'tp',e:1,lead:187},{d:17,v:2.6,r:'tn'},{d:18,v:7.0,r:'tp',e:1,lead:236}
+];
+const C={tp:'var(--tp)',fp:'var(--fp)',fn:'var(--fn)',tn:'var(--tn)'};
+const W=900,H=380,L=44,R=16,T=20,B=46;
+const pw=W-L-R, ph=H-T-B, ymax=24, thr=6;
+const x=i=>L+ i*(pw/DATA.length) + (pw/DATA.length)*0.16;
+const bw=(pw/DATA.length)*0.68;
+const y=val=>T+ph-(val/ymax)*ph;
+let s='';
+// gridlines
+[0,6,12,18,24].forEach(g=>{
+  s+=`<line x1="${L}" y1="${y(g)}" x2="${W-R}" y2="${y(g)}" stroke="var(--grid)" stroke-width="1"/>`;
+  s+=`<text x="${L-8}" y="${y(g)+4}" text-anchor="end" font-size="11" fill="var(--muted)">${g}%</text>`;
+});
+// threshold
+s+=`<line x1="${L}" y1="${y(thr)}" x2="${W-R}" y2="${y(thr)}" stroke="var(--thr)" stroke-width="2" stroke-dasharray="6 4"/>`;
+s+=`<text x="${W-R}" y="${y(thr)-6}" text-anchor="end" font-size="11" font-weight="600" fill="var(--thr)">경보 임계 6%</text>`;
+// bars
+DATA.forEach((o,i)=>{
+  const bx=x(i), by=y(o.v), bh=T+ph-by;
+  s+=`<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="4" fill="${C[o.r]}"><title>6/${o.d}  위험 ${o.v}%  ${o.r.toUpperCase()}${o.lead?'  리드 '+o.lead+'분':''}</title></rect>`;
+  s+=`<text class="bar-val" x="${bx+bw/2}" y="${by-5}" text-anchor="middle" fill="var(--ink2)">${o.v}</text>`;
+  // x label
+  s+=`<text x="${bx+bw/2}" y="${H-B+18}" text-anchor="middle" font-size="11" fill="var(--muted)">${o.d}</text>`;
+  // event marker
+  if(o.e) s+=`<text x="${bx+bw/2}" y="${H-B+32}" text-anchor="middle" font-size="11" fill="var(--tp)">★</text>`;
+});
+s+=`<text x="${L-32}" y="${T-6}" font-size="11" fill="var(--muted)">위험%</text>`;
+s+=`<text x="${W-R}" y="${H-B+32}" text-anchor="end" font-size="11" fill="var(--muted)">6월 (일) · ★실제정체</text>`;
+document.getElementById('chart').innerHTML=s;
+</script>
+</body>
+</html>
