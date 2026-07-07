@@ -149,42 +149,45 @@ def main():
         except (TypeError, ValueError):
             return None
 
-    n_final = n_stor = n_block = 0
+    # 지평선 정렬 (10분 먼저, 30분 뒤)
+    tags = sorted(tags, key=lambda tg: horizon[tg])
+    n_final = {tg: 0 for tg in tags}
+    n_stor = n_block = 0
     with open(a.out, 'w', newline='', encoding='utf-8-sig') as f:
         w = csv.writer(f)
-        header = ['datetime', '최종등급', '사유']
+        # 지평선별로 예측시각·확률·최종등급·사유 나눠서 출력
+        header = ['datetime']
         for tg in tags:
-            header += [f'{tg}_예측시각', f'{tg}_prob', f'{tg}_level']
+            m = tg.replace('y_pre', '')
+            header += [f'{m}분_예측시각', f'{m}분_확률', f'{m}분_최종등급', f'{m}분_사유']
         header += ['저장경보', 'RD_FAB', 'RD_STB', 'SLA_4분초과']
         w.writerow(header)
         for i, t in enumerate(df['datetime']):
-            reasons = []
-            # ① XGBoost 등급 (30분 + 10분 초위험 승격)
-            g_xgb = ''
-            for tg in tags:
-                g = level(float(probs[tg][i]), tg)
-                if RANK[g] > RANK[g_xgb]:
-                    g_xgb = g
-            if g_xgb:
-                pr = " ".join(f"{tg.replace('y_pre','')}분{probs[tg][i]*100:.0f}%" for tg in tags)
-                reasons.append(f"XGBoost({pr})")
-            # ② 저장룰 (4분초과 확인 → 6/4형 차단)
+            # 저장룰 (지평선 공통) — 4분초과 확인으로 6/4형 차단
             rd_fab, rd_stb, sla = fnum(rd_fab_v[i]), fnum(rd_stb_v[i]), fnum(sla_v[i])
             s_alarm, s_hi = storage_alarm(rd_fab, rd_stb, sla)
             if s_hi and not s_alarm:
                 n_block += 1
             if s_alarm:
                 n_stor += 1
-                reasons.append(f"저장경보(FAB{rd_fab or 0:.0f}%/STB{rd_stb or 0:.0f}%,4분초과{sla or 0:.0f}%)")
-            # ③ 최종 = max(XGBoost, 저장경보)
-            final = INV[max(RANK[g_xgb], RANK['위험' if s_alarm else ''])]
-            if final:
-                n_final += 1
+                s_reason = f"저장경보(FAB{rd_fab or 0:.0f}%/STB{rd_stb or 0:.0f}%,4분초과{sla or 0:.0f}%)"
 
-            row = [t.strftime('%Y-%m-%d %H:%M'), final, ' | '.join(reasons)]
+            row = [t.strftime('%Y-%m-%d %H:%M')]
             for tg in tags:
+                m = tg.replace('y_pre', '')
+                p = float(probs[tg][i])
+                g_xgb = level(p, tg)
+                # 지평선별 최종 = max(그 지평선 XGBoost, 저장경보)
+                final = INV[max(RANK[g_xgb], RANK['위험' if s_alarm else ''])]
+                why = []
+                if g_xgb:
+                    why.append(f"XGBoost {m}분 {p*100:.0f}%")
+                if s_alarm:
+                    why.append(s_reason)
+                if final:
+                    n_final[tg] += 1
                 tgt = (t + timedelta(minutes=horizon[tg])).strftime('%Y-%m-%d %H:%M')
-                row += [tgt, f'{probs[tg][i]:.4f}', level(float(probs[tg][i]), tg)]
+                row += [tgt, f'{p:.4f}', final, ' | '.join(why)]
             row += ['예' if s_alarm else '',
                     '' if rd_fab is None else f'{rd_fab:.1f}',
                     '' if rd_stb is None else f'{rd_stb:.1f}',
@@ -193,10 +196,9 @@ def main():
 
     print(f"[완료] {len(df)}분 → {a.out}")
     for tg in tags:
-        hi = int((probs[tg] >= 0.7).sum())
-        print(f"       {tg}: 정체(≥0.7) {hi}분 ({hi/len(df)*100:.1f}%)")
+        m = tg.replace('y_pre', '')
+        print(f"       {m}분 최종경보(위험+): {n_final[tg]}분 ({n_final[tg]/len(df)*100:.1f}%)")
     print(f"       저장경보 {n_stor}분 · 저장튐→4분초과없어 차단(6/4형) {n_block}분")
-    print(f"       ★ 최종경보(XGBoost+저장룰) {n_final}분 ({n_final/len(df)*100:.1f}%)")
 
 
 if __name__ == '__main__':
