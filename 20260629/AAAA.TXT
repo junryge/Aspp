@@ -1,24 +1,245 @@
-﻿날짜,요일,총분,평균score,위험%(≥0.7),경계%(≥0.5),peak_score,peak_시각,30분지속MA,60분지속MA,최장연속위험_분,정답라벨,모델판정,결과,리드타임_분,메신저_실제사건
-2026-06-01,월,929,0.153,0.4,1.7,0.999,12:57,0.219,0.197,2,설비,정상,정상판정(TN),,ZT 6ABL0131 Error+4ABLD112 Error 발생·회복
-2026-06-02,화,1440,0.243,6.9,12.6,1.0,15:55,0.679,0.638,6,정체,경보,정탐(TP),186,"FAB제조 ""Hub 반송Time 급증"" 신고(13:47,17:31), OHT error"
-2026-06-03,수,1440,0.184,3.5,6.2,1.0,16:32,0.676,0.599,4,정체경,정상,미탐-경미(FN),27,"FAB제조 ""M16 반송Q 증가·M16A→M16B LOT 지연"" 신고(02:18)"
-2026-06-04,목,1440,0.443,22.8,38.5,1.0,00:09,0.912,0.859,16,정상,경보,오탐-확정(FP),,메신저 기록 전무 / 원본확인:반송시간 4.6분 평평·4분초과 0
-2026-06-05,금,1440,0.265,9.0,14.1,1.0,09:24,0.743,0.687,9,정체,경보,정탐(TP),240,HUB PIO Error 오전급증 + M16B Normal Storage 98.1% Full(16:38)
-2026-06-06,토,1440,0.177,1.6,4.9,1.0,23:44,0.401,0.303,2,정상,정상,정상판정(TN),,메신저 기록 없음
-2026-06-07,일,1440,0.186,1.9,5.1,0.986,00:34,0.402,0.304,3,설비,정상,정상판정(TN),,4AFC3201 Alarm→A_IN 차단·회복(11:16~11:28)
-2026-06-08,월,1440,0.207,5.3,8.5,1.0,09:36,0.794,0.707,10,설비,정상,정상판정(TN),,ZT2-1 belt 파단 정비·PC reboot
-2026-06-09,화,1440,0.242,6.1,11.8,1.0,10:25,0.579,0.509,5,설비,경보,오탐-설비(FP),,ZT2-1 belt작업(AO323) + 4ABLD121 error
-2026-06-10,수,1440,0.277,8.8,15.6,1.0,22:17,0.742,0.645,3,정상,경보,오탐-무기록(FP),,메신저 기록 없음(6/4형 양성이상 추정)
-2026-06-11,목,1440,0.218,4.2,8.5,1.0,09:23,0.581,0.427,5,정체경,정상,미탐-경미(FN),180,"4AFC3301 LD교체후 ""일부정체""→M16→M14 AutoIn close(10:18)"
-2026-06-12,금,1440,0.198,2.9,5.7,1.0,10:12,0.479,0.361,3,설비,정상,정상판정(TN),,Conv error 4AFC3301 + ZT down 공지 + 6ABL6012 belt
-2026-06-13,토,1440,0.209,3.7,7.2,1.0,09:53,0.743,0.541,3,설비,정상,정상판정(TN),,6ABL6012 belt 교체 작업
-2026-06-14,일,1440,0.208,3.8,7.3,1.0,10:53,0.754,0.522,5,설비,정상,정상판정(TN),,4ABLD111·6ABL0112 error 발생·회복
-2026-06-15,월,1440,0.259,7.3,13.3,1.0,04:54,0.523,0.447,5,설비,경보,오탐-계획작업(FP),,"ZT6 소방준공검사 IN Close(계획,14:11~14:48)"
-2026-06-16,화,1440,0.267,8.5,14.7,1.0,07:29,0.942,0.783,26,정체,경보,정탐-30분선행(TP),187,M16A/M16B Storage Full 발생(08:08) + ZT4-2 down작업
-2026-06-17,수,1440,0.196,2.6,7.0,0.996,10:56,0.496,0.396,3,설비,정상,정상판정(TN),,"4AFC3201 OutPort 증축작업(계획,10:00~,""정체없음""관리)"
-2026-06-18,목,1440,0.245,7.0,12.1,1.0,10:11,0.604,0.478,2,정체,경보,정탐(TP),236,"반송 Time 220분 튐(차량CAPA초과,07:47) + 4AFC3301 Zone Error(18:23)"
-,,,,,,,,,,,,,,,
-[요약],,,,,,,,,,,주요정체탐지,4/4=100%,"6/2,5,16,18",,
-[요약],,,,,,,,,,,오탐,4일,"6/4,9,10,15 (전부 정체아닌 이상)",,
-[요약],,,,,,,,,,,정밀도,4/8=50%,하이브리드(반송시간확인)시 ~100%,,
-[요약],,,,,,,,,,,정상정확판정,8/8=100%,조용한날 전부 정상,,
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+features_31 — raw 265 → 핵심 31 피처 추출 (Phase 1)
+====================================================================
+룰이 보는 컬럼(raw_columns.py 의 RA/RB/RD/SLA/SORTER 매핑)만 뽑아
+분 단위 wide 테이블로 저장. TSPulse fine-tune / XGBoost 공용 입력.
+
+★ 표준 라이브러리만 사용 (pandas/numpy 불필요) → 회사 PC 어디서든.
+★ 컬럼 정의는 raw_columns.py 매핑과 100% 일치 (자체 포함 = 폐쇄망 반입 안전).
+
+입력:
+    --raw   raw 폴더 (M16A_HUBROOM_PR_*.CSV 여러 개 또는 하나의 큰 CSV. CRT_TM 으로 분 인식)
+    --start 학습 구간 시작 (기본 2026-04-01)  ※ 03-24 이전 22컬럼 NULL 회피
+    --end   학습 구간 끝   (기본 2026-05-29)
+    --out   출력 폴더 (기본 ./out_ml)
+
+실행:
+    python features_31.py --raw ./raw --start 2026-04-01 --end 2026-05-29 --out ./out_ml
+
+출력:
+    features.csv     — datetime + 31 피처 (분 단위, 원 스케일. 결측은 공란)
+    features_meta.json — 피처 목록/커버리지/범위 요약
+"""
+import argparse
+import csv
+import glob
+import json
+import os
+from datetime import datetime
+
+# ============================================================
+# ★ 핵심 31 피처 = raw_columns.py 매핑 그대로 (룰과 동일)
+#   (raw 풀네임, 그룹, 짧은이름)
+# ============================================================
+FEATURES_31 = [
+    # ── R-A 반송시간 (7) ──
+    ('M16HUB.QUE.TIME.AVGTOTALTIME1MIN',    'RA', 'RA_M16HUB'),
+    ('M14.QUE.LOAD.AVGLOADTIME1MIN',        'RA', 'RA_M14'),
+    ('M14B.QUE.TIME.AVGTOTALTIME1MIN',      'RA', 'RA_M14B'),
+    ('M16A.QUE.LOAD.AVGLOADTIME1MIN',       'RA', 'RA_M16A'),
+    ('M16B.QUE.LOAD.AVGLOADTIME1MIN',       'RA', 'RA_M16B'),
+    ('M16_PKT.QUE.TIME.AVGTOTALTIME1MIN',   'RA', 'RA_PKT'),
+    ('M16_WT.QUE.TIME.AVGTOTALTIME1MIN',    'RA', 'RA_WT'),
+    # ── R-B 큐누적 (6) ──
+    ('M16HUB.QUE.M14TOM16.MESCURRENTQCNT',  'RB', 'RB_M14toM16'),
+    ('M14.QUE.ALL.3F_TO_HUB_JOB',           'RB', 'RB_M14'),
+    ('M14B.QUE.ALL.7F_TO_HUB_JOB',          'RB', 'RB_M14B'),
+    ('M16A.QUE.ALL.6F_TO_HUB_JOB',          'RB', 'RB_M16A'),
+    ('M16B.QUE.ALL.10F_TO_HUB_JOB',         'RB', 'RB_M16B'),
+    ('M16.QUE.SFAB.SENDQUEUETOTAL',         'RB', 'RB_M16send'),
+    # ── R-D 저장/OHT (6) ──
+    ('M16HUB.STRATE.ALL.FABSTORAGERATIO',   'RD', 'RD_FAB'),
+    ('M16HUB.STRATE.STB.3F_STORAGE_UTIL',   'RD', 'RD_STB'),
+    ('M14.QUE.OHT.OHTUTIL',                 'RD', 'RD_OHT_M14'),
+    ('M14B.QUE.OHT.OHTUTIL',                'RD', 'RD_OHT_M14B'),
+    ('M16A.QUE.OHT.OHTUTIL',                'RD', 'RD_OHT_M16A'),
+    ('M16B.QUE.OHT.OHTUTIL',                'RD', 'RD_OHT_M16B'),
+    # ── SLA 4분초과 (5) ──
+    ('M16HUB.QUE.ALL.TRANSPORT4MINOVERRATIO','SLA', 'SLA_M16HUB'),
+    ('M14.QUE.ALL.TRANSPORT4MINOVERRATIO',  'SLA', 'SLA_M14'),
+    ('M14B.QUE.ALL.TRANSPORT4MINOVERRATIO', 'SLA', 'SLA_M14B'),
+    ('M16A.QUE.ALL.TRANSPORT4MINOVERRATIO', 'SLA', 'SLA_M16A'),
+    ('M16B.QUE.ALL.TRANSPORT4MINOVERRATIO', 'SLA', 'SLA_M16B'),
+    # ── Sorter 대기 (5) ──
+    ('M14.SORTER.ABN.SORTERWAITCOUNTOVER',  'SORTER', 'SRT_M14'),
+    ('M14B.SORTER.ABN.SORTERWAITCOUNTOVER', 'SORTER', 'SRT_M14B'),
+    ('M16A.SORTER.ABN.SORTERWAITCOUNTOVER', 'SORTER', 'SRT_M16A'),
+    ('M16B.SORTER.ABN.SORTERWAITCOUNTOVER', 'SORTER', 'SRT_M16B'),
+    ('M16HUB.SORTER.ABN.SORTERWAITCOUNTOVER','SORTER', 'SRT_M16HUB'),
+    # ── 보조 (2) ──
+    ('M16HUB.QUE.ABN.AOTRANSDELAY',         'AUX', 'AUX_AOdelay'),
+    ('M16HUB.QUE.OHT.CURRENTOHTQCNT',       'AUX', 'AUX_OHTq(리프터대표)'),
+]
+FEATURE_COLS = [f[0] for f in FEATURES_31]
+SHORT = {f[0]: f[2] for f in FEATURES_31}
+
+# ============================================================
+# ★ 파생 피처 (Bridge SOP 반영) — 방향별 ZT 리프터 큐 합산
+#   SOP 발동기준: "M16 ZT 3F→6F QUE 280↑ / 6F→3F QUE 280↑ / HUB Total 600↑"
+#   원본에 있는 10대 ZT(6ABL...) 방향별 큐를 합쳐 SOP 지표를 그대로 피처화.
+#   (shortname, 그룹, 합산모드, 원본 접두, 원본 접미)
+# ============================================================
+DERIVED = [
+    ('BR_ZT_3to6', 'BR', 'sum', 'M16HUB.LFT.', '.3F_TO_6F_CURRENTQCNT'),  # M16방향(3F→6F) 큐 합
+    ('BR_ZT_6to3', 'BR', 'sum', 'M16HUB.LFT.', '.6F_TO_3F_CURRENTQCNT'),  # M14방향(6F→3F) 큐 합
+    ('BR_HUB_totalQ', 'BR', 'sum', 'M16HUB.LFT.', '.TOTAL_CURRENTQCNT'),  # HUB Total(리프터 총큐)
+]
+DERIVED_SHORTS = [d[0] for d in DERIVED]
+# 파생2(계산형): 방향 불균형 = 3to6 − 6to3 (양수=M16방향 정체 / 음수=M14방향 정체)
+DERIVED_CALC = ['BR_dir_imbalance']
+
+
+def _match_srcs(fieldnames):
+    """각 파생피처가 합산할 실제 원본컬럼 목록 (파일 헤더 기준)."""
+    out = {}
+    for short, grp, mode, pre, suf in DERIVED:
+        out[short] = [c for c in (fieldnames or []) if c.startswith(pre) and c.endswith(suf)]
+    return out
+
+
+def load_raw(raw_path, t_start, t_end):
+    """raw CSV 들 → {datetime: {col: val}} (지정 구간만, 분 단위)."""
+    files = []
+    if os.path.isdir(raw_path):
+        for ext in ('*.csv', '*.CSV'):
+            files += glob.glob(os.path.join(raw_path, ext))
+    else:
+        files = [raw_path]
+    if not files:
+        print(f"⚠️ raw 파일 없음: {raw_path}")
+        return {}
+    grid = {}          # datetime → {col: float}
+    seen_cols = set()
+    dsrc = {s: set() for s in DERIVED_SHORTS}   # 파생피처별 합산 원본컬럼(전 파일 합집합)
+    for fp in sorted(files):
+        for enc in ('utf-8-sig', 'utf-8', 'cp949'):
+            try:
+                f = open(fp, encoding=enc)
+                rd = csv.DictReader(f)
+                _ = rd.fieldnames
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            print(f"⚠️ 읽기 실패: {fp}")
+            continue
+        present = [c for c in FEATURE_COLS if c in (rd.fieldnames or [])]
+        seen_cols.update(present)
+        # 파생 원본컬럼(방향별 ZT 큐) 매칭 → 저장 대상에 포함
+        srcs = _match_srcs(rd.fieldnames)
+        present_src = []
+        for s, cols in srcs.items():
+            dsrc[s].update(cols)
+            present_src += cols
+        wanted = present + present_src
+        for row in rd:
+            ts = (row.get('CRT_TM') or '').strip()
+            if len(ts) < 16:
+                continue
+            try:
+                t = datetime.strptime(ts[:16], '%Y-%m-%d %H:%M')
+            except ValueError:
+                continue
+            if not (t_start <= t <= t_end):
+                continue
+            cell = grid.setdefault(t, {})
+            for c in wanted:
+                v = (row.get(c) or '').strip()
+                if not v:
+                    continue
+                try:
+                    cell[c] = float(v)
+                except ValueError:
+                    pass
+        f.close()
+    missing = [c for c in FEATURE_COLS if c not in seen_cols]
+    if missing:
+        print(f"⚠️ raw 에 없는 피처 {len(missing)}개: {[SHORT[c] for c in missing]}")
+    dsrc = {s: sorted(v) for s, v in dsrc.items()}
+    for s in DERIVED_SHORTS:
+        print(f"[파생] {s}: {len(dsrc[s])}개 ZT큐 합산")
+    return grid, dsrc
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--raw', required=True)
+    ap.add_argument('--start', default='2026-04-01')
+    ap.add_argument('--end', default='2026-05-29')
+    ap.add_argument('--out', default='./out_ml')
+    a = ap.parse_args()
+    os.makedirs(a.out, exist_ok=True)
+
+    t_start = datetime.strptime(a.start, '%Y-%m-%d')
+    t_end = datetime.strptime(a.end + ' 23:59', '%Y-%m-%d %H:%M')
+
+    print("=" * 60)
+    print(f"features_31 — {a.start} ~ {a.end}  (핵심 {len(FEATURES_31)}피처)")
+    print("=" * 60)
+
+    grid, dsrc = load_raw(a.raw, t_start, t_end)
+    if not grid:
+        print("⚠️ 데이터 없음 — 경로/구간 확인")
+        return
+    times = sorted(grid.keys())
+
+    # ── features.csv 저장 (datetime + 31 원피처 + 파생 Bridge 피처) ──
+    out_csv = os.path.join(a.out, 'features.csv')
+    header = (['datetime'] + [SHORT[c] for c in FEATURE_COLS]
+              + DERIVED_SHORTS + DERIVED_CALC)
+    filled = {c: 0 for c in FEATURE_COLS}
+
+    def dsum(cell, short):
+        """파생 합산: 해당 ZT큐 원본들의 합 (하나라도 있으면 값, 전무면 None)."""
+        cols = dsrc.get(short, [])
+        vals = [cell[c] for c in cols if c in cell]
+        return sum(vals) if vals else None
+
+    with open(out_csv, 'w', newline='', encoding='utf-8-sig') as f:
+        w = csv.writer(f)
+        w.writerow(header)
+        for t in times:
+            cell = grid[t]
+            row = [t.strftime('%Y-%m-%d %H:%M')]
+            for c in FEATURE_COLS:
+                v = cell.get(c)
+                if v is not None:
+                    filled[c] += 1
+                row.append('' if v is None else f'{v:g}')
+            # 파생 합산 (방향별 ZT 큐)
+            d = {s: dsum(cell, s) for s in DERIVED_SHORTS}
+            for s in DERIVED_SHORTS:
+                row.append('' if d[s] is None else f'{d[s]:g}')
+            # 방향 불균형 = 3to6 − 6to3
+            a3, a6 = d.get('BR_ZT_3to6'), d.get('BR_ZT_6to3')
+            imb = (a3 - a6) if (a3 is not None and a6 is not None) else None
+            row.append('' if imb is None else f'{imb:g}')
+            w.writerow(row)
+
+    # ── meta 저장 ──
+    n = len(times)
+    cov = {SHORT[c]: round(filled[c] / n * 100, 1) for c in FEATURE_COLS}
+    ncols = len(FEATURE_COLS) + len(DERIVED_SHORTS) + len(DERIVED_CALC)
+    meta = {
+        'rows': n,
+        'range': [times[0].strftime('%Y-%m-%d %H:%M'), times[-1].strftime('%Y-%m-%d %H:%M')],
+        'features': [SHORT[c] for c in FEATURE_COLS] + DERIVED_SHORTS + DERIVED_CALC,
+        'raw_fullnames': FEATURE_COLS,
+        'derived_sources': dsrc,
+        'coverage_pct': cov,
+    }
+    with open(os.path.join(a.out, 'features_meta.json'), 'w', encoding='utf-8') as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
+
+    print(f"[완료] {n}분 × {ncols}피처(원 {len(FEATURES_31)} + 파생 {len(DERIVED_SHORTS)+len(DERIVED_CALC)}) → {out_csv}")
+    print(f"       범위 {meta['range'][0]} ~ {meta['range'][1]}")
+    low = [(k, v) for k, v in cov.items() if v < 90]
+    if low:
+        print(f"⚠️ 커버리지 90%↓ 피처: {low}")
+    print("다음: labels_채점지.py 로 라벨 만든 뒤 tspulse_train.py")
+
+
+if __name__ == '__main__':
+    main()
