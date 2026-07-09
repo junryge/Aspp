@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent ↔ MCS : MCP 인터페이스 설계</title>
+<style>
+  :root{
+    --paper:#EDF0F2;
+    --panel:#FFFFFF;
+    --ink:#182634;
+    --ink2:#53646F;
+    --ink3:#87969F;
+    --read:#0E8C8C;        /* 읽기 = 차가움 = 안전 */
+    --read-bg:#E2F0EF;
+    --ctrl:#D9820A;        /* 제어 = 따뜻함 = 주의 */
+    --ctrl-bg:#FBEEDA;
+    --crit:#C93B3B;        /* critical = 적색 */
+    --crit-bg:#F8E3E3;
+    --rail:#C3CCD3;
+    --line:#D8DFE4;
+    --shadow:0 1px 2px rgba(24,38,52,.05),0 8px 24px rgba(24,38,52,.06);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,-apple-system,sans-serif;
+    line-height:1.7;
+    font-size:16px;
+    -webkit-font-smoothing:antialiased;
+    font-variant-numeric:tabular-nums;
+  }
+  .mono{font-family:"JetBrains Mono","SF Mono","Consolas","D2Coding","Menlo",monospace}
+  .wrap{max-width:1000px;margin:0 auto;padding:0 28px}
+
+  /* ===== HEADER ===== */
+  header.top{
+    background:var(--ink);
+    color:#EAF0F3;
+    padding:56px 0 44px;
+    position:relative;
+    overflow:hidden;
+  }
+  header.top::before{
+    content:"";position:absolute;inset:0;
+    background-image:
+      linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);
+    background-size:26px 26px;
+    mask:linear-gradient(180deg,#000,transparent);
+    -webkit-mask:linear-gradient(180deg,#000,transparent);
+  }
+  header.top .wrap{position:relative}
+  .eyebrow{
+    font-size:12px;letter-spacing:.28em;text-transform:uppercase;
+    color:#7FB6B6;font-weight:700;margin-bottom:18px;
+    display:flex;align-items:center;gap:12px;
+  }
+  .eyebrow .tick{width:26px;height:1px;background:#7FB6B6;display:inline-block}
+  header.top h1{
+    font-size:clamp(30px,5.2vw,50px);
+    line-height:1.08;font-weight:800;letter-spacing:-.015em;
+    margin-bottom:16px;
+  }
+  header.top h1 .arw{color:var(--read)}
+  header.top p.sub{
+    color:#A9BAC4;font-size:17px;max-width:640px;
+  }
+  .badges{display:flex;flex-wrap:wrap;gap:9px;margin-top:26px}
+  .badge{
+    font-size:12px;font-weight:600;letter-spacing:.02em;
+    padding:5px 11px;border-radius:3px;
+    border:1px solid rgba(255,255,255,.16);color:#C4D2DA;
+    display:inline-flex;align-items:center;gap:6px;
+  }
+  .badge .dot{width:7px;height:7px;border-radius:50%}
+
+  /* ===== PRINCIPLE CALLOUT ===== */
+  .principle{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-left:4px solid var(--crit);
+    box-shadow:var(--shadow);
+    padding:26px 30px;border-radius:6px;
+    margin:-30px auto 56px;position:relative;z-index:5;
+  }
+  .principle .lab{
+    font-size:11px;letter-spacing:.2em;text-transform:uppercase;
+    color:var(--crit);font-weight:800;margin-bottom:8px;
+  }
+  .principle p{font-size:19px;font-weight:600;line-height:1.55;letter-spacing:-.01em}
+  .principle p b{color:var(--crit)}
+  .principle small{display:block;margin-top:12px;color:var(--ink2);font-size:14.5px;font-weight:400}
+
+  /* ===== SECTION ===== */
+  section{padding:14px 0 48px}
+  .sec-head{display:flex;align-items:baseline;gap:16px;margin-bottom:22px}
+  .sec-num{
+    font-family:"JetBrains Mono",monospace;
+    font-size:14px;font-weight:700;color:var(--read);
+    border:1.5px solid var(--read);border-radius:4px;
+    padding:3px 9px;flex-shrink:0;
+  }
+  .sec-head h2{font-size:26px;font-weight:800;letter-spacing:-.02em;line-height:1.2}
+  .sec-head .h2sub{display:block;font-size:14px;font-weight:500;color:var(--ink3);margin-top:3px;letter-spacing:0}
+  section > .wrap > p{color:var(--ink2);margin-bottom:16px;max-width:760px}
+  section > .wrap > p b{color:var(--ink);font-weight:700}
+
+  /* ===== DIAGRAM CARD ===== */
+  .figure{
+    background:var(--panel);border:1px solid var(--line);
+    border-radius:8px;box-shadow:var(--shadow);
+    padding:30px 26px 22px;margin:8px 0 26px;
+  }
+  .figure svg{width:100%;height:auto;display:block}
+  .figcap{
+    font-size:12.5px;color:var(--ink3);margin-top:16px;
+    padding-top:14px;border-top:1px dashed var(--line);
+    display:flex;gap:20px;flex-wrap:wrap;align-items:center;
+  }
+  .legend{display:inline-flex;align-items:center;gap:7px;font-weight:600}
+  .legend .sw{width:13px;height:13px;border-radius:3px}
+
+  /* ===== TOOL LIST ===== */
+  .tools{
+    background:var(--panel);border:1px solid var(--line);border-radius:8px;
+    overflow:hidden;box-shadow:var(--shadow);margin:6px 0 22px;
+  }
+  .tool-row{
+    display:grid;grid-template-columns:minmax(200px,300px) 1fr;
+    border-top:1px solid var(--line);
+  }
+  .tool-row:first-child{border-top:none}
+  .tool-row .sig{
+    padding:13px 18px;font-family:"JetBrains Mono",monospace;font-size:13px;
+    background:var(--read-bg);color:#0A6F6F;font-weight:600;
+    border-right:1px solid var(--line);word-break:break-all;
+  }
+  .tool-row.c .sig{background:var(--ctrl-bg);color:#9C5C00}
+  .tool-row .desc{padding:13px 18px;color:var(--ink2);font-size:14.5px;display:flex;align-items:center}
+
+  /* ===== PIPELINE RAIL ===== */
+  .rail-wrap{
+    background:var(--panel);border:1px solid var(--line);border-radius:8px;
+    box-shadow:var(--shadow);padding:34px 26px 30px;margin:8px 0 26px;
+  }
+  .stages{display:flex;flex-direction:column;gap:0;position:relative}
+  .stage{
+    display:grid;grid-template-columns:56px 1fr;gap:18px;
+    padding:0 0 26px;position:relative;
+  }
+  .stage:last-child{padding-bottom:0}
+  .stage::before{
+    content:"";position:absolute;left:27px;top:44px;bottom:-4px;
+    width:2px;background:var(--rail);z-index:0;
+  }
+  .stage:last-child::before{display:none}
+  .stnode{
+    width:54px;height:44px;border-radius:8px;z-index:1;
+    display:flex;align-items:center;justify-content:center;
+    font-family:"JetBrains Mono",monospace;font-weight:800;font-size:15px;
+    color:#fff;position:relative;
+  }
+  .stnode.r{background:var(--read)}
+  .stnode.c{background:var(--ctrl)}
+  .stnode.x{background:var(--crit)}
+  .stnode.g{background:var(--ink)}
+  .stbody h4{font-size:16.5px;font-weight:800;margin-bottom:4px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .pill{font-size:10.5px;font-weight:700;letter-spacing:.04em;padding:2px 8px;border-radius:20px;text-transform:uppercase}
+  .pill.r{background:var(--read-bg);color:#0A6F6F}
+  .pill.c{background:var(--ctrl-bg);color:#9C5C00}
+  .pill.x{background:var(--crit-bg);color:#A22E2E}
+  .stbody p{color:var(--ink2);font-size:14.5px;margin:0}
+  .stbody p b{color:var(--ink)}
+
+  /* ===== CODE ===== */
+  pre{
+    background:#101C27;color:#D7E2E9;border-radius:8px;
+    padding:20px 22px;overflow-x:auto;font-size:13.5px;line-height:1.65;
+    font-family:"JetBrains Mono","Consolas",monospace;margin:6px 0 22px;
+    box-shadow:var(--shadow);
+  }
+  pre .cm{color:#6E8494;font-style:italic}
+  pre .kw{color:#E0A458}
+  pre .st{color:#7FC7B0}
+  pre .fn{color:#78B4E0}
+  pre .nm{color:#C98BC0}
+
+  /* ===== TABLE ===== */
+  table{
+    width:100%;border-collapse:collapse;background:var(--panel);
+    border:1px solid var(--line);border-radius:8px;overflow:hidden;
+    box-shadow:var(--shadow);margin:6px 0 22px;font-size:14.5px;
+  }
+  th{
+    background:var(--ink);color:#DCE6EB;text-align:left;
+    padding:12px 16px;font-size:12.5px;font-weight:700;letter-spacing:.03em;
+    text-transform:uppercase;
+  }
+  td{padding:12px 16px;border-top:1px solid var(--line);color:var(--ink2);vertical-align:top}
+  td:first-child{font-weight:700;color:var(--ink)}
+  td .mono{font-size:13px}
+  tr td .tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px}
+  .tag.r{background:var(--read-bg);color:#0A6F6F}
+  .tag.c{background:var(--ctrl-bg);color:#9C5C00}
+  .tag.x{background:var(--crit-bg);color:#A22E2E}
+
+  /* ===== ASIDE (SECS branch) ===== */
+  .aside{
+    background:linear-gradient(180deg,#F7F2E9,#FBF8F2);
+    border:1px solid #E7DBC5;border-radius:8px;
+    padding:26px 28px;margin:8px 0 22px;position:relative;
+  }
+  .aside .lab{
+    font-size:11px;letter-spacing:.2em;text-transform:uppercase;
+    color:#9C5C00;font-weight:800;margin-bottom:10px;
+  }
+  .aside h3{font-size:19px;font-weight:800;margin-bottom:12px}
+  .aside p{color:#6B5A3E;margin-bottom:10px;font-size:15px}
+  .aside ul{margin:0 0 4px 20px;color:#6B5A3E;font-size:15px}
+  .aside li{margin-bottom:6px}
+  .aside b{color:#5A3D14}
+
+  /* ===== SUMMARY ===== */
+  .summary{
+    background:var(--ink);color:#E7EEF2;border-radius:10px;
+    padding:34px 32px;margin:20px 0 10px;
+  }
+  .summary .lab{font-size:11px;letter-spacing:.24em;text-transform:uppercase;color:#7FB6B6;font-weight:800;margin-bottom:16px}
+  .summary p{font-size:18px;line-height:1.6;color:#CBD8DF}
+  .summary p b{color:#fff}
+  .summary .oneline{
+    margin-top:20px;padding-top:20px;border-top:1px solid rgba(255,255,255,.14);
+    font-size:15px;color:#9FB2BC;
+  }
+  .summary .oneline .k{color:var(--read);font-weight:700}
+
+  footer{padding:34px 0 60px;text-align:center;color:var(--ink3);font-size:13px}
+  footer .mono{font-size:12px}
+
+  /* reveal */
+  .rv{opacity:0;transform:translateY(14px);transition:opacity .6s ease,transform .6s ease}
+  .rv.in{opacity:1;transform:none}
+  @media (prefers-reduced-motion:reduce){.rv{opacity:1;transform:none;transition:none}}
+
+  @media(max-width:680px){
+    .tool-row{grid-template-columns:1fr}
+    .tool-row .sig{border-right:none;border-bottom:1px solid var(--line)}
+    .principle p{font-size:17px}
+    .sec-head{flex-direction:column;gap:8px}
+  }
+  a:focus-visible,:focus-visible{outline:2px solid var(--read);outline-offset:2px}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div class="eyebrow"><span class="tick"></span>AMHS · MCS 연동 설계</div>
+    <h1>에이전트 <span class="arw">↔</span> MCS<br>MCP 인터페이스 설계</h1>
+    <p class="sub">AI 에이전트가 물리 반송장비(OHT/AGV)를 다루는 MCS에 안전하게 붙기 위한 인터페이스 규격. 읽기와 제어를 완전히 분리하고, 제어는 MCS 정식 채널만 경유한다.</p>
+    <div class="badges">
+      <span class="badge"><span class="dot" style="background:var(--read)"></span>Read plane — Oracle SELECT</span>
+      <span class="badge"><span class="dot" style="background:var(--ctrl)"></span>Control plane — 커맨드 스테이징</span>
+      <span class="badge"><span class="dot" style="background:var(--crit)"></span>이중 인터락</span>
+      <span class="badge">streamable-http : 8010</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="principle rv">
+    <div class="lab">단 하나의 원칙</div>
+    <p>MCP는 MCS 상태를 <b>직접 바꾸지 않는다.</b> "요청"만 넣고, 판단·검증·실행은 전부 MCS가 한다.</p>
+    <small>MCP가 OHT 커맨드 테이블에 직접 INSERT/UPDATE 하면 MCS 상태머신과 인터락이 무시된다 → carrier 유실, deadlock 발생. 절대 금지. MCP는 접수창구, MCS는 최종 판단자다.</small>
+  </div>
+</div>
+
+<!-- ======================= 0. ARCHITECTURE ======================= -->
+<section>
+  <div class="wrap">
+    <div class="sec-head rv">
+      <span class="sec-num" style="border-color:var(--ink);color:var(--ink)">00</span>
+      <h2>전체 레이어 구조<span class="h2sub">읽기 경로와 제어 경로가 서버 안에서부터 갈라진다</span></h2>
+    </div>
+    <p class="rv">에이전트는 MCP 서버 하나에만 붙는다. 서버 내부에서 <b>Read 어댑터</b>와 <b>Control 어댑터</b>가 나뉘고, 각각 목적지가 다르다. Read는 read-only Oracle 계정으로 직행, Control은 MCS 커맨드 스테이징 테이블로만 간다. MCS는 그 테이블을 폴링해서 자기 인터락을 태워 실행한다.</p>
+
+    <div class="figure rv">
+      <svg viewBox="0 0 940 380" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="에이전트-MCP-MCS 레이어 아키텍처 다이어그램">
+        <defs>
+          <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+            <path d="M0,0 L9,4.5 L0,9 Z" fill="#53646F"/>
+          </marker>
+          <marker id="arR" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+            <path d="M0,0 L9,4.5 L0,9 Z" fill="#0E8C8C"/>
+          </marker>
+          <marker id="arC" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+            <path d="M0,0 L9,4.5 L0,9 Z" fill="#D9820A"/>
+          </marker>
+        </defs>
+
+        <!-- Agent -->
+        <rect x="20" y="120" width="180" height="140" rx="10" fill="#F2F5F7" stroke="#C3CCD3" stroke-width="1.5"/>
+        <text x="110" y="112" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="11" fill="#87969F" letter-spacing="2">AGENT</text>
+        <text x="110" y="150" text-anchor="middle" font-family="sans-serif" font-size="15" font-weight="800" fill="#182634">DEMOS</text>
+        <rect x="42" y="168" width="136" height="26" rx="5" fill="#fff" stroke="#D8DFE4"/>
+        <text x="110" y="185" text-anchor="middle" font-size="11.5" fill="#53646F">agent · skill · loop</text>
+        <rect x="42" y="202" width="136" height="26" rx="5" fill="#fff" stroke="#D8DFE4"/>
+        <text x="110" y="219" text-anchor="middle" font-size="11.5" fill="#53646F">LLM 어댑터 (HCP)</text>
+
+        <!-- MCP server -->
+        <rect x="330" y="70" width="240" height="240" rx="12" fill="#fff" stroke="#182634" stroke-width="2"/>
+        <text x="450" y="60" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="11" fill="#182634" letter-spacing="2" font-weight="700">MCP SERVER · :8010</text>
+        <!-- read adapter -->
+        <rect x="352" y="96" width="196" height="86" rx="8" fill="#E2F0EF" stroke="#0E8C8C" stroke-width="1.5"/>
+        <text x="450" y="120" text-anchor="middle" font-size="13" font-weight="800" fill="#0A6F6F">READ 어댑터</text>
+        <text x="450" y="140" text-anchor="middle" font-size="11" fill="#0A6F6F">get_carrier / queue …</text>
+        <text x="450" y="162" text-anchor="middle" font-size="10.5" fill="#0A6F6F" font-style="italic">순수 조회 · 부작용 없음</text>
+        <!-- control adapter -->
+        <rect x="352" y="196" width="196" height="94" rx="8" fill="#FBEEDA" stroke="#D9820A" stroke-width="1.5"/>
+        <text x="450" y="220" text-anchor="middle" font-size="13" font-weight="800" fill="#9C5C00">CONTROL 어댑터</text>
+        <text x="450" y="240" text-anchor="middle" font-size="11" fill="#9C5C00">validate→gate→submit</text>
+        <text x="450" y="262" text-anchor="middle" font-size="10.5" fill="#9C5C00" font-style="italic">요청만 접수 · 실행 안 함</text>
+        <text x="450" y="279" text-anchor="middle" font-size="10.5" fill="#C93B3B" font-weight="700">＋ 1차 인터락 게이트</text>
+
+        <!-- Oracle read -->
+        <rect x="700" y="96" width="220" height="86" rx="10" fill="#E2F0EF" stroke="#0E8C8C" stroke-width="1.5"/>
+        <text x="810" y="128" text-anchor="middle" font-size="14" font-weight="800" fill="#0A6F6F">Oracle (read-only)</text>
+        <text x="810" y="150" text-anchor="middle" font-size="11.5" fill="#0A6F6F">:1521 · thin mode</text>
+        <text x="810" y="168" text-anchor="middle" font-size="11" fill="#0A6F6F">SELECT 전용 계정</text>
+
+        <!-- staging + MCS -->
+        <rect x="700" y="196" width="220" height="52" rx="10" fill="#FBEEDA" stroke="#D9820A" stroke-width="1.5"/>
+        <text x="810" y="217" text-anchor="middle" font-size="13" font-weight="800" fill="#9C5C00">커맨드 스테이징 테이블</text>
+        <text x="810" y="235" text-anchor="middle" font-size="10.5" fill="#9C5C00">MCS 정식 입력구</text>
+        <rect x="700" y="258" width="220" height="52" rx="10" fill="#182634"/>
+        <text x="810" y="280" text-anchor="middle" font-size="14" font-weight="800" fill="#EAF0F3">MCS 코어</text>
+        <text x="810" y="298" text-anchor="middle" font-size="10.5" fill="#9FB2BC">2차 인터락 · 상태머신 · 실행</text
+
+        ><!-- arrows agent->mcp -->
+        <line x1="200" y1="175" x2="326" y2="140" stroke="#0E8C8C" stroke-width="2" marker-end="url(#arR)"/>
+        <line x1="200" y1="205" x2="326" y2="240" stroke="#D9820A" stroke-width="2" marker-end="url(#arC)"/>
+        <text x="263" y="150" text-anchor="middle" font-size="10" fill="#0A6F6F" font-family="JetBrains Mono,monospace">read</text>
+        <text x="263" y="235" text-anchor="middle" font-size="10" fill="#9C5C00" font-family="JetBrains Mono,monospace">control</text>
+
+        <!-- mcp -> oracle -->
+        <line x1="548" y1="139" x2="696" y2="139" stroke="#0E8C8C" stroke-width="2" marker-end="url(#arR)"/>
+        <text x="622" y="130" text-anchor="middle" font-size="10" fill="#0A6F6F" font-family="JetBrains Mono,monospace">SELECT</text>
+        <!-- mcp -> staging -->
+        <line x1="548" y1="222" x2="696" y2="222" stroke="#D9820A" stroke-width="2" marker-end="url(#arC)"/>
+        <text x="622" y="214" text-anchor="middle" font-size="10" fill="#9C5C00" font-family="JetBrains Mono,monospace">INSERT</text>
+        <!-- staging -> mcs (poll) -->
+        <line x1="810" y1="248" x2="810" y2="256" stroke="#182634" stroke-width="2" marker-end="url(#ar)"/>
+        <text x="880" y="255" text-anchor="middle" font-size="9.5" fill="#53646F" font-family="JetBrains Mono,monospace">poll</text>
+        <!-- verify feedback dashed -->
+        <path d="M700,296 L600,296 L600,175 L548,175" fill="none" stroke="#53646F" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ar)"/>
+        <text x="625" y="315" text-anchor="middle" font-size="9.5" fill="#87969F" font-family="JetBrains Mono,monospace">status 폴링 (verify)</text>
+      </svg>
+      <div class="figcap">
+        <span class="legend"><span class="sw" style="background:var(--read)"></span>Read plane · 안전</span>
+        <span class="legend"><span class="sw" style="background:var(--ctrl)"></span>Control plane · 주의</span>
+        <span class="legend"><span class="sw" style="background:var(--crit)"></span>인터락</span>
+        <span style="color:var(--ink3)">— 색이 곧 의미다. 차가운색=읽기, 따뜻한색=제어.</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= 1. READ ======================= -->
+<section>
+  <div class="wrap">
+    <div class="sec-head rv">
+      <span class="sec-num">01</span>
+      <h2>Read plane (Phase 1)<span class="h2sub">read-only 계정으로 SELECT만 — 지금 하던 방식 그대로</span></h2>
+    </div>
+    <p class="rv">부작용이 전혀 없는 조회 계층. Oracle read-only 계정으로 SELECT만 래핑한다. 결과는 <b>structuredContent</b>로 반환하되 camelCase를 지킨다(스모크 테스트에서 물렸던 그 부분). 툴은 목적별로 잘게 쪼갠다.</p>
+    <div class="tools rv">
+      <div class="tool-row"><div class="sig">get_carrier_location(carrier_id)</div><div class="desc">carrier 현재 위치 / 상태</div></div>
+      <div class="tool-row"><div class="sig">get_oht_status(vehicle_id | zone)</div><div class="desc">차량 상태 / 가동률</div></div>
+      <div class="tool-row"><div class="sig">get_queue_depth(idc)</div><div class="desc">IDC 큐 적재량 (M16HUB.QUE 등 ~100 IDC)</div></div>
+      <div class="tool-row"><div class="sig">get_route(from, to)</div><div class="desc">유효 경로 존재 여부</div></div>
+      <div class="tool-row"><div class="sig">get_command_history(carrier_id, n)</div><div class="desc">최근 명령 이력 n건</div></div>
+    </div>
+    <p class="rv" style="color:var(--ink3);font-size:14px">여긴 쿼리 래핑이라 리스크가 없다. Read-only만 쓸 거면 배치는 RHEL 8.10으로 충분하다.</p>
+  </div>
+</section>
+
+<!-- ======================= 2. CONTROL ======================= -->
+<section>
+  <div class="wrap">
+    <div class="sec-head rv">
+      <span class="sec-num" style="border-color:var(--ctrl);color:var(--ctrl)">02</span>
+      <h2>Control plane (Phase 2)<span class="h2sub">여기가 진짜 승부처 — 한 방에 실행 안 시킨다</span></h2>
+    </div>
+    <p class="rv">모든 제어 툴은 아래 6단계 파이프라인을 강제로 태운다. dry_run이 기본값이고, 실제 실행은 <b>confirm=True</b>일 때만 일어난다. 실행은 스테이징 테이블 INSERT로 끝나고 <b>절대 block하지 않는다</b> — carrier 이동은 초 단위라 비동기다.</p>
+
+    <pre class="rv"><span class="cm"># 제어 툴 시그니처 — dry_run 기본 / idempotent / 추적 가능</span>
+<span class="kw">def</span> <span class="fn">transfer_carrier</span>(
+    carrier_id: <span class="nm">str</span>,
+    to_dest:   <span class="nm">str</span>,
+    priority:  <span class="nm">int</span> = <span class="st">5</span>,
+    confirm:   <span class="nm">bool</span> = <span class="st">False</span>,   <span class="cm"># 기본 dry_run — 실행 안 함</span>
+    idem_key:  <span class="nm">str</span>  = <span class="st">None</span>,    <span class="cm"># 재시도 중복 차단 키</span>
+    agent_id:  <span class="nm">str</span>  = <span class="st">None</span>     <span class="cm"># 누가 쐈나 (추적)</span>
+) -&gt; <span class="nm">dict</span>:</pre>
+
+    <div class="rail-wrap rv">
+      <div class="stages">
+        <div class="stage">
+          <div class="stnode r">1</div>
+          <div class="stbody">
+            <h4>validate <span class="pill r">순수 검증</span></h4>
+            <p>carrier 실존? from에 진짜 있나? to 수용 가능? 유효 route 있나? 하나라도 깨지면 <b>isError=true</b>로 tool-level 에러 반환(스모크 때 잡은 그 플래그). 여기서 걸러야 MCS까지 안 간다.</p>
+          </div>
+        </div>
+        <div class="stage">
+          <div class="stnode x">2</div>
+          <div class="stbody">
+            <h4>gate <span class="pill x">1차 인터락</span></h4>
+            <p>rule-based deadlock 로직(<b>R-A' / R-B / R-C' / R-D</b>)과 queue 임계를 그대로 재활용. deadlock·surge 감지되면 제어명령 자체를 막는다. 이게 MCP 방어선이다.</p>
+          </div>
+        </div>
+        <div class="stage">
+          <div class="stnode c">3</div>
+          <div class="stbody">
+            <h4>confirm 분기 <span class="pill c">게이트</span></h4>
+            <p><b>False</b> → 실행 안 하고 dry_run 결과만: 예상 route, 예상 소요, 리스크 스코어(hub_high×3 + storage_util_critical×2 …). 에이전트가 이걸 보고 판단.<br><b>True</b> → 실제 submit으로 진행.</p>
+          </div>
+        </div>
+        <div class="stage">
+          <div class="stnode c">4</div>
+          <div class="stbody">
+            <h4>submit <span class="pill c">스테이징 INSERT</span></h4>
+            <p>MCS 커맨드 스테이징 테이블에 INSERT. <b>DB 직접쓰기와 다른 이유</b> — 이 테이블은 MCS가 폴링하는 정식 입력구고, MCS가 픽업해서 자기 인터락(2차)을 태워 실행한다. MCP는 명령서를 접수창구에 넣을 뿐 직접 실행하지 않는다. 반환은 <b>command_id</b> 하나. block 없음.</p>
+          </div>
+        </div>
+        <div class="stage">
+          <div class="stnode g">5</div>
+          <div class="stbody">
+            <h4>verify <span class="pill" style="background:#E9EEF1;color:#53646F">별도 폴링 툴</span></h4>
+            <p><span class="mono" style="font-size:13px">get_command_status(command_id)</span> 로 상태 폴링. 이동이 끝날 때까지 툴이 기다리지 않는다.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <pre class="rv"><span class="cm"># submit — idem_key UNIQUE 제약으로 중복 명령 원천 차단</span>
+<span class="kw">INSERT INTO</span> mcs_cmd_staging
+  (idem_key, cmd_type, carrier_id, dest, priority, agent_id, submit_ts, status)
+<span class="kw">VALUES</span> (:idem_key, <span class="st">'TRANSFER'</span>, ..., <span class="st">'SUBMITTED'</span>)
+<span class="cm">-- 같은 idem_key 재요청 → 기존 command_id 반환, 재실행 안 됨</span></pre>
+
+    <!-- state machine -->
+    <p class="rv" style="margin-top:8px"><b>명령 상태머신</b> — MCP 게이트를 통과했는데 MCS가 FAILED를 뱉으면 그게 <b>정상</b>이다. MCS가 최종 판단자니까. MCP는 요청, MCS는 결정.</p>
+    <div class="figure rv">
+      <svg viewBox="0 0 940 150" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="명령 상태머신 다이어그램">
+        <defs>
+          <marker id="sm" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#87969F"/></marker>
+        </defs>
+        <!-- nodes -->
+        <g font-family="JetBrains Mono,monospace" font-size="12" font-weight="700" text-anchor="middle">
+          <rect x="14" y="58" width="112" height="34" rx="17" fill="#FBEEDA" stroke="#D9820A" stroke-width="1.5"/>
+          <text x="70" y="80" fill="#9C5C00">SUBMITTED</text>
+          <rect x="196" y="58" width="108" height="34" rx="17" fill="#FBEEDA" stroke="#D9820A" stroke-width="1.5"/>
+          <text x="250" y="80" fill="#9C5C00">ACCEPTED</text>
+          <rect x="374" y="58" width="112" height="34" rx="17" fill="#FBEEDA" stroke="#D9820A" stroke-width="1.5"/>
+          <text x="430" y="80" fill="#9C5C00">EXECUTING</text>
+          <rect x="600" y="12" width="96" height="34" rx="17" fill="#E2F0EF" stroke="#0E8C8C" stroke-width="1.5"/>
+          <text x="648" y="34" fill="#0A6F6F">DONE</text>
+          <rect x="600" y="58" width="96" height="34" rx="17" fill="#F8E3E3" stroke="#C93B3B" stroke-width="1.5"/>
+          <text x="648" y="80" fill="#A22E2E">FAILED</text>
+          <rect x="600" y="104" width="120" height="34" rx="17" fill="#EDF0F2" stroke="#87969F" stroke-width="1.5"/>
+          <text x="660" y="126" fill="#53646F">CANCELLED</text>
+        </g>
+        <g stroke="#87969F" stroke-width="1.6" fill="none">
+          <line x1="126" y1="75" x2="192" y2="75" marker-end="url(#sm)"/>
+          <line x1="304" y1="75" x2="370" y2="75" marker-end="url(#sm)"/>
+          <path d="M486,68 L560,40 L596,29" marker-end="url(#sm)"/>
+          <line x1="486" y1="75" x2="596" y2="75" marker-end="url(#sm)"/>
+          <path d="M486,82 L560,110 L596,121" marker-end="url(#sm)"/>
+        </g>
+        <g font-family="JetBrains Mono,monospace" font-size="9.5" fill="#87969F" text-anchor="middle">
+          <text x="159" y="66">MCS 인수</text>
+          <text x="337" y="66">실행 시작</text>
+          <text x="545" y="30">완료</text>
+          <text x="545" y="94" fill="#A22E2E">인터락 거부 = 정상</text>
+        </g>
+      </svg>
+      <div class="figcap"><span style="color:var(--ink3)">FAILED는 MCS 2차 인터락이 막은 정상 결과. MCP gate(1차)를 통과해도 MCS(2차)가 최종 거부권을 갖는다.</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= 3. PERMISSION ======================= -->
+<section>
+  <div class="wrap">
+    <div class="sec-head rv">
+      <span class="sec-num" style="border-color:var(--crit);color:var(--crit)">03</span>
+      <h2>권한 · HITL · 감사<span class="h2sub">누가 무슨 명령을 언제 쐈는지 전부 추적된다</span></h2>
+    </div>
+    <p class="rv">툴마다 권한 레벨 태그를 박는다. <b>critical</b> 등급은 skill factory의 HITL(human-in-the-loop) 게이트를 그대로 붙여서, 사람 승인이 없으면 SUBMITTED에서 멈춰 있게 한다.</p>
+    <table class="rv">
+      <thead><tr><th>레벨</th><th>범위</th><th>대상 예시</th></tr></thead>
+      <tbody>
+        <tr><td><span class="tag r">read</span></td><td>전 에이전트 허용</td><td>위치·큐·상태 조회 전부</td></tr>
+        <tr><td><span class="tag c">control</span></td><td>화이트리스트 에이전트만 (agent_id 토큰 검증)</td><td>단건 transfer, priority 변경</td></tr>
+        <tr><td><span class="tag x">critical</span></td><td>HITL 강제 — 사람 승인 필수</td><td>batch move, abort_all, zone 통제</td></tr>
+      </tbody>
+    </table>
+    <p class="rv"><b>감사</b> — 모든 제어 요청은 이중 기록한다. ① JSONL(Hermes 패턴): who / what(tool+args) / when / result. ② DB audit 테이블: 나중에 역추적용. idem_key까지 같이 남겨서 재시도 흐름도 추적 가능하게.</p>
+  </div>
+</section>
+
+<!-- ======================= 4. SECS branch ======================= -->
+<section>
+  <div class="wrap">
+    <div class="sec-head rv">
+      <span class="sec-num" style="border-color:var(--ctrl);color:var(--ctrl)">04</span>
+      <h2>분기 : MCS가 SECS/GEM만 받을 때<span class="h2sub">스테이징 테이블을 안 열어주는 경우</span></h2>
+    </div>
+    <div class="aside rv">
+      <div class="lab">Alternative path</div>
+      <h3>파이프라인은 똑같다. 통로만 바뀐다.</h3>
+      <p>MCS가 커맨드 스테이징 테이블을 안 열어주고 SECS/GEM으로만 제어를 받으면, MCP 서버가 <b>secsgem</b>을 물고 HSMS 세션을 유지하며 S2Fx 커맨드를 송신하는 구조로 간다. 단 —</p>
+      <ul>
+        <li>6단계 파이프라인(validate→gate→confirm→submit→verify)은 <b>그대로</b> 유지된다.</li>
+        <li>차이는 ④submit이 INSERT 대신 <b>SECS 메시지 송신</b>, ⑤verify가 <b>S6Fx 이벤트/응답 수신</b>으로 바뀌는 것뿐.</li>
+        <li>대신 HSMS 세션 관리(재접속·timeout)를 MCP 서버가 떠안아야 해서 스테이징 방식보다 무겁다.</li>
+      </ul>
+      <p style="margin-bottom:0"><b>결론</b> — 가능하면 스테이징 테이블 방식이 낫다. 세션 상태를 안 물고, MCS 인터락을 자연스럽게 타니까.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= 5. DEPLOY ======================= -->
+<section>
+  <div class="wrap">
+    <div class="sec-head rv">
+      <span class="sec-num" style="border-color:var(--ink);color:var(--ink)">05</span>
+      <h2>배치 확정값<span class="h2sub">환경·포트·바인딩</span></h2>
+    </div>
+    <table class="rv">
+      <thead><tr><th>항목</th><th>값</th><th>비고</th></tr></thead>
+      <tbody>
+        <tr><td>Read-only만</td><td>RHEL 8.10</td><td>조회 전용이면 충분</td></tr>
+        <tr><td>Control 포함</td><td>Windows Server 2019</td><td>full 제어 스택 필요 시</td></tr>
+        <tr><td>MCP HTTP</td><td><span class="mono">:8010 · bind 0.0.0.0</span></td><td>멀티 에이전트 → stdio 아닌 http</td></tr>
+        <tr><td>Oracle</td><td><span class="mono">:1521 · thin mode</span></td><td>oracledb thin</td></tr>
+        <tr><td>LLM 어댑터</td><td>HCP gateway</td><td>Qwen3 · TOKEN.TXT · 429 backoff</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ======================= SUMMARY ======================= -->
+<div class="wrap">
+  <div class="summary rv">
+    <div class="lab">한 줄 요약</div>
+    <p>Read는 <b>SELECT 래핑</b>. Control은 <b>"스테이징 테이블에 요청만 넣고 → MCS가 인터락 태워 실행 → 폴링으로 확인"</b>. dry_run 기본 / idempotent / 비동기 / 이중 인터락(MCP gate 1차, MCS 2차).</p>
+    <div class="oneline">이 골격이면 에이전트가 아무리 헛소리 명령을 쏴도 <span class="k">MCS가 마지막에 막아준다.</span></div>
+  </div>
+</div>
+
+<footer>
+  <div class="mono">Agent ↔ MCS · MCP Interface Design</div>
+  <div style="margin-top:6px">AMHS 반송제어 연동 설계 · 폐쇄망 오프라인 단일 파일</div>
+</footer>
+
+<script>
+  const io=new IntersectionObserver((es)=>{
+    es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}})
+  },{threshold:.12});
+  document.querySelectorAll('.rv').forEach(el=>io.observe(el));
+</script>
+</body>
+</html>
