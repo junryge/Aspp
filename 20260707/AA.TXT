@@ -1,2 +1,7 @@
 보조ML:M16HUBROOM QUE 관련
 밀림감지 동계적 이상감지:CUSUM은 통계지만, CUSUM은 학계에서 "통계적 이상탐지(anomaly detection)
+1. 에이전트 ↔ MCP 서버 (transport)
+
+지금 streamable-http 8010 그대로 가라. DEMOS처럼 여러 에이전트가 물리는 구조면 stdio보다 이게 맞다.
+stdio는 1:1 로컬 붙일 때만 의미 있고, 멀티 클라이언트면 http가 정답.
+대신 세션/인증 붙여서 "어느 에이전트가 무슨 명령 쐈는지" 추적되게 만들어라.
