@@ -1,1 +1,2 @@
-ㅁㅍㅁㅍㅁㅍ
+보조ML:M16HUBROOM QUE 관련
+밀림감지 동계적 이상감지:CUSUM은 통계지만, CUSUM은 학계에서 "통계적 이상탐지(anomaly detection)
