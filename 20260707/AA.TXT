@@ -1,7 +1,8 @@
-보조ML:M16HUBROOM QUE 관련
-밀림감지 동계적 이상감지:CUSUM은 통계지만, CUSUM은 학계에서 "통계적 이상탐지(anomaly detection)
-1. 에이전트 ↔ MCP 서버 (transport)
+REM ① 6월 RAW → 피처
+python features_31.py --raw .\RAW --start 2026-06-01 --end 2026-06-30 --out .\out_ml_june
 
-지금 streamable-http 8010 그대로 가라. DEMOS처럼 여러 에이전트가 물리는 구조면 stdio보다 이게 맞다.
-stdio는 1:1 로컬 붙일 때만 의미 있고, 멀티 클라이언트면 http가 정답.
-대신 세션/인증 붙여서 "어느 에이전트가 무슨 명령 쐈는지" 추적되게 만들어라.
+REM ② CUSUM 감지 (매분 43200행)
+python 밀림_방향_CUSUM.py --features .\out_ml_june\features.csv --out .\out_ml\밀림CUSUM_결과.csv
+
+REM ③ 요약 + 판정 (EP6 episode 대조)
+python 밀림요약.py --result .\out_ml\밀림CUSUM_결과.csv --episodes .\EP6\생긴episode파일명.csv --out .\out_ml\밀림_경보요약.csv
