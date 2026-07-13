@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>문서</title>
+<style>
+  body { font-family: 'Pretendard','Noto Sans KR',sans-serif; max-width: 1120px; margin: 2rem auto; padding: 0 1.5rem; color: #1a1a2e; line-height: 1.7; }
+  h1,h2,h3 { color: #16213e; border-bottom: 2px solid #e2e8f0; padding-bottom: .3em; }
+  h1 { font-size: 1.45rem; } h2 { font-size: 1.15rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: .86em; }
+  th,td { border: 1px solid #cbd5e1; padding: .4em .55em; text-align: left; vertical-align: top; word-break: keep-all; overflow-wrap: anywhere; }
+  th { background: #f1f5f9; font-weight: 700; white-space: nowrap; }
+  code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: .9em; }
+  pre { background: #1e293b; color: #e2e8f0; padding: 1em; border-radius: 8px; overflow-x: auto; }
+  pre code { background: none; color: inherit; padding: 0; }
+  blockquote { border-left: 4px solid #6366f1; margin: 1em 0; padding: .5em 1em; background: #f8fafc; }
+  a { color: #6366f1; }
+  img { max-width: 100%; border-radius: 8px; }
+
+  .table-wrap { width: 100%; overflow-x: auto; margin: 1em 0; }
+  .amos-table { min-width: 940px; }
+  .actual-incident-table { min-width: 1120px; }
+  .center-cell { text-align: center; vertical-align: middle; }
+  .section-note { margin: .5em 0 1em; color: #475569; font-size: .9em; }
+  input[type="checkbox"] { width: 16px; height: 16px; vertical-align: middle; accent-color: #2563eb; }
+  select, textarea { box-sizing: border-box; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; color: #1a1a2e; font: inherit; }
+  select { min-width: 92px; padding: .25em .35em; }
+  textarea { width: 100%; min-width: 170px; min-height: 62px; padding: .45em .55em; resize: vertical; line-height: 1.45; }
+  .time-selects { display: flex; flex-wrap: wrap; gap: .35rem .5rem; }
+  .time-selects label { display: inline-flex; align-items: center; gap: .25rem; white-space: nowrap; font-size: .92em; }
+  .action-area-options { display: grid; grid-template-columns: repeat(2, minmax(72px, 1fr)); gap: .25rem .5rem; }
+  .action-area-options label { display: inline-flex; align-items: center; gap: .25rem; white-space: nowrap; }
+  .empty-row td { text-align: center; color: #94a3b8; padding: 1.1em; background: #f8fafc; }
+  .score-criteria { display: inline; color: #475569; font-size: .72em; font-weight: 650; }
+  .actual-incident-table th, .actual-incident-table td { padding: .55em .65em; }
+  .action-editor { min-width: 310px; }
+  .action-toolbar { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .45rem; }
+  .action-toolbar-title { color: #334155; font-weight: 700; white-space: nowrap; }
+  .action-list { display: grid; gap: .55rem; }
+  .action-item { padding: .5rem; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; }
+  .action-item-controls { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .4rem; }
+  .action-time-label { display: inline-flex; align-items: center; gap: .3rem; color: #334155; font-size: .92em; font-weight: 650; white-space: nowrap; }
+  .add-action-button, .remove-action-button { border: 1px solid #94a3b8; border-radius: 6px; background: #fff; color: #334155; font: inherit; font-weight: 700; cursor: pointer; white-space: nowrap; }
+  .add-action-button { padding: .28em .65em; border-color: #2563eb; color: #1d4ed8; }
+  .remove-action-button { padding: .22em .52em; color: #b91c1c; border-color: #fca5a5; }
+  .add-action-button:hover { background: #eff6ff; }
+  .remove-action-button:hover { background: #fef2f2; }
+  .add-action-button:focus-visible, .remove-action-button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+  .action-item textarea { min-width: 280px; min-height: 54px; }
+  .comment-textarea { min-width: 220px; }
+  textarea::placeholder { color: #94a3b8; opacity: 1; }
+
+
+  /* --- 추가: 상단 저장 툴바 / 수동 기입 --- */
+  .top-toolbar { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; padding: .6rem .2rem; margin: -1rem 0 1rem; background: rgba(255,255,255,.96); border-bottom: 1px solid #e2e8f0; backdrop-filter: blur(4px); }
+  .save-button { border: none; border-radius: 8px; background: #2563eb; color: #fff; font: inherit; font-weight: 700; padding: .5em 1.3em; cursor: pointer; }
+  .save-button:hover { background: #1d4ed8; }
+  .save-status { color: #16a34a; font-size: .88em; font-weight: 650; }
+  .toolbar-note { color: #64748b; font-size: .82em; }
+  .manual-add-bar { margin: .25em 0 1.2em; }
+  .manual-detection-row td { background: #fffbeb; }
+  .manual-input { box-sizing: border-box; width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; padding: .3em .45em; font: inherit; background: #fff; color: #1a1a2e; }
+  .manual-badge { display: inline-block; margin-left: .3em; font-size: .72em; color: #b45309; font-weight: 700; white-space: nowrap; }
+  .remove-manual-button { display: block; margin-top: .35em; border: 1px solid #fca5a5; border-radius: 6px; background: #fff; color: #b91c1c; font: inherit; font-size: .78em; font-weight: 700; padding: .15em .45em; cursor: pointer; white-space: nowrap; }
+  .remove-manual-button:hover { background: #fef2f2; }
+</style>
+</head>
+<body>
+<div class="top-toolbar">
+<button type="button" id="save-report-button" class="save-button">💾 저장</button>
+<span id="save-status" class="save-status" role="status" aria-live="polite"></span>
+<span class="toolbar-note">저장 시 입력 내용이 포함된 HTML 파일이 다운로드됩니다. 저장된 파일을 다시 열면 이어서 편집할 수 있습니다. (Ctrl+S)</span>
+</div>
+
+<h1 id="2026-7-7-m16-br">📅 2026 년 7 월 7 일 M16 BR 반송 이벤트 발생 확인건</h1>
+
+<h2 id="1">1. 한 줄 총평 <span class="score-criteria">(점수 등급 기준: 50~70 🟠 경계·원인 확인 / 71~84 🔴 위험·즉시 조치 / 85~100 ⛔ 초위험·즉시 개입)</span></h2>
+<p>금일 총 <strong>2 건</strong>의 반송 이벤트 (점수 50 이상) 가 발생했으며, 최고 등급은 <strong>🟠 경계 (60 점)</strong>, 시작 영역은 모두 <strong>M16HUB</strong>였습니다.</p>
+<h2 id="2">2. AMOS 이상 감지 내역</h2>
+<div class="table-wrap">
+<table id="amos-detection-table" class="amos-table">
+<thead>
+<tr>
+<th>번호</th>
+<th>이상감지 시간</th>
+<th>이상감지 구간</th>
+<th>심각도</th>
+<th>이상감지 항목</th>
+<th>실제 발생여부</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>15:17</td>
+<td>HID3, HID4</td>
+<td>경고(모니터링 필요)</td>
+<td>STAR지표 명</td>
+<td class="center-cell"><input type="checkbox" class="actual-occurrence-check" data-incident-no="1" data-detection-time="15:17" aria-label="1번 실제 발생여부"></td>
+</tr>
+<tr>
+<td>2</td>
+<td>20:33</td>
+<td>HID32, HID36</td>
+<td>심각(조치필요)</td>
+<td>STAR지표 명</td>
+<td class="center-cell"><input type="checkbox" class="actual-occurrence-check" data-incident-no="2" data-detection-time="20:33" aria-label="2번 실제 발생여부"></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="manual-add-bar">
+<button type="button" id="add-manual-detection" class="add-action-button">+ 수동 기입</button>
+</div>
+<h2 id="3">3. 실제 이상 발생내역</h2>
+<p class="section-note">2. AMOS 이상 감지 내역의 <strong>실제 발생여부</strong>를 체크하면 아래 표에 해당 번호의 행이 자동으로 생성됩니다. 체크를 해제하면 해당 행은 표에서 제외됩니다.</p>
+<div class="table-wrap">
+<table id="actual-incident-table" class="actual-incident-table">
+<colgroup>
+<col style="width:55px">
+<col style="width:125px">
+<col style="width:210px">
+<col style="width:165px">
+<col style="width:325px">
+<col style="width:240px">
+</colgroup>
+<thead>
+<tr>
+<th>번호</th>
+<th>AMOS 이상감지 시간</th>
+<th>실제 발생시간/조치완료시간</th>
+<th>조치 구간</th>
+<th>조치내용</th>
+<th>Comment(or 발생원인)</th>
+</tr>
+</thead>
+<tbody id="actual-incident-tbody">
+<tr class="empty-row">
+<td colspan="6">실제 발생여부가 체크된 AMOS 이상 감지 항목이 없습니다.</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="4">4. 위험 이벤트 상세 분석</h2>
+<div class="hub-report-graph" style="margin:14px 0;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 728" font-family="-apple-system,'Malgun Gothic',sans-serif" style="max-width:100%;height:auto;background:#fff;border:1px solid #e2e8f0;border-radius:10px;"><text x="14" y="20" font-size="15" font-weight="800" fill="#16213e">📅 2026-07-07 M16 BR 사건 통합 (2건) · 19:18~23:53</text><rect x="200" y="113" width="682" height="75" fill="#f1f5f9"/><rect x="200" y="82" width="682" height="31" fill="#ffedd5"/><rect x="200" y="60" width="682" height="22" fill="#fee2e2"/><rect x="200" y="38" width="682" height="22" fill="#fecaca"/><line x1="200" y1="113" x2="882" y2="113" stroke="#e2e8f0" stroke-width=".5" stroke-dasharray="2 3"/><text x="194" y="116" font-size="9" fill="#94a3b8" text-anchor="end">50</text><line x1="200" y1="82" x2="882" y2="82" stroke="#e2e8f0" stroke-width=".5" stroke-dasharray="2 3"/><text x="194" y="85" font-size="9" fill="#94a3b8" text-anchor="end">71</text><line x1="200" y1="60" x2="882" y2="60" stroke="#e2e8f0" stroke-width=".5" stroke-dasharray="2 3"/><text x="194" y="63" font-size="9" fill="#94a3b8" text-anchor="end">85</text><line x1="200" y1="38" x2="882" y2="38" stroke="#e2e8f0" stroke-width=".5" stroke-dasharray="2 3"/><text x="194" y="41" font-size="9" fill="#94a3b8" text-anchor="end">100</text><line x1="284" y1="38" x2="284" y2="188" stroke="#eef2f7" stroke-width=".7"/><line x1="404" y1="38" x2="404" y2="188" stroke="#eef2f7" stroke-width=".7"/><line x1="524" y1="38" x2="524" y2="188" stroke="#eef2f7" stroke-width=".7"/><line x1="644" y1="38" x2="644" y2="188" stroke="#eef2f7" stroke-width=".7"/><line x1="764" y1="38" x2="764" y2="188" stroke="#eef2f7" stroke-width=".7"/><rect x="320" y="38" width="2" height="150" fill="#ea580c" opacity="0.10"/><line x1="320" y1="38" x2="320" y2="188" stroke="#ea580c" stroke-width="1" stroke-dasharray="3 2" opacity="0.65"/><line x1="322" y1="38" x2="322" y2="188" stroke="#ea580c" stroke-width="1" stroke-dasharray="3 2" opacity="0.65"/><text x="321" y="50" font-size="10" font-weight="800" fill="#ea580c" text-anchor="middle" style="paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round">사건1 · 50점 @19:18</text><rect x="830" y="38" width="40" height="150" fill="#ea580c" opacity="0.10"/><line x1="830" y1="38" x2="830" y2="188" stroke="#ea580c" stroke-width="1" stroke-dasharray="3 2" opacity="0.65"/><line x1="870" y1="38" x2="870" y2="188" stroke="#ea580c" stroke-width="1" stroke-dasharray="3 2" opacity="0.65"/><text x="850" y="50" font-size="10" font-weight="800" fill="#ea580c" text-anchor="middle" style="paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round">사건2 · 60점 @23:44</text><path d="M200,166 L204,166 L208,162 L212,170 L216,158 L220,164 L224,164 L228,167 L232,173 L236,160 L240,154 L244,137 L248,152 L252,154 L256,150 L260,143 L264,149 L268,150 L272,156 L276,166 L280,166 L284,173 L288,166 L292,162 L296,150 L300,166 L304,160 L308,162 L312,143 L316,137 L320,113 L324,127 L328,140 L332,140 L336,160 L340,137 L344,138 L348,138 L352,132 L356,152 L360,162 L364,170 L368,170 L372,166 L376,166 L380,154 L384,161 L388,154 L392,152 L396,160 L400,160 L404,167 L408,170 L412,161 L416,162 L420,156 L424,146 L428,146 L432,146 L436,156 L440,156 L444,160 L448,164 L452,162 L456,161 L460,170 L464,170 L468,170 L472,173 L476,173 L480,167 L484,161 L488,158 L492,150 L496,152 L500,150 L504,161 L508,150 L512,161 L516,164 L520,161 L524,158 L528,158 L532,164 L536,154 L540,154 L544,167 L548,164 L552,166 L556,158 L560,162 L564,162 L568,164 L572,161 L576,155 L580,164 L584,158 L588,170 L592,173 L596,167 L600,173 L604,164 L608,170 L612,170 L616,164 L620,167 L624,162 L628,164 L632,152 L636,162 L640,161 L644,161 L648,154 L652,152 L656,154 L660,156 L664,149 L668,143 L672,140 L676,158 L680,176 L684,162 L688,170 L692,166 L696,170 L700,173 L704,173 L708,173 L712,173 L716,170 L720,166 L724,158 L728,170 L732,160 L736,162 L740,170 L744,170 L748,166 L752,160 L756,164 L760,162 L764,170 L768,170 L772,160 L776,156 L780,162 L784,158 L788,140 L792,152 L796,152 L800,138 L804,128 L808,125 L812,136 L816,136 L820,138 L824,125 L828,122 L832,122 L836,119 L840,119 L844,125 L848,122 L852,98 L856,114 L860,132 L864,112 L868,138 L872,122 L876,122 L880,136 L882,132" fill="none" stroke="#2563eb" stroke-width="1.7"/><line x1="852" y1="38" x2="852" y2="188" stroke="#dc2626" stroke-width="1" stroke-dasharray="4 3"/><circle cx="852" cy="98" r="4" fill="#dc2626"/><text x="845" y="91" font-size="11" font-weight="800" fill="#dc2626" text-anchor="end" style="paint-order:stroke;stroke:#fff;stroke-width:3.2px;stroke-linejoin:round">▲ 최고 60점 · 23:44 · M16HUB</text><circle cx="320" cy="113" r="3.5" fill="#ea580c"/><text x="320" y="107" font-size="9.5" font-weight="800" fill="#ea580c" text-anchor="middle" style="paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round">50점</text><text x="14" y="208" font-size="11.5" font-weight="700" fill="#334155">최고점(23:44 · 60점 · M16HUB) 발동 지표 — 실제 raw 컬럼 24시간 추이</text><rect x="200" y="214" width="682" height="72" fill="#fcfdfe" stroke="#eef2f7"/><rect x="0" y="214" width="200" height="72" fill="#fff"/><rect x="196" y="214" width="3.5" height="72" fill="#dc2626"/><line x1="284" y1="214" x2="284" y2="286" stroke="#eef2f7" stroke-width=".7"/><line x1="404" y1="214" x2="404" y2="286" stroke="#eef2f7" stroke-width=".7"/><line x1="524" y1="214" x2="524" y2="286" stroke="#eef2f7" stroke-width=".7"/><line x1="644" y1="214" x2="644" y2="286" stroke="#eef2f7" stroke-width=".7"/><line x1="764" y1="214" x2="764" y2="286" stroke="#eef2f7" stroke-width=".7"/><text x="8" y="232" font-size="12" font-weight="800" fill="#dc2626">M16HUB 반송시간 (분)</text><text x="8" y="249" font-size="9.5" font-weight="600" fill="#1e293b" font-family="ui-monospace,Consolas,monospace">M16HUB.QUE.TIME.AVGTOTALTIME1MIN</text><text x="8" y="264" font-size="9" fill="#94a3b8">범위 3.47~14.03분</text><path d="M200,276 L204,275 L208,256 L212,258 L216,270 L220,273 L224,266 L228,264 L232,257 L236,267 L240,234 L244,236 L248,255 L252,252 L256,257 L260,251 L264,239 L268,255 L272,248 L276,264 L280,267 L284,267 L288,268 L292,258 L296,262 L300,251 L304,246 L308,252 L312,251 L316,259 L320,265 L324,261 L328,248 L332,242 L336,255 L340,250 L344,242 L348,265 L352,247 L356,270 L360,255 L364,251 L368,264 L372,243 L376,269 L380,261 L384,244 L388,273 L392,262 L396,272 L400,269 L404,260 L408,266 L412,271 L416,271 L420,267 L424,267 L428,265 L432,268 L436,272 L440,271 L444,270 L448,262 L452,262 L456,270 L460,272 L464,274 L468,275 L472,269 L476,273 L480,276 L484,275 L488,273 L492,257 L496,275 L500,275 L504,276 L508,275 L512,274 L516,277 L520,275 L524,274 L528,274 L532,273 L536,275 L540,276 L544,273 L548,275 L552,272 L556,272 L560,271 L564,270 L568,277 L572,278 L576,276 L580,273 L584,269 L588,274 L592,276 L596,275 L600,275 L604,273 L608,270 L612,273 L616,275 L620,275 L624,276 L628,275 L632,276 L636,275 L640,272 L644,274 L648,271 L652,270 L656,272 L660,271 L664,271 L668,271 L672,264 L676,270 L680,260 L684,263 L688,268 L692,267 L696,268 L700,261 L704,268 L708,264 L712,262 L716,263 L720,266 L724,273 L728,274 L732,274 L736,272 L740,273 L744,269 L748,265 L752,264 L756,272 L760,263 L764,257 L768,262 L772,249 L776,260 L780,266 L784,252 L788,244 L792,252 L796,221 L800,248 L804,252 L808,238 L812,242 L816,241 L820,260 L824,243 L828,218 L832,247 L836,237 L840,240 L844,253 L848,252 L852,259 L856,263 L860,245 L864,247 L868,256 L872,256 L876,257 L880,257 L882,255" fill="none" stroke="#dc2626" stroke-width="1.6"/><path d="M200,276 L204,275 L208,256 L212,258 L216,270 L220,273 L224,266 L228,264 L232,257 L236,267 L240,234 L244,236 L248,255 L252,252 L256,257 L260,251 L264,239 L268,255 L272,248 L276,264 L280,267 L284,267 L288,268 L292,258 L296,262 L300,251 L304,246 L308,252 L312,251 L316,259 L320,265 L324,261 L328,248 L332,242 L336,255 L340,250 L344,242 L348,265 L352,247 L356,270 L360,255 L364,251 L368,264 L372,243 L376,269 L380,261 L384,244 L388,273 L392,262 L396,272 L400,269 L404,260 L408,266 L412,271 L416,271 L420,267 L424,267 L428,265 L432,268 L436,272 L440,271 L444,270 L448,262 L452,262 L456,270 L460,272 L464,274 L468,275 L472,269 L476,273 L480,276 L484,275 L488,273 L492,257 L496,275 L500,275 L504,276 L508,275 L512,274 L516,277 L520,275 L524,274 L528,274 L532,273 L536,275 L540,276 L544,273 L548,275 L552,272 L556,272 L560,271 L564,270 L568,277 L572,278 L576,276 L580,273 L584,269 L588,274 L592,276 L596,275 L600,275 L604,273 L608,270 L612,273 L616,275 L620,275 L624,276 L628,275 L632,276 L636,275 L640,272 L644,274 L648,271 L652,270 L656,272 L660,271 L664,271 L668,271 L672,264 L676,270 L680,260 L684,263 L688,268 L692,267 L696,268 L700,261 L704,268 L708,264 L712,262 L716,263 L720,266 L724,273 L728,274 L732,274 L736,272 L740,273 L744,269 L748,265 L752,264 L756,272 L760,263 L764,257 L768,262 L772,249 L776,260 L780,266 L784,252 L788,244 L792,252 L796,221 L800,248 L804,252 L808,238 L812,242 L816,241 L820,260 L824,243 L828,218 L832,247 L836,237 L840,240 L844,253 L848,252 L852,259 L856,263 L860,245 L864,247 L868,256 L872,256 L876,257 L880,257 L882,255 L882,284 L200,284 Z" fill="#dc2626" opacity="0.07"/><line x1="320" y1="214" x2="320" y2="286" stroke="#ea580c" stroke-width="1" stroke-dasharray="4 3" opacity="0.85"/><circle cx="320" cy="265" r="3" fill="#ea580c"/><text x="326" y="260" font-size="9.5" font-weight="800" fill="#ea580c" text-anchor="start" style="paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round">5.72분</text><line x1="852" y1="214" x2="852" y2="286" stroke="#ea580c" stroke-width="1" stroke-dasharray="4 3" opacity="0.85"/><circle cx="852" cy="259" r="3" fill="#ea580c"/><text x="846" y="254" font-size="9.5" font-weight="800" fill="#ea580c" text-anchor="end" style="paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round">6.88분</text><rect x="200" y="296" width="682" height="72" fill="#fcfdfe" stroke="#eef2f7"/><rect x="0" y="296" width="200" height="72" fill="#fff"/><rect x="196" y="296" width="3.5" height="72" fill="#ea580c"/><line x1="284" y1="296" x2="284" y2="368" stroke="#eef2f7" stroke-width=".7"/><line x1="404" y1="296" x2="404" y2="368" stroke="#eef2f7" stroke-width=".7"/><line x1="524" y1="296" x2="524" y2="368" stroke="#eef2f7" stroke-width=".7"/><line x1="644" y1="296" x2="644" y2="368" stroke="#eef2f7" stroke-width=".7"/><line x1="764" y1="296" x2="764" y2="368" stroke="#eef2f7" stroke-width=".7"/><text x="8" y="314" font-size="12" font-weight="800" fill="#ea580c">M16HUB FAB저장율 (%)</text><text x="8" y="331" font-size="9.5" font-weight="600" fill="#1e293b" font-family="ui-monospace,Consolas,monospace">M16HUB.STRATE.ALL.FABSTORAGERATIO</text><text x="8" y="346" font-size="9" fill="#94a3b8">범위 0~27.81%</text><path d="M200,360 L204,360 L208,360 L212,360 L216,360 L220,360 L224,360 L228,360 L232,360 L236,360 L240,360 L244,360 L248,360 L252,360 L256,360 L260,360 L264,360 L268,360 L272,360 L276,360 L280,360 L284,360 L288,360 L292,360 L296,360 L300,360 L304,360 L308,360 L312,360 L316,360 L320,360 L324,360 L328,360 L332,360 L336,357 L340,360 L344,360 L348,360 L352,360 L356,360 L360,360 L364,360 L368,360 L372,360 L376,360 L380,360 L384,360 L388,360 L392,359 L396,359 L400,357 L404,359 L408,356 L412,359 L416,357 L420,359 L424,360 L428,360 L432,360 L436,360 L440,360 L444,359 L448,360 L452,360 L456,360 L460,360 L464,360 L468,360 L472,360 L476,360 L480,360 L484,360 L488,360 L492,360 L496,360 L500,359 L504,360 L508,360 L512,360 L516,360 L520,360 L524,360 L528,360 L532,360 L536,360 L540,359 L544,359 L548,359 L552,360 L556,360 L560,360 L564,360 L568,360 L572,360 L576,360 L580,360 L584,360 L588,360 L592,360 L596,360 L600,359 L604,360 L608,360 L612,360 L616,360 L620,359 L624,360 L628,360 L632,360 L636,360 L640,359 L644,356 L648,357 L652,360 L656,359 L660,360 L664,359 L668,355 L672,354 L676,350 L680,346 L684,347 L688,347 L692,351 L696,354 L700,359 L704,355 L708,357 L712,355 L716,360 L720,360 L724,359 L728,359 L732,357 L736,355 L740,350 L744,350 L748,341 L752,343 L756,347 L760,334 L764,319 L768,319 L772,322 L776,341 L780,345 L784,337 L788,329 L792,318 L796,326 L800,345 L804,346 L808,355 L812,355 L816,355 L820,354 L824,352 L828,347 L832,340 L836,333 L840,334 L844,332 L848,334 L852,333 L856,328 L860,314 L864,300 L868,314 L872,320 L876,337 L880,354 L882,359" fill="none" stroke="#ea580c" stroke-width="1.6"/><path d="M200,360 L204,360 L208,360 L212,360 L216,360 L220,360 L224,360 L228,360 L232,360 L236,360 L240,360 L244,360 L248,360 L252,360 L256,360 L260,360 L264,360 L268,360 L272,360 L276,360 L280,360 L284,360 L288,360 L292,360 L296,360 L300,360 L304,360 L308,360 L312,360 L316,360 L320,360 L324,360 L328,360 L332,360 L336,357 L340,360 L344,360 L348,360 L352,360 L356,360 L360,360 L364,360 L368,360 L372,360 L376,360 L380,360 L384,360 L388,360 L392,359 L396,359 L400,357 L404,359 L408,356 L412,359 L416,357 L420,359 L424,360 L428,360 L432,360 L436,360 L440,360 L444,359 L448,360 L452,360 L456,360 L460,360 L464,360 L468,360 L472,360 L476,360 L480,360 L484,360 L488,360 L492,360 L496,360 L500,359 L504,360 L508,360 L512,360 L516,360 L520,360 L524,360 L528,360 L532,360 L536,360 L540,359 L544,359 L548,359 L552,360 L556,360 L560,360 L564,360 L568,360 L572,360 L576,360 L580,360 L584,360 L588,360 L592,360 L596,360 L600,359 L604,360 L608,360 L612,360 L616,360 L620,359 L624,360 L628,360 L632,360 L636,360 L640,359 L644,356 L648,357 L652,360 L656,359 L660,360 L664,359 L668,355 L672,354 L676,350 L680,346 L684,347 L688,347 L692,351 L696,354 L700,359 L704,355 L708,357 L712,355 L716,360 L720,360 L724,359 L728,359 L732,357 L736,355 L740,350 L744,350 L748,341 L752,343 L756,347 L760,334 L764,319 L768,319 L772,322 L776,341 L780,345 L784,337 L788,329 L792,318 L796,326 L800,345 L804,346 L808,355 L812,355 L816,355 L820,354 L824,352 L828,347 L832,340 L836,333 L840,334 L844,332 L848,334 L852,333 L856,328 L860,314 L864,300 L868,314 L872,320 L876,337 L880,354 L882,359 L882,366 L200,366 Z" fill="#ea580c" opacity="0.07"/><line x1="320" y1="296" x2="320" y2="368" stroke="#ea580c" stroke-width="1" stroke-dasharray="4 3" opacity="0.85"/><circle cx="320" cy="360" r="3" fill="#ea580c"/><text x="326" y="355" font-size="9.5" font-weight="800" fill="#ea580c" text-anchor="start" style="paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round">0%</text><line x1="852" y1="296" x2="852" y2="368" stroke="#ea580c" stroke-width="1" stroke-dasharray="4 3" opacity="0.85"/><circle cx="852" cy="333" r="3" fill="#ea580c"/><text x="846" y="328" font-size="9.5" font-weight="800" fill="#ea580c" text-anchor="end" style="paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round">12.43%</text><rect x="200" y="378" width="682" height="72" fill="#fcfdfe" stroke="#eef2f7"/><rect x="0" y="378" width="200" height="72" fill="#fff"/><rect x="196" y="378" width="3.5" height="72" fill="#d97706"/><line x1="284" y1="378" x2="284" y2="450" stroke="#eef2f7" stroke-width=".7"/><line x1="404" y1="378" x2="404" y2="450" stroke="#eef2f7" stroke-width=".7"/><line x1="524" y1="378" x2="524" y2="450" stroke="#eef2f7" stroke-width=".7"/><line x1="644" y1="378" x2="644" y2="450" stroke="#eef2f7" stroke-width=".7"/><line x1="764" y1="378" x2="764" y2="450" stroke="#eef2f7" stroke-width=".7"/><text x="8" y="396" font-size="12" font-weight="800" fill="#d97706">M16HUB STB저장율 (%)</text><text x="8" y="413" font-size="9.5" font-weight="600" fill="#1e293b" font-family="ui-monospace,Consolas,monospace">M16HUB.STRATE.STB.3F_STORAGE_UTIL</text><text x="8" y="428" font-size="9" fill="#94a3b8">범위 55.62~100%</text><path d="M200,382 L204,383 L208,382 L212,382 L216,382 L220,382 L224,382 L228,382 L232,382 L236,382 L240,382 L244,382 L248,382 L252,382 L256,382 L260,382 L264,382 L268,382 L272,382 L276,382 L280,382 L284,382 L288,382 L292,382 L296,382 L300,384 L304,383 L308,382 L312,382 L316,382 L320,382 L324,382 L328,382 L332,384 L336,384 L340,382 L344,382 L348,382 L352,382 L356,382 L360,382 L364,382 L368,382 L372,382 L376,382 L380,382 L384,382 L388,384 L392,387 L396,388 L400,388 L404,386 L408,385 L412,388 L416,384 L420,383 L424,382 L428,382 L432,382 L436,383 L440,383 L444,383 L448,382 L452,382 L456,382 L460,382 L464,382 L468,382 L472,382 L476,382 L480,382 L484,383 L488,383 L492,382 L496,384 L500,383 L504,382 L508,382 L512,382 L516,382 L520,382 L524,382 L528,382 L532,383 L536,383 L540,383 L544,384 L548,384 L552,382 L556,382 L560,382 L564,382 L568,382 L572,382 L576,383 L580,384 L584,382 L588,382 L592,384 L596,384 L600,384 L604,382 L608,384 L612,385 L616,384 L620,383 L624,382 L628,385 L632,389 L636,388 L640,388 L644,389 L648,388 L652,386 L656,384 L660,383 L664,388 L668,396 L672,406 L676,406 L680,400 L684,395 L688,392 L692,388 L696,391 L700,390 L704,392 L708,388 L712,388 L716,385 L720,384 L724,386 L728,387 L732,391 L736,392 L740,404 L744,401 L748,405 L752,406 L756,410 L760,417 L764,421 L768,418 L772,413 L776,404 L780,404 L784,420 L788,426 L792,427 L796,416 L800,402 L804,395 L808,389 L812,394 L816,392 L820,395 L824,400 L828,411 L832,411 L836,410 L840,408 L844,404 L848,404 L852,413 L856,434 L860,441 L864,440 L868,423 L872,412 L876,397 L880,388 L882,385" fill="none" stroke="#d97706" stroke-width="1.6"/><path d="M200,382 L204,383 L208,382 L212,382 L216,382 L220,382 L224,382 L228,382 L232,382 L236,382 L240,382 L244,382 L248,382 L252,382 L256,382 L260,382 L264,382 L268,382 L272,382 L276,382 L280,382 L284,382 L288,382 L292,382 L296,382 L300,384 L304,383 L308,382 L312,382 L316,382 L320,382 L324,382 L328,382 L332,384 L336,384 L340,382 L344,382 L348,382 L352,382 L356,382 L360,382 L364,382 L368,382 L372,382 L376,382 L380,382 L384,382 L388,384 L392,387 L396,388 L400,388 L404,386 L408,385 L412,388 L416,384 L420,383 L424,382 L428,382 L432,382 L436,383 L440,383 L444,383 L448,382 L452,382 L456,382 L460,382 L464,382 L468,382 L472,382 L476,382 L480,382 L484,383 L488,383 L492,382 L496,384 L500,383 L504,382 L508,382 L512,382 L516,382 L520,382 L524,382 L528,382 L532,383 L536,383 L540,383 L544,384 L548,384 L552,382 L556,382 L560,382 L564,382 L568,382 L572,382 L576,383 L580,384 L584,382 L588,382 L592,384 L596,384 L600,384 L604,382 L608,384 L612,385 L616,384 L620,383 L624,382 L628,385 L632,389 L636,388 L640,388 L644,389 L648,388 L652,386 L656,384 L660,383 L664,388 L668,396 L672,406 L676,406 L680,400 L684,395 L688,392 L692,388 L696,391 L700,390 L704,392 L708,388 L712,388 L716,385 L720,384 L724,386 L728,387 L732,391 L736,392 L740,404 L744,401 L748,405 L752,406 L756,410 L760,417 L764,421 L768,418 L772,413 L776,404 L780,404 L784,420 L788,426 L792,427 L796,416 L800,402 L804,395 L808,389 L812,394 L816,392 L820,395 L824,400 L828,411 L832,411 L836,410 L840,408 L844,404 L848,404 L852,413 L856,434 L860,441 L864,440 L868,423 L872,412 L876,397 L880,388 L882,385 L882,448 L200,448 Z" fill="#d97706" opacity="0.07"/><line x1="320" y1="378" x2="320" y2="450" stroke="#ea580c" stroke-width="1" stroke-dasharray="4 3" opacity="0.85"/><circle cx="320" cy="382" r="3" fill="#ea580c"/><text x="326" y="377" font-size="9.5" font-weight="800" fill="#ea580c" text-anchor="start" style="paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round">100%</text><line x1="852" y1="378" x2="852" y2="450" stroke="#ea580c" stroke-width="1" stroke-dasharray="4 3" opacity="0.85"/><circle cx="852" cy="413" r="3" fill="#ea580c"/><text x="846" y="408" font-size="9.5" font-weight="800" fill="#ea580c" text-anchor="end" style="paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round">76.92%</text><rect x="200" y="460" width="682" height="72" fill="#fcfdfe" stroke="#eef2f7"/><rect x="0" y="460" width="200" height="72" fill="#fff"/><rect x="196" y="460" width="3.5" height="72" fill="#be185d"/><line x1="284" y1="460" x2="284" y2="532" stroke="#eef2f7" stroke-width=".7"/><line x1="404" y1="460" x2="404" y2="532" stroke="#eef2f7" stroke-width=".7"/><line x1="524" y1="460" x2="524" y2="532" stroke="#eef2f7" stroke-width=".7"/><line x1="644" y1="460" x2="644" y2="532" stroke="#eef2f7" stroke-width=".7"/><line x1="764" y1="460" x2="764" y2="532" stroke="#eef2f7" stroke-width=".7"/><text x="8" y="478" font-size="12" font-weight="800" fill="#be185d">M16HUB 리프터막힘 (회)</text><text x="8" y="495" font-size="9.5" font-weight="600" fill="#1e293b" font-family="ui-monospace,Consolas,monospace">M16HUB.QUE.LFT.3F_LFT_REVERSALCNT</text><text x="8" y="510" font-size="9" fill="#94a3b8">범위 0~9회</text><path d="M200,491 L204,491 L208,491 L212,484 L216,497 L220,491 L224,504 L228,504 L232,517 L236,517 L240,504 L244,511 L248,524 L252,504 L256,504 L260,504 L264,497 L268,504 L272,484 L276,484 L280,491 L284,484 L288,471 L292,491 L296,511 L300,497 L304,491 L308,504 L312,504 L316,491 L320,504 L324,511 L328,504 L332,511 L336,497 L340,491 L344,491 L348,484 L352,477 L356,491 L360,477 L364,477 L368,477 L372,477 L376,497 L380,497 L384,504 L388,511 L392,484 L396,484 L400,491 L404,497 L408,491 L412,504 L416,491 L420,471 L424,471 L428,471 L432,491 L436,484 L440,471 L444,491 L448,471 L452,464 L456,471 L460,471 L464,471 L468,491 L472,497 L476,491 L480,511 L484,497 L488,511 L492,511 L496,517 L500,504 L504,511 L508,497 L512,497 L516,504 L520,504 L524,504 L528,504 L532,504 L536,504 L540,497 L544,504 L548,511 L552,524 L556,511 L560,511 L564,504 L568,491 L572,497 L576,497 L580,497 L584,491 L588,497 L592,484 L596,504 L600,491 L604,504 L608,517 L612,517 L616,511 L620,504 L624,491 L628,484 L632,511 L636,504 L640,511 L644,511 L648,504 L652,517 L656,511 L660,517 L664,517 L668,511 L672,504 L676,511 L680,491 L684,491 L688,477 L692,464 L696,477 L700,464 L704,471 L708,471 L712,471 L716,477 L720,477 L724,484 L728,491 L732,491 L736,491 L740,484 L744,484 L748,517 L752,524 L756,511 L760,524 L764,524 L768,524 L772,524 L776,517 L780,524 L784,511 L788,497 L792,491 L796,484 L800,471 L804,471 L808,471 L812,471 L816,477 L820,464 L824,477 L828,471 L832,477 L836,464 L840,477 L844,484 L848,477 L852,484 L856,491 L860,491 L864,471 L868,471 L872,491 L876,477 L880,477 L882,471" fill="none" stroke="#be185d" stroke-width="1.6"/><path d="M200,491 L204,491 L208,491 L212,484 L216,497 L220,491 L224,504 L228,504 L232,517 L236,517 L240,504 L244,511 L248,524 L252,504 L256,504 L260,504 L264,497 L268,504 L272,484 L276,484 L280,491 L284,484 L288,471 L292,491 L296,511 L300,497 L304,491 L308,504 L312,504 L316,491 L320,504 L324,511 L328,504 L332,511 L336,497 L340,491 L344,491 L348,484 L352,477 L356,491 L360,477 L364,477 L368,477 L372,477 L376,497 L380,497 L384,504 L388,511 L392,484 L396,484 L400,491 L404,497 L408,491 L412,504 L416,491 L420,471 L424,471 L428,471 L432,491 L436,484 L440,471 L444,491 L448,471 L452,464 L456,471 L460,471 L464,471 L468,491 L472,497 L476,491 L480,511 L484,497 L488,511 L492,511 L496,517 L500,504 L504,511 L508,497 L512,497 L516,504 L520,504 L524,504 L528,504 L532,504 L536,504 L540,497 L544,504 L548,511 L552,524 L556,511 L560,511 L564,504 L568,491 L572,497 L576,497 L580,497 L584,491 L588,497 L592,484 L596,504 L600,491 L604,504 L608,517 L612,517 L616,511 L620,504 L624,491 L628,484 L632,511 L636,504 L640,511 L644,511 L648,504 L652,517 L656,511 L660,517 L664,517 L668,511 L672,504 L676,511 L680,491 L684,491 L688,477 L692,464 L696,477 L700,464 L704,471 L708,471 L712,471 L716,477 L720,477 L724,484 L728,491 L732,491 L736,491 L740,484 L744,484 L748,517 L752,524 L756,511 L760,524 L764,524 L768,524 L772,524 L776,517 L780,524 L784,511 L788,497 L792,491 L796,484 L800,471 L804,471 L808,471 L812,471 L816,477 L820,464 L824,477 L828,471 L832,477 L836,464 L840,477 L844,484 L848,477 L852,484 L856,491 L860,491 L864,471 L868,471 L872,491 L876,477 L880,477 L882,471 L882,530 L200,530 Z" fill="#be185d" opacity="0.07"/><line x1="320" y1="460" x2="320" y2="532" stroke="#ea580c" stroke-width="1" stroke-dasharray="4 3" opacity="0.85"/><circle cx="320" cy="504" r="3" fill="#ea580c"/><text x="326" y="499" font-size="9.5" font-weight="800" fill="#ea580c" text-anchor="start" style="paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round">3회</text><line x1="852" y1="460" x2="852" y2="532" stroke="#ea580c" stroke-width="1" stroke-dasharray="4 3" opacity="0.85"/><circle cx="852" cy="484" r="3" fill="#ea580c"/><text x="846" y="479" font-size="9.5" font-weight="800" fill="#ea580c" text-anchor="end" style="paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round">6회</text><rect x="200" y="542" width="682" height="72" fill="#fcfdfe" stroke="#eef2f7"/><rect x="0" y="542" width="200" height="72" fill="#fff"/><rect x="196" y="542" width="3.5" height="72" fill="#0891b2"/><line x1="284" y1="542" x2="284" y2="614" stroke="#eef2f7" stroke-width=".7"/><line x1="404" y1="542" x2="404" y2="614" stroke="#eef2f7" stroke-width=".7"/><line x1="524" y1="542" x2="524" y2="614" stroke="#eef2f7" stroke-width=".7"/><line x1="644" y1="542" x2="644" y2="614" stroke="#eef2f7" stroke-width=".7"/><line x1="764" y1="542" x2="764" y2="614" stroke="#eef2f7" stroke-width=".7"/><text x="8" y="560" font-size="12" font-weight="800" fill="#0891b2">M14 4분초과율 (%)</text><text x="8" y="577" font-size="9.5" font-weight="600" fill="#1e293b" font-family="ui-monospace,Consolas,monospace">M14.QUE.ALL.TRANSPORT4MINOVERRATIO</text><text x="8" y="592" font-size="9" fill="#94a3b8">범위 9.44~17.75%</text><path d="M200,578 L204,561 L208,566 L212,579 L216,581 L220,581 L224,588 L228,574 L232,575 L236,579 L240,578 L244,584 L248,586 L252,579 L256,566 L260,564 L264,551 L268,546 L272,558 L276,556 L280,558 L284,570 L288,579 L292,570 L296,572 L300,574 L304,566 L308,565 L312,566 L316,565 L320,564 L324,565 L328,560 L332,557 L336,561 L340,562 L344,566 L348,575 L352,575 L356,566 L360,575 L364,575 L368,574 L372,583 L376,587 L380,582 L384,579 L388,573 L392,561 L396,564 L400,568 L404,574 L408,575 L412,572 L416,567 L420,566 L424,572 L428,578 L432,591 L436,587 L440,584 L444,585 L448,579 L452,586 L456,588 L460,588 L464,596 L468,590 L472,594 L476,596 L480,583 L484,576 L488,573 L492,566 L496,570 L500,564 L504,568 L508,574 L512,580 L516,591 L520,584 L524,585 L528,592 L532,585 L536,580 L540,575 L544,577 L548,575 L552,575 L556,583 L560,592 L564,595 L568,594 L572,595 L576,596 L580,588 L584,589 L588,586 L592,583 L596,579 L600,583 L604,572 L608,584 L612,586 L616,586 L620,586 L624,576 L628,573 L632,572 L636,577 L640,574 L644,573 L648,568 L652,565 L656,570 L660,567 L664,578 L668,571 L672,572 L676,561 L680,559 L684,558 L688,567 L692,581 L696,584 L700,584 L704,582 L708,581 L712,579 L716,585 L720,586 L724,598 L728,597 L732,601 L736,600 L740,602 L744,590 L748,593 L752,589 L756,592 L760,589 L764,603 L768,598 L772,603 L776,603 L780,597 L784,589 L788,586 L792,577 L796,572 L800,582 L804,574 L808,583 L812,591 L816,580 L820,580 L824,582 L828,574 L832,571 L836,579 L840,571 L844,576 L848,578 L852,577 L856,570 L860,557 L864,558 L868,557 L872,555 L876,559 L880,565 L882,568" fill="none" stroke="#0891b2" stroke-width="1.6"/><path d="M200,578 L204,561 L208,566 L212,579 L216,581 L220,581 L224,588 L228,574 L232,575 L236,579 L240,578 L244,584 L248,586 L252,579 L256,566 L260,564 L264,551 L268,546 L272,558 L276,556 L280,558 L284,570 L288,579 L292,570 L296,572 L300,574 L304,566 L308,565 L312,566 L316,565 L320,564 L324,565 L328,560 L332,557 L336,561 L340,562 L344,566 L348,575 L352,575 L356,566 L360,575 L364,575 L368,574 L372,583 L376,587 L380,582 L384,579 L388,573 L392,561 L396,564 L400,568 L404,574 L408,575 L412,572 L416,567 L420,566 L424,572 L428,578 L432,591 L436,587 L440,584 L444,585 L448,579 L452,586 L456,588 L460,588 L464,596 L468,590 L472,594 L476,596 L480,583 L484,576 L488,573 L492,566 L496,570 L500,564 L504,568 L508,574 L512,580 L516,591 L520,584 L524,585 L528,592 L532,585 L536,580 L540,575 L544,577 L548,575 L552,575 L556,583 L560,592 L564,595 L568,594 L572,595 L576,596 L580,588 L584,589 L588,586 L592,583 L596,579 L600,583 L604,572 L608,584 L612,586 L616,586 L620,586 L624,576 L628,573 L632,572 L636,577 L640,574 L644,573 L648,568 L652,565 L656,570 L660,567 L664,578 L668,571 L672,572 L676,561 L680,559 L684,558 L688,567 L692,581 L696,584 L700,584 L704,582 L708,581 L712,579 L716,585 L720,586 L724,598 L728,597 L732,601 L736,600 L740,602 L744,590 L748,593 L752,589 L756,592 L760,589 L764,603 L768,598 L772,603 L776,603 L780,597 L784,589 L788,586 L792,577 L796,572 L800,582 L804,574 L808,583 L812,591 L816,580 L820,580 L824,582 L828,574 L832,571 L836,579 L840,571 L844,576 L848,578 L852,577 L856,570 L860,557 L864,558 L868,557 L872,555 L876,559 L880,565 L882,568 L882,612 L200,612 Z" fill="#0891b2" opacity="0.07"/><line x1="320" y1="542" x2="320" y2="614" stroke="#ea580c" stroke-width="1" stroke-dasharray="4 3" opacity="0.85"/><circle cx="320" cy="564" r="3" fill="#ea580c"/><text x="326" y="559" font-size="9.5" font-weight="800" fill="#ea580c" text-anchor="start" style="paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round">15.29%</text><line x1="852" y1="542" x2="852" y2="614" stroke="#ea580c" stroke-width="1" stroke-dasharray="4 3" opacity="0.85"/><circle cx="852" cy="577" r="3" fill="#ea580c"/><text x="846" y="572" font-size="9.5" font-weight="800" fill="#ea580c" text-anchor="end" style="paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round">13.5%</text><rect x="200" y="624" width="682" height="72" fill="#fcfdfe" stroke="#eef2f7"/><rect x="0" y="624" width="200" height="72" fill="#fff"/><rect x="196" y="624" width="3.5" height="72" fill="#0891b2"/><line x1="284" y1="624" x2="284" y2="696" stroke="#eef2f7" stroke-width=".7"/><text x="284" y="710" font-size="9" fill="#64748b" text-anchor="middle">19시</text><line x1="404" y1="624" x2="404" y2="696" stroke="#eef2f7" stroke-width=".7"/><text x="404" y="710" font-size="9" fill="#64748b" text-anchor="middle">20시</text><line x1="524" y1="624" x2="524" y2="696" stroke="#eef2f7" stroke-width=".7"/><text x="524" y="710" font-size="9" fill="#64748b" text-anchor="middle">21시</text><line x1="644" y1="624" x2="644" y2="696" stroke="#eef2f7" stroke-width=".7"/><text x="644" y="710" font-size="9" fill="#64748b" text-anchor="middle">22시</text><line x1="764" y1="624" x2="764" y2="696" stroke="#eef2f7" stroke-width=".7"/><text x="764" y="710" font-size="9" fill="#64748b" text-anchor="middle">23시</text><text x="8" y="642" font-size="12" font-weight="800" fill="#0891b2">M16B 4분초과율 (%)</text><text x="8" y="659" font-size="9.5" font-weight="600" fill="#1e293b" font-family="ui-monospace,Consolas,monospace">M16B.QUE.ALL.TRANSPORT4MINOVERRATIO</text><text x="8" y="674" font-size="9" fill="#94a3b8">범위 5.17~15.33%</text><path d="M200,656 L204,652 L208,655 L212,656 L216,643 L220,658 L224,652 L228,651 L232,657 L236,648 L240,665 L244,661 L248,628 L252,639 L256,633 L260,647 L264,658 L268,634 L272,642 L276,645 L280,653 L284,651 L288,658 L292,660 L296,655 L300,664 L304,662 L308,648 L312,642 L316,637 L320,642 L324,644 L328,664 L332,665 L336,648 L340,651 L344,663 L348,650 L352,640 L356,640 L360,634 L364,649 L368,643 L372,657 L376,652 L380,665 L384,664 L388,654 L392,666 L396,651 L400,657 L404,666 L408,646 L412,664 L416,658 L420,661 L424,671 L428,655 L432,670 L436,664 L440,663 L444,650 L448,669 L452,671 L456,656 L460,656 L464,659 L468,660 L472,681 L476,667 L480,670 L484,659 L488,671 L492,666 L496,647 L500,653 L504,668 L508,649 L512,660 L516,657 L520,654 L524,664 L528,640 L532,659 L536,644 L540,652 L544,670 L548,639 L552,649 L556,653 L560,649 L564,663 L568,639 L572,651 L576,647 L580,653 L584,665 L588,646 L592,646 L596,656 L600,656 L604,648 L608,654 L612,663 L616,654 L620,651 L624,668 L628,654 L632,674 L636,661 L640,668 L644,665 L648,657 L652,679 L656,664 L660,659 L664,673 L668,658 L672,661 L676,663 L680,683 L684,676 L688,650 L692,673 L696,663 L700,680 L704,685 L708,668 L712,670 L716,671 L720,662 L724,669 L728,661 L732,656 L736,657 L740,663 L744,678 L748,658 L752,676 L756,653 L760,661 L764,675 L768,661 L772,659 L776,662 L780,660 L784,686 L788,668 L792,680 L796,677 L800,680 L804,670 L808,663 L812,675 L816,670 L820,672 L824,682 L828,656 L832,685 L836,671 L840,669 L844,660 L848,666 L852,667 L856,668 L860,671 L864,667 L868,672 L872,677 L876,665 L880,674 L882,673" fill="none" stroke="#0891b2" stroke-width="1.6"/><path d="M200,656 L204,652 L208,655 L212,656 L216,643 L220,658 L224,652 L228,651 L232,657 L236,648 L240,665 L244,661 L248,628 L252,639 L256,633 L260,647 L264,658 L268,634 L272,642 L276,645 L280,653 L284,651 L288,658 L292,660 L296,655 L300,664 L304,662 L308,648 L312,642 L316,637 L320,642 L324,644 L328,664 L332,665 L336,648 L340,651 L344,663 L348,650 L352,640 L356,640 L360,634 L364,649 L368,643 L372,657 L376,652 L380,665 L384,664 L388,654 L392,666 L396,651 L400,657 L404,666 L408,646 L412,664 L416,658 L420,661 L424,671 L428,655 L432,670 L436,664 L440,663 L444,650 L448,669 L452,671 L456,656 L460,656 L464,659 L468,660 L472,681 L476,667 L480,670 L484,659 L488,671 L492,666 L496,647 L500,653 L504,668 L508,649 L512,660 L516,657 L520,654 L524,664 L528,640 L532,659 L536,644 L540,652 L544,670 L548,639 L552,649 L556,653 L560,649 L564,663 L568,639 L572,651 L576,647 L580,653 L584,665 L588,646 L592,646 L596,656 L600,656 L604,648 L608,654 L612,663 L616,654 L620,651 L624,668 L628,654 L632,674 L636,661 L640,668 L644,665 L648,657 L652,679 L656,664 L660,659 L664,673 L668,658 L672,661 L676,663 L680,683 L684,676 L688,650 L692,673 L696,663 L700,680 L704,685 L708,668 L712,670 L716,671 L720,662 L724,669 L728,661 L732,656 L736,657 L740,663 L744,678 L748,658 L752,676 L756,653 L760,661 L764,675 L768,661 L772,659 L776,662 L780,660 L784,686 L788,668 L792,680 L796,677 L800,680 L804,670 L808,663 L812,675 L816,670 L820,672 L824,682 L828,656 L832,685 L836,671 L840,669 L844,660 L848,666 L852,667 L856,668 L860,671 L864,667 L868,672 L872,677 L876,665 L880,674 L882,673 L882,694 L200,694 Z" fill="#0891b2" opacity="0.07"/><line x1="320" y1="624" x2="320" y2="696" stroke="#ea580c" stroke-width="1" stroke-dasharray="4 3" opacity="0.85"/><circle cx="320" cy="642" r="3" fill="#ea580c"/><text x="326" y="637" font-size="9.5" font-weight="800" fill="#ea580c" text-anchor="start" style="paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round">12.88%</text><line x1="852" y1="624" x2="852" y2="696" stroke="#ea580c" stroke-width="1" stroke-dasharray="4 3" opacity="0.85"/><circle cx="852" cy="667" r="3" fill="#ea580c"/><text x="846" y="662" font-size="9.5" font-weight="800" fill="#ea580c" text-anchor="end" style="paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round">8.69%</text></svg></div>
+<p><strong>이벤트 #1 (19:18 발생)</strong><br />
+*   <strong>현상</strong>: M16HUB 에서 점수 50 점 (경계) 의 이벤트가 1 분간 단발적으로 발생했습니다.<br />
+*   <strong>원인</strong>: <strong>저장공간 포화 (Storage FULL)</strong>와 <strong>반송지연</strong>이 동시에 감지되었습니다. 이는 특정 시점에 M16HUB 로 유입되는 Carrier 가 급증하여 일시적으로 저장 공간이 가득 찼기 때문입니다.<br />
+*   <strong>결과</strong>: Storage 가 FULL 상태가 되면서 Carrier 가 리프터에서 내려가지 못하고 대기하는 현상이 발생했으나, 1 분 이내에 자연스럽게 해소되었습니다.</p>
+<p><strong>이벤트 #2 (23:44 발생)</strong><br />
+*   <strong>현상</strong>: M16HUB 에서 점수 60 점 (경계) 의 이벤트가 약 20 분간 지속되었습니다.<br />
+*   <strong>원인</strong>: <strong>저장공간 포화 (Storage FULL)</strong>로 시작되어 <strong>리프터 정체</strong>가 발생했고, 이로 인해 <strong>큐 (Queue) 가 급증</strong>하며 <strong>반송 지연 시간이 4 분을 초과</strong>했습니다.<br />
+*   <strong>인과 관계</strong>: M16HUB 의 Storage 가 포화되자 Carrier 가 제자리에 멈춰 섰고, 이는 리프터의 회전율을 떨어뜨려 (리프터 정체) 대기열 (Queue) 을 길게 만들었습니다. 쌓인 Queue 는 반송 시간을 늘려 전체적인 반송 흐름을 지연시켰습니다.<br />
+*   <strong>영향</strong>: 심야 시간대에 발생한 만큼 유지보수 작업이나 특정 공정의 집중 처리와 연관되어 있을 가능성이 높으며, 약 20 분간 시스템 효율이 저하되었습니다.</p>
+<h2 id="5">5. 에이전트 제안</h2>
+<ul>
+<li><strong>공통 근본 원인</strong>: 두 사건 모두 <strong>M16HUB 의 Storage 용량 부족</strong>에서 비롯되었습니다. 저장 공간이 포화되면 리프터 정体和 Queue 누적이 연쇄적으로 발생하는 구조적 약점이 확인되었습니다.</li>
+<li><strong>구체적 조치</strong>:<ol>
+<li><strong>Storage 사용률 임계값 관리</strong>: M16HUB 의 Storage 사용률이 80% 에 도달하면 즉시 <strong>Max Capa 를 조정</strong>하여 추가 유입을 억제하십시오.</li>
+<li><strong>리프터 부하 분산</strong>: 23 시 대와 같이 특정 시간대에 리프터 정체가 반복된다면, M16A 와 M16B 간 <strong>층간 이동 설정</strong>을 검토하여 리프터 부하를 분산하는 것이 필요합니다.</li>
+<li><strong>SOP 선제적 적용</strong>: &lsquo;M14_M16 Bridge Que 증가 대응 SOP&rsquo;의 1 단계 기준 (Bridge Time 5 분↑ 또는 ZT QUE 280 개↑) 에 도달하기 전, Queue 추이를 모니터링하며 <strong>Max Capa 를 &ldquo;3&rdquo;에서 &ldquo;1&rdquo;로 선제적 조정</strong>하는 대응이 요구됩니다.</li>
+</ol>
+</li>
+</ul>
+
+<script type="application/json" id="saved-data">null</script>
+<script>
+(function () {
+  'use strict';
+
+  const amosTbody = document.querySelector('#amos-detection-table tbody');
+  const actualTbody = document.getElementById('actual-incident-tbody');
+  const saveButton = document.getElementById('save-report-button');
+  const saveStatus = document.getElementById('save-status');
+  const addManualButton = document.getElementById('add-manual-detection');
+  const savedState = new Map();
+  const actionAreas = ['CNV', 'M14BLFT', 'M16LFT', 'FIO'];
+  const severityLevels = ['경고(모니터링 필요)', '심각(조치필요)'];
+
+  function pad2(value) {
+    return String(value).padStart(2, '0');
+  }
+
+  function getOccurrenceChecks() {
+    return Array.from(document.querySelectorAll('.actual-occurrence-check'));
+  }
+
+  function buildTimeOptions(selectedValue) {
+    const fragment = document.createDocumentFragment();
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = '선택';
+    fragment.appendChild(placeholder);
+
+    for (let hour = 0; hour < 24; hour += 1) {
+      for (let minute = 0; minute < 60; minute += 1) {
+        const value = `${pad2(hour)}:${pad2(minute)}`;
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = value;
+        if (value === selectedValue) option.selected = true;
+        fragment.appendChild(option);
+      }
+    }
+    return fragment;
+  }
+
+  function defaultState() {
+    return {
+      actualTime: '',
+      completeTime: '',
+      areas: [],
+      actions: [{ time: '', text: '' }],
+      commentText: ''
+    };
+  }
+
+  function getActionsFromRow(row) {
+    const items = Array.from(row.querySelectorAll('[data-action-item]'));
+    const actions = items.map((item) => ({
+      time: item.querySelector('[data-field="action-time"]')?.value || '',
+      text: item.querySelector('[data-field="action-text"]')?.value || ''
+    }));
+    return actions.length ? actions : [{ time: '', text: '' }];
+  }
+
+  function saveCurrentRows() {
+    if (!actualTbody) return;
+    const rows = actualTbody.querySelectorAll('tr[data-incident-no]');
+    rows.forEach((row) => {
+      const no = row.dataset.incidentNo;
+      savedState.set(no, {
+        actualTime: row.querySelector('[data-field="actual-time"]')?.value || '',
+        completeTime: row.querySelector('[data-field="complete-time"]')?.value || '',
+        areas: Array.from(row.querySelectorAll('[data-field="action-area"]:checked')).map((input) => input.value),
+        actions: getActionsFromRow(row),
+        commentText: row.querySelector('[data-field="comment-text"]')?.value || ''
+      });
+    });
+  }
+
+  function createTimeSelect(no, field, labelText, selectedValue) {
+    const label = document.createElement('label');
+    label.textContent = labelText;
+
+    const select = document.createElement('select');
+    select.dataset.field = field;
+    select.setAttribute('aria-label', `${no}번 ${labelText}`);
+    select.appendChild(buildTimeOptions(selectedValue));
+
+    label.appendChild(select);
+    return label;
+  }
+
+  function createActionAreaOptions(no, selectedAreas) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'action-area-options';
+
+    actionAreas.forEach((area) => {
+      const optionId = `action-area-${no}-${area}`;
+      const label = document.createElement('label');
+      label.setAttribute('for', optionId);
+
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.id = optionId;
+      checkbox.value = area;
+      checkbox.dataset.field = 'action-area';
+      checkbox.checked = selectedAreas.includes(area);
+
+      label.appendChild(checkbox);
+      label.appendChild(document.createTextNode(area));
+      wrapper.appendChild(label);
+    });
+
+    return wrapper;
+  }
+
+  function createTextarea(no, field, ariaLabel, value, placeholderText, className) {
+    const textarea = document.createElement('textarea');
+    textarea.dataset.field = field;
+    textarea.setAttribute('aria-label', `${no}번 ${ariaLabel}`);
+    textarea.value = value || '';
+    if (placeholderText) textarea.placeholder = placeholderText;
+    if (className) textarea.className = className;
+    return textarea;
+  }
+
+  function createActionItem(no, action, index) {
+    const item = document.createElement('div');
+    item.className = 'action-item';
+    item.dataset.actionItem = '';
+
+    const controls = document.createElement('div');
+    controls.className = 'action-item-controls';
+
+    const timeLabel = document.createElement('label');
+    timeLabel.className = 'action-time-label';
+    timeLabel.appendChild(document.createTextNode('조치 시간'));
+
+    const timeSelect = document.createElement('select');
+    timeSelect.dataset.field = 'action-time';
+    timeSelect.setAttribute('aria-label', `${no}번 ${index + 1}번째 조치 시간`);
+    timeSelect.appendChild(buildTimeOptions(action?.time || ''));
+    timeLabel.appendChild(timeSelect);
+
+    const removeButton = document.createElement('button');
+    removeButton.type = 'button';
+    removeButton.className = 'remove-action-button';
+    removeButton.dataset.action = 'remove-action';
+    removeButton.textContent = '삭제';
+    removeButton.setAttribute('aria-label', `${no}번 ${index + 1}번째 조치내용 삭제`);
+
+    controls.appendChild(timeLabel);
+    controls.appendChild(removeButton);
+
+    const textarea = createTextarea(
+      no,
+      'action-text',
+      `${index + 1}번째 조치내용`,
+      action?.text || '',
+      'ex) M16 6F Maxcapa 3조절'
+    );
+
+    item.appendChild(controls);
+    item.appendChild(textarea);
+    return item;
+  }
+
+  function refreshActionItemControls(row) {
+    const items = Array.from(row.querySelectorAll('[data-action-item]'));
+    const no = row.dataset.incidentNo;
+    items.forEach((item, index) => {
+      const timeSelect = item.querySelector('[data-field="action-time"]');
+      const textarea = item.querySelector('[data-field="action-text"]');
+      const removeButton = item.querySelector('[data-action="remove-action"]');
+      if (timeSelect) timeSelect.setAttribute('aria-label', `${no}번 ${index + 1}번째 조치 시간`);
+      if (textarea) textarea.setAttribute('aria-label', `${no}번 ${index + 1}번째 조치내용`);
+      if (removeButton) {
+        removeButton.hidden = items.length === 1;
+        removeButton.setAttribute('aria-label', `${no}번 ${index + 1}번째 조치내용 삭제`);
+      }
+    });
+  }
+
+  function createActionEditor(no, actions) {
+    const editor = document.createElement('div');
+    editor.className = 'action-editor';
+
+    const toolbar = document.createElement('div');
+    toolbar.className = 'action-toolbar';
+
+    const title = document.createElement('span');
+    title.className = 'action-toolbar-title';
+    title.textContent = '조치내용';
+
+    const addButton = document.createElement('button');
+    addButton.type = 'button';
+    addButton.className = 'add-action-button';
+    addButton.dataset.action = 'add-action';
+    addButton.textContent = '+ 추가';
+    addButton.setAttribute('aria-label', `${no}번 조치내용 추가`);
+
+    toolbar.appendChild(title);
+    toolbar.appendChild(addButton);
+
+    const list = document.createElement('div');
+    list.className = 'action-list';
+    const normalizedActions = Array.isArray(actions) && actions.length ? actions : [{ time: '', text: '' }];
+    normalizedActions.forEach((action, index) => {
+      list.appendChild(createActionItem(no, action, index));
+    });
+
+    editor.appendChild(toolbar);
+    editor.appendChild(list);
+    return editor;
+  }
+
+  function createIncidentRow(check) {
+    const no = check.dataset.incidentNo;
+    const detectionTime = check.dataset.detectionTime;
+    const state = savedState.get(no) || defaultState();
+    const row = document.createElement('tr');
+    row.dataset.incidentNo = no;
+
+    const noCell = document.createElement('td');
+    noCell.textContent = no;
+
+    const detectionTimeCell = document.createElement('td');
+    detectionTimeCell.textContent = detectionTime || '-';
+
+    const timeCell = document.createElement('td');
+    const timeWrapper = document.createElement('div');
+    timeWrapper.className = 'time-selects';
+    timeWrapper.appendChild(createTimeSelect(no, 'actual-time', '발생', state.actualTime));
+    timeWrapper.appendChild(createTimeSelect(no, 'complete-time', '완료', state.completeTime));
+    timeCell.appendChild(timeWrapper);
+
+    const areaCell = document.createElement('td');
+    areaCell.appendChild(createActionAreaOptions(no, state.areas || []));
+
+    const actionCell = document.createElement('td');
+    actionCell.appendChild(createActionEditor(no, state.actions));
+
+    const commentCell = document.createElement('td');
+    commentCell.appendChild(createTextarea(
+      no,
+      'comment-text',
+      'Comment 또는 발생원인',
+      state.commentText,
+      'ex) 00작업, 물량증가, OHT Stop...',
+      'comment-textarea'
+    ));
+
+    row.appendChild(noCell);
+    row.appendChild(detectionTimeCell);
+    row.appendChild(timeCell);
+    row.appendChild(areaCell);
+    row.appendChild(actionCell);
+    row.appendChild(commentCell);
+
+    refreshActionItemControls(row);
+    return row;
+  }
+
+  function renderActualIncidentRows() {
+    saveCurrentRows();
+    actualTbody.innerHTML = '';
+
+    const checkedItems = getOccurrenceChecks().filter((check) => check.checked);
+    if (checkedItems.length === 0) {
+      const emptyRow = document.createElement('tr');
+      emptyRow.className = 'empty-row';
+      const emptyCell = document.createElement('td');
+      emptyCell.colSpan = 6;
+      emptyCell.textContent = '실제 발생여부가 체크된 AMOS 이상 감지 항목이 없습니다.';
+      emptyRow.appendChild(emptyCell);
+      actualTbody.appendChild(emptyRow);
+      return;
+    }
+
+    checkedItems.forEach((check) => {
+      actualTbody.appendChild(createIncidentRow(check));
+    });
+  }
+
+  /* ---------- 수동 기입 (2. AMOS 이상 감지 내역) ---------- */
+
+  function nextIncidentNo() {
+    const nos = getOccurrenceChecks()
+      .map((check) => parseInt(check.dataset.incidentNo, 10))
+      .filter((value) => !Number.isNaN(value));
+    return nos.length ? Math.max(...nos) + 1 : 1;
+  }
+
+  function createManualInput(field, value, ariaLabel, placeholderText) {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'manual-input';
+    input.dataset.field = field;
+    input.value = value || '';
+    input.setAttribute('aria-label', ariaLabel);
+    if (placeholderText) input.placeholder = placeholderText;
+    return input;
+  }
+
+  function createManualDetectionRow(data) {
+    const no = data && data.no ? String(data.no) : String(nextIncidentNo());
+    const row = document.createElement('tr');
+    row.className = 'manual-detection-row';
+    row.dataset.manualNo = no;
+
+    const noCell = document.createElement('td');
+    noCell.appendChild(document.createTextNode(no));
+    const badge = document.createElement('span');
+    badge.className = 'manual-badge';
+    badge.textContent = '수동';
+    noCell.appendChild(badge);
+    const removeButton = document.createElement('button');
+    removeButton.type = 'button';
+    removeButton.className = 'remove-manual-button';
+    removeButton.dataset.action = 'remove-manual';
+    removeButton.textContent = '삭제';
+    removeButton.setAttribute('aria-label', `${no}번 수동 기입 행 삭제`);
+    noCell.appendChild(removeButton);
+
+    const timeCell = document.createElement('td');
+    const timeSelect = document.createElement('select');
+    timeSelect.dataset.field = 'manual-time';
+    timeSelect.setAttribute('aria-label', `${no}번 이상감지 시간`);
+    timeSelect.appendChild(buildTimeOptions((data && data.time) || ''));
+    timeCell.appendChild(timeSelect);
+
+    const zoneCell = document.createElement('td');
+    zoneCell.appendChild(createManualInput('manual-zone', data && data.zone, `${no}번 이상감지 구간`, 'ex) HID3, HID4'));
+
+    const severityCell = document.createElement('td');
+    const severitySelect = document.createElement('select');
+    severitySelect.dataset.field = 'manual-severity';
+    severitySelect.setAttribute('aria-label', `${no}번 심각도`);
+    severityLevels.forEach((level) => {
+      const option = document.createElement('option');
+      option.value = level;
+      option.textContent = level;
+      if (data && data.severity === level) option.selected = true;
+      severitySelect.appendChild(option);
+    });
+    severityCell.appendChild(severitySelect);
+
+    const itemCell = document.createElement('td');
+    itemCell.appendChild(createManualInput('manual-item', data && data.item, `${no}번 이상감지 항목`, 'ex) STAR지표 명'));
+
+    const checkCell = document.createElement('td');
+    checkCell.className = 'center-cell';
+    const check = document.createElement('input');
+    check.type = 'checkbox';
+    check.className = 'actual-occurrence-check';
+    check.dataset.incidentNo = no;
+    check.dataset.detectionTime = (data && data.time) || '';
+    check.dataset.manual = '1';
+    check.checked = !!(data && data.checked);
+    check.setAttribute('aria-label', `${no}번 실제 발생여부`);
+    checkCell.appendChild(check);
+
+    row.appendChild(noCell);
+    row.appendChild(timeCell);
+    row.appendChild(zoneCell);
+    row.appendChild(severityCell);
+    row.appendChild(itemCell);
+    row.appendChild(checkCell);
+    return row;
+  }
+
+  /* ---------- 저장 / 복원 ---------- */
+
+  function collectFullState() {
+    saveCurrentRows();
+    const staticChecks = {};
+    const manualRows = [];
+    getOccurrenceChecks().forEach((check) => {
+      const row = check.closest('tr');
+      if (row && row.classList.contains('manual-detection-row')) {
+        manualRows.push({
+          no: check.dataset.incidentNo,
+          time: row.querySelector('[data-field="manual-time"]')?.value || '',
+          zone: row.querySelector('[data-field="manual-zone"]')?.value || '',
+          severity: row.querySelector('[data-field="manual-severity"]')?.value || '',
+          item: row.querySelector('[data-field="manual-item"]')?.value || '',
+          checked: check.checked
+        });
+      } else {
+        staticChecks[check.dataset.incidentNo] = check.checked;
+      }
+    });
+    const incidents = {};
+    savedState.forEach((value, key) => { incidents[key] = value; });
+    return {
+      version: 1,
+      savedAt: new Date().toISOString(),
+      staticChecks: staticChecks,
+      manualRows: manualRows,
+      incidents: incidents
+    };
+  }
+
+  function timestampForFile() {
+    const d = new Date();
+    return `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}_${pad2(d.getHours())}${pad2(d.getMinutes())}`;
+  }
+
+  function saveReport() {
+    const state = collectFullState();
+    const docClone = document.documentElement.cloneNode(true);
+
+    const cloneActualTbody = docClone.querySelector('#actual-incident-tbody');
+    if (cloneActualTbody) {
+      cloneActualTbody.innerHTML = '<tr class="empty-row"><td colspan="6">실제 발생여부가 체크된 AMOS 이상 감지 항목이 없습니다.</td></tr>';
+    }
+    docClone.querySelectorAll('.manual-detection-row').forEach((row) => row.remove());
+
+    const dataScript = docClone.querySelector('#saved-data');
+    if (dataScript) {
+      dataScript.textContent = JSON.stringify(state).replace(/</g, '\\u003c');
+    }
+    const statusSpan = docClone.querySelector('#save-status');
+    if (statusSpan) statusSpan.textContent = '';
+
+    const htmlText = '<!DOCTYPE html>\n' + docClone.outerHTML;
+    const blob = new Blob([htmlText], { type: 'text/html;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `반송이벤트_보고서_${timestampForFile()}.html`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 2000);
+
+    if (saveStatus) {
+      const d = new Date();
+      saveStatus.textContent = `저장됨 · ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+    }
+  }
+
+  function loadSavedData() {
+    const dataScript = document.getElementById('saved-data');
+    if (!dataScript) return;
+    let state = null;
+    try {
+      state = JSON.parse(dataScript.textContent);
+    } catch (error) {
+      state = null;
+    }
+    if (!state || typeof state !== 'object') return;
+
+    Object.entries(state.incidents || {}).forEach(([no, value]) => {
+      savedState.set(String(no), value);
+    });
+    Object.entries(state.staticChecks || {}).forEach(([no, checked]) => {
+      const check = document.querySelector(`.actual-occurrence-check[data-incident-no="${no}"]`);
+      if (check && !check.dataset.manual) check.checked = !!checked;
+    });
+    (state.manualRows || []).forEach((manual) => {
+      if (amosTbody) amosTbody.appendChild(createManualDetectionRow(manual));
+    });
+  }
+
+  /* ---------- 이벤트 바인딩 ---------- */
+
+  amosTbody?.addEventListener('change', (event) => {
+    const target = event.target;
+    if (target.classList.contains('actual-occurrence-check')) {
+      renderActualIncidentRows();
+      return;
+    }
+    if (target.dataset.field === 'manual-time') {
+      const row = target.closest('tr.manual-detection-row');
+      const check = row?.querySelector('.actual-occurrence-check');
+      if (check) {
+        check.dataset.detectionTime = target.value || '';
+        renderActualIncidentRows();
+      }
+    }
+  });
+
+  amosTbody?.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-action="remove-manual"]');
+    if (!button) return;
+    const row = button.closest('tr.manual-detection-row');
+    if (!row) return;
+    if (!window.confirm(`${row.dataset.manualNo}번 수동 기입 행을 삭제할까요? 연결된 실제 이상 발생내역 입력값도 함께 삭제됩니다.`)) return;
+    savedState.delete(row.dataset.manualNo);
+    row.remove();
+    renderActualIncidentRows();
+  });
+
+  addManualButton?.addEventListener('click', () => {
+    if (!amosTbody) return;
+    const row = createManualDetectionRow(null);
+    amosTbody.appendChild(row);
+    row.querySelector('[data-field="manual-time"]')?.focus();
+  });
+
+  saveButton?.addEventListener('click', saveReport);
+
+  document.addEventListener('keydown', (event) => {
+    if ((event.ctrlKey || event.metaKey) && (event.key === 's' || event.key === 'S')) {
+      event.preventDefault();
+      saveReport();
+    }
+  });
+
+  actualTbody?.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-action]');
+    if (!button) return;
+
+    const row = button.closest('tr[data-incident-no]');
+    if (!row) return;
+
+    const actionList = row.querySelector('.action-list');
+    if (!actionList) return;
+
+    if (button.dataset.action === 'add-action') {
+      const index = actionList.querySelectorAll('[data-action-item]').length;
+      actionList.appendChild(createActionItem(row.dataset.incidentNo, { time: '', text: '' }, index));
+      refreshActionItemControls(row);
+      saveCurrentRows();
+      actionList.lastElementChild?.querySelector('[data-field="action-time"]')?.focus();
+      return;
+    }
+
+    if (button.dataset.action === 'remove-action') {
+      const item = button.closest('[data-action-item]');
+      const items = actionList.querySelectorAll('[data-action-item]');
+      if (item && items.length > 1) item.remove();
+      refreshActionItemControls(row);
+      saveCurrentRows();
+    }
+  });
+
+  actualTbody?.addEventListener('input', saveCurrentRows);
+  actualTbody?.addEventListener('change', saveCurrentRows);
+
+  loadSavedData();
+  renderActualIncidentRows();
+})();
+</script>
+
+</body>
+</html>
