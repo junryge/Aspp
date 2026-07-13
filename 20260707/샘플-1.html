@@ -56,6 +56,8 @@
   .top-toolbar { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; padding: .6rem .2rem; margin: -1rem 0 1rem; background: rgba(255,255,255,.96); border-bottom: 1px solid #e2e8f0; backdrop-filter: blur(4px); }
   .save-button { border: none; border-radius: 8px; background: #2563eb; color: #fff; font: inherit; font-weight: 700; padding: .5em 1.3em; cursor: pointer; }
   .save-button:hover { background: #1d4ed8; }
+  .save-file-button { border: 1px solid #94a3b8; border-radius: 8px; background: #fff; color: #334155; font: inherit; font-weight: 700; padding: .45em 1em; cursor: pointer; }
+  .save-file-button:hover { background: #f1f5f9; }
   .save-status { color: #16a34a; font-size: .88em; font-weight: 650; }
   .toolbar-note { color: #64748b; font-size: .82em; }
   .manual-add-bar { margin: .25em 0 1.2em; }
@@ -69,8 +71,9 @@
 <body>
 <div class="top-toolbar">
 <button type="button" id="save-report-button" class="save-button">💾 저장</button>
+<button type="button" id="save-file-button" class="save-file-button">📄 파일로 저장</button>
 <span id="save-status" class="save-status" role="status" aria-live="polite"></span>
-<span class="toolbar-note">저장 시 이 HTML 파일에 그대로 덮어써집니다. 처음 한 번만 파일 선택창에서 이 파일을 선택하면 이후에는 바로 저장됩니다. (Ctrl+S)</span>
+<span class="toolbar-note">저장: 클릭 즉시 저장, 선택창 없음. 같은 PC·같은 브라우저에서 이 파일을 다시 열면 자동 복원됩니다. 파일 자체에 내용을 담아 공유·보관할 때만 ‘파일로 저장’을 쓰세요. (Ctrl+S = 저장)</span>
 </div>
 
 <h1 id="2026-7-7-m16-br">📅 2026 년 7 월 7 일 M16 BR 반송 이벤트 발생 확인건</h1>
@@ -173,6 +176,7 @@
   const amosTbody = document.querySelector('#amos-detection-table tbody');
   const actualTbody = document.getElementById('actual-incident-tbody');
   const saveButton = document.getElementById('save-report-button');
+  const saveFileButton = document.getElementById('save-file-button');
   const saveStatus = document.getElementById('save-status');
   const addManualButton = document.getElementById('add-manual-detection');
   const savedState = new Map();
@@ -566,6 +570,7 @@
   }
 
   let fileHandle = null;
+  const STORAGE_KEY = 'amos-report:' + window.location.pathname;
 
   function currentFileName() {
     try {
@@ -576,8 +581,7 @@
     return '반송이벤트_보고서.html';
   }
 
-  function buildHtmlText() {
-    const state = collectFullState();
+  function buildHtmlText(state) {
     const docClone = document.documentElement.cloneNode(true);
 
     const cloneActualTbody = docClone.querySelector('#actual-incident-tbody');
@@ -602,6 +606,24 @@
     saveStatus.textContent = `${message} · ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
   }
 
+  function syncLocal(state) {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function saveLocal() {
+    const state = collectFullState();
+    if (syncLocal(state)) {
+      markSaved('저장됨');
+    } else if (saveStatus) {
+      saveStatus.textContent = '브라우저 저장 실패 — \u2018파일로 저장\u2019 버튼을 사용하세요.';
+    }
+  }
+
   function downloadFallback(htmlText) {
     const blob = new Blob([htmlText], { type: 'text/html;charset=utf-8' });
     const link = document.createElement('a');
@@ -615,7 +637,9 @@
   }
 
   async function saveReport() {
-    const htmlText = buildHtmlText();
+    const state = collectFullState();
+    syncLocal(state);
+    const htmlText = buildHtmlText(state);
 
     if (window.showSaveFilePicker) {
       try {
@@ -628,11 +652,11 @@
         const writable = await fileHandle.createWritable();
         await writable.write(htmlText);
         await writable.close();
-        markSaved('저장됨');
+        markSaved('파일 저장됨');
         return;
       } catch (error) {
         if (error && error.name === 'AbortError') {
-          if (saveStatus) saveStatus.textContent = '저장 취소됨';
+          if (saveStatus) saveStatus.textContent = '파일 저장 취소됨';
           return;
         }
         fileHandle = null;
@@ -641,16 +665,33 @@
     downloadFallback(htmlText);
   }
 
-  function loadSavedData() {
-    const dataScript = document.getElementById('saved-data');
-    if (!dataScript) return;
-    let state = null;
+  function parseState(text) {
     try {
-      state = JSON.parse(dataScript.textContent);
+      const state = JSON.parse(text);
+      return state && typeof state === 'object' ? state : null;
     } catch (error) {
-      state = null;
+      return null;
     }
-    if (!state || typeof state !== 'object') return;
+  }
+
+  function loadSavedData() {
+    const embedded = parseState(document.getElementById('saved-data')?.textContent || 'null');
+    let local = null;
+    try {
+      local = parseState(window.localStorage.getItem(STORAGE_KEY) || 'null');
+    } catch (error) {
+      local = null;
+    }
+
+    let state = null;
+    if (embedded && local) {
+      const embeddedAt = Date.parse(embedded.savedAt || '') || 0;
+      const localAt = Date.parse(local.savedAt || '') || 0;
+      state = localAt >= embeddedAt ? local : embedded;
+    } else {
+      state = local || embedded;
+    }
+    if (!state) return;
 
     Object.entries(state.incidents || {}).forEach(([no, value]) => {
       savedState.set(String(no), value);
@@ -700,12 +741,13 @@
     row.querySelector('[data-field="manual-time"]')?.focus();
   });
 
-  saveButton?.addEventListener('click', saveReport);
+  saveButton?.addEventListener('click', saveLocal);
+  saveFileButton?.addEventListener('click', saveReport);
 
   document.addEventListener('keydown', (event) => {
     if ((event.ctrlKey || event.metaKey) && (event.key === 's' || event.key === 'S')) {
       event.preventDefault();
-      saveReport();
+      saveLocal();
     }
   });
 
