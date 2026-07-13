@@ -1,5 +1,6 @@
 import argparse
 import glob
+import importlib.machinery
 import importlib.util
 import os
 import pickle
@@ -33,9 +34,11 @@ def load_v9_module():
     for name in ('HUBROOM_V9.PY', 'HUBROOM_V9.py'):
         fp = os.path.join(here, name)
         if os.path.exists(fp):
-            spec = importlib.util.spec_from_file_location('HUBROOM_V9', fp)
+            # ★ 대문자 .PY 도 로드되게 로더 명시 (importlib 은 소문자 .py 만 자동 인식)
+            loader = importlib.machinery.SourceFileLoader('HUBROOM_V9', fp)
+            spec = importlib.util.spec_from_loader('HUBROOM_V9', loader)
             mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
+            loader.exec_module(mod)
             return mod
     raise SystemExit('❌ HUBROOM_V9.PY 가 같은 폴더에 있어야 합니다 (피처 생성 공유)')
 
