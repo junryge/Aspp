@@ -1,8 +1,5 @@
-REM ① 6월 RAW → 피처
-python features_31.py --raw .\RAW --start 2026-06-01 --end 2026-06-30 --out .\out_ml_june
+CUSUM 4감지기 + 실시간 러너	사건 11/14, 핵심 4/4 (10~180분 전), 
 
-REM ② CUSUM 감지 (매분 43200행)
-python 밀림_방향_CUSUM.py --features .\out_ml_june\features.csv --out .\out_ml\밀림CUSUM_결과.csv
 
-REM ③ 요약 + 판정 (EP6 episode 대조)
-python 밀림요약.py --result .\out_ml\밀림CUSUM_결과.csv --episodes .\EP6\생긴episode파일명.csv --out .\out_ml\밀림_경보요약.csv
+<CUSUM 이상탐지 오탐줄이기>
+방향 100% --->오탐 잡기 용량축소(MAXCAPA↓)·리프터저하 → 상류 유입큐 증가 → 남/북큐 CUSUM ↑ ← 이게 우리 경보!→ 몰림차량 발생   ← 이게 딱지
