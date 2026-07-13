@@ -76,7 +76,9 @@ def main():
         if c not in X.columns:
             X[c] = 0.0
     X = X[feat_names]
-    times = df['CRT_TM'].iloc[idx].dt.strftime('%Y-%m-%d %H:%M').values
+    tser = df['CRT_TM'].iloc[idx]
+    times = tser.dt.strftime('%Y-%m-%d %H:%M').values
+    pred_times = (tser + pd.Timedelta(minutes=v9.HORIZON)).dt.strftime('%Y-%m-%d %H:%M').values
     print(f'샘플 {len(X)}개')
 
     print('\n[STEP 3] 예측')
@@ -101,11 +103,15 @@ def main():
         print(f'  예측MAX≥{thr:2d}: 정밀도 {prec:5.1f}% · 재현율 {rec:5.1f}%  (예측 {p.sum()}분)')
 
     # 매분 예측 저장 (연동/분석용)
-    out_df = pd.DataFrame({'datetime': times,
-                           '현재큐': X['target_last_value'].values,
+    cur_q = X['target_last_value'].values
+    out_df = pd.DataFrame({'측정시간': times,
+                           '예측시각(10분후)': pred_times,
+                           '현재큐': cur_q,
                            '예측_MAX변화': pred[:, 1].round(1),
+                           '예측_10분후큐(MAX)': (cur_q + pred[:, 1]).round(0),
                            '예측_AVG변화': pred[:, 2].round(1),
-                           '실제_MAX변화': y[:, 1].round(1)})
+                           '실제_MAX변화': y[:, 1].round(1),
+                           '실제_10분후큐(MAX)': (cur_q + y[:, 1]).round(0)})
     out_df.to_csv(a.out, index=False, encoding='utf-8-sig')
     print(f'\n💾 매분 예측 → {a.out}')
 
@@ -118,7 +124,7 @@ def main():
         if '판정' not in al.columns:
             print('⚠️ 판정 컬럼 없음 — 밀림요약.py --episodes 로 만든 파일을 주세요')
             return
-        pmap = dict(zip(out_df['datetime'], out_df['예측_MAX변화']))
+        pmap = dict(zip(out_df['측정시간'], out_df['예측_MAX변화']))
         rows = []
         for _, r in al.iterrows():
             t = str(r['경보시작'])[:16].replace('/', '-')
