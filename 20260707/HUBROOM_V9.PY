@@ -56,9 +56,13 @@ FEATURE_COLS = {
                 'M16HUB.STRATE.STK.STORAGERATIO',
                 'M16HUB.STRATE.STB.3F_STORAGE_UTIL'],
     'sla': ['M16HUB.QUE.ALL.TRANSPORT4MINOVERRATIO'],
+    # ★ 몰림차량(평소 0, 사건시 수십대 — 6월검증 88% 정밀) + 그 선행신호(상류 유입큐)
+    'oht_state': ['M14.OHT.STATECNT.CONGESTED'],
+    'upstream': ['M16A.QUE.CNV.ALLTOSOUTHCNVCURRENTQCNT',
+                 'M16A.QUE.CNV.ALLTONORTHCNVCURRENTQCNT'],
 }
 # 30분 창 풀통계(mean/std/max/min/last/last5/slope) 그룹 — 나머지는 경량(mean/last/slope)
-FULL_STAT_GROUPS = {'que_hub', 'oht_hub', 'direction', 'storage'}
+FULL_STAT_GROUPS = {'que_hub', 'oht_hub', 'direction', 'storage', 'oht_state', 'upstream'}
 
 # Boolean 임계 (4/1 실측 분포 기준: 중앙값909·최대1075 — 필요시 조정)
 TH_Q_HIGH, TH_Q_CRIT = 1000, 1100
@@ -162,6 +166,12 @@ def create_features_v9(df, available_cols, stride=1):
             u = num['M16HUB.QUE.OHT.OHTUTIL'][i - 1]
             f['m16hub_ohtutil_high'] = 1 if u >= TH_OHTUTIL_HIGH else 0
             f['m16hub_ohtutil_critical'] = 1 if u >= TH_OHTUTIL_CRIT else 0
+        # ★ 몰림차량 Boolean
+        if 'M14.OHT.STATECNT.CONGESTED' in num:
+            cg = num['M14.OHT.STATECNT.CONGESTED'][i - LOOKBACK:i]
+            f['congested_now'] = 1 if cg[-1] >= 5 else 0
+            f['congested_recent30'] = 1 if cg.max() >= 5 else 0
+            f['congested_cnt_last'] = cg[-1]
         # ── V8 Boolean 재사용 ──
         if 'M16HUB.QUE.TIME.AVGTOTALTIME' in num:
             at = num['M16HUB.QUE.TIME.AVGTOTALTIME'][i - 1]
