@@ -70,7 +70,7 @@
 <div class="top-toolbar">
 <button type="button" id="save-report-button" class="save-button">💾 저장</button>
 <span id="save-status" class="save-status" role="status" aria-live="polite"></span>
-<span class="toolbar-note">저장 시 입력 내용이 포함된 HTML 파일이 다운로드됩니다. 저장된 파일을 다시 열면 이어서 편집할 수 있습니다. (Ctrl+S)</span>
+<span class="toolbar-note">저장 시 이 HTML 파일에 그대로 덮어써집니다. 처음 한 번만 파일 선택창에서 이 파일을 선택하면 이후에는 바로 저장됩니다. (Ctrl+S)</span>
 </div>
 
 <h1 id="2026-7-7-m16-br">📅 2026 년 7 월 7 일 M16 BR 반송 이벤트 발생 확인건</h1>
@@ -565,12 +565,18 @@
     };
   }
 
-  function timestampForFile() {
-    const d = new Date();
-    return `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}_${pad2(d.getHours())}${pad2(d.getMinutes())}`;
+  let fileHandle = null;
+
+  function currentFileName() {
+    try {
+      const name = decodeURIComponent(window.location.pathname.split('/').pop() || '');
+      const lower = name.toLowerCase();
+      if (lower.endsWith('.html') || lower.endsWith('.htm')) return name;
+    } catch (error) { /* ignore */ }
+    return '반송이벤트_보고서.html';
   }
 
-  function saveReport() {
+  function buildHtmlText() {
     const state = collectFullState();
     const docClone = document.documentElement.cloneNode(true);
 
@@ -587,20 +593,52 @@
     const statusSpan = docClone.querySelector('#save-status');
     if (statusSpan) statusSpan.textContent = '';
 
-    const htmlText = '<!DOCTYPE html>\n' + docClone.outerHTML;
+    return '<!DOCTYPE html>\n' + docClone.outerHTML;
+  }
+
+  function markSaved(message) {
+    if (!saveStatus) return;
+    const d = new Date();
+    saveStatus.textContent = `${message} · ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+  }
+
+  function downloadFallback(htmlText) {
     const blob = new Blob([htmlText], { type: 'text/html;charset=utf-8' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `반송이벤트_보고서_${timestampForFile()}.html`;
+    link.download = currentFileName();
     document.body.appendChild(link);
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(link.href), 2000);
+    markSaved('다운로드 저장됨 (브라우저 미지원 대체)');
+  }
 
-    if (saveStatus) {
-      const d = new Date();
-      saveStatus.textContent = `저장됨 · ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+  async function saveReport() {
+    const htmlText = buildHtmlText();
+
+    if (window.showSaveFilePicker) {
+      try {
+        if (!fileHandle) {
+          fileHandle = await window.showSaveFilePicker({
+            suggestedName: currentFileName(),
+            types: [{ description: 'HTML 파일', accept: { 'text/html': ['.html', '.htm'] } }]
+          });
+        }
+        const writable = await fileHandle.createWritable();
+        await writable.write(htmlText);
+        await writable.close();
+        markSaved('저장됨');
+        return;
+      } catch (error) {
+        if (error && error.name === 'AbortError') {
+          if (saveStatus) saveStatus.textContent = '저장 취소됨';
+          return;
+        }
+        fileHandle = null;
+      }
     }
+    downloadFallback(htmlText);
   }
 
   function loadSavedData() {
