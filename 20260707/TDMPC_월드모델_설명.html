@@ -1,0 +1,696 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TD-MPC 월드모델 — 복원하지 않고, 예측한다</title>
+<style>
+  /* ============ 토큰 ============ */
+  :root {
+    --ground: #F5F5F9;
+    --panel: #FFFFFF;
+    --panel-2: #ECECF4;
+    --ink: #1B1B2E;
+    --ink-soft: #4C4C68;
+    --ink-faint: #82829E;
+    --line: #D8D8E6;
+    --accent: #4F4FC8;
+    --accent-soft: #E8E8F9;
+    --accent-ink: #3D3DA8;
+    --ok: #2B8A3E;
+    --ok-bg: #E3F3E7;
+    --warn: #B87E0A;
+    --warn-bg: #FBF0D7;
+    --danger: #C4570F;
+    --danger-bg: #FBE7D8;
+    --hero-bg: #12122A;
+    --hero-ink: #E4E4F2;
+    --hero-faint: #7B7BA0;
+    --hero-dim: #2A2A52;
+    --hero-accent: #8E8EF5;
+    --code-bg: #14142E;
+    --code-ink: #CFCFE8;
+    --shadow: 0 1px 2px rgba(27,27,46,.05), 0 4px 16px rgba(27,27,46,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #121220;
+      --panel: #1A1A2C;
+      --panel-2: #22223A;
+      --ink: #E5E5F1;
+      --ink-soft: #ACACc6;
+      --ink-faint: #73738F;
+      --line: #30304A;
+      --accent: #9C9CF8;
+      --accent-soft: #23233F;
+      --accent-ink: #B4B4FA;
+      --ok: #63C574;
+      --ok-bg: #15301C;
+      --warn: #E3B341;
+      --warn-bg: #33290F;
+      --danger: #EE8A47;
+      --danger-bg: #3A2413;
+      --code-bg: #0D0D1E;
+      --code-ink: #CFCFE8;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.25);
+    }
+  }
+  :root[data-theme="light"] {
+    --ground: #F5F5F9; --panel: #FFFFFF; --panel-2: #ECECF4;
+    --ink: #1B1B2E; --ink-soft: #4C4C68; --ink-faint: #82829E; --line: #D8D8E6;
+    --accent: #4F4FC8; --accent-soft: #E8E8F9; --accent-ink: #3D3DA8;
+    --ok: #2B8A3E; --ok-bg: #E3F3E7; --warn: #B87E0A; --warn-bg: #FBF0D7;
+    --danger: #C4570F; --danger-bg: #FBE7D8;
+    --code-bg: #14142E; --code-ink: #CFCFE8;
+    --shadow: 0 1px 2px rgba(27,27,46,.05), 0 4px 16px rgba(27,27,46,.06);
+  }
+  :root[data-theme="dark"] {
+    --ground: #121220; --panel: #1A1A2C; --panel-2: #22223A;
+    --ink: #E5E5F1; --ink-soft: #ACACC6; --ink-faint: #73738F; --line: #30304A;
+    --accent: #9C9CF8; --accent-soft: #23233F; --accent-ink: #B4B4FA;
+    --ok: #63C574; --ok-bg: #15301C; --warn: #E3B341; --warn-bg: #33290F;
+    --danger: #EE8A47; --danger-bg: #3A2413;
+    --code-bg: #0D0D1E; --code-ink: #CFCFE8;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.25);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
+      "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ============ 히어로 ============ */
+  .hero { background: var(--hero-bg); color: var(--hero-ink); position: relative; overflow: hidden; }
+  .hero-inner { max-width: 960px; margin: 0 auto; padding: 76px 28px 60px; position: relative; z-index: 1; }
+  .hero-eyebrow {
+    font-size: 12.5px; letter-spacing: .22em; text-transform: uppercase;
+    color: var(--hero-accent); font-weight: 700; margin: 0 0 18px;
+  }
+  .hero h1 {
+    font-size: clamp(30px, 5.2vw, 46px);
+    line-height: 1.28; font-weight: 800; letter-spacing: -0.02em;
+    margin: 0 0 20px; text-wrap: balance;
+  }
+  .hero h1 .accent { color: var(--hero-accent); }
+  .hero p.lede {
+    font-size: clamp(16px, 2.2vw, 18.5px); line-height: 1.8;
+    color: #ABABCC; max-width: 40em; margin: 0;
+  }
+
+  /* 히어로 배경: 잠재 상태 롤아웃 체인 */
+  .latentbg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .latentbg .obs { fill: none; stroke: var(--hero-dim); stroke-width: 1.5; }
+  .latentbg .zline { stroke: var(--hero-dim); stroke-width: 2; }
+  .latentbg .znode { fill: #3B3B78; }
+  .latentbg .zhead { fill: var(--hero-accent); }
+  @media (prefers-reduced-motion: no-preference) {
+    .latentbg .pulse {
+      fill: none; stroke: var(--hero-accent); stroke-width: 2;
+      stroke-dasharray: 4 160; stroke-linecap: round;
+      animation: zflow 7s linear infinite; opacity: .85;
+    }
+    .latentbg .pulse.p2 { animation-duration: 10s; animation-delay: -3s; }
+    @keyframes zflow { to { stroke-dashoffset: -164; } }
+    .latentbg .zhead { animation: zblink 2.4s ease-in-out infinite; }
+    @keyframes zblink { 50% { opacity: .45; } }
+  }
+
+  /* ============ 본문 공통 ============ */
+  main { max-width: 880px; margin: 0 auto; padding: 24px 28px 96px; }
+  section { margin-top: 72px; }
+  .eyebrow {
+    font-size: 12px; letter-spacing: .2em; text-transform: uppercase;
+    font-weight: 700; color: var(--accent); margin: 0 0 10px;
+  }
+  h2 {
+    font-size: clamp(23px, 3.4vw, 29px); font-weight: 800;
+    letter-spacing: -0.015em; line-height: 1.35; margin: 0 0 18px; text-wrap: balance;
+  }
+  h3 { font-size: 18.5px; font-weight: 700; letter-spacing: -0.01em; margin: 34px 0 12px; }
+  p { margin: 0 0 16px; color: var(--ink-soft); max-width: 46em; }
+  p strong, li strong { color: var(--ink); font-weight: 700; }
+  ul, ol { margin: 0 0 16px; padding-left: 22px; color: var(--ink-soft); }
+  li { margin-bottom: 7px; }
+  li::marker { color: var(--accent); }
+  a { color: var(--accent-ink); }
+
+  .toc {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    box-shadow: var(--shadow); padding: 22px 26px; margin-top: 40px;
+  }
+  .toc ol {
+    margin: 0; padding: 0; list-style: none;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px 24px;
+  }
+  .toc li { margin: 0; }
+  .toc a {
+    color: var(--ink-soft); text-decoration: none; font-size: 14.5px;
+    display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px dashed var(--line);
+  }
+  .toc a:hover { color: var(--accent-ink); }
+  .toc a .n { color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    box-shadow: var(--shadow); padding: 22px 26px; margin: 20px 0;
+  }
+  .card h4 { margin: 0 0 8px; font-size: 15.5px; font-weight: 700; color: var(--ink); }
+  .card p:last-child { margin-bottom: 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
+  .grid2 .card { margin: 0; }
+
+  .callout {
+    border-left: 3px solid var(--accent); background: var(--accent-soft);
+    border-radius: 0 10px 10px 0; padding: 16px 22px; margin: 22px 0;
+  }
+  .callout p { margin: 0; color: var(--ink); font-size: 15px; }
+  .callout p + p { margin-top: 8px; }
+
+  .table-wrap { overflow-x: auto; margin: 20px 0; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; background: var(--panel); }
+  th, td { text-align: left; padding: 11px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th {
+    background: var(--panel-2); font-size: 12.5px; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--ink-faint); white-space: nowrap;
+  }
+  tr:last-child td { border-bottom: none; }
+  td:first-child { white-space: nowrap; font-weight: 600; color: var(--ink); }
+  td { color: var(--ink-soft); }
+
+  code {
+    font-family: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+    font-size: .88em; background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 5px; padding: 1.5px 6px; color: var(--accent-ink); white-space: nowrap;
+  }
+
+  /* 수식 카드 */
+  .eq {
+    background: var(--code-bg); color: var(--code-ink); border-radius: 10px;
+    padding: 16px 22px; margin: 18px 0; overflow-x: auto;
+    font-family: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+    font-size: 14.5px; line-height: 2;
+  }
+  .eq .c { color: #8C8CB8; }
+  .eq b { color: var(--hero-accent); font-weight: 700; }
+
+  /* 다이어그램 */
+  .figure {
+    margin: 26px 0; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; box-shadow: var(--shadow); padding: 18px 14px 8px; overflow-x: auto;
+  }
+  .figure svg { display: block; min-width: 640px; width: 100%; height: auto; }
+  .figure figcaption { font-size: 13px; color: var(--ink-faint); text-align: center; padding: 8px 12px 10px; }
+  .figure text {
+    font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
+      "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  }
+  .fg-title { font-size: 14px; font-weight: 800; fill: var(--ink); }
+  .fg-label { font-size: 12px; fill: var(--ink-soft); }
+  .fg-small { font-size: 11px; fill: var(--ink-faint); }
+  .fg-accent { font-size: 12.5px; font-weight: 700; fill: var(--accent-ink); }
+  .fg-mono { font-family: ui-monospace, Consolas, monospace; font-size: 13px; font-weight: 700; fill: var(--accent-ink); }
+  .fg-mono-dim { font-family: ui-monospace, Consolas, monospace; font-size: 12px; fill: var(--ink-faint); }
+  .fg-panel { fill: var(--panel-2); stroke: var(--line); }
+  .fg-z { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; }
+  .fg-arrow { stroke: var(--ink-faint); stroke-width: 1.8; fill: none; }
+  .fg-arrow-acc { stroke: var(--accent); stroke-width: 2; fill: none; }
+  .fg-reward { fill: var(--warn-bg); stroke: var(--warn); }
+  .fg-ghost { fill: none; stroke: var(--line); stroke-dasharray: 5 5; }
+
+  /* 비교 배지 */
+  .vs { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 22px 0; }
+  @media (max-width: 720px) { .vs { grid-template-columns: 1fr; } }
+  .vs .side { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px 24px; box-shadow: var(--shadow); }
+  .vs .side.now { border-top: 3px solid var(--ink-faint); }
+  .vs .side.next { border-top: 3px solid var(--accent); }
+  .vs .tag { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; font-weight: 800; color: var(--ink-faint); }
+  .vs .side.next .tag { color: var(--accent-ink); }
+  .vs h4 { margin: 6px 0 10px; font-size: 16.5px; }
+  .vs ul { margin: 0; font-size: 14.5px; }
+
+  /* 로드맵 */
+  .phase { display: grid; grid-template-columns: 56px 1fr; gap: 18px; margin: 18px 0; align-items: start; }
+  .phase .no {
+    width: 56px; height: 56px; border-radius: 14px;
+    background: var(--accent-soft); color: var(--accent-ink);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums;
+  }
+  .phase .body { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 22px; box-shadow: var(--shadow); }
+  .phase h4 { margin: 0 0 6px; font-size: 15.5px; }
+  .phase p { margin: 0; font-size: 14.5px; }
+  .phase .gate { display: inline-block; margin-top: 10px; font-size: 12.5px; font-weight: 700; color: var(--ok); background: var(--ok-bg); border-radius: 999px; padding: 3px 12px; }
+
+  dl.glossary { margin: 20px 0; display: grid; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); }
+  dl.glossary > div { display: grid; grid-template-columns: 190px 1fr; background: var(--panel); border-bottom: 1px solid var(--line); }
+  dl.glossary > div:last-child { border-bottom: none; }
+  dl.glossary dt { font-weight: 700; font-size: 14.5px; padding: 13px 18px; background: var(--panel-2); color: var(--ink); }
+  dl.glossary dd { margin: 0; padding: 13px 18px; font-size: 14.5px; color: var(--ink-soft); }
+  @media (max-width: 560px) {
+    dl.glossary > div { grid-template-columns: 1fr; }
+    dl.glossary dt { padding-bottom: 4px; }
+    dl.glossary dd { padding-top: 4px; }
+  }
+
+  footer {
+    border-top: 1px solid var(--line); margin-top: 80px;
+    padding: 26px 28px 40px; text-align: center; font-size: 13px; color: var(--ink-faint);
+  }
+</style>
+
+<!-- ============ 히어로 ============ -->
+<header class="hero">
+  <svg class="latentbg" viewBox="0 0 1200 420" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <!-- 관측(원본) 유령 사각형들: 위쪽 -->
+    <rect class="obs" x="80"  y="40" width="54" height="54" rx="8"/>
+    <rect class="obs" x="330" y="40" width="54" height="54" rx="8"/>
+    <rect class="obs" x="580" y="40" width="54" height="54" rx="8"/>
+    <rect class="obs" x="830" y="40" width="54" height="54" rx="8"/>
+    <rect class="obs" x="1080" y="40" width="54" height="54" rx="8"/>
+    <!-- 잠재 체인: 아래쪽 -->
+    <line class="zline" x1="107" y1="330" x2="357" y2="330"/>
+    <line class="zline" x1="357" y1="330" x2="607" y2="330"/>
+    <line class="zline" x1="607" y1="330" x2="857" y2="330"/>
+    <line class="zline" x1="857" y1="330" x2="1107" y2="330"/>
+    <path class="pulse" d="M 107 330 H 1107"/>
+    <path class="pulse p2" d="M 107 330 H 1107"/>
+    <!-- 인코딩 낙하선 -->
+    <line class="zline" x1="107" y1="100" x2="107" y2="316" stroke-dasharray="3 6"/>
+    <circle class="znode" cx="107" cy="330" r="12"/>
+    <circle class="znode" cx="357" cy="330" r="12"/>
+    <circle class="znode" cx="607" cy="330" r="12"/>
+    <circle class="znode" cx="857" cy="330" r="12"/>
+    <circle class="zhead" cx="1107" cy="330" r="13"/>
+  </svg>
+
+  <div class="hero-inner">
+    <p class="hero-eyebrow">TD-MPC · Learning World Model</p>
+    <h1>복원하지 않는다,<br><span class="accent">예측한다</span> — TD-MPC 월드모델</h1>
+    <p class="lede">
+      TD-MPC(Temporal Difference Learning for Model Predictive Control)는 세계의 원본을
+      되그리는 대신, <strong style="color:#C9C9F0">미래의 잠재 상태와 보상만을 예측하는 모델</strong>을 학습하고
+      그 압축된 세계 안에서 최적의 행동을 계획하는 모델 기반 강화학습 알고리즘입니다.
+      OHT 월드모델이 &ldquo;규칙&rdquo;에서 &ldquo;학습&rdquo;으로 진화하기 위해 채택한 기반 기술을,
+      이 문서 한 장으로 설명합니다.
+    </p>
+  </div>
+</header>
+
+<main>
+  <!-- 목차 -->
+  <nav class="toc" aria-label="목차">
+    <p class="eyebrow">목차</p>
+    <ol>
+      <li><a href="#idea"><span class="n">1</span> 한 문장으로 이해하기</a></li>
+      <li><a href="#why-latent"><span class="n">2</span> 왜 복원하지 않는가</a></li>
+      <li><a href="#parts"><span class="n">3</span> 다섯 개의 부품</a></li>
+      <li><a href="#plan"><span class="n">4</span> 잠재 공간에서 계획하기</a></li>
+      <li><a href="#td"><span class="n">5</span> TD 학습 — 지평선 너머를 보는 눈</a></li>
+      <li><a href="#oht"><span class="n">6</span> OHT에 어떻게 적용하나</a></li>
+      <li><a href="#vs"><span class="n">7</span> 규칙 기반 vs 학습형</a></li>
+      <li><a href="#tdmpc2"><span class="n">8</span> TD-MPC2를 쓰는 이유</a></li>
+      <li><a href="#roadmap"><span class="n">9</span> 도입 로드맵과 현재 위치</a></li>
+      <li><a href="#glossary"><span class="n">10</span> 용어 설명</a></li>
+    </ol>
+  </nav>
+
+  <!-- 1 -->
+  <section id="idea">
+    <p class="eyebrow">Core Idea</p>
+    <h2>한 문장으로 이해하기</h2>
+    <div class="callout">
+      <p><strong>&ldquo;세계를 통째로 기억하는 대신, 결정에 필요한 것만 남긴 &lsquo;요약된 세계&rsquo;를 배우고,
+      그 안에서 여러 미래를 미리 살아본 뒤 가장 좋은 행동을 고른다.&rdquo;</strong></p>
+    </div>
+    <p>
+      바둑 기사가 수를 읽는 방식과 같습니다. 기사는 머릿속에서 바둑판 사진을 픽셀 단위로
+      그리지 않습니다. <strong>형세라는 압축된 표현</strong>으로 &ldquo;이 수를 두면 → 상대는 이렇게 →
+      그러면 형세가 이렇게&rdquo;를 몇 수 앞까지 굴려 보고, 가장 유리해지는 수를 둡니다.
+    </p>
+    <p>TD-MPC가 정확히 이 구조입니다.</p>
+    <ul>
+      <li><strong>형세</strong> = 잠재 상태(latent state) — 원본 세계를 결정에 필요한 만큼만 압축한 벡터</li>
+      <li><strong>수읽기</strong> = 잠재 동역학(latent dynamics) — &ldquo;이 행동을 하면 다음 형세는 이것&rdquo;을 예측</li>
+      <li><strong>유불리 판단</strong> = 보상(reward)과 가치(value) 예측</li>
+      <li><strong>최선의 수 선택</strong> = MPC 계획(planning) — 후보 행동 궤적 여러 개를 굴려 보고 최고를 선택</li>
+    </ul>
+    <p>
+      이름의 두 축이 그대로 알고리즘입니다. <strong>MPC</strong>(Model Predictive Control)가
+      &ldquo;모델로 미래를 굴려 보고 행동을 고르는&rdquo; 몸통이고, <strong>TD</strong>(Temporal Difference)
+      학습이 &ldquo;굴려 본 지평선 너머의 가치까지 평가하는&rdquo; 눈입니다.
+    </p>
+  </section>
+
+  <!-- 2 -->
+  <section id="why-latent">
+    <p class="eyebrow">Design Choice</p>
+    <h2>왜 복원(reconstruction)하지 않는가</h2>
+    <p>
+      Dreamer 계열 등 많은 월드모델은 잠재 상태에서 <strong>원본 관측을 다시 그려내는(복원)</strong>
+      과제를 함께 학습합니다. 복원이 잘 되면 잠재 상태가 정보를 충분히 담았다는 보증이 되기 때문입니다.
+      하지만 복원에는 비용이 있습니다 — 모델이 <strong>결정과 무관한 디테일까지 기억</strong>하도록
+      강제된다는 점입니다. 배경 무늬, 조명, 지금 결정에 아무 영향 없는 구석의 상태까지 전부요.
+    </p>
+    <p>
+      TD-MPC는 복원 과제를 버리고, 잠재 상태에게 딱 세 가지 질문에만 답하게 합니다.
+    </p>
+    <ol>
+      <li>이 행동을 하면 <strong>다음 잠재 상태</strong>는 무엇인가? (동역학 일관성)</li>
+      <li>이 행동의 <strong>보상</strong>은 얼마인가?</li>
+      <li>이 상태의 <strong>장기 가치</strong>는 얼마인가?</li>
+    </ol>
+    <p>
+      즉 잠재 공간이 <strong>&ldquo;제어에 필요한 정보&rdquo;만 남기고 나머지를 버리도록</strong> 학습됩니다.
+      모델은 작아지고, 학습은 빨라지고, 노이즈에 강해집니다.
+    </p>
+    <div class="callout">
+      <p><strong>OHT에 이것이 결정적인 이유:</strong> 우리의 &ldquo;관측&rdquo;은 차량 수백 대 × 노드 수천 개의
+      거대한 그래프 상태입니다. 이걸 매 스텝 복원하는 것은 낭비를 넘어 불가능에 가깝습니다.
+      그런데 우리가 정말 알고 싶은 것은 &ldquo;이 조치를 하면 10분 뒤 큐·OBS·반송시간이 어떻게 되나&rdquo; —
+      정확히 <strong>보상과 미래 요약 상태</strong>입니다. TD-MPC의 설계 철학과 문제의 요구가 일치합니다.</p>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section id="parts">
+    <p class="eyebrow">Architecture</p>
+    <h2>다섯 개의 부품 — 전부 신경망입니다</h2>
+    <p>
+      TD-MPC는 다섯 개의 학습 가능한 부품으로 이루어집니다. 그림으로 먼저 보면:
+    </p>
+
+    <figure class="figure">
+      <svg viewBox="0 0 960 430" role="img" aria-label="TD-MPC 아키텍처: 관측이 인코더를 거쳐 잠재 상태가 되고, 동역학 모델이 행동과 함께 다음 잠재 상태와 보상을 예측하며 롤아웃이 이어진다. 마지막에는 가치 함수가 지평선 너머를 평가한다.">
+        <defs>
+          <marker id="fa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 1 L 9 5 L 0 9 z" fill="var(--ink-faint)"/>
+          </marker>
+          <marker id="fa2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 1 L 9 5 L 0 9 z" fill="var(--accent)"/>
+          </marker>
+        </defs>
+
+        <!-- 관측 -->
+        <rect class="fg-panel" x="30" y="52" width="150" height="96" rx="12"/>
+        <text class="fg-title" x="105" y="86" text-anchor="middle">관측 s<tspan baseline-shift="sub" font-size="10">t</tspan></text>
+        <text class="fg-small" x="105" y="106" text-anchor="middle">FAB 전체 상태</text>
+        <text class="fg-small" x="105" y="122" text-anchor="middle">(차량·레일 그래프)</text>
+
+        <!-- 인코더 화살표 -->
+        <path class="fg-arrow" d="M 105 148 V 196" marker-end="url(#fa)"/>
+        <text class="fg-accent" x="128" y="178">① 인코더 h</text>
+
+        <!-- z_t -->
+        <circle class="fg-z" cx="105" cy="238" r="34"/>
+        <text class="fg-mono" x="105" y="244" text-anchor="middle">z_t</text>
+
+        <!-- 행동 주입 -->
+        <rect class="fg-panel" x="180" y="300" width="120" height="44" rx="10"/>
+        <text class="fg-label" x="240" y="322" text-anchor="middle">행동 a<tspan baseline-shift="sub" font-size="9">t</tspan></text>
+        <text class="fg-small" x="240" y="336" text-anchor="middle">⑤ 정책 π 제안</text>
+        <path class="fg-arrow" d="M 240 300 Q 240 262 205 250" marker-end="url(#fa)"/>
+
+        <!-- 동역학 -->
+        <path class="fg-arrow-acc" d="M 139 238 H 262" marker-end="url(#fa2)"/>
+        <text class="fg-accent" x="200" y="222" text-anchor="middle">② 동역학 d</text>
+
+        <!-- z_t+1 -->
+        <circle class="fg-z" cx="300" cy="238" r="34"/>
+        <text class="fg-mono" x="300" y="244" text-anchor="middle">z_t+1</text>
+        <!-- 보상 -->
+        <rect class="fg-reward" x="258" y="122" width="86" height="38" rx="10"/>
+        <text class="fg-label" x="301" y="146" text-anchor="middle">보상 r̂_t</text>
+        <path class="fg-arrow" d="M 300 204 V 164" marker-end="url(#fa)"/>
+        <text class="fg-accent" x="322" y="188">③ 보상 R</text>
+
+        <!-- 두 번째 스텝 -->
+        <rect class="fg-panel" x="375" y="300" width="120" height="44" rx="10"/>
+        <text class="fg-label" x="435" y="322" text-anchor="middle">행동 a<tspan baseline-shift="sub" font-size="9">t+1</tspan></text>
+        <text class="fg-small" x="435" y="336" text-anchor="middle">⑤ 정책 π 제안</text>
+        <path class="fg-arrow" d="M 435 300 Q 435 262 400 250" marker-end="url(#fa)"/>
+        <path class="fg-arrow-acc" d="M 334 238 H 457" marker-end="url(#fa2)"/>
+        <text class="fg-accent" x="395" y="222" text-anchor="middle">② 동역학 d</text>
+
+        <circle class="fg-z" cx="495" cy="238" r="34"/>
+        <text class="fg-mono" x="495" y="244" text-anchor="middle">z_t+2</text>
+        <rect class="fg-reward" x="453" y="122" width="86" height="38" rx="10"/>
+        <text class="fg-label" x="496" y="146" text-anchor="middle">보상 r̂_t+1</text>
+        <path class="fg-arrow" d="M 495 204 V 164" marker-end="url(#fa)"/>
+
+        <!-- 계속 ... -->
+        <circle class="fg-ghost" cx="620" cy="238" r="34"/>
+        <text class="fg-mono-dim" x="620" y="244" text-anchor="middle">…</text>
+        <path class="fg-arrow-acc" d="M 529 238 H 582" marker-end="url(#fa2)"/>
+
+        <!-- 지평선 끝 z_H -->
+        <circle class="fg-z" cx="745" cy="238" r="34"/>
+        <text class="fg-mono" x="745" y="244" text-anchor="middle">z_H</text>
+        <path class="fg-arrow-acc" d="M 654 238 H 707" marker-end="url(#fa2)"/>
+
+        <!-- 가치 -->
+        <rect class="fg-panel" x="812" y="196" width="130" height="84" rx="12"/>
+        <text class="fg-title" x="877" y="228" text-anchor="middle">가치 Q(z_H)</text>
+        <text class="fg-small" x="877" y="248" text-anchor="middle">④ 지평선 너머의</text>
+        <text class="fg-small" x="877" y="264" text-anchor="middle">장기 가치 (TD 학습)</text>
+        <path class="fg-arrow" d="M 779 238 H 806" marker-end="url(#fa)"/>
+
+        <!-- 상단 총합 -->
+        <text class="fg-accent" x="480" y="72" text-anchor="middle">계획 점수 = r̂_t + r̂_t+1 + … + Q(z_H)  →  이 합이 최대가 되는 행동 궤적을 선택</text>
+        <path class="fg-ghost" d="M 301 116 Q 480 84 860 190"/>
+      </svg>
+      <figcaption>TD-MPC의 잠재 롤아웃 — 원본 세계로 돌아가지 않고, 잠재 공간 안에서만 미래를 굴린다</figcaption>
+    </figure>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>부품</th><th>기호</th><th>하는 일</th></tr></thead>
+        <tbody>
+          <tr><td>① 인코더</td><td><code>z = h(s)</code></td><td>거대한 원본 관측 s를 작은 잠재 상태 z로 압축. 우리 적용안에서는 GNN(그래프 신경망)으로 구현</td></tr>
+          <tr><td>② 잠재 동역학</td><td><code>z' = d(z, a)</code></td><td>&ldquo;상태 z에서 행동 a를 하면 다음 상태는 z'&rdquo; — 월드모델의 심장. 원본으로 돌아가지 않고 잠재 공간 안에서만 전진</td></tr>
+          <tr><td>③ 보상 예측기</td><td><code>r̂ = R(z, a)</code></td><td>그 한 스텝의 좋음/나쁨을 숫자로 예측</td></tr>
+          <tr><td>④ 가치 함수</td><td><code>Q(z, a)</code></td><td>&ldquo;여기서부터 끝까지 잘하면 얼마나 좋아지나&rdquo; — 계획이 못 보는 지평선 너머를 담당. TD 학습으로 훈련</td></tr>
+          <tr><td>⑤ 정책</td><td><code>a = π(z)</code></td><td>계획의 출발점이 되는 좋은 행동 후보를 즉시 제안 (계획을 데운다)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      다섯 부품은 따로 훈련되지 않고 <strong>공동 학습</strong>됩니다 — 실제 경험 데이터에서
+      &ldquo;동역학이 예측한 잠재 상태가 실제와 일치하는가, 보상 예측이 맞았는가, 가치가 TD 목표와
+      일치하는가&rdquo;를 하나의 손실 함수로 묶어 함께 최적화합니다.
+    </p>
+  </section>
+
+  <!-- 4 -->
+  <section id="plan">
+    <p class="eyebrow">Planning</p>
+    <h2>잠재 공간에서 계획하기 — 수백 개의 미래를 살아본다</h2>
+    <p>
+      매 순간 행동을 정할 때, TD-MPC는 정책이 내놓는 답 하나를 그냥 쓰지 않습니다.
+      <strong>MPPI</strong>(Model Predictive Path Integral)라는 샘플링 계획법으로
+      더 나은 답을 찾습니다.
+    </p>
+    <ol>
+      <li><strong>후보 생성</strong> — 앞으로 H스텝 동안의 행동 궤적 후보를 수백 개 샘플링합니다 (일부는 정책 π의 제안으로 시작).</li>
+      <li><strong>미래 시뮬레이션</strong> — 각 후보를 잠재 동역학 위에서 굴려, 예측 보상의 합 + 마지막 상태의 가치 <code>Σ r̂ + Q(z_H)</code>로 점수를 매깁니다.</li>
+      <li><strong>정제</strong> — 점수 상위 후보들의 분포로 샘플링 분포를 갱신하고, 몇 차례 반복해 궤적을 다듬습니다.</li>
+      <li><strong>한 걸음만 실행</strong> — 최선 궤적의 <strong>첫 행동만</strong> 실제로 수행하고, 다음 순간 처음부터 다시 계획합니다.</li>
+    </ol>
+    <p>
+      &ldquo;한 걸음만 실행하고 다시 계획&rdquo;이 MPC의 핵심입니다. 세계가 예측과 조금 달라져도
+      다음 스텝에서 즉시 보정되므로, <strong>모델이 완벽하지 않아도 견고하게 동작</strong>합니다.
+      이 모든 시뮬레이션이 압축된 잠재 공간에서 일어나므로, 수백 개의 미래를 굴려도 실시간이 가능합니다.
+    </p>
+  </section>
+
+  <!-- 5 -->
+  <section id="td">
+    <p class="eyebrow">Learning</p>
+    <h2>TD 학습 — 지평선 너머를 보는 눈</h2>
+    <p>
+      계획은 H스텝(예: 몇 분)까지만 내다봅니다. 그런데 OHT의 데드락처럼 <strong>수십 분에 걸쳐
+      쌓이는 결과</strong>는 지평선 밖에 있습니다. 이걸 담당하는 것이 가치 함수 Q이고,
+      Q를 훈련하는 방법이 <strong>시간차(Temporal Difference) 학습</strong>입니다.
+    </p>
+    <div class="eq">
+      <span class="c"># TD 목표: "지금의 가치 = 한 스텝 보상 + 다음 상태의 가치"</span><br>
+      Q(z_t, a_t) &nbsp;←&nbsp; r_t + γ · Q(z_t+1, <b>π</b>(z_t+1))<br>
+      <span class="c"># 예측과 목표의 차이(시간차 오차)를 줄이는 방향으로 반복 갱신</span>
+    </div>
+    <p>
+      직관적으로는 <strong>&ldquo;미래의 평가를 조금씩 현재로 끌어당기는&rdquo;</strong> 과정입니다.
+      데드락이라는 나쁜 결말의 신호가, 학습을 거듭할수록 그 몇십 분 전 상태들의 가치 평가 속으로
+      스며듭니다. 그래서 계획기가 몇 스텝만 굴려 봐도, 마지막에 붙는 Q값이
+      &ldquo;그 방향은 결국 데드락으로 간다&rdquo;고 경고해 줄 수 있게 됩니다 —
+      <strong>우리가 룰로 만들었던 &lsquo;전조 감지&rsquo;를, 모델이 데이터에서 스스로 배우는 것</strong>입니다.
+    </p>
+  </section>
+
+  <!-- 6 -->
+  <section id="oht">
+    <p class="eyebrow">Application</p>
+    <h2>OHT에 어떻게 적용하나 — 네 가지 설계 결정</h2>
+    <div class="grid2">
+      <div class="card">
+        <h4>상태 → GNN 인코더</h4>
+        <p>OHT의 세계는 애초에 노드·엣지 그래프입니다. 이를 벡터로 뭉개 MLP에 넣으면 가장 큰
+        구조 정보를 버리는 셈이므로, 인코더 h는 <strong>GNN(그래프 신경망)</strong>으로 구현합니다.
+        레일 토폴로지·차량 분포·구간 혼잡이 구조 그대로 잠재 상태에 담깁니다.</p>
+      </div>
+      <div class="card">
+        <h4>행동 → 매크로 손잡이</h4>
+        <p>차량 수백 대의 개별 제어는 조합 폭발합니다. 행동 공간은 <strong>HID 구역별 진입 상한,
+        리프터 할당률, 구간 LineCost 가중치</strong> 같은 매크로 수준의 조절 손잡이로 정의해
+        차원을 낮춥니다. 이 손잡이가 실제로 유효한지가 1차 검증 대상입니다.</p>
+      </div>
+      <div class="card">
+        <h4>보상 → 검증된 전조 지표 재활용</h4>
+        <p>&ldquo;데드락 = 큰 벌점&rdquo;만으로는 신호가 너무 희소합니다(발생 자체가 드묾).
+        이미 실 사건으로 검증한 전조 지표들 — <strong>OBS 추세, 반송시간, FAB 간 큐,
+        리프터 처리량 역전</strong> — 을 형태화된 보상(shaped reward)으로 씁니다.
+        기존 R-A/R-B/R-C 룰이 여기서 다시 자산이 됩니다.</p>
+      </div>
+      <div class="card">
+        <h4>훈련장 → WORLD_SIM</h4>
+        <p>실제 FAB에서 강화학습 실험은 불가능합니다. 대신 <strong>이미 구축·검증된 WORLD_SIM</strong>
+        (그래프 시뮬레이션 + 실 로그 리플레이 + Dijkstra/LineCost 경로)을 gym 스타일 환경으로 감싸
+        안전한 훈련장으로 씁니다. 지금까지의 작업이 전부 학습 인프라가 됩니다.</p>
+      </div>
+    </div>
+    <div class="callout">
+      <p><strong>설명 가능성 원칙:</strong> 잠재 공간 모델은 블랙박스이므로, 기존 룰 기반 3단계 경보는
+      폐기하지 않고 병행합니다. 학습 모델의 <strong>안전망이자 성능 비교의 베이스라인</strong>입니다 —
+      학습형이 룰 기반을 명확히 이기기 전까지 운영의 기준은 바뀌지 않습니다.</p>
+    </div>
+  </section>
+
+  <!-- 7 -->
+  <section id="vs">
+    <p class="eyebrow">Comparison</p>
+    <h2>규칙 기반 vs 학습형 — 무엇이 달라지나</h2>
+    <div class="vs">
+      <div class="side now">
+        <span class="tag">현재 — 규칙 기반 WORLD_SIM</span>
+        <h4>사람이 세계의 법칙을 적는다</h4>
+        <ul>
+          <li>경로: Dijkstra + LineCost (실제 시스템과 동일 수식)</li>
+          <li>데드락: Tarjan SCC로 순환 대기를 수학적 판정</li>
+          <li>경보: 실 사건으로 검증된 R-A/R-B/R-C 룰</li>
+          <li>장점: <strong>투명함</strong> — 왜 경보가 울렸는지 근거를 말할 수 있음</li>
+          <li>한계: 새 FAB·새 패턴마다 룰을 손으로 재설계</li>
+        </ul>
+      </div>
+      <div class="side next">
+        <span class="tag">다음 — 학습형 TD-MPC</span>
+        <h4>모델이 세계의 법칙을 배운다</h4>
+        <ul>
+          <li>동역학: 데이터에서 학습한 잠재 전이 모델</li>
+          <li>전조: TD 학습이 나쁜 결말의 신호를 가치로 흡수</li>
+          <li>행동: 잠재 공간 계획으로 <strong>개입까지 제안</strong></li>
+          <li>장점: 확장성 — 새 패턴을 데이터로 흡수, 예측→제어</li>
+          <li>한계: 블랙박스 — 그래서 룰 기반과 병행 운영</li>
+        </ul>
+      </div>
+    </div>
+    <p>
+      둘은 대체 관계가 아니라 <strong>역할 분담</strong>입니다. 규칙 기반 시뮬레이터는 학습형의
+      훈련장이자 심판이 되고, 학습형은 규칙 기반이 못 가던 영역(미검증 패턴, 개입 제안)으로
+      전선을 넓힙니다.
+    </p>
+  </section>
+
+  <!-- 8 -->
+  <section id="tdmpc2">
+    <p class="eyebrow">Version Choice</p>
+    <h2>TD-MPC2를 쓰는 이유</h2>
+    <p>
+      원조 TD-MPC(2022)의 후속인 <strong>TD-MPC2</strong>(2023)를 채택합니다. 알고리즘의 뼈대는
+      같지만, 실무 도입 관점에서 중요한 개선이 있습니다.
+    </p>
+    <ul>
+      <li><strong>단일 하이퍼파라미터 설정</strong> — 원조는 태스크마다 튜닝이 필요했지만, TD-MPC2는
+      한 벌의 설정으로 수십 개 태스크에서 안정적으로 동작함이 입증되었습니다. 도메인 튜닝 부담이
+      큰 산업 적용에서 결정적인 장점입니다.</li>
+      <li><strong>안정화된 학습</strong> — 이산화된 회귀(discrete regression) 기반 보상·가치 학습 등으로
+      스케일이 다른 보상에도 견고합니다. 큐(수천 건)와 반송시간(분)처럼 단위가 뒤섞인 우리 보상 설계에 유리합니다.</li>
+      <li><strong>모델 크기 확장성</strong> — 모델을 키울수록 성능이 늘어나는 스케일링 특성이 확인되어,
+      데이터가 쌓일수록 함께 성장하는 로드맵을 그릴 수 있습니다.</li>
+    </ul>
+  </section>
+
+  <!-- 9 -->
+  <section id="roadmap">
+    <p class="eyebrow">Roadmap</p>
+    <h2>도입 로드맵과 현재 위치</h2>
+    <p>
+      한 번에 전부 바꾸지 않습니다. 각 단계가 앞 단계의 검증을 통과해야만 다음으로 넘어갑니다.
+    </p>
+
+    <div class="phase">
+      <div class="no">1</div>
+      <div class="body">
+        <h4>환경 포장 — 훈련장 만들기</h4>
+        <p>검증된 WORLD_SIM을 gym 스타일 환경(state / action / reward / step)으로 감쌉니다.
+        기존 시뮬레이터가 학습의 &ldquo;세계&rdquo;가 됩니다.</p>
+        <span class="gate">통과 조건 — 리플레이 재현 일치</span>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="no">2</div>
+      <div class="body">
+        <h4>모델 먼저, 맞대결</h4>
+        <p>TD-MPC에서 계획(planning)을 뗀 <strong>잠재 동역학 + 보상 예측기</strong>만 실 로그로 학습해,
+        기존 매크로 예측기와 동일 벤치마크로 대결합니다. 기준: 2026-04-21 실 사건에서
+        <strong>13:50 경보(리드타임 10분)를 이기고, 16:00 거짓 경보를 똑같이 차단하는가.</strong></p>
+        <span class="gate">통과 조건 — 기존 예측기 대비 우위 입증</span>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="no">3</div>
+      <div class="body">
+        <h4>계획 결합 — 예측에서 제어로</h4>
+        <p>모델이 이긴 뒤에야 잠재 공간 계획을 붙여, 매크로 행동(진입 상한·할당·가중치)의 최적 궤적을
+        제안하는 제어 단계로 확장합니다.</p>
+        <span class="gate">최종 형태 — 개입을 제안하는 월드모델</span>
+      </div>
+    </div>
+
+    <div class="callout">
+      <p><strong>현재 위치 — 훈련장까지 완성된 단계입니다.</strong>
+      현실을 복제한 검증된 시뮬레이션 환경(WORLD_SIM)이 학습형 월드모델이 마음껏 뛰고 넘어져도 되는
+      도장(道場) 역할을 합니다. 아직 모델이 이 안에서 훈련을 시작하지는 않았습니다.</p>
+      <p>조만간 조건이 맞춰지는 대로 — 행동 공간 정의, 보상 설계, 학습용 데이터 정비가 끝나는 대로 —
+      이 훈련장 위에서 <strong>월드모델을 학습 가능한 형태로 진화</strong>시킬 것입니다.
+      훈련장이 먼저, 선수는 그 다음. 순서는 이미 잡혀 있습니다.</p>
+    </div>
+  </section>
+
+  <!-- 10 -->
+  <section id="glossary">
+    <p class="eyebrow">Glossary</p>
+    <h2>용어 설명</h2>
+    <dl class="glossary">
+      <div><dt>TD-MPC</dt><dd>Temporal Difference Learning for Model Predictive Control. 잠재 상태와 보상만 예측하는 모델을 학습하고, 잠재 공간에서 행동을 계획하는 모델 기반 강화학습 알고리즘 (Hansen et al., 2022 / TD-MPC2는 2023).</dd></div>
+      <div><dt>월드모델</dt><dd>세계의 동작 법칙을 담아 &ldquo;이 행동을 하면 어떻게 될까&rdquo;를 시뮬레이션할 수 있는 모델. 규칙으로 적을 수도(현재 WORLD_SIM), 데이터에서 배울 수도(TD-MPC) 있습니다.</dd></div>
+      <div><dt>잠재 상태 (latent state)</dt><dd>원본 관측을 결정에 필요한 정보만 남기고 압축한 벡터. 바둑 기사의 &ldquo;형세&rdquo;에 해당합니다.</dd></div>
+      <div><dt>복원 (reconstruction)</dt><dd>잠재 상태로부터 원본 관측을 되그리는 학습 과제. TD-MPC는 이를 쓰지 않는 것이 특징입니다.</dd></div>
+      <div><dt>보상 (reward)</dt><dd>한 스텝의 좋음/나쁨을 숫자로 정의한 것. 강화학습이 최대화하려는 대상.</dd></div>
+      <div><dt>가치 함수 (Q)</dt><dd>&ldquo;이 상태에서 앞으로 끝까지 잘하면 얼마나 좋은가&rdquo;의 추정치. 계획 지평선 너머를 담당합니다.</dd></div>
+      <div><dt>TD 학습</dt><dd>Temporal Difference. &ldquo;지금의 가치 = 한 스텝 보상 + 다음 상태의 가치&rdquo;라는 관계로 가치 함수를 반복 갱신하는 학습법.</dd></div>
+      <div><dt>MPC</dt><dd>Model Predictive Control. 모델로 미래를 굴려 최선의 행동 궤적을 고르되, 첫 걸음만 실행하고 매 순간 다시 계획하는 제어 기법.</dd></div>
+      <div><dt>MPPI</dt><dd>Model Predictive Path Integral. 행동 궤적 후보를 확률적으로 샘플링하고 점수 상위 후보 쪽으로 분포를 좁혀 가는 샘플링 기반 계획법.</dd></div>
+      <div><dt>GNN</dt><dd>Graph Neural Network. 노드·엣지 구조를 그대로 학습하는 신경망. 레일 그래프인 OHT 세계의 인코더로 채택 예정.</dd></div>
+      <div><dt>gym 환경</dt><dd>강화학습 표준 인터페이스(state / action / reward / step). WORLD_SIM을 이 형태로 감싸면 어떤 RL 알고리즘이든 접속해 훈련할 수 있습니다.</dd></div>
+    </dl>
+  </section>
+</main>
+
+<footer>
+  John Forrest
+</footer>
