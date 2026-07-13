@@ -1,0 +1,1194 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OHT 월드모델 — 반송 시스템 디지털 트윈 소개</title>
+<style>
+  /* ============ 토큰 ============ */
+  :root {
+    --ground: #F4F6F8;
+    --panel: #FFFFFF;
+    --panel-2: #EBEFF3;
+    --ink: #17222D;
+    --ink-soft: #46566A;
+    --ink-faint: #7A8BA0;
+    --line: #D4DCE4;
+    --accent: #0B7285;
+    --accent-soft: #E0F0F2;
+    --accent-ink: #085D6D;
+    --ok: #2B8A3E;
+    --ok-bg: #E3F3E7;
+    --warn: #B87E0A;
+    --warn-bg: #FBF0D7;
+    --danger: #C4570F;
+    --danger-bg: #FBE7D8;
+    --critical: #C22B2B;
+    --critical-bg: #FADEDE;
+    --hero-bg: #0D1720;
+    --hero-ink: #DFE9F2;
+    --hero-faint: #6E8398;
+    --hero-rail: #1E3A4C;
+    --hero-accent: #46C8DC;
+    --code-bg: #101B26;
+    --code-ink: #C9DAE8;
+    --shadow: 0 1px 2px rgba(23,34,45,.05), 0 4px 16px rgba(23,34,45,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0F161D;
+      --panel: #17212B;
+      --panel-2: #1D2935;
+      --ink: #E2EAF1;
+      --ink-soft: #A9BACB;
+      --ink-faint: #6E8095;
+      --line: #2A3947;
+      --accent: #4CC3D6;
+      --accent-soft: #10333C;
+      --accent-ink: #7ED7E6;
+      --ok: #63C574;
+      --ok-bg: #15301C;
+      --warn: #E3B341;
+      --warn-bg: #33290F;
+      --danger: #EE8A47;
+      --danger-bg: #3A2413;
+      --critical: #F07070;
+      --critical-bg: #3D1717;
+      --code-bg: #0A121A;
+      --code-ink: #C9DAE8;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.25);
+    }
+  }
+  :root[data-theme="light"] {
+    --ground: #F4F6F8; --panel: #FFFFFF; --panel-2: #EBEFF3;
+    --ink: #17222D; --ink-soft: #46566A; --ink-faint: #7A8BA0; --line: #D4DCE4;
+    --accent: #0B7285; --accent-soft: #E0F0F2; --accent-ink: #085D6D;
+    --ok: #2B8A3E; --ok-bg: #E3F3E7; --warn: #B87E0A; --warn-bg: #FBF0D7;
+    --danger: #C4570F; --danger-bg: #FBE7D8; --critical: #C22B2B; --critical-bg: #FADEDE;
+    --code-bg: #101B26; --code-ink: #C9DAE8;
+    --shadow: 0 1px 2px rgba(23,34,45,.05), 0 4px 16px rgba(23,34,45,.06);
+  }
+  :root[data-theme="dark"] {
+    --ground: #0F161D; --panel: #17212B; --panel-2: #1D2935;
+    --ink: #E2EAF1; --ink-soft: #A9BACB; --ink-faint: #6E8095; --line: #2A3947;
+    --accent: #4CC3D6; --accent-soft: #10333C; --accent-ink: #7ED7E6;
+    --ok: #63C574; --ok-bg: #15301C; --warn: #E3B341; --warn-bg: #33290F;
+    --danger: #EE8A47; --danger-bg: #3A2413; --critical: #F07070; --critical-bg: #3D1717;
+    --code-bg: #0A121A; --code-ink: #C9DAE8;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.25);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
+      "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ============ 히어로 (관제 화면 — 의도적 단일 다크) ============ */
+  .hero {
+    background: var(--hero-bg);
+    color: var(--hero-ink);
+    position: relative;
+    overflow: hidden;
+  }
+  .hero-inner {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 72px 28px 56px;
+    position: relative;
+    z-index: 1;
+  }
+  .hero-eyebrow {
+    font-size: 12.5px;
+    letter-spacing: .22em;
+    text-transform: uppercase;
+    color: var(--hero-accent);
+    font-weight: 700;
+    margin: 0 0 18px;
+  }
+  .hero h1 {
+    font-size: clamp(30px, 5.2vw, 46px);
+    line-height: 1.28;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin: 0 0 20px;
+    text-wrap: balance;
+  }
+  .hero h1 .accent { color: var(--hero-accent); }
+  .hero p.lede {
+    font-size: clamp(16px, 2.2vw, 18.5px);
+    line-height: 1.8;
+    color: #A9BDCE;
+    max-width: 39em;
+    margin: 0 0 34px;
+  }
+  .hero-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .hero-stat {
+    background: rgba(70, 200, 220, .07);
+    border: 1px solid rgba(70, 200, 220, .22);
+    border-radius: 8px;
+    padding: 12px 18px;
+    min-width: 148px;
+  }
+  .hero-stat .v {
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    color: var(--hero-accent);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.3;
+  }
+  .hero-stat .k { font-size: 12.5px; color: var(--hero-faint); letter-spacing: .04em; }
+
+  /* 히어로 배경 레일 맵 */
+  .railmap {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: .9;
+  }
+  .railmap path.rail { stroke: var(--hero-rail); stroke-width: 2; fill: none; }
+  .railmap circle.node { fill: #24455A; }
+  .railmap circle.vhl { fill: var(--hero-accent); }
+  .railmap circle.vhl-jam { fill: #F07070; }
+  @media (prefers-reduced-motion: no-preference) {
+    .railmap .flow {
+      stroke: var(--hero-accent);
+      stroke-width: 2;
+      fill: none;
+      stroke-dasharray: 3 220;
+      stroke-linecap: round;
+      animation: railflow 9s linear infinite;
+      opacity: .8;
+    }
+    .railmap .flow.f2 { animation-duration: 13s; animation-delay: -4s; }
+    .railmap .flow.f3 { animation-duration: 11s; animation-delay: -7s; }
+    @keyframes railflow { to { stroke-dashoffset: -223; } }
+    .railmap circle.vhl-jam { animation: jamblink 1.6s ease-in-out infinite; }
+    @keyframes jamblink { 50% { opacity: .25; } }
+  }
+
+  /* ============ 본문 공통 ============ */
+  main {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 24px 28px 96px;
+  }
+  section { margin-top: 72px; }
+  .eyebrow {
+    font-size: 12px;
+    letter-spacing: .2em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--accent);
+    margin: 0 0 10px;
+  }
+  h2 {
+    font-size: clamp(23px, 3.4vw, 29px);
+    font-weight: 800;
+    letter-spacing: -0.015em;
+    line-height: 1.35;
+    margin: 0 0 18px;
+    text-wrap: balance;
+  }
+  h3 {
+    font-size: 18.5px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin: 34px 0 12px;
+  }
+  p { margin: 0 0 16px; color: var(--ink-soft); max-width: 46em; }
+  p strong, li strong { color: var(--ink); font-weight: 700; }
+  ul, ol { margin: 0 0 16px; padding-left: 22px; color: var(--ink-soft); }
+  li { margin-bottom: 7px; }
+  li::marker { color: var(--accent); }
+
+  /* 목차 */
+  .toc {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    padding: 22px 26px;
+    margin-top: 40px;
+  }
+  .toc .eyebrow { margin-bottom: 12px; }
+  .toc ol {
+    margin: 0; padding: 0;
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 6px 24px;
+  }
+  .toc li { margin: 0; }
+  .toc a {
+    color: var(--ink-soft);
+    text-decoration: none;
+    font-size: 14.5px;
+    display: flex;
+    gap: 10px;
+    padding: 5px 0;
+    border-bottom: 1px dashed var(--line);
+  }
+  .toc a:hover { color: var(--accent-ink); }
+  .toc a .n { color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  /* 카드/패널 */
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    padding: 22px 26px;
+    margin: 20px 0;
+  }
+  .card h4 {
+    margin: 0 0 8px;
+    font-size: 15.5px;
+    font-weight: 700;
+    color: var(--ink);
+  }
+  .card p:last-child { margin-bottom: 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  @media (max-width: 720px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+  .grid2 .card, .grid3 .card { margin: 0; }
+
+  /* 콜아웃 */
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: var(--accent-soft);
+    border-radius: 0 10px 10px 0;
+    padding: 16px 22px;
+    margin: 22px 0;
+  }
+  .callout p { margin: 0; color: var(--ink); font-size: 15px; }
+  .callout p + p { margin-top: 8px; }
+
+  /* 표 */
+  .table-wrap { overflow-x: auto; margin: 20px 0; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; background: var(--panel); }
+  th, td { text-align: left; padding: 11px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th {
+    background: var(--panel-2);
+    font-size: 12.5px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    white-space: nowrap;
+  }
+  tr:last-child td { border-bottom: none; }
+  td .num, th .num { font-variant-numeric: tabular-nums; }
+  td:first-child { white-space: nowrap; font-weight: 600; color: var(--ink); }
+  td { color: var(--ink-soft); }
+
+  code {
+    font-family: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+    font-size: .88em;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 1.5px 6px;
+    color: var(--accent-ink);
+    white-space: nowrap;
+  }
+  pre {
+    background: var(--code-bg);
+    color: var(--code-ink);
+    border-radius: 10px;
+    padding: 18px 22px;
+    overflow-x: auto;
+    font-family: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+    font-size: 13.5px;
+    line-height: 1.7;
+    margin: 20px 0;
+  }
+  pre code { background: none; border: none; padding: 0; color: inherit; white-space: pre; }
+
+  /* 인용구 (영역전개) */
+  .pullquote {
+    margin: 30px 0;
+    padding: 26px 30px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--accent);
+    border-radius: 0 12px 12px 0;
+    box-shadow: var(--shadow);
+  }
+  .pullquote .q {
+    font-size: clamp(19px, 3vw, 24px);
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    line-height: 1.5;
+    color: var(--ink);
+    margin: 0 0 10px;
+    text-wrap: balance;
+  }
+  .pullquote .q .accent { color: var(--accent-ink); }
+  .pullquote p { margin: 0; font-size: 14.5px; color: var(--ink-soft); }
+
+  /* 아키텍처 그림 (SVG) */
+  .worldpic {
+    margin: 26px 0;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    padding: 18px 14px 8px;
+    overflow-x: auto;
+  }
+  .worldpic svg { display: block; min-width: 640px; width: 100%; height: auto; }
+  .worldpic figcaption {
+    font-size: 13px;
+    color: var(--ink-faint);
+    text-align: center;
+    padding: 8px 12px 10px;
+  }
+  .worldpic text {
+    font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
+      "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  }
+  .wp-boxtitle { font-size: 15px; font-weight: 800; fill: var(--ink); }
+  .wp-label { font-size: 12px; fill: var(--ink-soft); }
+  .wp-small { font-size: 11px; fill: var(--ink-faint); }
+  .wp-accent { font-size: 12.5px; font-weight: 700; fill: var(--accent-ink); }
+  .wp-panel { fill: var(--panel-2); stroke: var(--line); }
+  .wp-rail { stroke: var(--ink-faint); stroke-width: 2; fill: none; }
+  .wp-vhl { fill: var(--accent); }
+  .wp-vhl-jam { fill: var(--critical); }
+  .wp-domain-aura { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 6 6; opacity: .7; }
+  .wp-domain { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; }
+  .wp-mini-rail { stroke: var(--accent-ink); stroke-width: 1.5; fill: none; opacity: .65; }
+  .wp-node { fill: var(--accent-ink); }
+  .wp-arrow { stroke: var(--ink-faint); stroke-width: 1.8; fill: none; }
+  .wp-chip { fill: var(--panel-2); stroke: var(--line); }
+  .wp-chip-t { font-size: 13px; font-weight: 700; fill: var(--ink); }
+  .wp-chip-d { font-size: 11px; fill: var(--ink-faint); }
+  @media (prefers-reduced-motion: no-preference) {
+    .wp-domain-aura { animation: aura-spin 40s linear infinite; transform-origin: 490px 205px; }
+    @keyframes aura-spin { to { transform: rotate(360deg); } }
+  }
+
+  /* 아키텍처 다이어그램 */
+  .arch { margin: 26px 0; }
+  .arch-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+  }
+  .arch-box {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 16px;
+    box-shadow: var(--shadow);
+  }
+  .arch-box.hl { border-color: var(--accent); background: var(--accent-soft); }
+  .arch-box .t { font-weight: 700; font-size: 14.5px; color: var(--ink); }
+  .arch-box .d { font-size: 12.5px; color: var(--ink-faint); margin-top: 3px; line-height: 1.55; }
+  .arch-box .m {
+    display: inline-block;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 11.5px;
+    color: var(--accent-ink);
+    background: var(--panel-2);
+    border-radius: 4px;
+    padding: 1px 6px;
+    margin-top: 7px;
+  }
+  .arch-box.hl .m { background: rgba(255,255,255,.5); }
+  :root[data-theme="dark"] .arch-box.hl .m,
+  .arch-box.hl .m { background: color-mix(in srgb, var(--panel) 55%, transparent); }
+  .arch-arrow {
+    text-align: center;
+    color: var(--ink-faint);
+    font-size: 13px;
+    padding: 8px 0;
+    letter-spacing: .1em;
+  }
+
+  /* 경보 단계 */
+  .stages { display: grid; gap: 12px; margin: 22px 0; }
+  .stage {
+    display: grid;
+    grid-template-columns: 128px 1fr;
+    gap: 18px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 18px 22px;
+    box-shadow: var(--shadow);
+    align-items: start;
+  }
+  @media (max-width: 560px) { .stage { grid-template-columns: 1fr; gap: 8px; } }
+  .stage .pill {
+    display: inline-block;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: .05em;
+    border-radius: 999px;
+    padding: 5px 14px;
+    white-space: nowrap;
+  }
+  .stage .pill.s0 { background: var(--ok-bg); color: var(--ok); }
+  .stage .pill.s1 { background: var(--warn-bg); color: var(--warn); }
+  .stage .pill.s2 { background: var(--danger-bg); color: var(--danger); }
+  .stage .pill.s3 { background: var(--critical-bg); color: var(--critical); }
+  .stage h4 { margin: 0 0 5px; font-size: 15.5px; }
+  .stage p { margin: 0; font-size: 14.5px; }
+  .stage .rule {
+    display: block;
+    margin-top: 8px;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 12.5px;
+    color: var(--ink-faint);
+  }
+
+  /* 타임라인 (검증 사례) */
+  .timeline { position: relative; margin: 26px 0 26px 8px; padding-left: 26px; }
+  .timeline::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 6px; bottom: 6px;
+    width: 2px;
+    background: var(--line);
+    border-radius: 2px;
+  }
+  .tl-item { position: relative; padding-bottom: 22px; }
+  .tl-item:last-child { padding-bottom: 0; }
+  .tl-item::before {
+    content: "";
+    position: absolute;
+    left: -31px; top: 7px;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--panel);
+    border: 3px solid var(--ink-faint);
+  }
+  .tl-item.hit::before { border-color: var(--critical); background: var(--critical); }
+  .tl-item.fire::before { border-color: var(--critical); }
+  .tl-item.ok::before { border-color: var(--ok); }
+  .tl-time {
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .tl-item p { margin: 3px 0 0; font-size: 14.5px; }
+
+  /* 용어집 */
+  dl.glossary { margin: 20px 0; display: grid; gap: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); }
+  dl.glossary > div { display: grid; grid-template-columns: 180px 1fr; background: var(--panel); border-bottom: 1px solid var(--line); }
+  dl.glossary > div:last-child { border-bottom: none; }
+  dl.glossary dt { font-weight: 700; font-size: 14.5px; padding: 13px 18px; background: var(--panel-2); color: var(--ink); }
+  dl.glossary dd { margin: 0; padding: 13px 18px; font-size: 14.5px; color: var(--ink-soft); }
+  @media (max-width: 560px) {
+    dl.glossary > div { grid-template-columns: 1fr; }
+    dl.glossary dt { padding-bottom: 4px; }
+    dl.glossary dd { padding-top: 4px; }
+  }
+
+  footer {
+    border-top: 1px solid var(--line);
+    margin-top: 80px;
+    padding: 26px 28px 40px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--ink-faint);
+  }
+  a { color: var(--accent-ink); }
+</style>
+
+<!-- ============ 히어로 ============ -->
+<header class="hero">
+  <svg class="railmap" viewBox="0 0 1200 420" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <!-- 레일 루프 -->
+    <path class="rail" d="M -40 90 H 1240" />
+    <path class="rail" d="M -40 210 H 1240" />
+    <path class="rail" d="M -40 330 H 1240" />
+    <path class="rail" d="M 200 90 V 330" />
+    <path class="rail" d="M 480 90 V 330" />
+    <path class="rail" d="M 760 90 V 330" />
+    <path class="rail" d="M 1040 90 V 330" />
+    <path class="rail" d="M 200 90 Q 340 30 480 90" />
+    <path class="rail" d="M 760 330 Q 900 390 1040 330" />
+    <!-- 흐름 애니메이션 -->
+    <path class="flow"    d="M -40 90 H 1240" />
+    <path class="flow f2" d="M 1240 210 H -40" />
+    <path class="flow f3" d="M -40 330 H 1240" />
+    <!-- 노드 -->
+    <circle class="node" cx="200" cy="90"  r="4"/><circle class="node" cx="480" cy="90"  r="4"/>
+    <circle class="node" cx="760" cy="90"  r="4"/><circle class="node" cx="1040" cy="90" r="4"/>
+    <circle class="node" cx="200" cy="210" r="4"/><circle class="node" cx="480" cy="210" r="4"/>
+    <circle class="node" cx="760" cy="210" r="4"/><circle class="node" cx="1040" cy="210" r="4"/>
+    <circle class="node" cx="200" cy="330" r="4"/><circle class="node" cx="480" cy="330" r="4"/>
+    <circle class="node" cx="760" cy="330" r="4"/><circle class="node" cx="1040" cy="330" r="4"/>
+    <!-- 차량 -->
+    <circle class="vhl" cx="330" cy="90"  r="5"/>
+    <circle class="vhl" cx="620" cy="210" r="5"/>
+    <circle class="vhl" cx="900" cy="330" r="5"/>
+    <circle class="vhl-jam" cx="760" cy="150" r="5"/>
+    <circle class="vhl-jam" cx="760" cy="175" r="5"/>
+  </svg>
+
+  <div class="hero-inner">
+    <p class="hero-eyebrow">OHT World Model · Digital Twin</p>
+    <h1>천장 위 수백 대의 반송 차량,<br><span class="accent">영역전개 월드모델</span>을 통해서 미래를 본다</h1>
+    <p class="lede">
+      OHT 월드모델은 반도체 FAB의 천장 반송 시스템(OHT) 전체를 컴퓨터 안에 그대로
+      재현한 디지털 트윈입니다. 실제 운행 로그를 지도 위에서 시간 순으로 되돌려 보고,
+      그 위에서 미래를 시뮬레이션하여 혼잡과 데드락(교착)을 사고가 나기 전에 경보합니다.
+    </p>
+    <div class="hero-stats">
+      <div class="hero-stat"><div class="v num">10분 전</div><div class="k">데드락 사전 경보 (검증 사례)</div></div>
+      <div class="hero-stat"><div class="v num">0.5초</div><div class="k">차량 속도 계산 해상도</div></div>
+      <div class="hero-stat"><div class="v num">7종</div><div class="k">통합 수집 데이터</div></div>
+      <div class="hero-stat"><div class="v num">6개 맵</div><div class="k">멀티 FAB 레이아웃 지원</div></div>
+    </div>
+  </div>
+</header>
+
+<main>
+  <!-- 목차 -->
+  <nav class="toc" aria-label="목차">
+    <p class="eyebrow">목차</p>
+    <ol>
+      <li><a href="#why"><span class="n">1</span> 왜 필요한가</a></li>
+      <li><a href="#what"><span class="n">2</span> 월드모델이란</a></li>
+      <li><a href="#arch"><span class="n">3</span> 시스템 구성</a></li>
+      <li><a href="#replay"><span class="n">4</span> 실 데이터 리플레이</a></li>
+      <li><a href="#deadlock"><span class="n">5</span> 데드락 탐지 엔진</a></li>
+      <li><a href="#macro"><span class="n">6</span> 매크로 예측</a></li>
+      <li><a href="#alert"><span class="n">7</span> 3단계 조기 경보</a></li>
+      <li><a href="#case"><span class="n">8</span> 실전 검증 사례</a></li>
+      <li><a href="#data"><span class="n">9</span> 데이터와 정확도</a></li>
+      <li><a href="#usage"><span class="n">10</span> 사용 방법</a></li>
+      <li><a href="#tdmpc"><span class="n">11</span> 차세대 로드맵 — TD-MPC</a></li>
+      <li><a href="#glossary"><span class="n">12</span> 용어 설명</a></li>
+    </ol>
+  </nav>
+
+  <!-- 1. 왜 필요한가 -->
+  <section id="why">
+    <p class="eyebrow">Background</p>
+    <h2>왜 필요한가 — 데드락은 사후 대응으로는 늦습니다</h2>
+    <p>
+      반도체 FAB의 천장에는 웨이퍼 캐리어(FOUP)를 실어 나르는 <strong>OHT 차량 수백~수천 대</strong>가
+      쉬지 않고 달립니다. 시간당 약 <strong class="num">20,000건</strong>의 반송이 24시간 내내 균일하게
+      쏟아지는 물류 시스템으로, 이 흐름이 몇 분만 멈춰도 공정 장비가 자재를 받지 못해
+      생산 라인 전체에 파장이 미칩니다.
+    </p>
+    <p>
+      가장 위험한 상황이 <strong>데드락(교착)</strong>입니다. 차량 A가 B를 기다리고, B가 C를,
+      C가 다시 A를 기다리는 순환 대기가 만들어지면 그 구간의 차량은 스스로 풀 수 없이
+      서로 물려 멈춥니다. 문제는 데드락이 <strong>갑자기 생기지 않는다</strong>는 점입니다 —
+      반송 시간이 조금씩 길어지고, 특정 구역에 큐가 쌓이고, 리프터 주변이 막히는
+      <strong>수십 분간의 전조</strong>가 먼저 나타납니다. 사람이 모니터 수치만 보고 이 전조를
+      매번 잡아내기는 어렵습니다.
+    </p>
+    <div class="callout">
+      <p><strong>OHT 월드모델의 목표는 단순합니다.</strong>
+      실제 데이터가 보여 주는 전조를 기계가 상시 감시해서, 데드락이
+      실제로 발생하기 전에 &ldquo;몇 분 뒤 어디가 위험하다&rdquo;를 관제자에게 미리 알려 주는 것입니다.</p>
+    </div>
+  </section>
+
+  <!-- 2. 월드모델이란 -->
+  <section id="what">
+    <p class="eyebrow">Concept</p>
+    <h2>월드모델이란 — FAB을 통째로 담은 살아 있는 지도</h2>
+    <p>
+      &ldquo;월드모델&rdquo;은 현실 세계의 규칙을 컴퓨터 안에 재현해 두고, 그 위에서
+      <strong>&ldquo;이대로 가면 어떻게 될까?&rdquo;</strong>를 돌려 보는 모델을 말합니다.
+      OHT 월드모델은 FAB의 레일 도면을 <strong>노드(분기점)와 엣지(레일 구간)로 이루어진
+      그래프</strong>로 변환하고, 그 위에 실제 차량 하나하나를 올려 움직입니다.
+    </p>
+    <blockquote class="pullquote">
+      <p class="q">&ldquo;월드모델은 <span class="accent">나만의 영역전개(領域展開)</span>를 만든다!&rdquo;</p>
+      <p>주술회전의 그 대사처럼 — 현실의 FAB을 통째로 복제한 나만의 도메인을 펼치는 것입니다.
+      이 영역 안에서는 우리가 시간의 주인입니다. 되감고(과거), 멈추고(현재), 미리 돌려봅니다(미래).
+      현실에서는 절대 할 수 없는 실험을, 여기서는 마음껏 할 수 있습니다.</p>
+    </blockquote>
+    <p>세 가지를 한 화면에서 제공합니다.</p>
+    <div class="grid3">
+      <div class="card">
+        <h4>① 과거 — 리플레이</h4>
+        <p>실제 운행 로그(CSV)를 지도 위에서 재생합니다. 사건이 났던 날짜·시각으로
+        점프해서 당시 차량 흐름을 배속으로 돌려 볼 수 있습니다.</p>
+      </div>
+      <div class="card">
+        <h4>② 현재 — 실시간 상태</h4>
+        <p>차량 위치·속도·정지 상태, 구간별 혼잡도, 레일 차단(⛔) 여부를
+        WebSocket으로 실시간 갱신해 보여 줍니다.</p>
+      </div>
+      <div class="card">
+        <h4>③ 미래 — 예측</h4>
+        <p>현재 상태를 출발점으로 10분·20분 뒤를 시뮬레이션해 큐 증가,
+        혼잡 구간, 데드락 위험도를 예측합니다.</p>
+      </div>
+    </div>
+    <p>
+      현재 <strong>M14A · M14B · M16A(A/BR/E) · M16B</strong> 총 6개 FAB 레이아웃을 지원하며,
+      레이아웃 파일(<code>layout.zip</code>)만 폴더에 넣으면 새 FAB이 자동 인식됩니다.
+    </p>
+  </section>
+
+  <!-- 3. 시스템 구성 -->
+  <section id="arch">
+    <p class="eyebrow">Architecture</p>
+    <h2>시스템 구성 — 데이터가 화면까지 흐르는 길</h2>
+    <p>
+      먼저 전체 개념을 그림 한 장으로 보면 이렇습니다. 현실의 FAB에서 데이터가 흘러 들어와
+      <strong>월드모델이라는 &ldquo;영역&rdquo;</strong>이 펼쳐지고, 그 안에서 과거·현재·미래
+      세 방향의 답이 나옵니다.
+    </p>
+
+    <figure class="worldpic">
+      <svg viewBox="0 0 960 410" role="img" aria-label="월드모델 아키텍처 개념도: 현실 FAB에서 7종 데이터가 월드모델 영역으로 들어가 과거 리플레이, 현재 데드락 탐지, 미래 예측이 나온다">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 1 L 9 5 L 0 9 z" fill="var(--ink-faint)"/>
+          </marker>
+        </defs>
+
+        <!-- ===== 왼쪽: 현실 세계 FAB ===== -->
+        <rect class="wp-panel" x="18" y="66" width="220" height="280" rx="12"/>
+        <text class="wp-boxtitle" x="128" y="98" text-anchor="middle">현실 세계 · FAB</text>
+        <text class="wp-small" x="128" y="116" text-anchor="middle">천장 레일 위 OHT 수백 대</text>
+        <!-- 레일 -->
+        <path class="wp-rail" d="M 42 160 H 214"/>
+        <path class="wp-rail" d="M 42 230 H 214"/>
+        <path class="wp-rail" d="M 42 300 H 214"/>
+        <path class="wp-rail" d="M 76 160 V 300"/>
+        <path class="wp-rail" d="M 180 160 V 300"/>
+        <!-- 차량 -->
+        <rect class="wp-vhl" x="96" y="154" width="14" height="12" rx="3"/>
+        <rect class="wp-vhl" x="140" y="224" width="14" height="12" rx="3"/>
+        <rect class="wp-vhl" x="60" y="294" width="14" height="12" rx="3"/>
+        <rect class="wp-vhl-jam" x="172" y="196" width="14" height="12" rx="3"/>
+        <rect class="wp-vhl-jam" x="172" y="214" width="14" height="12" rx="3"/>
+        <text class="wp-small" x="128" y="332" text-anchor="middle">빨강 = 정체·잼</text>
+
+        <!-- ===== 데이터 화살표 ===== -->
+        <path class="wp-arrow" d="M 244 205 H 302" marker-end="url(#ah)"/>
+        <text class="wp-accent" x="273" y="190" text-anchor="middle">7종 데이터</text>
+        <text class="wp-small" x="273" y="228" text-anchor="middle">운행 로그 · 도면</text>
+        <text class="wp-small" x="273" y="243" text-anchor="middle">차단 · 지표 · 명령</text>
+
+        <!-- ===== 가운데: 월드모델 영역전개 ===== -->
+        <circle class="wp-domain-aura" cx="490" cy="205" r="163"/>
+        <circle class="wp-domain" cx="490" cy="205" r="146"/>
+        <text class="wp-boxtitle" x="490" y="105" text-anchor="middle">월드모델</text>
+        <text class="wp-accent" x="490" y="125" text-anchor="middle">— 나만의 영역전개 —</text>
+        <!-- 복제된 미니 그래프 -->
+        <path class="wp-mini-rail" d="M 404 170 H 576"/>
+        <path class="wp-mini-rail" d="M 404 225 H 576"/>
+        <path class="wp-mini-rail" d="M 438 170 V 225"/>
+        <path class="wp-mini-rail" d="M 542 170 V 225"/>
+        <circle class="wp-node" cx="438" cy="170" r="4"/>
+        <circle class="wp-node" cx="542" cy="170" r="4"/>
+        <circle class="wp-node" cx="438" cy="225" r="4"/>
+        <circle class="wp-node" cx="542" cy="225" r="4"/>
+        <circle class="wp-vhl" cx="470" cy="170" r="5"/>
+        <circle class="wp-vhl" cx="510" cy="225" r="5"/>
+        <circle class="wp-vhl-jam" cx="542" cy="196" r="5"/>
+        <text class="wp-small" x="490" y="256" text-anchor="middle">현실을 복제한 그래프 (노드·엣지·차량)</text>
+        <!-- 시간 조종 -->
+        <text class="wp-accent" x="490" y="292" text-anchor="middle" font-size="17">⏪ &#9199; ⏩</text>
+        <text class="wp-small" x="490" y="312" text-anchor="middle">이 영역 안에서는 시간을 지배한다</text>
+
+        <!-- ===== 오른쪽: 세 가지 출력 ===== -->
+        <path class="wp-arrow" d="M 610 128 Q 660 110 700 105" marker-end="url(#ah)"/>
+        <path class="wp-arrow" d="M 638 205 H 700" marker-end="url(#ah)"/>
+        <path class="wp-arrow" d="M 610 282 Q 660 300 700 305" marker-end="url(#ah)"/>
+
+        <rect class="wp-chip" x="706" y="76" width="236" height="58" rx="10"/>
+        <text class="wp-chip-t" x="824" y="100" text-anchor="middle">과거 — 리플레이 ⏪</text>
+        <text class="wp-chip-d" x="824" y="119" text-anchor="middle">사건 당일을 지도 위에서 재생·배속·점프</text>
+
+        <rect class="wp-chip" x="706" y="176" width="236" height="58" rx="10"/>
+        <text class="wp-chip-t" x="824" y="200" text-anchor="middle">현재 — 데드락 탐지 👁</text>
+        <text class="wp-chip-d" x="824" y="219" text-anchor="middle">Tarjan SCC로 순환 대기를 수학적 판정</text>
+
+        <rect class="wp-chip" x="706" y="276" width="236" height="58" rx="10"/>
+        <text class="wp-chip-t" x="824" y="300" text-anchor="middle">미래 — 예측·경보 ⏩</text>
+        <text class="wp-chip-d" x="824" y="319" text-anchor="middle">10·20분 뒤 예측 + 3단계 조기 경보</text>
+      </svg>
+      <figcaption>월드모델 개념도 — 현실 FAB의 데이터로 &ldquo;영역&rdquo;을 전개하고, 그 안에서 과거·현재·미래를 다룬다</figcaption>
+    </figure>
+
+    <p>
+      이를 실제로 구현한 시스템은 파이썬(FastAPI) 기반의 단일 서버로 동작하며, 데이터는 아래 순서로 흐릅니다.
+      별도 데이터베이스 없이 <strong>CSV 로그 파일을 폴더에 넣는 것만으로</strong> 구동됩니다.
+    </p>
+
+    <div class="arch">
+      <div class="arch-row">
+        <div class="arch-box">
+          <div class="t">현장 데이터</div>
+          <div class="d">OHT 운행 로그, 시스템 지표, HID 통과, 레일 차단, 작업 명령 등 7종 CSV + 레일 도면</div>
+          <span class="m">OHS_DATA_MD/ · OHT_MAP/</span>
+        </div>
+      </div>
+      <div class="arch-arrow">▼ 읽기 · 정규화</div>
+      <div class="arch-row">
+        <div class="arch-box">
+          <div class="t">통합 데이터 로더</div>
+          <div class="d">도면을 그래프로 변환하고 7종 로그를 시간축에 정렬</div>
+          <span class="m">data_loader.py</span>
+        </div>
+        <div class="arch-box">
+          <div class="t">속도 트래커</div>
+          <div class="d">UDP 위치 변화 차분으로 차량별 순간 속도(m/min)를 0.5초 해상도로 산출</div>
+          <span class="m">velocity_tracker.py</span>
+        </div>
+      </div>
+      <div class="arch-arrow">▼ 시간순 재생</div>
+      <div class="arch-row">
+        <div class="arch-box">
+          <div class="t">리플레이 엔진</div>
+          <div class="d">플레이 / 일시정지 / 배속 / 시간 점프 — 로그를 시간순으로 재생하며 차량 위치 갱신</div>
+          <span class="m">replay_engine.py</span>
+        </div>
+      </div>
+      <div class="arch-arrow">▼ 상태 공급</div>
+      <div class="arch-row">
+        <div class="arch-box hl">
+          <div class="t">월드모델 엔진</div>
+          <div class="d">그래프 위 차량 시뮬레이션 + Tarjan SCC 순환 대기(데드락) 탐지</div>
+          <span class="m">world_model.py</span>
+        </div>
+        <div class="arch-box hl">
+          <div class="t">매크로 예측기</div>
+          <div class="d">큐·TAT·물동량·혼잡 예측 + 3단계 데드락 조기 경보</div>
+          <span class="m">macro_predictor.py</span>
+        </div>
+      </div>
+      <div class="arch-arrow">▼ WebSocket 실시간 전송</div>
+      <div class="arch-row">
+        <div class="arch-box">
+          <div class="t">관제 대시보드</div>
+          <div class="d">FAB 지도 위 차량·혼잡·차단 표시, 경보 배너, 이벤트 로그, 예측 패널</div>
+          <span class="m">dashboard.html — FastAPI 서버(main.py)가 제공</span>
+        </div>
+      </div>
+    </div>
+
+    <p>
+      이와 별도로 <code>dijkstra_analyzer.py</code>라는 <strong>독립 검증 도구</strong>가 함께 제공됩니다.
+      대용량 데이터를 옮기기 어려운 현장에서도, 이 파일 하나를 데이터 옆에 두고 실행하면
+      월드모델의 경로 탐색 알고리즘을 그대로 검증할 수 있습니다.
+    </p>
+  </section>
+
+  <!-- 4. 리플레이 -->
+  <section id="replay">
+    <p class="eyebrow">Feature 01</p>
+    <h2>실 데이터 리플레이 — 사건 당일을 그대로 다시 봅니다</h2>
+    <p>
+      &ldquo;그날 14시에 무슨 일이 있었나?&rdquo;라는 질문에, 로그 숫자가 아니라
+      <strong>움직이는 지도</strong>로 답합니다. 날짜를 선택하면 해당 일자의 실제 로그가
+      로드되고, 관제 화면에서 동영상처럼 재생됩니다.
+    </p>
+    <ul>
+      <li><strong>플레이 / 일시정지 / 배속 재생</strong> — 하루치 흐름을 몇 분 만에 훑거나, 사건 구간만 실속도로 정밀 관찰</li>
+      <li><strong>시간 점프</strong> — 사건 발생 시각으로 즉시 이동</li>
+      <li><strong>차량별 상태 표시</strong> — 주행(RUN) / 정지(STOP) / 잼(JAM) 상태와 적재 여부를 색으로 구분</li>
+      <li><strong>레일 차단(RAIL_CUT) 표시</strong> — 차단 발생(ABNORMAL) 시 지도에 ⛔ 빨간 점선과 깜빡이는 X 마커를 표시하고, 해제(NORMAL) 신호가 오면 자동 제거. 활성 차단이 있으면 상단에 경고 배너가 자동으로 뜨고, 사이드바에 최근 이력이 남습니다</li>
+      <li><strong>시스템 지표 연동</strong> — 큐 길이, OBS(장애물 감지 정지) 건수 등 시스템 지표를 같은 시간축으로 함께 표시</li>
+    </ul>
+    <div class="callout">
+      <p><strong>활용 예:</strong> 데드락 사후 분석 회의에서 &ldquo;13시 50분부터 리프터 앞 정체가
+      번지기 시작했다&rdquo;를 지도 재생으로 전원이 같은 그림을 보며 확인할 수 있습니다.
+      원인 규명과 재발 방지 논의가 훨씬 빨라집니다.</p>
+    </div>
+  </section>
+
+  <!-- 5. 데드락 탐지 -->
+  <section id="deadlock">
+    <p class="eyebrow">Feature 02</p>
+    <h2>데드락 탐지 엔진 — &ldquo;누가 누구를 기다리는가&rdquo;를 수학으로 풉니다</h2>
+    <p>
+      월드모델 엔진은 현재 차량 상태를 출발점으로 <strong class="num">5초 단위</strong> 시뮬레이션을
+      전진시키며, 매 스텝마다 <strong>대기 그래프</strong>를 만듭니다. &ldquo;차량 A가 차량 B 때문에
+      못 가고 있다&rdquo;를 화살표(A→B)로 그린 그래프입니다.
+    </p>
+    <p>
+      이 그래프에 <strong>Tarjan SCC 알고리즘</strong>(강한 연결 요소 탐지)을 적용하면, 화살표가
+      고리를 이루는 그룹 — 즉 <strong>서로가 서로를 기다려 영원히 풀리지 않는 순환 대기</strong> —
+      을 수학적으로 정확히 찾아냅니다. 눈으로 지도를 보며 짐작하는 것이 아니라,
+      검증된 그래프 이론 알고리즘으로 판정합니다.
+    </p>
+    <div class="grid2">
+      <div class="card">
+        <h4>CIRCULAR_WAIT (순환 대기)</h4>
+        <p>차량 2대 이상이 고리 형태로 서로를 기다리는 전형적 데드락.
+        관련 차량 ID, 발생 엣지, 발견 시점(시뮬레이션 몇 분 후)과 심각도(HIGH/MEDIUM/LOW)를 함께 보고합니다.</p>
+      </div>
+      <div class="card">
+        <h4>ZONE_DEADLOCK (구역 교착)</h4>
+        <p>HID 구역(전력 공급 단위 구역)의 수용 한계로 인해 차량이 진입하지 못하고
+        구역 전체가 막히는 유형. 구역 점유율 <span class="num">70%</span> 이상을 혼잡 기준으로 함께 감시합니다.</p>
+      </div>
+    </div>
+    <h3>실제 시스템과 같은 규칙으로 경로를 계산합니다</h3>
+    <p>
+      예측이 현실과 같으려면 차량이 <strong>실제와 같은 길</strong>로 움직여야 합니다. 월드모델의
+      경로 탐색은 실제 반송 제어 시스템과 동일한 <strong>Dijkstra + LineCost</strong> 방식을 사용합니다.
+      단순히 짧은 길이 아니라, 그 길 위의 차량과 대기 작업으로 인한 <strong>시간 비용</strong>을 더해
+      가장 빨리 도착하는 길을 고릅니다.
+    </p>
+    <ul>
+      <li>대기 중(유휴) 차량 1대당 <strong class="num">+3,000ms</strong> 페널티</li>
+      <li>작업 중 차량 1대당 <strong class="num">+5,000ms</strong> 페널티</li>
+      <li>해당 구간의 대기 작업 1건당 <strong class="num">+5,000ms</strong> 페널티</li>
+    </ul>
+    <p>
+      이 계산식은 실제 로그의 경로와 비교하는 별도 검증(<code>dijkstra_analyzer.py</code>)을
+      거쳤으며, 검증 과정과 결과는 기술 문서로 정리되어 있습니다.
+    </p>
+  </section>
+
+  <!-- 6. 매크로 예측 -->
+  <section id="macro">
+    <p class="eyebrow">Feature 03</p>
+    <h2>매크로 예측 — 수치로 보는 10분·20분 뒤</h2>
+    <p>
+      차량 한 대 한 대의 미시 시뮬레이션과 별도로, FAB 전체의 거시 지표를 예측하는
+      <strong>매크로 예측기</strong>가 함께 돕니다. 실 데이터 분석으로 검증된 통계 모델을 사용하며,
+      예측 시점(horizon)은 <strong class="num">10분 / 20분</strong> 두 단계입니다.
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>예측 항목</th><th>방식</th><th>기준값 (실 데이터 검증)</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>반송 큐</td>
+            <td>10분 이동평균 + 선형 외삽으로 증감 추세 예측</td>
+            <td class="num">정상 범위 1,200~1,400건 (평균 1,249건)</td>
+          </tr>
+          <tr>
+            <td>TAT (반송 소요 시간)</td>
+            <td>실측 통계 기반 상수 모델 — 24시간 균일함이 확인됨</td>
+            <td class="num">평균 2.88분 · 중앙값 2.57분 · 5분 내 완료 91.7%</td>
+          </tr>
+          <tr>
+            <td>물동량</td>
+            <td>실측 기반 균일 모델 (주야간 차이 없음)</td>
+            <td class="num">시간당 약 20,000건</td>
+          </tr>
+          <tr>
+            <td>혼잡 구간</td>
+            <td>HID 구역별 통과 속도 저하 감시</td>
+            <td class="num">구역 점유율 70% 이상 시 혼잡 판정</td>
+          </tr>
+          <tr>
+            <td>데드락 위험도</td>
+            <td>OBS(장애물 감지 정지) 건수 추세 감시 — 데드락 전 약 36분의 빌드업 패턴 활용</td>
+            <td class="num">정상 120~160 · 주의 180 · 위험 200 · 데드락 300</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      OBS 지표가 특히 중요합니다. 실 데이터 분석 결과, 데드락 발생 전에는 OBS 건수가
+      <strong>약 36분에 걸쳐 서서히 누적</strong>되는 패턴이 확인되었습니다. 이 추세선의 기울기를
+      감시하면 지도에 데드락이 그려지기 한참 전에 위험 신호를 잡을 수 있습니다.
+    </p>
+  </section>
+
+  <!-- 7. 3단계 경보 -->
+  <section id="alert">
+    <p class="eyebrow">Feature 04</p>
+    <h2>3단계 조기 경보 — 서로 다른 세 신호가 겹칠 때만 확정합니다</h2>
+    <p>
+      경보 시스템의 최대 난제는 <strong>거짓 경보(false positive)</strong>입니다. 너무 민감하면
+      경보가 울려도 아무도 믿지 않게 되고, 너무 둔하면 사고를 놓칩니다. OHT 월드모델은
+      성격이 다른 세 가지 신호를 각각 감시하고, <strong>세 신호가 동시에 겹칠 때만</strong>
+      최고 단계를 발동하는 AND 조건 설계로 이 문제를 풉니다. (M16A_BR 라인 실 데이터로 룰 검증)
+    </p>
+
+    <div class="stages">
+      <div class="stage">
+        <span class="pill s0">정상</span>
+        <div>
+          <h4>정상 운영 중</h4>
+          <p>모든 신호가 기준선 안. 대시보드는 평시 화면을 유지합니다.</p>
+        </div>
+      </div>
+      <div class="stage">
+        <span class="pill s1">1단계 · 조기경보</span>
+        <div>
+          <h4>반송 시간 급증 감지</h4>
+          <p>1분 평균 반송 시간이 치솟기 시작 — 데드락의 가장 이른 전조입니다.</p>
+          <span class="rule">R-A: 10분 창에서 평균 반송시간 9분 이상 2회, 또는 6분 이상이 5샘플 중 3회 연속</span>
+        </div>
+      </div>
+      <div class="stage">
+        <span class="pill s2">2단계 · 주의보</span>
+        <div>
+          <h4>FAB 간 반송 큐 누적</h4>
+          <p>M14에서 M16으로 넘어오는 물량이 빠지지 못하고 쌓이는 중 — 부하가 임계에 접근하고 있습니다.</p>
+          <span class="rule">R-B: M14→M16 큐가 30분 전 대비 +100건, 또는 10분 전 대비 +30건</span>
+        </div>
+      </div>
+      <div class="stage">
+        <span class="pill s3">3단계 · 확정</span>
+        <div>
+          <h4>⚠️ 데드락 임박 (약 10분 전)</h4>
+          <p>반송 시간 급증 <strong>그리고</strong> 큐 누적 <strong>그리고</strong> 리프터 처리량 역전이
+          동시에 관측 — 즉시 개입이 필요한 확정 경보입니다.</p>
+          <span class="rule">R-A ∧ R-B ∧ R-C (R-C: 전체 리프터 처리량이 20분 전 대비 감소하면서, 개별 리프터 2곳 이상은 대기가 역으로 증가)</span>
+        </div>
+      </div>
+    </div>
+
+    <p>
+      1·2단계는 관제자가 미리 살펴보도록 <strong>일찍, 가볍게</strong> 울리고, 3단계는
+      <strong>확실할 때만</strong> 울리도록 역할을 나눴습니다. 경보 발동 이력은 타임라인으로
+      기록되어 사후에 &ldquo;몇 시에 어떤 근거로 울렸는지&rdquo;를 그대로 복기할 수 있습니다.
+    </p>
+  </section>
+
+  <!-- 8. 검증 사례 -->
+  <section id="case">
+    <p class="eyebrow">Validation</p>
+    <h2>실전 검증 사례 — 2026년 4월 21일, M16A_BR</h2>
+    <p>
+      이 경보 룰은 실제 데드락 사건 데이터로 검증되었습니다. 당일 14시 00분,
+      차량 <strong class="num">6대</strong>가 사슬처럼 물린 데드락 체인이 발생한 날입니다.
+    </p>
+    <div class="timeline">
+      <div class="tl-item fire">
+        <span class="tl-time">13:50</span>
+        <p><strong>3단계 확정 경보 발동</strong> — 세 신호(반송 시간 급증 + 큐 누적 + 리프터 역전)가
+        동시에 관측되어 확정 경보. <strong>실제 사건 10분 전</strong>입니다.</p>
+      </div>
+      <div class="tl-item hit">
+        <span class="tl-time">14:00</span>
+        <p><strong>데드락 실제 발생</strong> — 차량 6대 순환 대기 체인 형성.</p>
+      </div>
+      <div class="tl-item fire">
+        <span class="tl-time">14:14 · 14:16</span>
+        <p><strong>재발동</strong> — 상황이 계속되는 동안 경보가 유지·재확인됨 (사후 침묵 없음).</p>
+      </div>
+      <div class="tl-item ok">
+        <span class="tl-time">16:00</span>
+        <p><strong>거짓 경보 차단 확인</strong> — 지표가 일부 출렁였지만 세 신호가 겹치지 않아
+        3단계는 발동하지 않음. AND 조건 설계가 의도대로 동작.</p>
+      </div>
+    </div>
+    <div class="callout">
+      <p><strong>핵심:</strong> 관제자가 13시 50분에 경보를 받았다면, 데드락 형성 전에
+      해당 구역의 반송 명령을 조절하거나 차량을 우회시킬 <strong>10분의 골든타임</strong>이
+      생깁니다. 데드락은 발생 후 푸는 것보다 발생 전에 막는 것이 압도적으로 쌉니다.</p>
+    </div>
+  </section>
+
+  <!-- 9. 데이터 -->
+  <section id="data">
+    <p class="eyebrow">Data</p>
+    <h2>데이터와 정확도 — 7종 로그를 하나의 시간축으로</h2>
+    <p>
+      월드모델의 신뢰도는 입력 데이터의 폭에서 나옵니다. 성격이 다른 7종의 데이터를
+      하나의 시간축 위에 정렬해 사용합니다.
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>데이터</th><th>내용</th><th>월드모델에서의 역할</th></tr></thead>
+        <tbody>
+          <tr><td>레일 도면 (layout)</td><td>노드·엣지·구간 거리</td><td>시뮬레이션의 지도 (그래프)</td></tr>
+          <tr><td>HID Zone Master</td><td>전력 공급 구역 정의</td><td>구역별 혼잡도·수용량 판정</td></tr>
+          <tr><td>OHT 운행 로그</td><td>차량별 위치·상태·목적지</td><td>차량 타임라인 (리플레이의 본체)</td></tr>
+          <tr><td>시스템 지표 (스타)</td><td>큐·OBS 등 분 단위 지표</td><td>매크로 예측·경보의 입력</td></tr>
+          <tr><td>HID_INOUT</td><td>구역 통과 이벤트</td><td>구간 통과 속도·혼잡 감시</td></tr>
+          <tr><td>RAIL_CUT</td><td>레일 차단/해제 이벤트</td><td>지도에 ⛔ 차단 표시, 경로에서 제외</td></tr>
+          <tr><td>작업 명령 / TAT 평균</td><td>반송 명령과 소요 시간</td><td>작업 부하·TAT 모델 보정</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3>속도까지 실측합니다</h3>
+    <p>
+      기존 시스템은 차량이 레일 구간을 넘어갈 때만 속도를 계산했지만, 월드모델의 속도 트래커는
+      <strong>같은 구간 안에서의 위치 변화까지</strong> 차분해 <strong class="num">0.5초 해상도</strong>의
+      차량별 속도 시계열을 만듭니다. &ldquo;느려지기 시작하는 순간&rdquo;을 더 일찍, 더 정밀하게
+      포착하기 위해서입니다. (기본 주행 속도 <span class="num">180 m/min</span> 기준, 산출식과 단위 검증은
+      기술 문서로 별도 정리)
+    </p>
+  </section>
+
+  <!-- 10. 사용 방법 -->
+  <section id="usage">
+    <p class="eyebrow">Getting Started</p>
+    <h2>사용 방법 — 폴더에 넣고, 실행하고, 접속합니다</h2>
+    <p>
+      설치는 의도적으로 단순하게 설계했습니다. 데이터베이스도, 복잡한 설정 파일도 없습니다.
+    </p>
+    <ol>
+      <li><strong>데이터 폴더 준비</strong> — <code>OHS_DATA_MD/</code> 아래 날짜별 폴더(예: <code>20260421/</code>)에 그날의 CSV 로그를 넣습니다. 파일명 키워드로 7종 데이터가 자동 인식됩니다.</li>
+      <li><strong>레이아웃 준비</strong> — <code>OHT_MAP/MAP/&lt;FAB&gt;/</code>에 <code>&lt;구역&gt;.layout.zip</code>을 넣으면 FAB 목록에 자동으로 나타납니다. 그래프 변환 결과는 캐시로 저장되어 두 번째 실행부터 즉시 로드됩니다.</li>
+      <li><strong>서버 실행</strong> — 아래 한 줄이면 됩니다.</li>
+    </ol>
+    <pre><code>cd WORD_MODEL/WORLD_SIM
+python main.py</code></pre>
+    <p>
+      브라우저로 접속하면 관제 대시보드가 열립니다. 상단에서 FAB과 날짜를 선택하고,
+      재생 버튼을 누르면 됩니다. 차단 표시 토글, 경보 배너, 이벤트 로그 패널이
+      화면 안에 함께 제공됩니다.
+    </p>
+  </section>
+
+  <!-- 11. TD-MPC 로드맵 -->
+  <section id="tdmpc">
+    <p class="eyebrow">Next — Learning-based World Model</p>
+    <h2>차세대 로드맵 — TD-MPC 기반 학습형 월드모델</h2>
+    <p>
+      현재의 월드모델은 <strong>규칙 기반</strong>입니다. 경로는 실제 시스템과 같은 Dijkstra+LineCost로
+      계산하고, 데드락 경보는 실 사건 데이터로 검증한 R-A/R-B/R-C 룰로 판정합니다. 검증된 구간에서는
+      정확하지만, 한계도 분명합니다 — <strong>새로운 FAB, 새로운 유형의 데드락 패턴이 나타나면
+      룰을 다시 사람 손으로 만들어야 합니다.</strong>
+    </p>
+    <p>
+      이 한계를 넘기 위해 채택을 추진하는 것이 <strong>TD-MPC</strong>
+      (Temporal Difference Learning for Model Predictive Control)입니다. 모델 기반 강화학습(model-based RL)
+      알고리즘으로, 환경의 원본 상태를 복원(reconstruction)하는 대신 <strong>행동에 따른 미래의
+      잠재 상태(latent state)와 보상(reward)만을 예측하는 모델을 학습</strong>하고, 그 잠재 공간
+      안에서 최적의 행동 궤적을 계획(planning)합니다.
+    </p>
+
+    <h3>왜 TD-MPC가 OHT에 맞는가</h3>
+    <div class="grid2">
+      <div class="card">
+        <h4>복원 없는 잠재 모델 = OHT 체질</h4>
+        <p>차량 수백 대 × 노드 수천 개의 원본 상태를 매 스텝 복원하는 것은 낭비입니다.
+        실제로 필요한 것은 &ldquo;이 조치를 하면 10분 뒤 큐·OBS·TAT가 어떻게 되나&rdquo;라는
+        <strong>미래의 요약 상태와 보상</strong>뿐 — TD-MPC의 설계 철학과 정확히 일치합니다.</p>
+      </div>
+      <div class="card">
+        <h4>룰을 손으로 짜지 않아도 됨</h4>
+        <p>현재 경보 룰은 M16A_BR의 검증 사건에 맞춰 사람이 설계했습니다. 학습형 모델은
+        데드락의 전조 패턴을 <strong>데이터에서 스스로 추출</strong>하므로, 다른 FAB·다른
+        패턴으로의 확장 비용이 크게 줄어듭니다.</p>
+      </div>
+      <div class="card">
+        <h4>예측을 넘어 &ldquo;개입 제안&rdquo;으로</h4>
+        <p>현재 시스템은 경보까지만 하고 개입은 사람 몫입니다. TD-MPC는 잠재 공간에서
+        행동 궤적을 계획하므로 <strong>&ldquo;그래서 무엇을 해야 하는가&rdquo;</strong>
+        (진입 제한, 우회, 할당 조절)까지 제안할 수 있습니다 — 관제 지원에서 관제 자동화로 가는 길입니다.</p>
+      </div>
+      <div class="card">
+        <h4>훈련 환경이 이미 있음</h4>
+        <p>실 라인에서 RL 실험은 불가능하지만, <strong>지금까지 만든 WORLD_SIM이 바로
+        훈련 환경</strong>입니다. 검증된 그래프 시뮬레이션 + 실 로그 리플레이를 gym 스타일
+        환경으로 감싸면 TD-MPC가 안전하게 학습할 수 있습니다. 기존 작업이 전부 자산이 됩니다.</p>
+      </div>
+    </div>
+
+    <h3>정직하게 짚는 난제</h3>
+    <ul>
+      <li><strong>행동(action) 정의</strong> — OHT는 단일 로봇 제어가 아니라 수백 대 멀티에이전트입니다.
+        차량 단위 행동은 조합 폭발하므로, HID 구역별 진입 상한 · 리프터 할당률 · LineCost 가중치 같은
+        <strong>매크로 레벨 손잡이</strong>로 행동 공간을 좁혀야 하며, 이 손잡이가 실제로 데드락을 막을 수
+        있는지부터 검증이 필요합니다.</li>
+      <li><strong>보상 설계</strong> — &ldquo;데드락 발생 = 큰 음의 보상&rdquo;은 너무 희소한 신호입니다(발생 자체가 드묾).
+        이미 검증해 둔 전조 지표(OBS 추세, 반송시간, FAB 간 큐, 리프터 역전)를 <strong>보상 형태로 재활용</strong>하는
+        것이 답입니다 — R-A/R-B/R-C 룰이 여기서 다시 쓰입니다.</li>
+      <li><strong>설명 가능성</strong> — 현재 3단계 경보는 관제자에게 근거를 말해 줄 수 있지만, 잠재 공간 모델은
+        블랙박스입니다. 따라서 기존 룰 기반 경보는 <strong>폐기하지 않고 병행</strong>합니다 — 학습 모델의
+        안전망이자 성능 비교 베이스라인으로.</li>
+    </ul>
+
+    <div class="callout">
+      <p><strong>기술 선택 두 가지.</strong>
+      ① 인코더는 MLP/CNN이 아닌 <strong>GNN(그래프 신경망)</strong>으로 갑니다 — 우리 세계는 애초에
+      노드·엣지 그래프이며, 이를 벡터로 뭉개면 가장 큰 구조 정보를 버리는 셈입니다.
+      ② 원조 TD-MPC(2022)보다 <strong>TD-MPC2(2023)</strong>를 채택합니다 — 단일 하이퍼파라미터 설정으로
+      다양한 태스크에서 안정적이라 튜닝 부담이 크게 줄어듭니다.</p>
+    </div>
+
+    <h3>도입 순서 — 계획(planning)은 마지막에</h3>
+    <p>
+      한 번에 전부 바꾸지 않습니다. 실패해도 잃는 것이 없도록, 각 단계가 앞 단계의 검증을
+      통과해야만 다음으로 넘어가는 3단계 로드맵입니다.
+    </p>
+    <div class="arch">
+      <div class="arch-row">
+        <div class="arch-box">
+          <div class="t">1단계 — 환경 포장</div>
+          <div class="d">검증된 WORLD_SIM을 gym 스타일 환경(state / action / reward / step)으로
+          감싼다. 기존 시뮬레이터가 학습의 &ldquo;세계&rdquo;가 된다.</div>
+        </div>
+      </div>
+      <div class="arch-arrow">▼ 통과 조건: 리플레이 재현 일치</div>
+      <div class="arch-row">
+        <div class="arch-box hl">
+          <div class="t">2단계 — 모델 먼저, 맞대결</div>
+          <div class="d">TD-MPC에서 planning을 뗀 <strong>잠재 동역학 + 보상 예측기</strong>만
+          실 로그로 학습해, 기존 매크로 예측기와 동일 벤치마크로 대결한다.
+          기준: <strong>04-21 사건에서 13:50 경보(리드타임 10분)를 이기고,
+          16:00 거짓 경보를 똑같이 차단하는가.</strong></div>
+        </div>
+      </div>
+      <div class="arch-arrow">▼ 통과 조건: 기존 예측기 대비 우위 입증</div>
+      <div class="arch-row">
+        <div class="arch-box">
+          <div class="t">3단계 — 계획(planning) 결합</div>
+          <div class="d">모델이 이긴 뒤에야 잠재 공간 계획을 붙여, 매크로 행동(진입 상한·할당·가중치)의
+          최적 궤적을 제안하는 제어 단계로 확장한다. 예측 → 제어로의 전환.</div>
+        </div>
+      </div>
+    </div>
+    <p>
+      이 순서라면 2단계까지는 순수 예측 문제라 <strong>기존 운영에 아무 위험이 없고</strong>,
+      3단계는 이미 이긴 모델 위에서만 진행됩니다. 실패 비용은 최소로, 성공 시에는
+      예측을 넘어 제어까지 가는 로드맵이 확보됩니다.
+    </p>
+
+    <div class="callout">
+      <p><strong>현재 위치를 솔직하게 말씀드리면 — 지금은 &ldquo;훈련장&rdquo;까지 완성된 단계입니다.</strong>
+      영역전개로 펼쳐 둔 WORLD_SIM, 즉 현실을 복제한 검증된 시뮬레이션 환경이 학습형 월드모델이
+      마음껏 뛰고 넘어져도 되는 도장(道場) 역할을 합니다. 아직 모델이 이 안에서 훈련을 시작하지는 않았습니다.</p>
+      <p>조만간 조건이 맞춰지는 대로 — 행동 공간 정의, 보상 설계, 학습용 데이터 정비가 끝나는 대로 —
+      이 훈련장 위에서 <strong>월드모델을 학습 가능한 형태로 진화</strong>시킬 것입니다.
+      훈련장이 먼저, 선수는 그 다음. 순서는 이미 잡혀 있습니다.</p>
+    </div>
+  </section>
+
+  <!-- 12. 용어 -->
+  <section id="glossary">
+    <p class="eyebrow">Glossary</p>
+    <h2>용어 설명</h2>
+    <dl class="glossary">
+      <div><dt>OHT</dt><dd>Overhead Hoist Transport. FAB 천장 레일을 따라 웨이퍼 캐리어(FOUP)를 운반하는 무인 반송 차량.</dd></div>
+      <div><dt>FOUP</dt><dd>웨이퍼를 담아 나르는 밀폐 용기. OHT가 실어 나르는 화물입니다.</dd></div>
+      <div><dt>데드락 (교착)</dt><dd>차량들이 서로가 비켜 주기를 기다리며 고리를 이루어, 외부 개입 없이는 아무도 움직일 수 없게 되는 상태.</dd></div>
+      <div><dt>HID 구역</dt><dd>레일에 비접촉으로 전력을 공급하는 단위 구역. 구역마다 동시에 수용 가능한 차량 수에 한계가 있어 혼잡 관리의 기본 단위가 됩니다.</dd></div>
+      <div><dt>TAT</dt><dd>Turn-Around Time. 반송 명령이 떨어진 뒤 완료까지 걸리는 시간. 이 FAB에서는 평균 2.88분.</dd></div>
+      <div><dt>OBS</dt><dd>Obstacle Stop. 차량이 앞의 장애물(주로 앞차)을 감지해 멈춘 횟수. 급증하면 정체가 번지고 있다는 뜻으로, 데드락의 핵심 전조 지표.</dd></div>
+      <div><dt>큐 (Queue)</dt><dd>아직 처리되지 못하고 대기 중인 반송 명령의 수. 정상 범위는 1,200~1,400건.</dd></div>
+      <div><dt>리프터</dt><dd>층과 층 사이(예: M14→M16)에서 캐리어를 옮기는 수직 반송 설비. 리프터가 밀리면 그 앞 레일부터 정체가 번집니다.</dd></div>
+      <div><dt>RAIL_CUT</dt><dd>보수 작업 등으로 특정 레일 구간을 차단하는 것. 월드모델은 차단 발생/해제를 지도에 실시간 반영합니다.</dd></div>
+      <div><dt>Tarjan SCC</dt><dd>그래프에서 서로 도달 가능한 고리(강한 연결 요소)를 찾는 알고리즘. 대기 관계 그래프에 적용하면 순환 대기(데드락)를 수학적으로 판정합니다.</dd></div>
+      <div><dt>디지털 트윈</dt><dd>현실의 설비·시스템을 컴퓨터 안에 쌍둥이처럼 재현한 모델. 현실을 관찰하고, 미래를 시험해 보는 데 씁니다.</dd></div>
+      <div><dt>TD-MPC</dt><dd>Temporal Difference Learning for Model Predictive Control. 원본 상태 복원 없이 미래의 잠재 상태와 보상만 예측하는 모델을 학습하고, 그 잠재 공간에서 최적 행동을 계획하는 모델 기반 강화학습 알고리즘. 차세대 학습형 월드모델의 기반 기술.</dd></div>
+      <div><dt>잠재 상태 (latent state)</dt><dd>원본 데이터(차량 수백 대의 위치·상태 전부)를 예측에 필요한 정보만 남긴 압축 표현. 잠재 공간에서 계산하면 거대한 원본을 다루지 않고도 미래를 시뮬레이션할 수 있습니다.</dd></div>
+      <div><dt>보상 (reward)</dt><dd>강화학습에서 &ldquo;좋은 상태&rdquo;를 숫자로 정의한 것. 우리 경우 반송 시간 단축·큐 감소는 양(+), 데드락 전조 지표 악화는 음(−)으로 설계합니다.</dd></div>
+      <div><dt>GNN</dt><dd>Graph Neural Network(그래프 신경망). 노드와 엣지로 이루어진 데이터를 구조 그대로 학습하는 신경망. 레일 그래프인 OHT 세계에 자연스럽게 맞아 TD-MPC의 인코더로 채택 예정.</dd></div>
+    </dl>
+  </section>
+</main>
+
+<footer>
+  John Forrest
+</footer>
