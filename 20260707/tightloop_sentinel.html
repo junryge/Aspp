@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TightLoop Sentinel 이란?</title>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#111a2e; --panel-2:#0e1626;
+    --line:#1f2c47; --line-soft:#17223a;
+    --ink:#e8eefc; --ink-dim:#9aabcc; --ink-faint:#5f6f92;
+    --chronos:#5eead4;      /* teal — 예측(Chronos-Bolt) */
+    --sentinel:#a78bfa;     /* violet — 행동(TightLoop Sentinel) */
+    --act:#a3e635;          /* lime — 조치/성과 */
+    --warn:#f59e0b;
+    --mono:'SF Mono',ui-monospace,'Cascadia Code',Menlo,Consolas,monospace;
+    --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI','Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.65;-webkit-font-smoothing:antialiased;padding:0 20px}
+  .wrap{max-width:880px;margin:0 auto;padding:64px 0 96px}
+
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--sentinel);margin-bottom:18px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .eyebrow::before{content:"";width:28px;height:1px;background:var(--sentinel);display:inline-block}
+  h1{font-size:clamp(36px,6.5vw,64px);line-height:1.03;font-weight:800;letter-spacing:-.03em}
+  h1 .s{color:var(--sentinel)}
+  .sub{color:var(--ink-dim);font-size:18px;max-width:64ch;margin-top:16px}
+  .paper-meta{font-family:var(--mono);font-size:12px;color:var(--ink-faint);margin-top:18px;line-height:1.8}
+  .paper-meta a{color:var(--ink-dim);text-decoration:none;border-bottom:1px dotted var(--ink-faint)}
+
+  .signature{margin:40px 0 8px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:26px 0}
+  .role-split{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:16px}
+  .role{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+  .role .lab{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px}
+  .role.forecast .lab{color:var(--chronos)}
+  .role.action .lab{color:var(--sentinel)}
+  .role .name{font-weight:700;font-size:16px;color:var(--ink)}
+  .role .what{font-size:13px;color:var(--ink-dim);margin-top:4px}
+  .role-arrow{font-family:var(--mono);color:var(--ink-faint);font-size:20px}
+
+  section{margin-top:56px}
+  h2{font-size:14px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.14em;color:var(--ink-dim);margin-bottom:22px;display:flex;align-items:center;gap:12px}
+  h2 .idx{color:var(--sentinel);font-weight:700}
+
+  p{color:var(--ink-dim);margin-bottom:14px}
+  p strong,li strong,td strong{color:var(--ink);font-weight:600}
+  .lede{font-size:18px;color:var(--ink);line-height:1.7}
+  .lede b{color:var(--sentinel)}
+
+  table{width:100%;border-collapse:collapse;border:1px solid var(--line);border-radius:12px;overflow:hidden;font-size:14.5px}
+  th,td{text-align:left;padding:12px 16px;border-bottom:1px solid var(--line-soft);vertical-align:top;color:var(--ink-dim)}
+  thead th{background:var(--panel-2);font-family:var(--mono);font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-faint);font-weight:600}
+  tbody tr:last-child td{border-bottom:none}
+  tbody td:first-child{color:var(--ink);font-weight:500}
+  .tbl-wrap{border-radius:12px;overflow:hidden}
+  td .pos{color:var(--act);font-family:var(--mono);font-weight:700}
+
+  code{font-family:var(--mono);font-size:.88em;background:var(--panel-2);padding:2px 7px;border-radius:5px;color:var(--act);border:1px solid var(--line)}
+
+  ul.plain{list-style:none}
+  ul.plain li{padding:9px 0 9px 22px;position:relative;color:var(--ink-dim);border-bottom:1px solid var(--line-soft)}
+  ul.plain li:last-child{border-bottom:none}
+  ul.plain li::before{content:"›";position:absolute;left:2px;color:var(--sentinel);font-family:var(--mono)}
+
+  .actions{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:4px}
+  .act-chip{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .act-chip .en{font-family:var(--mono);font-size:11px;color:var(--sentinel);letter-spacing:.04em}
+  .act-chip .ko{color:var(--ink);font-weight:500;margin-top:3px}
+
+  figure{margin:0 0 22px}
+  .diagram{background:var(--panel-2);border:1px solid var(--line);border-radius:14px;padding:22px 18px}
+  .diagram svg{width:100%;height:auto;display:block}
+  figcaption{font-family:var(--mono);font-size:12px;color:var(--ink-faint);margin-top:12px;text-align:center;letter-spacing:.04em}
+
+  .callout{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--sentinel);border-radius:0 12px 12px 0;padding:20px 24px;margin-top:4px}
+  .callout p{margin:0;color:var(--ink-dim)}
+  .callout b{color:var(--sentinel)}
+
+  .note{background:var(--panel-2);border:1px dashed var(--line);border-radius:10px;padding:14px 18px;font-size:13.5px;color:var(--ink-faint);margin-top:20px}
+
+  footer{margin-top:60px;padding-top:24px;border-top:1px solid var(--line);font-family:var(--mono);font-size:12px;color:var(--ink-faint);line-height:1.9}
+
+  @media(max-width:640px){
+    .wrap{padding:44px 0 72px}
+    .role-split{grid-template-columns:1fr}
+    .role-arrow{transform:rotate(90deg);text-align:center}
+    .actions{grid-template-columns:1fr}
+    table{font-size:13px}
+    th,td{padding:10px 12px}
+  }
+  @media(prefers-reduced-motion:no-preference){
+    .bar{animation:grow 1s cubic-bezier(.2,.7,.2,1) both}
+    @keyframes grow{from{width:0}}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow">Forecast-to-Action Engine · Neuromorphic · Edge AI</div>
+  <h1>TightLoop <span class="s">Sentinel</span> 이란?</h1>
+  <p class="sub">Chronos-Bolt 같은 예측 모델이 뽑은 <b>분포</b>를, 실제 운영에서 쓸 수 있는 <b>경계 있는 조치</b>로 변환하는 뉴로모픽 신경망 엔진. 예측과 행동 사이의 빠진 계층을 메운다.</p>
+  <div class="paper-meta">
+    논문 · Operational Synergy Between Chronos-Bolt and TightLoop Sentinel<br>
+    저자 · LEE, Kyuchul · cording.ai &nbsp;|&nbsp; Zenodo 프리프린트 2026-07-09 · CC-BY-4.0<br>
+    DOI · <a href="https://doi.org/10.5281/zenodo.21280208">10.5281/zenodo.21280208</a>
+  </div>
+
+  <div class="signature">
+    <div class="role-split">
+      <div class="role forecast">
+        <div class="lab">예측 · Forecast</div>
+        <div class="name">Chronos-Bolt</div>
+        <div class="what">미래 값의 분포를 추정 (quantile)</div>
+      </div>
+      <div class="role-arrow">→</div>
+      <div class="role action">
+        <div class="lab">행동 · Action</div>
+        <div class="name">TightLoop Sentinel</div>
+        <div class="what">분포를 운영 조치로 변환</div>
+      </div>
+    </div>
+  </div>
+
+  <section>
+    <h2><span class="idx">01</span> 왜 필요한가</h2>
+    <p class="lede">시계열 파운데이션 모델은 <b>예측값</b>은 잘 준다. 그런데 현장은 값만으론 안 돌아간다. 필요한 건 <b>경계가 있는 실제 조치</b> — 예비 물량 할당, 경보 격상, 버퍼 조정, 캐파 스테이징. TightLoop Sentinel은 이 <b>예측 → 행동</b> 간극을 메우는 엔진이다.</p>
+    <div class="actions">
+      <div class="act-chip"><div class="en">reserve allocation</div><div class="ko">예비 물량 할당</div></div>
+      <div class="act-chip"><div class="en">alert escalation</div><div class="ko">경보 격상</div></div>
+      <div class="act-chip"><div class="en">buffer adjustment</div><div class="ko">버퍼 조정</div></div>
+      <div class="act-chip"><div class="en">capacity staging</div><div class="ko">캐파 스테이징</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="idx">02</span> 아키텍처 · 역할 분담</h2>
+    <figure>
+      <div class="diagram">
+        <svg viewBox="0 0 920 340" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Chronos-Bolt와 TightLoop Sentinel 2계층 파이프라인">
+          <defs>
+            <linearGradient id="band" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#5eead4" stop-opacity="0.30"/>
+              <stop offset="1" stop-color="#5eead4" stop-opacity="0.04"/>
+            </linearGradient>
+            <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#5eead4"/>
+            </marker>
+            <marker id="av" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#a78bfa"/>
+            </marker>
+            <marker id="af" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#5f6f92"/>
+            </marker>
+          </defs>
+
+          <!-- ===== STAGE 1: Chronos-Bolt (forecast) ===== -->
+          <rect x="20" y="60" width="250" height="150" rx="12" fill="#111a2e" stroke="#5eead4" stroke-opacity="0.5"/>
+          <text x="36" y="86" font-family="monospace" font-size="12" letter-spacing="1" fill="#5eead4">CHRONOS-BOLT</text>
+          <text x="36" y="104" font-family="sans-serif" font-size="12" fill="#9aabcc">미래 값 분포 추정</text>
+          <!-- fan chart -->
+          <polyline points="44,170 60,158 76,164 92,150" fill="none" stroke="#5f6f92" stroke-width="2" stroke-linecap="round"/>
+          <path d="M92,150 L140,138 188,124 236,116 L236,182 188,182 140,176 92,150 Z" fill="url(#band)"/>
+          <polyline points="92,150 140,120 188,104 236,92" fill="none" stroke="#5eead4" stroke-width="1" stroke-dasharray="3 3" opacity="0.7"/>
+          <polyline points="92,150 140,176 188,184 236,186" fill="none" stroke="#5eead4" stroke-width="1" stroke-dasharray="3 3" opacity="0.7"/>
+          <polyline points="92,150 140,140 188,128 236,118" fill="none" stroke="#5eead4" stroke-width="2.5" stroke-linecap="round"/>
+          <text x="150" y="202" font-family="monospace" font-size="10" fill="#5eead4" text-anchor="middle">quantile 예측 분포</text>
+
+          <!-- arrow to sentinel -->
+          <line x1="278" y1="135" x2="330" y2="135" stroke="#5eead4" stroke-width="2" marker-end="url(#a)"/>
+          <text x="304" y="126" font-family="monospace" font-size="9" fill="#5f6f92" text-anchor="middle">분포</text>
+
+          <!-- ===== STAGE 2: TightLoop Sentinel (action) ===== -->
+          <rect x="340" y="60" width="250" height="150" rx="12" fill="#111a2e" stroke="#a78bfa" stroke-opacity="0.6"/>
+          <text x="356" y="86" font-family="monospace" font-size="12" letter-spacing="1" fill="#a78bfa">TIGHTLOOP SENTINEL</text>
+          <text x="356" y="104" font-family="sans-serif" font-size="12" fill="#9aabcc">뉴로모픽 엔진 · forecast→action</text>
+          <!-- neuromorphic nodes -->
+          <g fill="#0e1626" stroke="#a78bfa" stroke-opacity="0.7">
+            <circle cx="392" cy="140" r="12"/><circle cx="392" cy="176" r="12"/>
+            <circle cx="452" cy="122" r="12"/><circle cx="452" cy="158" r="12"/><circle cx="452" cy="192" r="12"/>
+            <circle cx="512" cy="140" r="12"/><circle cx="512" cy="176" r="12"/>
+          </g>
+          <g stroke="#a78bfa" stroke-width="1" stroke-opacity="0.45" fill="none">
+            <line x1="404" y1="140" x2="440" y2="124"/><line x1="404" y1="140" x2="440" y2="158"/>
+            <line x1="404" y1="176" x2="440" y2="158"/><line x1="404" y1="176" x2="440" y2="192"/>
+            <line x1="464" y1="122" x2="500" y2="140"/><line x1="464" y1="158" x2="500" y2="140"/>
+            <line x1="464" y1="158" x2="500" y2="176"/><line x1="464" y1="192" x2="500" y2="176"/>
+          </g>
+          <text x="465" y="204" font-family="monospace" font-size="9" fill="#a78bfa" text-anchor="middle">bounded · causal 변환</text>
+
+          <!-- arrow to actions -->
+          <line x1="598" y1="135" x2="650" y2="135" stroke="#a78bfa" stroke-width="2" marker-end="url(#av)"/>
+          <text x="624" y="126" font-family="monospace" font-size="9" fill="#5f6f92" text-anchor="middle">조치</text>
+
+          <!-- ===== STAGE 3: bounded actions ===== -->
+          <g font-family="sans-serif" font-size="11" fill="#e8eefc">
+            <rect x="660" y="70" width="150" height="30" rx="7" fill="#0e1626" stroke="#2b3a5c"/><text x="675" y="89">예비 물량 할당</text>
+            <rect x="660" y="106" width="150" height="30" rx="7" fill="#0e1626" stroke="#2b3a5c"/><text x="675" y="125">경보 격상</text>
+            <rect x="660" y="142" width="150" height="30" rx="7" fill="#0e1626" stroke="#2b3a5c"/><text x="675" y="161">버퍼 조정</text>
+            <rect x="660" y="178" width="150" height="30" rx="7" fill="#0e1626" stroke="#2b3a5c"/><text x="675" y="197">캐파 스테이징</text>
+          </g>
+          <text x="735" y="228" font-family="monospace" font-size="10" fill="#a3e635" text-anchor="middle">bounded operational actions</text>
+
+          <!-- ===== replay feedback loop ===== -->
+          <path d="M660,250 Q465,300 465,214" fill="none" stroke="#5f6f92" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#af)"/>
+          <text x="470" y="290" font-family="monospace" font-size="10" fill="#5f6f92" text-anchor="middle">recent replay feedback (최근 리플레이 피드백)</text>
+        </svg>
+      </div>
+      <figcaption>Chronos-Bolt(예측 분포) → TightLoop Sentinel(뉴로모픽 변환) → 경계 있는 운영 조치 + 리플레이 피드백 루프</figcaption>
+    </figure>
+
+    <div class="callout">
+      <p><b>핵심:</b> TightLoop Sentinel은 예측 모델의 정확도를 올리는 게 <b>아니다.</b> undercoverage · shortfall · reserve waste · action churn 처럼 직접 비용이 걸린 <b>예측→행동 계층</b>을 개선한다. 예측은 Chronos-Bolt, 행동은 Sentinel — 역할이 분리돼 있다.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="idx">03</span> 실험 설정</h2>
+    <ul class="plain">
+      <li><strong>예측 모델</strong> — Chronos-Bolt <strong>Base</strong>(주) + <strong>Tiny</strong>(비교용)</li>
+      <li><strong>환경</strong> — <strong>Jetson Orin CUDA</strong> (엣지 AI)</li>
+      <li><strong>벤치마크</strong> — GIFT-Eval 기반 4개 태스크 리플레이: BizITObs(앱 텔레메트리) · Electricity(전력수요) · Jena Weather(기상) · Bitbrains(fast storage)</li>
+      <li><strong>구현</strong> — sentinel 로더는 <strong>Rust</strong>. Bitbrains의 non-finite 라벨 문제는 트레이스 단계에서 non-finite 행 제거 + Rust 로더 finite-input 가드로 처리</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="idx">04</span> 결과</h2>
+    <figure>
+      <div class="diagram">
+        <svg viewBox="0 0 920 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="데이터셋별 운영 커버리지 개선 막대그래프">
+          <text x="20" y="30" font-family="monospace" font-size="12" fill="#9aabcc">운영 커버리지 개선 (%p) · Chronos-Bolt Base 구간 대비</text>
+          <!-- axis -->
+          <line x1="180" y1="60" x2="180" y2="250" stroke="#1f2c47"/>
+          <!-- gridlines -->
+          <g stroke="#17223a" stroke-dasharray="2 3">
+            <line x1="360" y1="60" x2="360" y2="250"/>
+            <line x1="540" y1="60" x2="540" y2="250"/>
+            <line x1="720" y1="60" x2="720" y2="250"/>
+            <line x1="900" y1="60" x2="900" y2="250"/>
+          </g>
+          <g font-family="monospace" font-size="10" fill="#5f6f92" text-anchor="middle">
+            <text x="180" y="268">0</text><text x="360" y="268">10</text><text x="540" y="268">20</text><text x="720" y="268">30</text><text x="900" y="268">40</text>
+          </g>
+          <!-- bars: scale 18px per %p (10%p = 180px). x from 180. -->
+          <!-- BizITObs +32.89 -> width 592 -->
+          <g font-family="sans-serif" font-size="12">
+            <text x="172" y="88" fill="#e8eefc" text-anchor="end">BizITObs</text>
+            <rect class="bar" x="180" y="74" width="592" height="26" rx="4" fill="#a3e635"/>
+            <text x="784" y="92" font-family="monospace" font-size="12" fill="#a3e635">+32.89</text>
+
+            <text x="172" y="132" fill="#e8eefc" text-anchor="end">Jena Weather</text>
+            <rect class="bar" x="180" y="118" width="207" height="26" rx="4" fill="#5eead4"/>
+            <text x="399" y="136" font-family="monospace" font-size="12" fill="#5eead4">+11.50</text>
+
+            <text x="172" y="176" fill="#e8eefc" text-anchor="end">Electricity</text>
+            <rect class="bar" x="180" y="162" width="181" height="26" rx="4" fill="#5eead4"/>
+            <text x="373" y="180" font-family="monospace" font-size="12" fill="#5eead4">+10.07</text>
+
+            <text x="172" y="220" fill="#e8eefc" text-anchor="end">Bitbrains</text>
+            <rect class="bar" x="180" y="206" width="75" height="26" rx="4" fill="#a78bfa"/>
+            <text x="267" y="224" font-family="monospace" font-size="12" fill="#a78bfa">+4.14</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>4개 데이터셋 전부에서 운영 커버리지 개선 (baseline_tightloop, 기본 액추에이터)</figcaption>
+    </figure>
+
+    <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>데이터셋</th><th>커버리지 개선</th><th>평균 운영 비용</th></tr></thead>
+      <tbody>
+        <tr><td>BizITObs</td><td><span class="pos">+32.89 %p</span></td><td><span class="pos">-56.45%</span></td></tr>
+        <tr><td>Jena Weather</td><td><span class="pos">+11.50 %p</span></td><td><span class="pos">-7.85%</span></td></tr>
+        <tr><td>Electricity</td><td><span class="pos">+10.07 %p</span></td><td><span class="pos">-4.26%</span></td></tr>
+        <tr><td>Bitbrains</td><td><span class="pos">+4.14 %p</span></td><td>near-zero 폭 아웃라이어 지배 · 커버리지는 개선</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="idx">05</span> 한눈에 정리</h2>
+    <ul class="plain">
+      <li><strong>무엇</strong> — 예측→행동 계층을 담당하는 뉴로모픽 신경망 엔진</li>
+      <li><strong>짝</strong> — Chronos-Bolt(예측) + TightLoop Sentinel(행동)</li>
+      <li><strong>입력/출력</strong> — 예측 분포 + 리플레이 피드백 → 보수적·경계 있는 운영 조치</li>
+      <li><strong>개선 대상</strong> — 예측 정확도가 아니라 forecast-to-action 계층(커버리지·부족분·예비낭비·조치요동)</li>
+      <li><strong>검증</strong> — Jetson Orin 엣지 · GIFT-Eval 4개 태스크 · 커버리지 전부 개선 + 비용 감소</li>
+    </ul>
+    <div class="note">
+      본 정리는 Zenodo 레코드의 <strong>초록·메타데이터</strong> 기준. 전문(.md)은 서버가 바이너리로 제공해 상세 아키텍처 내부 구조까지는 미확보. 세부 구현은 원문 확인 필요.
+    </div>
+  </section>
+
+  <footer>
+    출처 · LEE, Kyuchul &amp; cording.ai, Operational Synergy Between Chronos-Bolt and TightLoop Sentinel<br>
+    A Reproducible Edge-Oriented Evaluation of a Neuromorphic Neural Network Engine for Forecast-to-Action Adaptation<br>
+    Zenodo Preprint · 2026-07-09 · CC-BY-4.0 · DOI 10.5281/zenodo.21280208
+  </footer>
+
+</div>
+</body>
+</html>
