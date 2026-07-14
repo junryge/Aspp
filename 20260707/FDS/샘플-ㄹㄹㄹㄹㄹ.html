@@ -222,7 +222,6 @@
 
   function defaultState() {
     return {
-      detectionTime: '',
       actualTime: '',
       completeTime: '',
       areas: [],
@@ -245,9 +244,7 @@
     const rows = actualTbody.querySelectorAll('tr[data-incident-no]');
     rows.forEach((row) => {
       const no = row.dataset.incidentNo;
-      const detectionField = row.querySelector('[data-field="detection-time"]');
       savedState.set(no, {
-        detectionTime: detectionField ? detectionField.value : (savedState.get(no)?.detectionTime || ''),
         actualTime: row.querySelector('[data-field="actual-time"]')?.value || '',
         completeTime: row.querySelector('[data-field="complete-time"]')?.value || '',
         areas: Array.from(row.querySelectorAll('[data-field="action-area"]:checked')).map((input) => input.value),
@@ -418,15 +415,7 @@
     }
 
     const detectionTimeCell = document.createElement('td');
-    if (isManual) {
-      const detectionSelect = document.createElement('select');
-      detectionSelect.dataset.field = 'detection-time';
-      detectionSelect.setAttribute('aria-label', `${no}번 AMOS 이상감지 시간(수동 기입)`);
-      detectionSelect.appendChild(buildTimeOptions(state.detectionTime || ''));
-      detectionTimeCell.appendChild(detectionSelect);
-    } else {
-      detectionTimeCell.textContent = detectionTime || '-';
-    }
+    detectionTimeCell.textContent = detectionTime || '-';
 
     const timeCell = document.createElement('td');
     const timeWrapper = document.createElement('div');
@@ -694,11 +683,9 @@
       const existing = savedState.get(no);
       if (!existing) {
         const fresh = defaultState();
-        fresh.detectionTime = legacy.time || '';
         fresh.commentText = info;
         savedState.set(no, fresh);
       } else if (!String(existing.commentText || '').includes('[이관]')) {
-        if (!existing.detectionTime) existing.detectionTime = legacy.time || '';
         existing.commentText = existing.commentText ? `${info}\n${existing.commentText}` : info;
       }
     });
