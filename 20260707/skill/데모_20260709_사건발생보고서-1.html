@@ -1,0 +1,559 @@
+<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>2026-07-09 M16 BR 반송 이벤트 발생 확인건</title><style>body{font-family:"Pretendard","Noto Sans KR",sans-serif;max-width:1120px;margin:2rem auto;padding:0 1.5rem;color:#1a1a2e;line-height:1.7}h1,h2,h3{color:#16213e;border-bottom:2px solid #e2e8f0;padding-bottom:.3em}h1{font-size:1.45rem}h2{font-size:1.15rem}table{border-collapse:collapse;width:100%;margin:1em 0;font-size:.86em}th,td{border:1px solid #cbd5e1;padding:.4em .55em;text-align:left;vertical-align:top;word-break:keep-all;overflow-wrap:anywhere}th{background:#f1f5f9;font-weight:700;white-space:nowrap}blockquote{border-left:4px solid #6366f1;margin:1em 0;padding:.5em 1em;background:#f8fafc}a{color:#6366f1}img{max-width:100%}
+.table-wrap{width:100%;overflow-x:auto;margin:1em 0}
+.amos-table{min-width:940px}
+.actual-incident-table{min-width:1120px}
+.center-cell{text-align:center;vertical-align:middle}
+.section-note{margin:.5em 0 1em;color:#475569;font-size:.9em}
+input[type="checkbox"]{width:16px;height:16px;vertical-align:middle;accent-color:#2563eb}
+select,textarea{box-sizing:border-box;border:1px solid #cbd5e1;border-radius:6px;background:#fff;color:#1a1a2e;font:inherit}
+select{min-width:92px;padding:.25em .35em}
+textarea{width:100%;min-width:170px;min-height:62px;padding:.45em .55em;resize:vertical;line-height:1.45}
+.time-selects{display:flex;flex-wrap:wrap;gap:.35rem .5rem}
+.time-selects label{display:inline-flex;align-items:center;gap:.25rem;white-space:nowrap;font-size:.92em}
+.action-area-options{display:grid;grid-template-columns:repeat(2,minmax(72px,1fr));gap:.25rem .5rem}
+.action-area-options label{display:inline-flex;align-items:center;gap:.25rem;white-space:nowrap}
+.empty-row td{text-align:center;color:#94a3b8;padding:1.1em;background:#f8fafc}
+.score-criteria{display:inline;color:#475569;font-size:.72em;font-weight:650}
+.actual-incident-table th,.actual-incident-table td{padding:.55em .65em}
+.action-editor{min-width:310px}
+.action-toolbar{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.45rem}
+.action-toolbar-title{color:#334155;font-weight:700;white-space:nowrap}
+.action-list{display:grid;gap:.55rem}
+.action-item{padding:.5rem;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc}
+.action-item-controls{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.4rem}
+.action-time-label{display:inline-flex;align-items:center;gap:.3rem;color:#334155;font-size:.92em;font-weight:650;white-space:nowrap}
+.add-action-button,.remove-action-button{border:1px solid #94a3b8;border-radius:6px;background:#fff;color:#334155;font:inherit;font-weight:700;cursor:pointer;white-space:nowrap}
+.add-action-button{padding:.28em .65em;border-color:#2563eb;color:#1d4ed8}
+.remove-action-button{padding:.22em .52em;color:#b91c1c;border-color:#fca5a5}
+.add-action-button:hover{background:#eff6ff}
+.remove-action-button:hover{background:#fef2f2}
+.add-action-button:focus-visible,.remove-action-button:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
+.action-item textarea{min-width:280px;min-height:54px}
+.comment-textarea{min-width:220px}
+textarea::placeholder{color:#94a3b8;opacity:1}
+.top-toolbar{position:sticky;top:0;z-index:50;display:flex;align-items:center;flex-wrap:wrap;gap:.6rem;padding:.6rem .2rem;margin:-1rem 0 1rem;background:rgba(255,255,255,.96);border-bottom:1px solid #e2e8f0;backdrop-filter:blur(4px)}
+.save-button{border:none;border-radius:8px;background:#2563eb;color:#fff;font:inherit;font-weight:700;padding:.5em 1.3em;cursor:pointer}
+.save-button:hover{background:#1d4ed8}
+.save-file-button{border:1px solid #94a3b8;border-radius:8px;background:#fff;color:#334155;font:inherit;font-weight:700;padding:.45em 1em;cursor:pointer}
+.save-file-button:hover{background:#f1f5f9}
+.file-sync-warn{color:#b45309;font-size:.85em;font-weight:700}
+.save-status{color:#16a34a;font-size:.88em;font-weight:650}
+.toolbar-note{color:#64748b;font-size:.82em}
+.manual-add-bar{margin:.25em 0 1.2em;display:flex;align-items:center;gap:.55em;flex-wrap:wrap}
+.manual-help{color:#64748b;font-size:.85em}
+.manual-incident-row td{background:#fffbeb}
+.manual-detection-row td{background:#fffbeb}
+.manual-input{box-sizing:border-box;width:100%;border:1px solid #cbd5e1;border-radius:6px;padding:.3em .45em;font:inherit;background:#fff;color:#1a1a2e}
+.manual-badge{display:inline-block;margin-left:.3em;font-size:.72em;color:#b45309;font-weight:700;white-space:nowrap}
+.remove-manual-button{display:block;margin-top:.35em;border:1px solid #fca5a5;border-radius:6px;background:#fff;color:#b91c1c;font:inherit;font-size:.78em;font-weight:700;padding:.15em .45em;cursor:pointer;white-space:nowrap}
+.remove-manual-button:hover{background:#fef2f2}
+</style></head><body>
+<div class="top-toolbar">
+<button type="button" id="save-report-button" class="save-button">💾 저장</button>
+<button type="button" id="save-file-button" class="save-file-button">📄 파일로 저장</button>
+<span id="save-status" class="save-status" role="status" aria-live="polite"></span>
+<span id="file-sync-status" class="file-sync-warn" role="status" aria-live="polite"></span>
+<span class="toolbar-note">저장: 클릭 즉시 저장, 선택창 없음. 같은 PC·같은 브라우저에서 이 파일을 다시 열면 자동 복원됩니다. 파일 자체에 내용을 담아 공유·보관할 때만 '파일로 저장'을 쓰세요. (Ctrl+S = 저장)</span>
+</div>
+<h1>📅 2026년 7월 9일 M16 BR 반송 이벤트 발생 확인건</h1>
+<h2>1. 한 줄 총평 (점수 등급 기준: 50~70 🟠 경계·원인 확인 / 71~84 🔴 위험·즉시 조치 / 85~100 ⛔ 초위험·즉시 개입)</h2>
+<p>금일 총 <strong>2건</strong>의 반송 이벤트(점수 50 이상)가 발생했으며, 최고 등급은 <strong>🔴 위험(82점, 10:27)</strong>이었습니다.</p>
+<h2>2. AMOS 이상 감지 내역</h2>
+<div class="table-wrap"><table id="amos-detection-table" class="amos-table">
+<thead>
+<tr>
+<th>번호</th>
+<th>이상감지 시간</th>
+<th>이상감지 구간</th>
+<th>심각도</th>
+<th>이상감지 항목</th>
+<th>실제 발생여부</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>10:27</td>
+<td>HID35, HID30, HID7, HID3, HID6, HID2, HID29, HID34, HID27, HID32, HID36, HID28, HID1</td>
+<td>경고(모니터링 필요)</td>
+<td>M16HUB 반송시간 (M16HUB.QUE.TIME.AVGTOTALTIME1MIN)<br>M16HUB FAB저장율 (M16HUB.STRATE.ALL.FABSTORAGERATIO)<br>M16HUB STB저장율 (M16HUB.STRATE.STB.3F_STORAGE_UTIL)<br>M16A 반송시간 (M16A.QUE.LOAD.AVGLOADTIME1MIN)<br>M16A 4분초과율 (M16A.QUE.ALL.TRANSPORT4MINOVERRATIO)<br>M16HUB.QUE.ALL.CURRENTQCREATED<br>M16HUB.QUE.ALL.CURRENTQCOMPLETED<br>M16HUB.QUE.M14BTOM16.CURRENTQCREATED</td>
+<td class="center-cell"><input type="checkbox" class="actual-occurrence-check" data-incident-no="1" data-detection-time="10:27" aria-label="1번 실제 발생여부"></td>
+</tr>
+<tr>
+<td>2</td>
+<td>15:40</td>
+<td>-</td>
+<td>주의(확인필요)</td>
+<td>M16HUB 반송시간 (M16HUB.QUE.TIME.AVGTOTALTIME1MIN)<br>M16HUB FAB저장율 (M16HUB.STRATE.ALL.FABSTORAGERATIO)<br>M16HUB STB저장율 (M16HUB.STRATE.STB.3F_STORAGE_UTIL)<br>M16HUB 리프터막힘 (M16HUB.QUE.LFT.3F_LFT_REVERSALCNT)<br>M14 4분초과율 (M14.QUE.ALL.TRANSPORT4MINOVERRATIO)<br>M16A 반송시간 (M16A.QUE.LOAD.AVGLOADTIME1MIN)<br>M16B 반송시간 (M16B.QUE.LOAD.AVGLOADTIME1MIN)<br>M16B 4분초과율 (M16B.QUE.ALL.TRANSPORT4MINOVERRATIO)</td>
+<td class="center-cell"><input type="checkbox" class="actual-occurrence-check" data-incident-no="2" data-detection-time="15:40" aria-label="2번 실제 발생여부"></td>
+</tr>
+</tbody>
+</table></div>
+<h2>3. 실제 이상 발생내역</h2>
+<p class="section-note">2. AMOS 이상 감지 내역의 <strong>실제 발생여부</strong>를 체크하면 아래 표에 해당 번호의 행이 자동으로 생성됩니다. 체크를 해제하면 해당 행은 표에서 제외됩니다.</p>
+<div class="table-wrap">
+<table id="actual-incident-table" class="actual-incident-table">
+<colgroup>
+<col style="width:55px"><col style="width:125px"><col style="width:210px">
+<col style="width:165px"><col style="width:325px"><col style="width:240px">
+</colgroup>
+<thead>
+<tr><th>번호</th><th>AMOS 이상감지 시간</th><th>실제 발생시간/조치완료시간</th><th>조치 구간</th><th>조치내용</th><th>Comment(or 발생원인)</th></tr>
+</thead>
+<tbody id="actual-incident-tbody">
+<tr class="empty-row"><td colspan="6">실제 발생여부가 체크된 AMOS 이상 감지 항목이 없습니다.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="manual-add-bar">
+<button type="button" id="add-manual-incident" class="add-action-button">+ 수동 기입</button>
+<span class="manual-help">AMOS 가 감지하지 못한 이상이 발생 한 경우 수동 기입</span>
+</div>
+<h2>4. 위험 이벤트 상세 분석</h2><div class="hub-report-graph" style="margin:14px 0;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 120" style="max-width:100%;background:#fff;border:1px solid #e2e8f0;border-radius:10px"><text x="14" y="24" font-size="14" font-weight="800" fill="#16213e">📅 2026-07-09 M16 BR 사건 통합 (2건) — 그래프 자리</text></svg></div>
+
+
+<p><strong>이벤트 #1 (10:27 발생)</strong><br />
+*   <strong>현상</strong>: M16HUB에서 점수 82점(🔴 위험)의 이벤트가 09:22~10:56 약 95분간 지속되었습니다.<br />
+*   <strong>원인</strong>: <strong>Storage FULL</strong>과 <strong>반송지연</strong>이 동시에 감지되었고, HID35·HID30 등 13개 HID 구간에서 병목 이상이 함께 관측되었습니다.<br />
+*   <strong>인과</strong>: M16HUB STB Storage가 FULL이 되자 Carrier가 리프터에서 내려가지 못하고(리프터 정체) Queue가 밀리며 반송 시간이 상승했습니다.</p>
+<p><strong>이벤트 #2 (15:40 발생)</strong><br />
+*   <strong>현상</strong>: M16HUB에서 점수 54점(🟠 경계)의 이벤트가 2분간 단발 발생 후 해소되었습니다.</p>
+<h2>5. 에이전트 제안</h2>
+<ul>
+<li><strong>공통 근본 원인</strong>: M16HUB Storage 용량 부족 → 리프터 정체 → Queue 밀림의 연쇄.</li>
+<li><strong>구체 조치</strong>: Storage 사용률 80% 도달 시 Max Capa 선제 조정, 10시대 리프터 부하 분산 검토.</li>
+</ul>
+<script type="application/json" id="saved-data">null</script>
+<script>
+(function () {
+  'use strict';
+  window.__AMHS_NATIVE_SAVE = true;
+  const amosTbody = document.querySelector('#amos-detection-table tbody');
+  const actualTbody = document.getElementById('actual-incident-tbody');
+  const saveButton = document.getElementById('save-report-button');
+  const saveFileButton = document.getElementById('save-file-button');
+  const fileSyncStatus = document.getElementById('file-sync-status');
+  const saveStatus = document.getElementById('save-status');
+  const addManualButton = document.getElementById('add-manual-incident');
+  const savedState = new Map();
+  let manualIncidents = [];
+  const actionAreas = ['CNV', 'M14BLFT', 'M16LFT', 'FIO'];
+
+  function pad2(v) { return String(v).padStart(2, '0'); }
+  function getOccurrenceChecks() { return Array.from(document.querySelectorAll('.actual-occurrence-check')); }
+
+  function buildTimeOptions(selectedValue) {
+    const fragment = document.createDocumentFragment();
+    const placeholder = document.createElement('option');
+    placeholder.value = ''; placeholder.textContent = '선택';
+    fragment.appendChild(placeholder);
+    for (let hour = 0; hour < 24; hour += 1) {
+      for (let minute = 0; minute < 60; minute += 1) {
+        const value = `${pad2(hour)}:${pad2(minute)}`;
+        const option = document.createElement('option');
+        option.value = value; option.textContent = value;
+        if (value === selectedValue) option.selected = true;
+        fragment.appendChild(option);
+      }
+    }
+    return fragment;
+  }
+
+  function defaultState() {
+    return { actualTime: '', completeTime: '', areas: [], actions: [{ time: '', text: '' }], commentText: '' };
+  }
+
+  function getActionsFromRow(row) {
+    const items = Array.from(row.querySelectorAll('[data-action-item]'));
+    const actions = items.map((item) => ({
+      time: item.querySelector('[data-field="action-time"]')?.value || '',
+      text: item.querySelector('[data-field="action-text"]')?.value || ''
+    }));
+    return actions.length ? actions : [{ time: '', text: '' }];
+  }
+
+  function saveCurrentRows() {
+    if (!actualTbody) return;
+    actualTbody.querySelectorAll('tr[data-incident-no]').forEach((row) => {
+      savedState.set(row.dataset.incidentNo, {
+        actualTime: row.querySelector('[data-field="actual-time"]')?.value || '',
+        completeTime: row.querySelector('[data-field="complete-time"]')?.value || '',
+        areas: Array.from(row.querySelectorAll('[data-field="action-area"]:checked')).map((i) => i.value),
+        actions: getActionsFromRow(row),
+        commentText: row.querySelector('[data-field="comment-text"]')?.value || ''
+      });
+    });
+  }
+
+  function createTimeSelect(no, field, labelText, selectedValue) {
+    const label = document.createElement('label');
+    label.textContent = labelText;
+    const select = document.createElement('select');
+    select.dataset.field = field;
+    select.setAttribute('aria-label', `${no}번 ${labelText}`);
+    select.appendChild(buildTimeOptions(selectedValue));
+    label.appendChild(select);
+    return label;
+  }
+
+  function createActionAreaOptions(no, selectedAreas) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'action-area-options';
+    actionAreas.forEach((area) => {
+      const optionId = `action-area-${no}-${area}`;
+      const label = document.createElement('label');
+      label.setAttribute('for', optionId);
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox'; checkbox.id = optionId; checkbox.value = area;
+      checkbox.dataset.field = 'action-area';
+      checkbox.checked = selectedAreas.includes(area);
+      label.appendChild(checkbox);
+      label.appendChild(document.createTextNode(area));
+      wrapper.appendChild(label);
+    });
+    return wrapper;
+  }
+
+  function createTextarea(no, field, ariaLabel, value, placeholderText, className) {
+    const textarea = document.createElement('textarea');
+    textarea.dataset.field = field;
+    textarea.setAttribute('aria-label', `${no}번 ${ariaLabel}`);
+    textarea.value = value || '';
+    if (placeholderText) textarea.placeholder = placeholderText;
+    if (className) textarea.className = className;
+    return textarea;
+  }
+
+  function createActionItem(no, action, index) {
+    const item = document.createElement('div');
+    item.className = 'action-item'; item.dataset.actionItem = '';
+    const controls = document.createElement('div');
+    controls.className = 'action-item-controls';
+    const timeLabel = document.createElement('label');
+    timeLabel.className = 'action-time-label';
+    timeLabel.appendChild(document.createTextNode('조치 시간'));
+    const timeSelect = document.createElement('select');
+    timeSelect.dataset.field = 'action-time';
+    timeSelect.setAttribute('aria-label', `${no}번 ${index + 1}번째 조치 시간`);
+    timeSelect.appendChild(buildTimeOptions(action?.time || ''));
+    timeLabel.appendChild(timeSelect);
+    const removeButton = document.createElement('button');
+    removeButton.type = 'button'; removeButton.className = 'remove-action-button';
+    removeButton.dataset.action = 'remove-action'; removeButton.textContent = '삭제';
+    removeButton.setAttribute('aria-label', `${no}번 ${index + 1}번째 조치내용 삭제`);
+    controls.appendChild(timeLabel); controls.appendChild(removeButton);
+    const textarea = createTextarea(no, 'action-text', `${index + 1}번째 조치내용`, action?.text || '',
+      'ex) M16 6F Maxcapa 3조정,Maxcapa원복');
+    item.appendChild(controls); item.appendChild(textarea);
+    return item;
+  }
+
+  function refreshActionItemControls(row) {
+    const items = Array.from(row.querySelectorAll('[data-action-item]'));
+    const no = row.dataset.incidentNo;
+    items.forEach((item, index) => {
+      const timeSelect = item.querySelector('[data-field="action-time"]');
+      const textarea = item.querySelector('[data-field="action-text"]');
+      const removeButton = item.querySelector('[data-action="remove-action"]');
+      if (timeSelect) timeSelect.setAttribute('aria-label', `${no}번 ${index + 1}번째 조치 시간`);
+      if (textarea) textarea.setAttribute('aria-label', `${no}번 ${index + 1}번째 조치내용`);
+      if (removeButton) {
+        removeButton.hidden = items.length === 1;
+        removeButton.setAttribute('aria-label', `${no}번 ${index + 1}번째 조치내용 삭제`);
+      }
+    });
+  }
+
+  function createActionEditor(no, actions) {
+    const editor = document.createElement('div');
+    editor.className = 'action-editor';
+    const toolbar = document.createElement('div');
+    toolbar.className = 'action-toolbar';
+    const title = document.createElement('span');
+    title.className = 'action-toolbar-title'; title.textContent = '조치내용';
+    const addButton = document.createElement('button');
+    addButton.type = 'button'; addButton.className = 'add-action-button';
+    addButton.dataset.action = 'add-action'; addButton.textContent = '+ 추가';
+    addButton.setAttribute('aria-label', `${no}번 조치내용 추가`);
+    toolbar.appendChild(title); toolbar.appendChild(addButton);
+    const list = document.createElement('div');
+    list.className = 'action-list';
+    const normalizedActions = Array.isArray(actions) && actions.length ? actions : [{ time: '', text: '' }];
+    normalizedActions.forEach((action, index) => { list.appendChild(createActionItem(no, action, index)); });
+    editor.appendChild(toolbar); editor.appendChild(list);
+    return editor;
+  }
+
+  function createIncidentRow(no, detectionTime, isManual) {
+    const state = savedState.get(no) || defaultState();
+    const row = document.createElement('tr');
+    row.dataset.incidentNo = no;
+    const noCell = document.createElement('td');
+    noCell.appendChild(document.createTextNode(no));
+    if (isManual) {
+      row.classList.add('manual-incident-row');
+      row.dataset.manualIncident = '1';
+      const badge = document.createElement('span');
+      badge.className = 'manual-badge'; badge.textContent = '수동';
+      noCell.appendChild(badge);
+      const removeButton = document.createElement('button');
+      removeButton.type = 'button'; removeButton.className = 'remove-manual-button';
+      removeButton.dataset.action = 'remove-manual'; removeButton.textContent = '삭제';
+      removeButton.setAttribute('aria-label', `${no}번 수동 기입 행 삭제`);
+      noCell.appendChild(removeButton);
+    }
+    const detectionTimeCell = document.createElement('td');
+    detectionTimeCell.textContent = detectionTime || '-';
+    const timeCell = document.createElement('td');
+    const timeWrapper = document.createElement('div');
+    timeWrapper.className = 'time-selects';
+    timeWrapper.appendChild(createTimeSelect(no, 'actual-time', '발생', state.actualTime));
+    timeWrapper.appendChild(createTimeSelect(no, 'complete-time', '완료', state.completeTime));
+    timeCell.appendChild(timeWrapper);
+    const areaCell = document.createElement('td');
+    areaCell.appendChild(createActionAreaOptions(no, state.areas || []));
+    const actionCell = document.createElement('td');
+    actionCell.appendChild(createActionEditor(no, state.actions));
+    const commentCell = document.createElement('td');
+    commentCell.appendChild(createTextarea(no, 'comment-text', 'Comment 또는 발생원인',
+      state.commentText, 'ex) 00작업, 물량증가, OHT Stop...', 'comment-textarea'));
+    row.appendChild(noCell); row.appendChild(detectionTimeCell); row.appendChild(timeCell);
+    row.appendChild(areaCell); row.appendChild(actionCell); row.appendChild(commentCell);
+    refreshActionItemControls(row);
+    return row;
+  }
+
+  function renderActualIncidentRows() {
+    if (!actualTbody) return;
+    saveCurrentRows();
+    actualTbody.innerHTML = '';
+    const checkedItems = getOccurrenceChecks().filter((check) => check.checked);
+    if (checkedItems.length === 0 && manualIncidents.length === 0) {
+      const emptyRow = document.createElement('tr');
+      emptyRow.className = 'empty-row';
+      const emptyCell = document.createElement('td');
+      emptyCell.colSpan = 6;
+      emptyCell.textContent = '실제 발생여부가 체크된 AMOS 이상 감지 항목이 없습니다.';
+      emptyRow.appendChild(emptyCell);
+      actualTbody.appendChild(emptyRow);
+      return;
+    }
+    checkedItems.forEach((check) => {
+      actualTbody.appendChild(createIncidentRow(check.dataset.incidentNo, check.dataset.detectionTime, false));
+    });
+    manualIncidents.forEach((no) => { actualTbody.appendChild(createIncidentRow(no, '-', true)); });
+  }
+
+  function nextIncidentNo() {
+    const nos = getOccurrenceChecks()
+      .map((check) => parseInt(check.dataset.incidentNo, 10))
+      .concat(manualIncidents.map((no) => parseInt(no, 10)))
+      .filter((v) => !Number.isNaN(v));
+    return nos.length ? Math.max(...nos) + 1 : 1;
+  }
+
+  function collectFullState() {
+    saveCurrentRows();
+    const staticChecks = {};
+    getOccurrenceChecks().forEach((check) => { staticChecks[check.dataset.incidentNo] = check.checked; });
+    const incidents = {};
+    savedState.forEach((value, key) => { incidents[key] = value; });
+    return { version: 1, savedAt: new Date().toISOString(), staticChecks, manualIncidents: manualIncidents.slice(), incidents };
+  }
+
+  let fileHandle = null;
+  const STORAGE_KEY = 'amos-report:' + (window.__AMHS_DATE || window.location.pathname);
+  let fileDirty = false;
+
+  function setFileDirty(value) {
+    fileDirty = value;
+    if (fileSyncStatus) {
+      fileSyncStatus.textContent = fileDirty
+        ? '⚠ 파일 미반영 변경 있음 — 공유·보관 전 ‘파일로 저장’ 필요' : '';
+    }
+  }
+
+  function currentFileName() {
+    try {
+      const name = decodeURIComponent(window.location.pathname.split('/').pop() || '');
+      const lower = name.toLowerCase();
+      if (lower.endsWith('.html') || lower.endsWith('.htm')) return name;
+    } catch (error) { /* ignore */ }
+    return '반송이벤트_보고서.html';
+  }
+
+  function buildHtmlText(state) {
+    const docClone = document.documentElement.cloneNode(true);
+    const cloneActualTbody = docClone.querySelector('#actual-incident-tbody');
+    if (cloneActualTbody) {
+      cloneActualTbody.innerHTML = '<tr class="empty-row"><td colspan="6">실제 발생여부가 체크된 AMOS 이상 감지 항목이 없습니다.</td></tr>';
+    }
+    docClone.querySelectorAll('.manual-detection-row').forEach((row) => row.remove());
+    docClone.querySelectorAll('#__amhs_bridge').forEach((node) => node.remove());
+    const dataScript = docClone.querySelector('#saved-data');
+    if (dataScript) dataScript.textContent = JSON.stringify(state).replace(/</g, '\\u003c');
+    const statusSpan = docClone.querySelector('#save-status');
+    if (statusSpan) statusSpan.textContent = '';
+    const syncSpan = docClone.querySelector('#file-sync-status');
+    if (syncSpan) syncSpan.textContent = '';
+    return '<!DOCTYPE html>\n' + docClone.outerHTML;
+  }
+
+  function markSaved(message) {
+    if (!saveStatus) return;
+    const d = new Date();
+    saveStatus.textContent = `${message} · ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+  }
+
+  function syncLocal(state) {
+    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); return true; }
+    catch (error) { return false; }
+  }
+
+  function postToParent(state) {
+    try {
+      if (!window.parent || window.parent === window) return false;
+      window.parent.postMessage({ type: 'amhs-report-save', date: window.__AMHS_DATE || null, html: buildHtmlText(state) }, '*');
+      return true;
+    } catch (error) { return false; }
+  }
+
+  function saveLocal() {
+    const state = collectFullState();
+    const localOk = syncLocal(state);
+    if (postToParent(state)) { markSaved('저장됨 · 리포트 시스템 반영'); setFileDirty(false); return; }
+    if (localOk) { markSaved('저장됨'); }
+    else if (saveStatus) { saveStatus.textContent = '브라우저 저장 실패 — ‘파일로 저장’ 버튼을 사용하세요.'; }
+  }
+
+  function downloadFallback(htmlText) {
+    const blob = new Blob([htmlText], { type: 'text/html;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = currentFileName();
+    document.body.appendChild(link);
+    link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 2000);
+    markSaved('다운로드 저장됨 (브라우저 미지원 대체)');
+    setFileDirty(false);
+  }
+
+  async function saveReport() {
+    const state = collectFullState();
+    syncLocal(state); postToParent(state);
+    const htmlText = buildHtmlText(state);
+    if (window.showSaveFilePicker) {
+      try {
+        if (!fileHandle) {
+          fileHandle = await window.showSaveFilePicker({
+            suggestedName: currentFileName(),
+            types: [{ description: 'HTML 파일', accept: { 'text/html': ['.html', '.htm'] } }]
+          });
+        }
+        const writable = await fileHandle.createWritable();
+        await writable.write(htmlText); await writable.close();
+        markSaved('파일 저장됨'); setFileDirty(false);
+        return;
+      } catch (error) {
+        if (error && error.name === 'AbortError') {
+          if (saveStatus) saveStatus.textContent = '파일 저장 취소됨';
+          return;
+        }
+        fileHandle = null;
+      }
+    }
+    downloadFallback(htmlText);
+  }
+
+  function parseState(text) {
+    try { const state = JSON.parse(text); return state && typeof state === 'object' ? state : null; }
+    catch (error) { return null; }
+  }
+
+  function loadSavedData() {
+    const embedded = parseState(document.getElementById('saved-data')?.textContent || 'null');
+    let local = null;
+    try { local = parseState(window.localStorage.getItem(STORAGE_KEY) || 'null'); }
+    catch (error) { local = null; }
+    let state = null;
+    if (embedded && local) {
+      const embeddedAt = Date.parse(embedded.savedAt || '') || 0;
+      const localAt = Date.parse(local.savedAt || '') || 0;
+      state = localAt >= embeddedAt ? local : embedded;
+      if (localAt > embeddedAt) setFileDirty(true);
+    } else {
+      state = local || embedded;
+      if (local && !embedded) setFileDirty(true);
+    }
+    if (!state) return;
+    Object.entries(state.incidents || {}).forEach(([no, value]) => { savedState.set(String(no), value); });
+    Object.entries(state.staticChecks || {}).forEach(([no, checked]) => {
+      const check = document.querySelector(`.actual-occurrence-check[data-incident-no="${no}"]`);
+      if (check && !check.dataset.manual) check.checked = !!checked;
+    });
+    manualIncidents = (state.manualIncidents || []).map(String);
+  }
+
+  amosTbody?.addEventListener('change', (event) => {
+    setFileDirty(true);
+    if (event.target.classList.contains('actual-occurrence-check')) renderActualIncidentRows();
+  });
+
+  addManualButton?.addEventListener('click', () => {
+    if (!actualTbody) return;
+    const no = String(nextIncidentNo());
+    manualIncidents.push(no);
+    savedState.set(no, defaultState());
+    setFileDirty(true);
+    renderActualIncidentRows();
+    const newRow = actualTbody.querySelector(`tr[data-incident-no="${no}"]`);
+    if (newRow && typeof newRow.scrollIntoView === 'function') newRow.scrollIntoView({ block: 'nearest' });
+    newRow?.querySelector('[data-field="actual-time"]')?.focus();
+  });
+
+  saveButton?.addEventListener('click', saveLocal);
+  saveFileButton?.addEventListener('click', saveReport);
+  document.addEventListener('keydown', (event) => {
+    if ((event.ctrlKey || event.metaKey) && (event.key === 's' || event.key === 'S')) {
+      event.preventDefault(); saveLocal();
+    }
+  });
+
+  actualTbody?.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-action]');
+    if (!button) return;
+    const row = button.closest('tr[data-incident-no]');
+    if (!row) return;
+    if (button.dataset.action === 'remove-manual') {
+      const no = row.dataset.incidentNo;
+      if (!window.confirm(`${no}번 수동 기입 행을 삭제할까요? 입력한 내용도 함께 삭제됩니다.`)) return;
+      manualIncidents = manualIncidents.filter((v) => v !== no);
+      row.remove(); savedState.delete(no); setFileDirty(true);
+      renderActualIncidentRows();
+      return;
+    }
+    const actionList = row.querySelector('.action-list');
+    if (!actionList) return;
+    if (button.dataset.action === 'add-action') {
+      const index = actionList.querySelectorAll('[data-action-item]').length;
+      actionList.appendChild(createActionItem(row.dataset.incidentNo, { time: '', text: '' }, index));
+      refreshActionItemControls(row); saveCurrentRows();
+      actionList.lastElementChild?.querySelector('[data-field="action-time"]')?.focus();
+      return;
+    }
+    if (button.dataset.action === 'remove-action') {
+      const item = button.closest('[data-action-item]');
+      const items = actionList.querySelectorAll('[data-action-item]');
+      if (item && items.length > 1) item.remove();
+      refreshActionItemControls(row); saveCurrentRows();
+    }
+  });
+
+  actualTbody?.addEventListener('input', () => { saveCurrentRows(); setFileDirty(true); });
+  actualTbody?.addEventListener('change', () => { saveCurrentRows(); setFileDirty(true); });
+
+  loadSavedData();
+  renderActualIncidentRows();
+})();
+</script>
+</body></html>
