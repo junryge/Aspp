@@ -1,0 +1,7 @@
+{
+  "adminId": "admin",
+  "editPassword": "AMHS1234",
+  "adminPassword": "AMHS1234",
+  "host": "0.0.0.0",
+  "port": 10030
+}
