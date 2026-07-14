@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chronos-Bolt 란 무엇인가</title>
+<style>
+  :root{
+    --bg:#0b1220;
+    --panel:#111a2e;
+    --panel-2:#0e1626;
+    --line:#1f2c47;
+    --line-soft:#17223a;
+    --ink:#e8eefc;
+    --ink-dim:#9aabcc;
+    --ink-faint:#5f6f92;
+    --accent:#5eead4;      /* teal — speed */
+    --accent-2:#a3e635;    /* lime — accuracy */
+    --warn:#f59e0b;
+    --mono:'SF Mono',ui-monospace,'Cascadia Code',Menlo,Consolas,monospace;
+    --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI','Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.65;-webkit-font-smoothing:antialiased;padding:0 20px}
+  .wrap{max-width:880px;margin:0 auto;padding:64px 0 96px}
+
+  /* hero */
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--accent);margin-bottom:18px;display:flex;align-items:center;gap:10px}
+  .eyebrow::before{content:"";width:28px;height:1px;background:var(--accent);display:inline-block}
+  h1{font-size:clamp(38px,7vw,68px);line-height:1.02;font-weight:800;letter-spacing:-.03em}
+  h1 .bolt{color:var(--accent)}
+  .sub{color:var(--ink-dim);font-size:18px;max-width:62ch;margin-top:16px}
+
+  .signature{margin:44px 0 8px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:26px 0}
+  .speed-row{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+  .speed-num{font-family:var(--mono);font-size:clamp(40px,9vw,84px);font-weight:700;color:var(--accent);letter-spacing:-.02em;line-height:1}
+  .speed-lab{font-family:var(--mono);font-size:13px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.12em}
+  .track{margin-top:22px;height:8px;background:var(--panel-2);border-radius:99px;overflow:hidden;position:relative}
+  .track > span{position:absolute;inset:0 auto 0 0;border-radius:99px}
+  .track .orig{width:100%;background:var(--line)}
+  .track .bolt-bar{width:14%;background:linear-gradient(90deg,var(--accent),var(--accent-2))}
+  .track-legend{display:flex;justify-content:space-between;margin-top:8px;font-family:var(--mono);font-size:11px;color:var(--ink-faint)}
+
+  section{margin-top:56px}
+  h2{font-size:14px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.14em;color:var(--ink-dim);margin-bottom:22px;display:flex;align-items:center;gap:12px}
+  h2 .idx{color:var(--accent);font-weight:700}
+
+  p{color:var(--ink-dim);margin-bottom:14px}
+  p strong,li strong,td strong{color:var(--ink);font-weight:600}
+  .lede{font-size:18px;color:var(--ink);line-height:1.7}
+  .lede b{color:var(--accent)}
+
+  /* generic table */
+  table{width:100%;border-collapse:collapse;border:1px solid var(--line);border-radius:12px;overflow:hidden;font-size:14.5px}
+  th,td{text-align:left;padding:12px 16px;border-bottom:1px solid var(--line-soft);vertical-align:top;color:var(--ink-dim)}
+  thead th{background:var(--panel-2);font-family:var(--mono);font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-faint);font-weight:600}
+  tbody tr:last-child td{border-bottom:none}
+  tbody td:first-child{color:var(--ink);font-weight:500}
+  .tbl-wrap{border-radius:12px;overflow:hidden}
+
+  /* spec grid (key-value) */
+  .spec{display:grid;grid-template-columns:190px 1fr;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .spec > div{padding:13px 18px;border-bottom:1px solid var(--line-soft)}
+  .spec > div:nth-child(odd){background:var(--panel-2);font-family:var(--mono);font-size:13px;color:var(--ink-dim)}
+  .spec > div:nth-child(even){background:var(--panel)}
+  .spec > div:nth-last-child(1),.spec > div:nth-last-child(2){border-bottom:none}
+
+  code{font-family:var(--mono);font-size:.88em;background:var(--panel-2);padding:2px 7px;border-radius:5px;color:var(--accent-2);border:1px solid var(--line)}
+
+  /* pipeline flow */
+  .flow{display:flex;flex-direction:column;gap:0;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .flow .node{padding:16px 20px;background:var(--panel);position:relative}
+  .flow .node + .node{border-top:1px solid var(--line-soft)}
+  .flow .tag{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);display:block;margin-bottom:4px}
+  .flow .desc{color:var(--ink-dim);font-size:14.5px}
+  .flow .desc b{color:var(--ink)}
+
+  /* wins */
+  .wins{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .win{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px}
+  .win .big{font-family:var(--mono);font-size:34px;font-weight:700;color:var(--accent);line-height:1}
+  .win .big.alt{color:var(--accent-2)}
+  .win .cap{margin-top:10px;font-size:13px;color:var(--ink-dim)}
+
+  ol.steps{list-style:none;counter-reset:s}
+  ol.steps li{counter-increment:s;padding:14px 0 14px 52px;position:relative;border-bottom:1px solid var(--line-soft);color:var(--ink-dim)}
+  ol.steps li:last-child{border-bottom:none}
+  ol.steps li::before{content:counter(s,decimal-leading-zero);position:absolute;left:0;top:13px;font-family:var(--mono);font-size:13px;color:var(--accent);border:1px solid var(--line);border-radius:7px;width:34px;height:30px;display:flex;align-items:center;justify-content:center}
+
+  ul.plain{list-style:none}
+  ul.plain li{padding:9px 0 9px 22px;position:relative;color:var(--ink-dim);border-bottom:1px solid var(--line-soft)}
+  ul.plain li:last-child{border-bottom:none}
+  ul.plain li::before{content:"›";position:absolute;left:2px;color:var(--accent);font-family:var(--mono)}
+
+  /* code block */
+  pre{background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:18px 20px;overflow-x:auto;margin:10px 0 20px}
+  pre code{background:none;border:none;padding:0;color:var(--ink);font-size:13px;line-height:1.7}
+  .code-label{font-family:var(--mono);font-size:12px;color:var(--accent);letter-spacing:.06em;margin:22px 0 6px;display:block}
+  .cmt{color:var(--ink-faint)}
+  .kw{color:var(--accent)}
+  .str{color:var(--accent-2)}
+
+  /* diagram */
+  figure{margin:0 0 22px}
+  .diagram{background:var(--panel-2);border:1px solid var(--line);border-radius:14px;padding:22px 18px}
+  .diagram svg{width:100%;height:auto;display:block}
+  figcaption{font-family:var(--mono);font-size:12px;color:var(--ink-faint);margin-top:12px;text-align:center;letter-spacing:.04em}
+
+  footer{margin-top:64px;padding-top:24px;border-top:1px solid var(--line);font-family:var(--mono);font-size:12px;color:var(--ink-faint);line-height:1.9}
+
+  @media(max-width:640px){
+    .wrap{padding:44px 0 72px}
+    .spec{grid-template-columns:1fr}
+    .spec > div:nth-child(odd){border-bottom:none;padding-bottom:2px}
+    .wins{grid-template-columns:1fr}
+    table{font-size:13px}
+    th,td{padding:10px 12px}
+  }
+  @media(prefers-reduced-motion:no-preference){
+    .bolt-bar{animation:grow 1.1s cubic-bezier(.2,.7,.2,1) both}
+    @keyframes grow{from{width:100%}to{width:14%}}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow">Time-Series Foundation Model · Amazon</div>
+  <h1>Chronos<span class="bolt">-Bolt</span> 란?</h1>
+  <p class="sub">약 1,000억 개 시계열로 사전학습해서, 처음 보는 시계열에도 학습 없이 예측을 뽑는 파운데이션 모델. 원본 Chronos를 빠르고 가볍게 다시 설계한 2세대.</p>
+
+  <div class="signature">
+    <div class="speed-row">
+      <span class="speed-num">250×</span>
+      <span class="speed-lab">faster than original Chronos</span>
+    </div>
+    <div class="track">
+      <span class="orig"></span>
+      <span class="bolt-bar"></span>
+    </div>
+    <div class="track-legend"><span>Chronos (original)</span><span>Chronos-Bolt</span></div>
+  </div>
+
+  <section>
+    <h2><span class="idx">01</span> 정체 — 한 문단</h2>
+    <p class="lede">NLP 언어모델이 대량 텍스트로 학습해 처음 보는 문장을 처리하듯, Chronos-Bolt는 <b>약 1,000억 개 시계열 관측치</b>로 학습해 학습 때 본 적 없는 시계열도 예측한다. 이게 <b>zero-shot</b> 예측이다. 구조는 구글 <b>T5 encoder-decoder</b> 기반이고, 원본 Chronos를 속도·메모리 측면에서 다시 짠 개선판이다.</p>
+  </section>
+
+  <section>
+    <h2><span class="idx">02</span> 계보 — Chronos 패밀리</h2>
+    <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>세대</th><th>이름</th><th>핵심 방식</th></tr></thead>
+      <tbody>
+        <tr><td>1세대</td><td>Chronos (원본)</td><td>시계열을 토큰화 → LLM처럼 미래를 <strong>샘플링</strong> (autoregressive). 느리고 무거움</td></tr>
+        <tr><td>2세대</td><td>Chronos-Bolt</td><td>시계열을 <strong>패치</strong>로 묶어 인코딩 → 여러 스텝 quantile을 한 번에 생성</td></tr>
+        <tr><td>3세대</td><td>Chronos-2</td><td>후속 최신판 (<code>amazon/chronos-2</code>)</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p style="margin-top:14px">원본 논문: <em>Chronos: Learning the Language of Time Series</em> (Ansari et al., 2024, TMLR).</p>
+  </section>
+
+  <section>
+    <h2><span class="idx">03</span> 원본 vs Bolt — 뭐가 바뀌었나</h2>
+    <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>구분</th><th>원본 Chronos</th><th>Chronos-Bolt</th></tr></thead>
+      <tbody>
+        <tr><td>입력 처리</td><td>관측치를 개별 토큰으로 양자화</td><td><strong>패치</strong>로 묶어 입력</td></tr>
+        <tr><td>생성 방식</td><td>한 스텝씩 autoregressive 샘플링</td><td><strong>direct multi-step</strong> (동시 생성)</td></tr>
+        <tr><td>출력</td><td>샘플 경로에서 분포 추정</td><td><strong>quantile 직접 출력</strong></td></tr>
+        <tr><td>속도</td><td>기준</td><td><strong>최대 250배</strong></td></tr>
+        <tr><td>메모리</td><td>기준</td><td><strong>20배 효율</strong></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p style="margin-top:14px"><strong>Chronos-Bolt (Base)</strong> 가 <strong>원본 Chronos (Large)</strong> 보다 정확하면서 <strong>600배 이상</strong> 빠르다 — 작은 모델이 큰 원본을 이긴다.</p>
+  </section>
+
+  <section>
+    <h2><span class="idx">04</span> 아키텍처 · 동작 원리</h2>
+
+    <figure>
+      <div class="diagram">
+        <svg viewBox="0 0 920 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Chronos-Bolt 아키텍처 파이프라인">
+          <defs>
+            <linearGradient id="band" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#5eead4" stop-opacity="0.30"/>
+              <stop offset="1" stop-color="#5eead4" stop-opacity="0.04"/>
+            </linearGradient>
+            <marker id="arw" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#5eead4"/>
+            </marker>
+          </defs>
+
+          <!-- ===== 1. INPUT + PATCHES ===== -->
+          <text x="20" y="34" font-family="monospace" font-size="12" letter-spacing="1" fill="#5eead4">1 · INPUT</text>
+          <text x="20" y="52" font-family="sans-serif" font-size="12" fill="#9aabcc">과거 시계열을 패치로 분할</text>
+          <rect x="20" y="66" width="220" height="150" rx="10" fill="#111a2e" stroke="#1f2c47"/>
+          <!-- patch dividers -->
+          <g stroke="#1f2c47" stroke-dasharray="3 3">
+            <line x1="64" y1="72" x2="64" y2="210"/>
+            <line x1="108" y1="72" x2="108" y2="210"/>
+            <line x1="152" y1="72" x2="152" y2="210"/>
+            <line x1="196" y1="72" x2="196" y2="210"/>
+          </g>
+          <!-- historical sparkline -->
+          <polyline points="26,170 42,150 58,158 74,120 90,132 106,96 122,108 138,86 154,112 170,92 186,128 202,104 218,140 234,118"
+                    fill="none" stroke="#a3e635" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+          <!-- patch labels -->
+          <g font-family="monospace" font-size="10" fill="#5f6f92" text-anchor="middle">
+            <text x="42" y="204">p1</text><text x="86" y="204">p2</text><text x="130" y="204">p3</text><text x="174" y="204">p4</text><text x="218" y="204">p5</text>
+          </g>
+
+          <!-- arrow -->
+          <line x1="248" y1="141" x2="290" y2="141" stroke="#5eead4" stroke-width="2" marker-end="url(#arw)"/>
+
+          <!-- ===== 2. ENCODER ===== -->
+          <text x="300" y="34" font-family="monospace" font-size="12" letter-spacing="1" fill="#5eead4">2 · T5 ENCODER</text>
+          <text x="300" y="52" font-family="sans-serif" font-size="12" fill="#9aabcc">패치 → 표현 학습</text>
+          <rect x="300" y="66" width="150" height="150" rx="10" fill="#111a2e" stroke="#1f2c47"/>
+          <g fill="#0e1626" stroke="#2b3a5c">
+            <rect x="316" y="82" width="118" height="20" rx="4"/>
+            <rect x="316" y="108" width="118" height="20" rx="4"/>
+            <rect x="316" y="134" width="118" height="20" rx="4"/>
+            <rect x="316" y="160" width="118" height="20" rx="4"/>
+          </g>
+          <g font-family="monospace" font-size="9" fill="#5f6f92" text-anchor="middle">
+            <text x="375" y="96">self-attention</text>
+            <text x="375" y="122">feed-forward</text>
+            <text x="375" y="148">self-attention</text>
+            <text x="375" y="174">feed-forward</text>
+          </g>
+          <text x="375" y="200" font-family="monospace" font-size="9" fill="#5eead4" text-anchor="middle">representation</text>
+
+          <!-- arrow -->
+          <line x1="458" y1="141" x2="500" y2="141" stroke="#5eead4" stroke-width="2" marker-end="url(#arw)"/>
+
+          <!-- ===== 3. DECODER ===== -->
+          <text x="510" y="34" font-family="monospace" font-size="12" letter-spacing="1" fill="#5eead4">3 · T5 DECODER</text>
+          <text x="510" y="52" font-family="sans-serif" font-size="12" fill="#9aabcc">direct multi-step</text>
+          <rect x="510" y="66" width="150" height="150" rx="10" fill="#111a2e" stroke="#1f2c47"/>
+          <g fill="#0e1626" stroke="#2b3a5c">
+            <rect x="526" y="82" width="118" height="20" rx="4"/>
+            <rect x="526" y="108" width="118" height="20" rx="4"/>
+            <rect x="526" y="134" width="118" height="20" rx="4"/>
+            <rect x="526" y="160" width="118" height="20" rx="4"/>
+          </g>
+          <g font-family="monospace" font-size="9" fill="#5f6f92" text-anchor="middle">
+            <text x="585" y="96">cross-attention</text>
+            <text x="585" y="122">feed-forward</text>
+            <text x="585" y="148">cross-attention</text>
+            <text x="585" y="174">feed-forward</text>
+          </g>
+          <text x="585" y="200" font-family="monospace" font-size="9" fill="#a3e635" text-anchor="middle">모든 스텝 동시 출력</text>
+
+          <!-- arrow -->
+          <line x1="668" y1="141" x2="710" y2="141" stroke="#5eead4" stroke-width="2" marker-end="url(#arw)"/>
+
+          <!-- ===== 4. OUTPUT (fan chart) ===== -->
+          <text x="720" y="34" font-family="monospace" font-size="12" letter-spacing="1" fill="#5eead4">4 · OUTPUT</text>
+          <text x="720" y="52" font-family="sans-serif" font-size="12" fill="#9aabcc">quantile 예측 (구간)</text>
+          <rect x="720" y="66" width="180" height="150" rx="10" fill="#111a2e" stroke="#1f2c47"/>
+          <!-- history tail -->
+          <polyline points="732,150 748,130 764,142 780,120"
+                    fill="none" stroke="#5f6f92" stroke-width="2" stroke-linecap="round"/>
+          <!-- quantile band -->
+          <path d="M780,120 L812,110 844,96 876,84 L876,150 844,150 812,142 780,120 Z" fill="url(#band)"/>
+          <!-- q90 / q10 edges -->
+          <polyline points="780,120 812,98 844,80 876,66" fill="none" stroke="#5eead4" stroke-width="1" stroke-dasharray="3 3" opacity="0.7"/>
+          <polyline points="780,120 812,146 844,150 876,150" fill="none" stroke="#5eead4" stroke-width="1" stroke-dasharray="3 3" opacity="0.7"/>
+          <!-- q50 median -->
+          <polyline points="780,120 812,112 844,102 876,92" fill="none" stroke="#5eead4" stroke-width="2.5" stroke-linecap="round"/>
+          <!-- divider now -->
+          <line x1="780" y1="76" x2="780" y2="206" stroke="#2b3a5c" stroke-dasharray="2 3"/>
+          <text x="780" y="200" font-family="monospace" font-size="9" fill="#5f6f92" text-anchor="middle">now</text>
+          <g font-family="monospace" font-size="9" text-anchor="start">
+            <text x="880" y="70" fill="#5eead4">q90</text>
+            <text x="880" y="95" fill="#e8eefc">q50</text>
+            <text x="880" y="153" fill="#5eead4">q10</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>패치 → T5 Encoder → T5 Decoder(직접 다중 스텝) → quantile 예측</figcaption>
+    </figure>
+
+    <div class="flow">
+      <div class="node"><span class="tag">1 · Input</span><span class="desc">과거 시계열(context)을 여러 관측치 묶음인 <b>패치</b>로 분할</span></div>
+      <div class="node"><span class="tag">2 · T5 Encoder</span><span class="desc">패치를 인코더에 넣어 시계열 <b>표현(representation)</b> 학습</span></div>
+      <div class="node"><span class="tag">3 · T5 Decoder · Direct Multi-step</span><span class="desc">미래 여러 스텝의 <b>quantile 예측</b>을 한 번에 생성 (스텝별 반복 없음 → 빠름)</span></div>
+      <div class="node"><span class="tag">4 · Output</span><span class="desc">확률적 예측: 점 추정 + 분위수(0.1 / 0.5 / 0.9 등). shape <code>[num_series, num_quantiles, prediction_length]</code></span></div>
+    </div>
+
+    <figure style="margin-top:34px">
+      <div class="diagram">
+        <svg viewBox="0 0 920 210" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="autoregressive 대 direct multi-step 비교">
+          <!-- LEFT: original Chronos - autoregressive -->
+          <text x="20" y="28" font-family="monospace" font-size="12" fill="#9aabcc">원본 Chronos · autoregressive</text>
+          <rect x="20" y="42" width="410" height="140" rx="10" fill="#111a2e" stroke="#1f2c47"/>
+          <!-- sequential steps, each feeding next -->
+          <g>
+            <rect x="44" y="92" width="52" height="38" rx="6" fill="#0e1626" stroke="#2b3a5c"/>
+            <text x="70" y="115" font-family="monospace" font-size="11" fill="#9aabcc" text-anchor="middle">t+1</text>
+            <rect x="140" y="92" width="52" height="38" rx="6" fill="#0e1626" stroke="#2b3a5c"/>
+            <text x="166" y="115" font-family="monospace" font-size="11" fill="#9aabcc" text-anchor="middle">t+2</text>
+            <rect x="236" y="92" width="52" height="38" rx="6" fill="#0e1626" stroke="#2b3a5c"/>
+            <text x="262" y="115" font-family="monospace" font-size="11" fill="#9aabcc" text-anchor="middle">t+3</text>
+            <rect x="332" y="92" width="52" height="38" rx="6" fill="#0e1626" stroke="#2b3a5c"/>
+            <text x="358" y="115" font-family="monospace" font-size="11" fill="#9aabcc" text-anchor="middle">t+4</text>
+          </g>
+          <g stroke="#f59e0b" stroke-width="2" fill="none" marker-end="url(#arw2)">
+            <line x1="96" y1="111" x2="138" y2="111"/>
+            <line x1="192" y1="111" x2="234" y2="111"/>
+            <line x1="288" y1="111" x2="330" y2="111"/>
+          </g>
+          <defs>
+            <marker id="arw2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="#f59e0b"/>
+            </marker>
+          </defs>
+          <text x="225" y="160" font-family="monospace" font-size="10" fill="#f59e0b" text-anchor="middle">한 스텝씩 순차 생성 → 느림</text>
+
+          <!-- RIGHT: Chronos-Bolt - direct multi-step -->
+          <text x="490" y="28" font-family="monospace" font-size="12" fill="#9aabcc">Chronos-Bolt · direct multi-step</text>
+          <rect x="490" y="42" width="410" height="140" rx="10" fill="#111a2e" stroke="#1f2c47"/>
+          <!-- one source fanning out to all steps at once -->
+          <circle cx="540" cy="111" r="18" fill="#0e1626" stroke="#5eead4"/>
+          <text x="540" y="115" font-family="monospace" font-size="9" fill="#5eead4" text-anchor="middle">dec</text>
+          <g stroke="#5eead4" stroke-width="2" fill="none" marker-end="url(#arw)">
+            <line x1="560" y1="105" x2="700" y2="72"/>
+            <line x1="560" y1="109" x2="700" y2="98"/>
+            <line x1="560" y1="113" x2="700" y2="124"/>
+            <line x1="560" y1="117" x2="700" y2="150"/>
+          </g>
+          <g font-family="monospace" font-size="11" fill="#9aabcc" text-anchor="middle">
+            <rect x="704" y="56" width="52" height="30" rx="6" fill="#0e1626" stroke="#2b3a5c"/><text x="730" y="76">t+1</text>
+            <rect x="704" y="90" width="52" height="30" rx="6" fill="#0e1626" stroke="#2b3a5c"/><text x="730" y="110">t+2</text>
+            <rect x="704" y="124" width="52" height="30" rx="6" fill="#0e1626" stroke="#2b3a5c"/><text x="730" y="144">t+3</text>
+            <rect x="704" y="158" width="52" height="20" rx="6" fill="#0e1626" stroke="#2b3a5c"/><text x="730" y="172" font-size="9">t+n</text>
+          </g>
+          <text x="620" y="200" font-family="monospace" font-size="10" fill="#a3e635" text-anchor="middle">전 스텝 동시 생성 → 최대 250배 빠름</text>
+        </svg>
+      </div>
+      <figcaption>순차 생성(원본) vs 동시 생성(Bolt) — 속도 차이의 핵심</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2><span class="idx">05</span> 모델 크기 (4종)</h2>
+    <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>모델</th><th>파라미터</th><th>베이스</th></tr></thead>
+      <tbody>
+        <tr><td><code>chronos-bolt-tiny</code></td><td>9M</td><td>t5-efficient-tiny</td></tr>
+        <tr><td><code>chronos-bolt-mini</code></td><td>21M</td><td>t5-efficient-mini</td></tr>
+        <tr><td><code>chronos-bolt-small</code></td><td>48M</td><td>t5-efficient-small</td></tr>
+        <tr><td><code>chronos-bolt-base</code></td><td>205M</td><td>t5-efficient-base</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="spec" style="margin-top:14px">
+      <div>라이선스</div><div>Apache-2.0</div>
+      <div>포맷</div><div>safetensors (base ≈ 0.2B, F32)</div>
+      <div>실행 환경</div><div>CPU · GPU · Apple Silicon(mps) 모두 가능 — 16GB GPU 필수 아님</div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="idx">06</span> 성능</h2>
+    <div class="wins">
+      <div class="win"><div class="big">250×</div><div class="cap">추론 속도 (최대)</div></div>
+      <div class="win"><div class="big">20×</div><div class="cap">메모리 효율</div></div>
+      <div class="win"><div class="big alt">27</div><div class="cap">데이터셋 WQL·MASE 우위</div></div>
+    </div>
+    <ul class="plain" style="margin-top:18px">
+      <li>벤치마크 조건: 1,024개 시계열 · context length 512 · 예측 64스텝</li>
+      <li>지표: <strong>WQL</strong>(확률적) · <strong>MASE</strong>(점 예측)</li>
+      <li>zero-shot인데도 해당 데이터로 <strong>직접 학습된 통계·딥러닝 모델을 능가</strong></li>
+      <li>일부 데이터에 사전노출된 다른 파운데이션 모델보다도 우수</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="idx">07</span> 사용법</h2>
+
+    <span class="code-label">(A) AutoGluon — 프로덕션 권장 (파인튜닝·covariate·앙상블 지원)</span>
+    <pre><code><span class="cmt"># pip install autogluon</span>
+<span class="kw">from</span> autogluon.timeseries <span class="kw">import</span> TimeSeriesPredictor, TimeSeriesDataFrame
+
+df = TimeSeriesDataFrame(<span class="str">".../m4_hourly/train.csv"</span>)
+
+predictor = TimeSeriesPredictor(prediction_length=<span class="str">48</span>).fit(
+    df,
+    hyperparameters={<span class="str">"Chronos"</span>: {<span class="str">"model_path"</span>: <span class="str">"amazon/chronos-bolt-base"</span>}},
+)
+predictions = predictor.predict(df)</code></pre>
+
+    <span class="code-label">(B) chronos-forecasting — 연구/최소 인터페이스</span>
+    <pre><code><span class="cmt"># pip install chronos-forecasting</span>
+<span class="kw">import</span> torch, pandas <span class="kw">as</span> pd
+<span class="kw">from</span> chronos <span class="kw">import</span> BaseChronosPipeline
+
+pipeline = BaseChronosPipeline.from_pretrained(
+    <span class="str">"amazon/chronos-bolt-base"</span>,
+    device_map=<span class="str">"cuda"</span>,        <span class="cmt"># "cpu" 또는 "mps"</span>
+    torch_dtype=torch.bfloat16,
+)
+<span class="cmt"># 출력 shape: [num_series, num_quantiles, prediction_length]</span>
+forecast = pipeline.predict(context=torch.tensor(series), prediction_length=<span class="str">12</span>)</code></pre>
+
+    <span class="code-label">(C) SageMaker JumpStart — 엔드포인트 배포 (CPU/GPU)</span>
+    <pre><code><span class="cmt"># pip install -U sagemaker</span>
+<span class="kw">from</span> sagemaker.jumpstart.model <span class="kw">import</span> JumpStartModel
+
+model = JumpStartModel(
+    model_id=<span class="str">"autogluon-forecasting-chronos-bolt-base"</span>,
+    instance_type=<span class="str">"ml.c5.2xlarge"</span>,
+)
+predictor = model.deploy()</code></pre>
+    <p><span style="color:var(--warn)">2025-02-14 업데이트</span>로 SageMaker JumpStart에서 몇 줄 코드로 프로덕션 배포 가능. covariate 예측도 지원.</p>
+  </section>
+
+  <section>
+    <h2><span class="idx">08</span> 접근 경로 요약</h2>
+    <ul class="plain">
+      <li><strong>HuggingFace</strong> — <code>amazon/chronos-bolt-base</code> (그 외 tiny/mini/small)</li>
+      <li><strong>AutoGluon-TimeSeries</strong> — 파인튜닝 · covariate · 앙상블</li>
+      <li><strong>AWS SageMaker JumpStart</strong> — CPU/GPU 엔드포인트 배포</li>
+      <li><strong>Amazon Bedrock Marketplace</strong> — Bedrock API 호출, Agents 연동</li>
+      <li><strong>chronos-forecasting</strong> (GitHub) — 연구용 최소 라이브러리</li>
+    </ul>
+  </section>
+
+  <footer>
+    출처 · HuggingFace 모델카드 <code>amazon/chronos-bolt-base</code><br>
+    논문 · Ansari et al., Chronos: Learning the Language of Time Series, TMLR 2024 (arXiv:2403.07815)<br>
+    기반 · T5 (Raffel et al., arXiv:1910.10683) · AWS ML Blog (Zero-shot forecasting with Chronos-Bolt &amp; AutoGluon)
+  </footer>
+
+</div>
+</body>
+</html>
