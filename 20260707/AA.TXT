@@ -1,23 +1,12 @@
-1) 설치 (torch는 이미 있으니 2개만)
+1) CUSUM 조기경보 생성 (빠름)
 
-pip install "chronos-forecasting>=2.0" pandas
-2) 설치 확인
+python cusum_detector.py --data "RAW6/*.CSV" --out act_cusum.csv
+2) CUSUM 단독 채점
 
-python -c "from chronos import Chronos2Pipeline; import pandas, torch; print('OK', torch.cuda.is_available())"
-→ OK True 떠야 함
+python score.py --actions act_cusum.csv --data "RAW6/*.CSV" --threshold 16.7 --pre 15 --gap 10
+3) 결합 (CUSUM + Chronos p_on=0.5)
 
-3) 학습
+python combine.py --a act_cusum.csv --b act_0.5.csv --mode union --out act_comb.csv
+4) 결합 채점
 
-python fit.py --train "RAW/*.csv" --horizon 10 --pct 0.99 --out fit_config.json
-4) 평가 — 단변량
-
-python run_chronos_sentinel.py --config fit_config.json --data "raw6/*.csv" --model chronos_2 --device cuda --stride 1 --out actions_202606.csv
-5) 평가 — 다변량
-
-python run_chronos2_covariates.py --data "raw6/*.csv" --model chronos_2 --device cuda --horizon 10 --stride 1 --threshold 16.7 --covariates auto --out actions_cov_202606.csv
-6) 채점 — 단변량
-
-python score.py --actions actions_202606.csv --data "raw6/*.csv" --threshold 16.7 --pre 15 --gap 10
-7) 채점 — 다변량
-
-python score.py --actions actions_cov_202606.csv --data "raw6/*.csv" --threshold 16.7 --pre 15 --gap 10
+python score.py --actions act_comb.csv --data "RAW6/*.CSV" --threshold 16.7 --pre 15 --gap 10
