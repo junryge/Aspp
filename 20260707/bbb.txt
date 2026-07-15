@@ -140,6 +140,7 @@ def main():
     ap.add_argument("--pct", type=float, default=0.99)
     ap.add_argument("--covariates", nargs="+", default=["auto"],
                     help="'auto' 자동선택 / 또는 컬럼명 나열")
+    ap.add_argument("--out", default=None, help="평가 시점별 액션 CSV 저장 경로")
     args = ap.parse_args()
 
     # 데이터 (글롭/여러파일 병합. auto covariate 선택 위해 전체 컬럼 로드)
@@ -195,6 +196,7 @@ def main():
     N = len(times)
     origins = list(range(max(10, args.context), N - args.horizon, args.stride))
     alarms = []
+    records = []   # (time, signal_value, action) — CSV 저장용 전체 시점
     for oi, t in enumerate(origins):
         lo = max(0, t - args.context)
         # context: lo..t 이력만 (인과적)
@@ -204,6 +206,7 @@ def main():
         q10, q50, q90 = forecast_with_covariates(
             pipeline, pd, ctx_df, args.horizon, times[t + 1:t + 1 + args.horizon])
         a = sen.step(q10, q50, q90)
+        records.append((times[t], series[args.signal][t], a))
         if a.stage >= 2:
             alarms.append((times[t], a))
         if oi % 50 == 0:
@@ -214,6 +217,24 @@ def main():
         lead = f", 약 {a.lead_min}분 선제" if a.lead_min else ""
         print(f"  {tt.strftime('%m-%d %H:%M')} (초과확률 {a.exceed_prob:.2f}{lead})"
               f" → {a.recommendation}")
+
+    # CSV 저장 (평가 시점별 전체 액션 — 메인 러너와 동일 스키마)
+    if args.out:
+        import csv
+        with open(args.out, "w", newline="", encoding="utf-8-sig") as fp:
+            w = csv.writer(fp)
+            w.writerow(["datetime", "signal_value", "stage", "stage_name",
+                        "exceed_prob", "lead_min", "center_adjust",
+                        "reserve_adjust", "tail_upper", "tail_lower",
+                        "covariates", "recommendation"])
+            covtxt = ";".join(covs)
+            for tt, sval, a in records:
+                w.writerow([tt.strftime("%Y-%m-%d %H:%M:%S"), sval,
+                            a.stage, a.stage_name, a.exceed_prob,
+                            a.lead_min if a.lead_min is not None else "",
+                            a.center_adjust, a.reserve_adjust,
+                            a.tail_upper, a.tail_lower, covtxt, a.recommendation])
+        print(f"\n평가 시점별 액션 저장: {args.out}  ({len(records)}행)")
 
 
 if __name__ == "__main__":
