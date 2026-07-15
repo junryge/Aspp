@@ -1,39 +1,23 @@
-score.py — 예측 경보를 실제 정체와 대조해 hit/헛울림/lead/recall/precision 산출
+1) 설치 (torch는 이미 있으니 2개만)
 
-py
-score.py
+pip install "chronos-forecasting>=2.0" pandas
+2) 설치 확인
 
-5.5 KB
+python -c "from chronos import Chronos2Pipeline; import pandas, torch; print('OK', torch.cuda.is_available())"
+→ OK True 떠야 함
 
-score.py 보냈습니다. 이제 416건의 진짜 성적을 냅니다.
+3) 학습
 
-채점 실행 (다변량 결과 먼저)
-python score.py --actions actions_cov_202606.csv --data "raw6/*.csv" --threshold 16.7 --pre 15 --gap 10
-나오는 것 (예시 형태)
-실제 정체 에피소드 : NN건
-  └ 잡음(hit)     : NN건      ← 몇 건 맞췄나
-  └ 놓침(miss)    : NN건
-예측 경보 에피소드 : NN건
-  └ 헛울림(false) : NN건      ← 헛울림 몇 건
-Recall(재현율)    : NN%       ← 실제 정체 중 몇 % 잡음
-Precision(정밀도) : NN%       ← 경보 중 몇 %가 진짜
-평균 lead        : N분
-→ 이게 "6월 어때?"의 진짜 답입니다. 416건이 아니라 에피소드 기준 recall/precision/lead로 봐야 해요.
+python fit.py --train "RAW/*.csv" --horizon 10 --pct 0.99 --out fit_config.json
+4) 평가 — 단변량
 
-단변량도 채점해서 비교 (핵심!)
-단변량 결과(actions_202606.csv)도 같이 돌리세요:
+python run_chronos_sentinel.py --config fit_config.json --data "raw6/*.csv" --model chronos_2 --device cuda --stride 1 --out actions_202606.csv
+5) 평가 — 다변량
+
+python run_chronos2_covariates.py --data "raw6/*.csv" --model chronos_2 --device cuda --horizon 10 --stride 1 --threshold 16.7 --covariates auto --out actions_cov_202606.csv
+6) 채점 — 단변량
 
 python score.py --actions actions_202606.csv --data "raw6/*.csv" --threshold 16.7 --pre 15 --gap 10
-두 개 비교 → 다변량(리프터·완료량 covariate)이 단변량보다:
+7) 채점 — 다변량
 
-recall 높나? (더 많이 잡나)
-precision 높나? (헛울림 적나)
-lead 긴가? (더 미리 잡나)
-이걸로 "covariate 고도화가 실제로 이득인가"가 숫자로 판가름 납니다.
-
-파라미터 의미
-옵션	뜻
---threshold 16.7	학습된 임계 (정체 판정 기준)
---pre 15	정체 15분 전까지 경보를 "사전감지"로 인정
---gap 10	10분 이내 연속 경보 = 같은 사건으로 병합
-두 채점 결과(단변량 + 다변량) 그대로 붙여주세요. 그게 나오면 드디어 "우리 시스템이 6월 정체를 몇 % 잡고 헛울림 얼마인지" 확정됩니다. 그게 이 프로젝트의 진짜 결론이에요 👍
+python score.py --actions actions_cov_202606.csv --data "raw6/*.csv" --threshold 16.7 --pre 15 --gap 10
