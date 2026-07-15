@@ -7,6 +7,8 @@ python fit.py --train "RAW/*.csv" --horizon 10 --pct 0.99 --out fit_config.json
 ④ 평가 (raw6 = 6월)
 
 python run_chronos_sentinel.py --config fit_config.json --data "raw6/*.csv" --model models/chronos-2 --device cpu --stride 5 --out actions_202606.csv
+python run_chronos_sentinel.py --config fit_config.json --data "raw6/*.csv" --model chronos_2 --device cpu --stride 5 --out actions_202606.csv
+
 ⑤ (선택) 다변량 covariate
 
 python run_chronos2_covariates.py --data "raw6/*.csv" --model models/chronos-2 --device cpu --horizon 10 --stride 5 --threshold 12.0 --covariates auto
