@@ -1,8 +1,3 @@
-윈도우 cmd용, 한 줄 명령어로 드립니다. (윈도우는 python3 말고 python)
-
-① 설치
-
-pip install -r requirements.txt
 ② 설치 확인 (모델 로드되는지)
 
 python run_chronos_sentinel.py --data "raw6/*.csv" --model models/chronos-2 --device cpu --horizon 10 --threshold 12.0
@@ -15,10 +10,3 @@ python run_chronos_sentinel.py --config fit_config.json --data "raw6/*.csv" --mo
 ⑤ (선택) 다변량 covariate
 
 python run_chronos2_covariates.py --data "raw6/*.csv" --model models/chronos-2 --device cpu --horizon 10 --stride 5 --threshold 12.0 --covariates auto
-참고
-
-순서: ① → ② → ③ → ④
-확인 포인트: ②·④ 로그에 예측 backend: chronos-2 떠야 실모델 성공
-확장자 대문자면 "RAW/*.CSV", "raw6/*.CSV"
-폴더 경로 models/chronos-2, RAW, raw6 는 cmd에서 실행하는 위치(chronos_forecast 폴더) 기준
-②나 ④ 돌린 로그 그대로 붙여주세요 👍
