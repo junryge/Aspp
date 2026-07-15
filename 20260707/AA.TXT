@@ -1,4 +1,16 @@
-에피소드 : NN건
+score.py — 예측 경보를 실제 정체와 대조해 hit/헛울림/lead/recall/precision 산출
+
+py
+score.py
+
+5.5 KB
+
+score.py 보냈습니다. 이제 416건의 진짜 성적을 냅니다.
+
+채점 실행 (다변량 결과 먼저)
+python score.py --actions actions_cov_202606.csv --data "raw6/*.csv" --threshold 16.7 --pre 15 --gap 10
+나오는 것 (예시 형태)
+실제 정체 에피소드 : NN건
   └ 잡음(hit)     : NN건      ← 몇 건 맞췄나
   └ 놓침(miss)    : NN건
 예측 경보 에피소드 : NN건
