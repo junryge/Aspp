@@ -1,47 +1,24 @@
-📦 사용법 (순서대로)
-0단계 — 준비물
-압축 풀기 → chronos_forecast/ 폴더
-그 안에 폴더 2개 만들기:
-models/chronos-2/ ← 받으신 모델 파일 넣기 (ModelScope autogluon/chronos-2)
-RAW/ ← CSV 데이터 넣기 (학습용 4~5월, 평가용 6월)
-chronos_forecast/
-├─ models/chronos-2/        ← 모델 여기
-├─ RAW/                     ← CSV 여기
-│   ├─ M16A_HUBROOM_PR_20260401~20260531.CSV
-│   └─ M16A_HUBROOM_PR_20260601~20260630.CSV
-├─ fit.py, run_chronos_sentinel.py ...
-1단계 — 패키지 설치
-cd chronos_forecast
+윈도우 cmd용, 한 줄 명령어로 드립니다. (윈도우는 python3 말고 python)
+
+① 설치
+
 pip install -r requirements.txt
-(폐쇄망이면 모델_설치가이드.md 참고 — 오프라인 whl)
+② 설치 확인 (모델 로드되는지)
 
-2단계 — 설치 확인 (April1 샘플로 먼저 테스트 권장)
-python3 run_chronos_sentinel.py --data RAW/아무거나.CSV \
-    --model ./models/chronos-2 --device cpu --horizon 10 --threshold 12.0
-→ 로그에 예측 backend: chronos-2 뜨면 성공 ✅ (baseline-ewma 뜨면 설치/경로 문제)
+python run_chronos_sentinel.py --data "raw6/*.csv" --model models/chronos-2 --device cpu --horizon 10 --threshold 12.0
+③ 학습 (RAW = 4~5월)
 
-3단계 — 학습 (Apr~May에서 임계·선행지표 산출)
-python3 fit.py --train "RAW/M16A_HUBROOM_PR_20260401~20260531.CSV" \
-    --horizon 10 --pct 0.99 --out fit_config.json
-→ fit_config.json 생성 (임계값 + covariate 자동 학습)
+python fit.py --train "RAW/*.csv" --horizon 10 --pct 0.99 --out fit_config.json
+④ 평가 (raw6 = 6월)
 
-4단계 — 평가 (6월 예측 + 문제시각 출력)
-python3 run_chronos_sentinel.py --config fit_config.json \
-    --data "RAW/M16A_HUBROOM_PR_20260601~20260630.CSV" \
-    --model ./models/chronos-2 --device cpu --stride 5 \
-    --out actions_202606.csv
-→ "문제 예측 시각" 리스트 출력 + actions_202606.csv(분당 액션) 저장
+python run_chronos_sentinel.py --config fit_config.json --data "raw6/*.csv" --model models/chronos-2 --device cpu --stride 5 --out actions_202606.csv
+⑤ (선택) 다변량 covariate
 
-5단계 (선택) — 다변량 고도화 (리프터·완료량 covariate)
-python3 run_chronos2_covariates.py --data "RAW/JUNE.CSV" \
-    --model ./models/chronos-2 --device cpu \
-    --horizon 10 --stride 5 --threshold 12.0 --covariates auto
-💡 팁
-상황	옵션
-CPU 느림	--stride 5 (5배 빠름). 실시간은 stride 빼기
-오탐 많음	--p-on 0.7 (경보 문턱↑)
-더 미리 잡고 싶음	--horizon 20 또는 30
-임계 수동	--threshold 12.0
-⚠️ 꼭 확인
-3~4단계 로그를 저장해서 주세요. 특히 backend: chronos-2 뜨는지, 5단계 covariate에서 predict_df 에러(컬럼명) 나는지. 그거 보고 마지막 조정합니다.
-파일 명령 헷갈리면 README.md 안에 다 정리돼 있습니다. 돌려보고 결과 주세요!
+python run_chronos2_covariates.py --data "raw6/*.csv" --model models/chronos-2 --device cpu --horizon 10 --stride 5 --threshold 12.0 --covariates auto
+참고
+
+순서: ① → ② → ③ → ④
+확인 포인트: ②·④ 로그에 예측 backend: chronos-2 떠야 실모델 성공
+확장자 대문자면 "RAW/*.CSV", "raw6/*.CSV"
+폴더 경로 models/chronos-2, RAW, raw6 는 cmd에서 실행하는 위치(chronos_forecast 폴더) 기준
+②나 ④ 돌린 로그 그대로 붙여주세요 👍
