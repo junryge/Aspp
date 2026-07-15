@@ -1,5 +1,47 @@
-CUSUM 4감지기 + 실시간 러너	사건 11/14, 핵심 4/4 (10~180분 전), 
+📦 사용법 (순서대로)
+0단계 — 준비물
+압축 풀기 → chronos_forecast/ 폴더
+그 안에 폴더 2개 만들기:
+models/chronos-2/ ← 받으신 모델 파일 넣기 (ModelScope autogluon/chronos-2)
+RAW/ ← CSV 데이터 넣기 (학습용 4~5월, 평가용 6월)
+chronos_forecast/
+├─ models/chronos-2/        ← 모델 여기
+├─ RAW/                     ← CSV 여기
+│   ├─ M16A_HUBROOM_PR_20260401~20260531.CSV
+│   └─ M16A_HUBROOM_PR_20260601~20260630.CSV
+├─ fit.py, run_chronos_sentinel.py ...
+1단계 — 패키지 설치
+cd chronos_forecast
+pip install -r requirements.txt
+(폐쇄망이면 모델_설치가이드.md 참고 — 오프라인 whl)
 
+2단계 — 설치 확인 (April1 샘플로 먼저 테스트 권장)
+python3 run_chronos_sentinel.py --data RAW/아무거나.CSV \
+    --model ./models/chronos-2 --device cpu --horizon 10 --threshold 12.0
+→ 로그에 예측 backend: chronos-2 뜨면 성공 ✅ (baseline-ewma 뜨면 설치/경로 문제)
 
-<CUSUM 이상탐지 오탐줄이기>
-방향 100% --->오탐 잡기 용량축소(MAXCAPA↓)·리프터저하 → 상류 유입큐 증가 → 남/북큐 CUSUM ↑ ← 이게 우리 경보!→ 몰림차량 발생   ← 이게 딱지
+3단계 — 학습 (Apr~May에서 임계·선행지표 산출)
+python3 fit.py --train "RAW/M16A_HUBROOM_PR_20260401~20260531.CSV" \
+    --horizon 10 --pct 0.99 --out fit_config.json
+→ fit_config.json 생성 (임계값 + covariate 자동 학습)
+
+4단계 — 평가 (6월 예측 + 문제시각 출력)
+python3 run_chronos_sentinel.py --config fit_config.json \
+    --data "RAW/M16A_HUBROOM_PR_20260601~20260630.CSV" \
+    --model ./models/chronos-2 --device cpu --stride 5 \
+    --out actions_202606.csv
+→ "문제 예측 시각" 리스트 출력 + actions_202606.csv(분당 액션) 저장
+
+5단계 (선택) — 다변량 고도화 (리프터·완료량 covariate)
+python3 run_chronos2_covariates.py --data "RAW/JUNE.CSV" \
+    --model ./models/chronos-2 --device cpu \
+    --horizon 10 --stride 5 --threshold 12.0 --covariates auto
+💡 팁
+상황	옵션
+CPU 느림	--stride 5 (5배 빠름). 실시간은 stride 빼기
+오탐 많음	--p-on 0.7 (경보 문턱↑)
+더 미리 잡고 싶음	--horizon 20 또는 30
+임계 수동	--threshold 12.0
+⚠️ 꼭 확인
+3~4단계 로그를 저장해서 주세요. 특히 backend: chronos-2 뜨는지, 5단계 covariate에서 predict_df 에러(컬럼명) 나는지. 그거 보고 마지막 조정합니다.
+파일 명령 헷갈리면 README.md 안에 다 정리돼 있습니다. 돌려보고 결과 주세요!
