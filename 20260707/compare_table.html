@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chronos-Bolt vs TightLoop Sentinel 비교</title>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#111a2e; --panel-2:#0e1626;
+    --line:#1f2c47; --line-soft:#17223a;
+    --ink:#e8eefc; --ink-dim:#9aabcc; --ink-faint:#5f6f92;
+    --chronos:#5eead4; --chronos-bg:rgba(94,234,212,0.06);
+    --sentinel:#a78bfa; --sentinel-bg:rgba(167,139,250,0.06);
+    --mono:'SF Mono',ui-monospace,'Cascadia Code',Menlo,Consolas,monospace;
+    --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI','Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.6;-webkit-font-smoothing:antialiased;padding:0 20px}
+  .wrap{max-width:940px;margin:0 auto;padding:56px 0 80px}
+
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-faint);margin-bottom:14px;display:flex;align-items:center;gap:10px}
+  .eyebrow::before{content:"";width:26px;height:1px;background:var(--ink-faint);display:inline-block}
+  h1{font-size:clamp(30px,5.5vw,50px);line-height:1.05;font-weight:800;letter-spacing:-.02em}
+  h1 .c{color:var(--chronos)} h1 .s{color:var(--sentinel)}
+  h1 .vs{color:var(--ink-faint);font-weight:600;font-size:.6em;margin:0 6px}
+  .sub{color:var(--ink-dim);font-size:16px;margin-top:12px}
+
+  /* comparison table */
+  .cmp{width:100%;border-collapse:separate;border-spacing:0;margin-top:36px;border:1px solid var(--line);border-radius:16px;overflow:hidden;font-size:14.5px}
+  .cmp th,.cmp td{padding:16px 18px;vertical-align:top;text-align:left;border-bottom:1px solid var(--line-soft)}
+  .cmp thead th{background:var(--panel-2);font-weight:700;font-size:15px;position:sticky;top:0}
+  .cmp thead .lab{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;display:block;margin-bottom:4px}
+  .col-item{background:var(--panel-2);width:150px}
+  .col-c{background:var(--chronos-bg)} .col-c.h .lab{color:var(--chronos)} .col-c.h{border-bottom:2px solid var(--chronos)}
+  .col-s{background:var(--sentinel-bg)} .col-s.h .lab{color:var(--sentinel)} .col-s.h{border-bottom:2px solid var(--sentinel)}
+  .cmp tbody td{color:var(--ink-dim)}
+  .cmp .rk{font-family:var(--mono);font-size:12px;color:var(--ink);font-weight:600;letter-spacing:.02em}
+  .cmp tbody tr:last-child td{border-bottom:none}
+  .cmp td strong{color:var(--ink);font-weight:600}
+  .chip{display:inline-block;font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:6px;border:1px solid var(--line);margin-top:2px}
+  .chip.c{color:var(--chronos);border-color:rgba(94,234,212,0.35)}
+  .chip.s{color:var(--sentinel);border-color:rgba(167,139,250,0.35)}
+
+  /* summary */
+  .summary{margin-top:30px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:26px 28px;position:relative;overflow:hidden}
+  .summary::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:linear-gradient(180deg,var(--chronos),var(--sentinel))}
+  .summary .tag{font-family:var(--mono);font-size:12px;letter-spacing:.08em;color:var(--ink-faint);text-transform:uppercase;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+  .summary p{color:var(--ink-dim);font-size:16px;line-height:1.75;margin:0}
+  .summary .brain{color:var(--chronos);font-weight:700}
+  .summary .guard{color:var(--sentinel);font-weight:700}
+  .roles{display:grid;grid-template-columns:1fr auto 1fr;gap:14px;align-items:center;margin-top:18px}
+  .role{border:1px solid var(--line);border-radius:12px;padding:14px 16px;background:var(--panel-2)}
+  .role .rl{font-family:var(--mono);font-size:11px;letter-spacing:.06em;margin-bottom:4px}
+  .role.c .rl{color:var(--chronos)} .role.s .rl{color:var(--sentinel)}
+  .role .rn{font-weight:700;color:var(--ink);font-size:15px}
+  .role .rd{font-size:13px;color:var(--ink-dim);margin-top:2px}
+  .roles .arw{font-family:var(--mono);color:var(--ink-faint);text-align:center;font-size:18px}
+
+  @media(max-width:640px){
+    .wrap{padding:40px 0 64px}
+    .cmp{font-size:13px}
+    .cmp th,.cmp td{padding:12px 12px}
+    .col-item{width:96px}
+    .roles{grid-template-columns:1fr}
+    .roles .arw{transform:rotate(90deg)}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow">Time-Series AI · 역할 비교</div>
+  <h1><span class="c">Chronos-Bolt</span><span class="vs">vs</span><span class="s">TightLoop Sentinel</span></h1>
+  <p class="sub">예측하는 두뇌와 판단하는 가드레일 — 두 시스템의 핵심 차이를 한눈에.</p>
+
+  <table class="cmp">
+    <thead>
+      <tr>
+        <th class="col-item">비교 항목</th>
+        <th class="col-c h"><span class="lab">Forecast</span>Amazon Chronos-Bolt</th>
+        <th class="col-s h"><span class="lab">Guardrail</span>TightLoop Sentinel</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="rk">핵심 역할</td>
+        <td class="col-c">고정밀 시계열 데이터 예측 <strong>(초고속 추론)</strong></td>
+        <td class="col-s">예측 오차 필터링 및 <strong>조기경보 발령</strong></td>
+      </tr>
+      <tr>
+        <td class="rk">핵심 기술</td>
+        <td class="col-c">Transformer 기반 TSFM <span class="chip c">Zero-shot</span></td>
+        <td class="col-s">신뢰구간 분석, 정비 골든타임 알고리즘</td>
+      </tr>
+      <tr>
+        <td class="rk">입력 데이터</td>
+        <td class="col-c">수치형 센서/로그 시계열 데이터</td>
+        <td class="col-s">예측 모델의 출력값 <strong>+</strong> 센서 실시간 피드백</td>
+      </tr>
+      <tr>
+        <td class="rk">출력 형태</td>
+        <td class="col-c">미래 시점의 수치 예측 값 <strong>(신뢰구간 포함)</strong></td>
+        <td class="col-s">경보 신호(Warning), 정비 골든타임 가이드라인</td>
+      </tr>
+      <tr>
+        <td class="rk">적용 영역</td>
+        <td class="col-c">전반적인 모든 시계열 예측 영역 (물류, 전력 등)</td>
+        <td class="col-s">고신뢰성 제어, 예지보전, 중공업 및 초정밀 공정</td>
+      </tr>
+      <tr>
+        <td class="rk">현장 도입 방식</td>
+        <td class="col-c">모델 API 및 연산 서버 구성</td>
+        <td class="col-s">기존 제어 시스템(PLC, SCADA) 상위 가드레일 탑재</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="summary">
+    <div class="tag">💡 한 줄 요약</div>
+    <p><span class="brain">Chronos-Bolt</span>가 센서 데이터로 미래를 빠르고 정확하게 예측하는 <span class="brain">'AI 두뇌'</span>라면, <span class="guard">TightLoop Sentinel</span>은 그 예측값을 실시간 검증해 오경보를 걸러내고 행동 지침을 주는 <span class="guard">'판단 가드레일'</span>이다.</p>
+    <div class="roles">
+      <div class="role c"><div class="rl">AI 두뇌</div><div class="rn">Chronos-Bolt</div><div class="rd">예측한다</div></div>
+      <div class="arw">→</div>
+      <div class="role s"><div class="rl">판단 가드레일</div><div class="rn">TightLoop Sentinel</div><div class="rd">검증하고 지시한다</div></div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
