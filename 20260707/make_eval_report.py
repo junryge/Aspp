@@ -90,10 +90,22 @@ def main():
     def overlaps(as_, ae, gs, ge):
         return as_ <= ge and ae >= (gs - pre)
 
+    def _dir(a):
+        # dir 컬럼 있으면 사용, 없으면 사유 텍스트에서 방향 추출
+        if a and a.get("dir"):
+            return a["dir"]
+        rec = a.get("rec", "") if a else ""
+        for d in ("남측", "북측", "허브", "브릿지"):
+            if d in rec:
+                return d
+        if "격상" in rec or "임계" in rec:   # Chronos 단독 경보
+            return "Chronos"
+        return ""
+
     def alarm_detail(as_):
         # 경보 시작 시점의 사유/방향/확률
         a = amap.get(as_)
-        return (a["rec"] if a else "", a["dir"] if a else "",
+        return (a["rec"] if a else "", _dir(a),
                 round(a["prob"], 2) if a else "")
 
     rows = []
