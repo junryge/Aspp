@@ -1,9 +1,32 @@
-CMD 1 — 이름 변경
+import json, datetime, os, glob
 
-ren "C:\Users\X0163954\Download\document.html" "LLM사건발생_{yesterday}.html"
-CMD 2 — 폴더 생성 + 이동
+BASE      = r"C:\연구과제\CODE\데모스_분석툴\레포트1000_4000"
+HTML_FILE = r"C:\연구과제\CODE\데모스_분석툴\RPA\html\LLM사건발생_{yesterday}.html"
 
-md "C:\연구과제\CODE\데모스_분석툴\RPA\html" 2>nul & move /Y "C:\Users\X0163954\Download\LLM사건발생_{yesterday}.html" "C:\연구과제\CODE\데모스_분석툴\RPA\html\"
+with open(HTML_FILE, encoding="utf-8") as f:
+    body = f.read()
 
+entry = {
+    "title": "{yesterday:%Y_%m_%d}_Incident_Report_System",
+    "body": body,
+    "author": "AMHS",
+    "status": "draft",
+    "updatedAt": datetime.datetime.now().isoformat() + "Z"
+}
+key = "{yesterday:%Y-%m-%d}"
 
- {yesterday:%d}
+targets = glob.glob(os.path.join(BASE, "레포트*", "reports_db.json"))
+done = 0
+for path in targets:
+    try:
+        with open(path, encoding="utf-8") as f:
+            db = json.load(f)
+        db[key] = dict(entry)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(db, f, ensure_ascii=False, indent=2)
+        done += 1
+        print("registered:", path)
+    except Exception as e:
+        print("FAIL:", path, e)
+
+print("total:", done, "folders ->", key)
