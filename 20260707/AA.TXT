@@ -1,1 +1,6 @@
-md "C:\연구과제\CODE\데모스_분석툴\RPA\html" 2>nul & move /Y "C:\Users\X0163954\Download\document.html" "C:\연구과제\CODE\데모스_분석툴\RPA\html\LLM사건발생_{yesterday}.html"
+CMD 1 — 이름 변경
+
+ren "C:\Users\X0163954\Download\document.html" "LLM사건발생_{yesterday}.html"
+CMD 2 — 폴더 생성 + 이동
+
+md "C:\연구과제\CODE\데모스_분석툴\RPA\html" 2>nul & move /Y "C:\Users\X0163954\Download\LLM사건발생_{yesterday}.html" "C:\연구과제\CODE\데모스_분석툴\RPA\html\"
