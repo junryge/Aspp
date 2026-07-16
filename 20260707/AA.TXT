@@ -1,6 +1,11 @@
-import json, datetime, os, glob
+import json, datetime
 
-BASE      = r"C:\연구과제\CODE\데모스_분석툴\레포트1000_4000"
+REPORTS = [
+    r"C:\연구과제\CODE\데모스_분석툴\레포트1000_4000\레포트10030\reports_db.json",
+    r"C:\연구과제\CODE\데모스_분석툴\레포트1000_4000\레포트10040\reports_db.json",
+    r"C:\연구과제\CODE\데모스_분석툴\레포트1000_4000\레포트10050\reports_db.json",
+    r"C:\연구과제\CODE\데모스_분석툴\레포트1000_4000\레포트10060\reports_db.json",
+]
 HTML_FILE = r"C:\연구과제\CODE\데모스_분석툴\RPA\html\LLM사건발생_{yesterday}.html"
 
 with open(HTML_FILE, encoding="utf-8") as f:
@@ -15,9 +20,8 @@ entry = {
 }
 key = "{yesterday:%Y-%m-%d}"
 
-targets = glob.glob(os.path.join(BASE, "레포트*", "reports_db.json"))
 done = 0
-for path in targets:
+for path in REPORTS:
     try:
         with open(path, encoding="utf-8") as f:
             db = json.load(f)
@@ -29,4 +33,4 @@ for path in targets:
     except Exception as e:
         print("FAIL:", path, e)
 
-print("total:", done, "folders ->", key)
+print("total:", done, "->", key)
