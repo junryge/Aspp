@@ -1,12 +1,57 @@
-1) CUSUM 조기경보 생성 (빠름)
+ate var
+Bash
+cd /home/user/ASAS/RPA && python3 -c "
+import datetime, re
+def render_vars(text, now):
+    if not isinstance(text,str) or '{' not in text: return text
+    bases={'today':now,'yesterday':now-datetime.timedelta(days=1),'tomorrow':now+datetime.timedelta(days=1),'now':now}
+    def repl(m):
+        key=m.group(1);fmt=m.group(2);base=bases[key]
+        if fmt:
+            try: return base.strftime(fmt)
+            except: return m.group(0)
+        return base.strftime('%Y%m%d%H%M%S') if key=='now' else base.strftime('%Y%m%d')
+    return re.sub(r'\{(today|yesterday|tomorrow|now)(?::([^}]+))?\}',repl,text)
 
-python cusum_detector.py --data "RAW6/*.CSV" --out act_cusum.csv
-2) CUSUM 단독 채점
+now=datetime.datetime(2026,7,16,0,20)
+cmd1 = r'ren \"C:\Users\X0163954\Downloads\document\document.html\" \"LLM사건발생_{yesterday}.html\"'
+cmd2 = r'md \"C:\연구과제\CODE\데모스_분석툴\RPA\html\" 2>nul & move /Y \"C:\Users\X0163954\Downloads\document\LLM사건발생_{yesterday}.html\" \"C:\연구과제\CODE\데모스_분석툴\RPA\html\\\"'
+print('[CMD 1] 이름 변경 — 넣을 명령:')
+print('  ', cmd1)
+print('   → 07/16 실행 시:')
+print('  ', render_vars(cmd1, now))
+print()
+print('[CMD 2] 이동 — 넣을 명령:')
+print('  ', cmd2)
+print('   → 07/16 실행 시:')
+print('  ', render_vars(cmd2, now))
+"
+[CMD 1] 이름 변경 — 넣을 명령:
+   ren "C:\Users\X0163954\Downloads\document\document.html" "LLM사건발생_{yesterday}.html"
+   → 07/16 실행 시:
+   ren "C:\Users\X0163954\Downloads\document\document.html" "LLM사건발생_20260715.html"
 
-python score.py --actions act_cusum.csv --data "RAW6/*.CSV" --threshold 16.7 --pre 15 --gap 10
-3) 결합 (CUSUM + Chronos p_on=0.5)
+[CMD 2] 이동 — 넣을 명령:
+   md "C:\연구과제\CODE\데모스_분석툴\RPA\html" 2>/dev/null & move /Y "C:\Users\X0163954\Downloads\document\LLM사건발생_{yesterday}.html" "C:\연구과제\CODE\데모스_분석툴\RPA\html\"
+   → 07/16 실행 시:
+   md "C:\연구과제\CODE\데모스_분석툴\RPA\html" 2>/dev/null & move /Y "C:\Users\X0163954\Downloads\document\LLM사건발생_20260715.html" "C:\연구과제\CODE\데모스_분석툴\RPA\html\"
+됩니다! (데모의 2>/dev/null은 제 리눅스 환경 표시일 뿐, 윈도우에선 2>nul 로 쓰시면 됩니다) CMD 노드도 날짜변수 지원하니 코드 수정 없이 명령만 넣으면 됩니다.
 
-python combine.py --a act_cusum.csv --b act_0.5.csv --mode union --out act_comb.csv
-4) 결합 채점
+CMD 노드 2개
+CMD 1 — 이름 변경 (ren)
 
-python score.py --actions act_comb.csv --data "RAW6/*.CSV" --threshold 16.7 --pre 15 --gap 10
+ren "C:\Users\X0163954\Downloads\document\document.html" "LLM사건발생_{yesterday}.html"
+CMD 2 — 이동 (move)
+
+move /Y "C:\Users\X0163954\Downloads\document\LLM사건발생_{yesterday}.html" "C:\연구과제\CODE\데모스_분석툴\RPA\html\"
+07/16 실행 시 자동으로 LLM사건발생_20260715.html 로 바뀝니다.
+
+⚠️ 주의 — 이동 대상 폴더가 있어야 함
+...\RPA\html 폴더가 없으면 move가 실패합니다. 폴더를 미리 만들거나, CMD 2를 이렇게 쓰면 폴더가 자동 생성됩니다:
+
+md "C:\연구과제\CODE\데모스_분석툴\RPA\html" 2>nul & move /Y "C:\Users\X0163954\Downloads\document\LLM사건발생_{yesterday}.html" "C:\연구과제\CODE\데모스_분석툴\RPA\html\"
+💡 팁 — 사실 1개로도 됩니다
+move는 이름변경+이동을 동시에 할 수 있어서, 원하면 CMD 하나로:
+
+move /Y "C:\Users\X0163954\Downloads\document\document.html" "C:\연구과제\CODE\데모스_분석툴\RPA\html\LLM사건발생_{yesterday}.html"
+(이 경우도 대상 html 폴더는 미리 있어야 해요)
