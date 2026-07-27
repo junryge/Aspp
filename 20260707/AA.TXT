@@ -1,36 +1,17 @@
-import json, datetime
+{
+  "_comment": "운영 — Logpresso적재",
+  "enabled": true,
+  "ml_enabled": false,
+  "logpresso_base": "http://10.40.42.167:8888",
+  "api_key_file": "api_key.txt",
+  "table_name": "test_table3",
+  "file_label": "Rule_system",
+  "fail_silent": true,
+  "async_upload": false,
 
-REPORTS = [
-    r"C:\연구과제\CODE\데모스_분석툴\레포트1000_4000\레포트10030\reports_db.json",
-    r"C:\연구과제\CODE\데모스_분석툴\레포트1000_4000\레포트10040\reports_db.json",
-    r"C:\연구과제\CODE\데모스_분석툴\레포트1000_4000\레포트10050\reports_db.json",
-    r"C:\연구과제\CODE\데모스_분석툴\레포트1000_4000\레포트10060\reports_db.json",
-]
-HTML_FILE = r"C:\연구과제\CODE\데모스_분석툴\RPA\html\LLM사건발생_{yesterday}.html"
-
-with open(HTML_FILE, encoding="utf-8") as f:
-    body = f.read()
-
-entry = {
-    "title": "{yesterday:%Y_%m_%d}_Incident_Report_System",
-    "body": body,
-    "author": "AMHS",
-    "status": "draft",
-    "updatedAt": datetime.datetime.now().isoformat() + "Z"
+  "_comment_graph": "Graph_LO — 발동이벤트 ≥주의 시 raw 90분 복사 + 그래프 자동 생성",
+  "graph_enabled": true,
+  "graph_dir": "./gre",
+  "graph_raw_path": "./predict/M16A_HUBROOM_PR.csv",
+  "graph_levels": ["주의", "경계", "위험", "발동"]
 }
-key = "{yesterday:%Y-%m-%d}"
-
-done = 0
-for path in REPORTS:
-    try:
-        with open(path, encoding="utf-8") as f:
-            db = json.load(f)
-        db[key] = dict(entry)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(db, f, ensure_ascii=False, indent=2)
-        done += 1
-        print("registered:", path)
-    except Exception as e:
-        print("FAIL:", path, e)
-
-print("total:", done, "->", key)
