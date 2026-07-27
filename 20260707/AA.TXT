@@ -2,7 +2,7 @@
   "_comment": "운영 — Logpresso적재",
   "enabled": true,
   "ml_enabled": false,
-  "logpresso_base": "http://10.40.42.167:8888",
+  "logpresso_base": "http://10.40.42.167:8888/logpresso",
   "api_key_file": "api_key.txt",
   "table_name": "test_table3",
   "file_label": "Rule_system",
