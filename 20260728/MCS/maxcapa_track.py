@@ -4,7 +4,7 @@ M16A MCS - MAXCAPACITY 조정/원복 추적
 - UI-MACHINE-STORAGE-CAPACITY 메시지의 TEXT(XML)에서 MAXCAPACITY 추출
 - MACHINENAME 별 시간순 정렬 -> 값이 바뀌는 순간(변경점)만 추출
 - 변경점을 조정(상향) -> 원복(복귀) 로 페어링
-- 결과 CSV 3개 출력
+- 조정/원복 페어 CSV 1개 출력
 
 사용법:
     python maxcapa_track.py --from "2026-07-28 00:00:00" --to "2026-07-29 00:00:00"
@@ -173,32 +173,13 @@ def fmt(t):
     return t.strftime("%Y-%m-%d %H:%M:%S") if t else ""
 
 
-def save_all(changes, pairs, baseline, lastval, prefix):
-    # 1) 변경점 전체
-    w(prefix + "_changes.csv",
-      ["MACHINE", "변경시각", "전(before)", "후(after)", "증감", "방향",
-       "기준값", "이전값유지시간(h)", "현재캐리어", "STATE", "FULLUP", "USER"],
-      [[c["machine"], fmt(c["time"]), c["before"], c["after"],
-        "%+d" % c["diff"], c["direction"], c["baseline"],
-        "%.1f" % c["hold_h"], c["cur_carrier"], c["state"], c["fullup"], c["user"]]
-       for c in changes])
-
-    # 2) 조정/원복 페어
-    w(prefix + "_pairs.csv",
+def save_pairs(pairs, path):
+    w(path,
       ["MACHINE", "상태", "기준값", "조정시각", "조정 전", "조정 후(최대)",
        "원복시각", "원복값", "유지시간(h)"],
       [[p["machine"], p["status"], p["baseline"], fmt(p["adj_time"]),
         p["adj_from"], p["adj_to"], fmt(p["rst_time"]), p["rst_to"],
         "%.1f" % p["hold_h"]] for p in pairs])
-
-    # 3) MACHINE 요약
-    machs = sorted(baseline.keys())
-    w(prefix + "_summary.csv",
-      ["MACHINE", "기준값", "최종값", "변경횟수", "상태", "최종관측시각", "최종캐리어"],
-      [[m, baseline[m], lastval[m]["max"],
-        len([c for c in changes if c["machine"] == m]),
-        "정상" if lastval[m]["max"] == baseline[m] else "기준이탈",
-        fmt(lastval[m]["time"]), lastval[m]["cur"]] for m in machs])
 
 
 # ------------------------------------------------- main
@@ -208,7 +189,7 @@ def main():
     ap.add_argument("--from", dest="dt_from", default=None)
     ap.add_argument("--to", dest="dt_to", default=None)
     ap.add_argument("--machine", default=None, help="특정 MACHINE 만 필터")
-    ap.add_argument("--prefix", default="maxcapa")
+    ap.add_argument("--csv", default="maxcapa_pairs.csv")
     args = ap.parse_args()
 
     now = datetime.now()
@@ -262,7 +243,7 @@ def main():
                  p["rst_time"].strftime("%m-%d %H:%M"), p["hold_h"]))
     print("=" * 78 + "\n")
 
-    save_all(changes, pairs, baseline, lastval, args.prefix)
+    save_pairs(pairs, args.csv)
 
 
 if __name__ == "__main__":
