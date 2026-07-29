@@ -61,6 +61,7 @@ def main():
     ap.add_argument("--days", type=int, default=7)
     ap.add_argument("--csv", default="maxcapa_final.csv")
     ap.add_argument("--all", action="store_true", help="변경없음(same) 건도 CSV에 포함")
+    ap.add_argument("--snapall", action="store_true", help="(내부용)")
     args = ap.parse_args()
 
     now = datetime.now()
@@ -128,36 +129,108 @@ def main():
             for c in changed:
                 print("        [변경] %-22s -> %s" % (c["port"], c["after"]))
 
+            # same 건에는 전/후 값이 다 있다 -> 그 시점 현재값 스냅샷으로 활용
+            snap = {}
+            for c in same:
+                if c["port"]:
+                    snap[c["port"]] = c["before"]
+
             for c in changed:
-                recs.append([t["time"].strftime("%Y-%m-%d %H:%M:%S"), t["proc"], user,
-                             c["machine"], c["port"], "", c["after"], "변경",
-                             len(changed), t["txid"]])
+                recs.append({"time": t["time"], "proc": t["proc"], "user": user,
+                             "machine": c["machine"], "port": c["port"],
+                             "after": c["after"], "kind": "변경",
+                             "nch": len(changed), "txid": t["txid"],
+                             "snap": snap})
             if args.all:
                 for c in same:
-                    recs.append([t["time"].strftime("%Y-%m-%d %H:%M:%S"), t["proc"], user,
-                                 c["machine"], c["port"], c["before"], c["after"],
-                                 "변경없음", len(changed), t["txid"]])
+                    recs.append({"time": t["time"], "proc": t["proc"], "user": user,
+                                 "machine": c["machine"], "port": c["port"],
+                                 "before": c["before"], "after": c["after"],
+                                 "kind": "변경없음", "nch": len(changed),
+                                 "txid": t["txid"], "snap": snap})
     finally:
         conn.close()
 
+    # ---------- 전(before) 값 채우기 ----------
+    recs.sort(key=lambda r: r["time"])
+    lastval = {}     # port -> 마지막 후값
+    baseline = {}    # port -> 최초 기준값
+
+    for r in recs:
+        port = r["port"]
+        if "before" not in r or r["before"] == "":
+            if port in lastval:
+                r["before"] = lastval[port]          # 직전 조작의 후값
+                r["src"] = "직전이력"
+            elif port in r["snap"]:
+                r["before"] = r["snap"][port]        # 같은 TX 의 same 로그
+                r["src"] = "동일TX"
+            else:
+                r["before"] = ""
+                r["src"] = "미확인"
+        else:
+            r["src"] = "로그"
+
+        if port not in baseline and r["before"] != "":
+            baseline[port] = r["before"]
+        lastval[port] = r["after"]
+
+    # ---------- 원복 판정 ----------
+    for r in recs:
+        b = baseline.get(r["port"], "")
+        r["base"] = b
+        if b == "" or r["kind"] != "변경":
+            r["state"] = ""
+        elif r["after"] == b:
+            r["state"] = "원복"
+        else:
+            r["state"] = "조정"
+
+    # ---------- CSV ----------
     with open(args.csv, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f)
         w.writerow(["조작시각", "PROCESS", "조작자사번", "MACHINE", "PORT",
-                    "전(before)", "후(after)", "구분", "동일TX변경포트수", "TRANSACTIONID"])
-        w.writerows(recs)
+                    "전(before)", "후(after)", "증감", "판정", "기준값",
+                    "전값출처", "구분", "동일TX변경포트수", "TRANSACTIONID"])
+        for r in recs:
+            diff = ""
+            if r["before"] != "":
+                try:
+                    diff = "%+d" % (int(r["after"]) - int(r["before"]))
+                except Exception:
+                    diff = ""
+            w.writerow([r["time"].strftime("%Y-%m-%d %H:%M:%S"), r["proc"], r["user"],
+                        r["machine"], r["port"], r["before"], r["after"], diff,
+                        r["state"], r["base"], r["src"], r["kind"], r["nch"], r["txid"]])
     print("\n[CSV] %s (%d rows)" % (os.path.abspath(args.csv), len(recs)))
 
-    ch = [r for r in recs if r[7] == "변경"]
+    # ---------- 요약 ----------
+    ch = [r for r in recs if r["kind"] == "변경"]
     if ch:
-        print("\n" + "=" * 74)
+        print("\n" + "=" * 84)
         print(" 조정 요약 : 조작 %d회 / 변경 포트 %d개" % (len(txs), len(ch)))
-        print("=" * 74)
+        print("=" * 84)
+        print(" %-19s %-22s %6s %6s %6s  %s" % ("시각", "PORT", "전", "후", "증감", "판정"))
+        print("-" * 84)
+        for r in ch:
+            d = ""
+            if r["before"] != "":
+                try:
+                    d = "%+d" % (int(r["after"]) - int(r["before"]))
+                except Exception:
+                    pass
+            print(" %-19s %-22s %6s %6s %6s  %s"
+                  % (r["time"].strftime("%m-%d %H:%M:%S"), r["port"],
+                     r["before"] if r["before"] != "" else "?", r["after"], d, r["state"]))
+        print("-" * 84)
+        nof = sum(1 for r in ch if r["before"] == "")
+        print(" 전값 확인 %d / 미확인 %d" % (len(ch) - nof, nof))
         byuser = defaultdict(int)
         for r in ch:
-            byuser[r[2] or "-"] += 1
+            byuser[r["user"] or "-"] += 1
         for u, n in sorted(byuser.items(), key=lambda x: -x[1]):
-            print("   사번 %-10s : %d포트" % (u, n))
-        print("=" * 74)
+            print(" 사번 %-10s : %d포트" % (u, n))
+        print("=" * 84)
 
 
 if __name__ == "__main__":
