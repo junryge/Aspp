@@ -33,7 +33,7 @@ MCS 운영 Oracle 이라는 것뿐이다. 별도 병합파일 안 만들고 발�
   접속 점검:       python mcs_maxcapa.py --test
   CSV 사용(옵션):  --source csv --maxcapa .\maxcapa_v3.csv   (DB 대신 수집본 사용)
   테스트(원본보존): --out .\테스트.csv
-  옵션: --interval 60 · --lookback 20 · --config mcs_config.ini · --force
+  옵션: --interval 60 · --lookback 20 · --offset 25 · --config mcs_config.ini · --force
 
 동작 원리 (LO_LOW_AMOS 와 동일):
   · 시작 직후 1회 그날 파일 전체 재기입 + 그날 00:00~현재 전체 조회 → 자가복구
@@ -106,13 +106,20 @@ def load_cfg(path):
         'method': o.get('method', 'BASIC').strip(),
         'retries': o.get('retries', '5').strip(),
         'delay': o.get('delay', '5').strip(),
+        # 접속 타임아웃 (없으면 죽은 RAC 노드에서 수십초 대기 → DPY-6005)
+        'conn_timeout': o.get('conn_timeout', '5').strip(),
+        'retry_count': o.get('retry_count', '2').strip(),
+        'retry_delay': o.get('retry_delay', '2').strip(),
     }
 
 
 def build_dsn(c):
-    """RAC FAILOVER DSN — mcs_query.py 와 동일한 형식 (검증된 것)."""
+    """RAC FAILOVER DSN — mcs_query.py 와 동일한 형식 + 접속 타임아웃.
+    ★ TRANSPORT_CONNECT_TIMEOUT 이 없으면 죽은 노드에서 수십초 매달린다 (DPY-6005)."""
     addr = ''.join(f'(ADDRESS=(PROTOCOL=TCP)(HOST={h})(PORT={c["port"]}))' for h in c['hosts'])
     return ('(DESCRIPTION='
+            f'(TRANSPORT_CONNECT_TIMEOUT={c["conn_timeout"]})'
+            f'(RETRY_COUNT={c["retry_count"]})(RETRY_DELAY={c["retry_delay"]})'
             f'(FAILOVER={c["failover"]})'
             f'{addr}'
             f'(CONNECT_DATA=(SERVICE_NAME={c["service"]})'
@@ -120,8 +127,7 @@ def build_dsn(c):
             f'(RETRIES={c["retries"]})(DELAY={c["delay"]}))))')
 
 
-def connect(c):
-    """oracledb thin 모드 (Oracle Client 설치 불필요) — mcs_query.py 와 동일."""
+def _driver():
     try:
         import oracledb as drv
     except ImportError:
@@ -129,7 +135,48 @@ def connect(c):
             import cx_Oracle as drv
         except ImportError:
             raise SystemExit('❌ oracledb 필요:  pip install oracledb')
-    return drv.connect(user=c['user'], password=c['pw'], dsn=build_dsn(c))
+    return drv
+
+
+def connect(c):
+    """oracledb thin 모드 (Oracle Client 설치 불필요) — mcs_query.py 와 동일."""
+    return _driver().connect(user=c['user'], password=c['pw'], dsn=build_dsn(c))
+
+
+# ★ 커넥션 재사용 — 매분 새로 접속하면 수집기와 경합해 타임아웃난다
+_CONN = {'h': None}
+
+
+def get_conn(c, reset=False):
+    """살아있는 커넥션 반환. 끊겼으면 재접속. reset=True 면 강제 재접속."""
+    if reset and _CONN['h'] is not None:
+        try:
+            _CONN['h'].close()
+        except Exception:
+            pass
+        _CONN['h'] = None
+    if _CONN['h'] is not None:
+        try:
+            _CONN['h'].ping()
+            return _CONN['h']
+        except Exception:
+            try:
+                _CONN['h'].close()
+            except Exception:
+                pass
+            _CONN['h'] = None
+    _CONN['h'] = connect(c)
+    print('  🔌 Oracle 접속 (커넥션 재사용 시작)')
+    return _CONN['h']
+
+
+def close_conn():
+    if _CONN['h'] is not None:
+        try:
+            _CONN['h'].close()
+        except Exception:
+            pass
+        _CONN['h'] = None
 
 
 def _s(v):
@@ -149,14 +196,27 @@ def _s(v):
 
 
 def fetch_db(a, dt_from, dt_to, cache):
-    """[dt_from, dt_to) 구간 조작을 조회해 cache[분키] 갱신. 실패 시 False."""
-    try:
-        conn = connect(a.cfg)
-    except SystemExit:
-        raise
-    except Exception as e:
-        print(f'  ⚠️ Oracle 접속 실패: {e}')
-        return False
+    """[dt_from, dt_to) 구간 조작을 조회해 cache[분키] 갱신. 실패 시 False.
+    커넥션은 재사용하고, 실패하면 한 번 재접속해서 재시도한다."""
+    for attempt in (0, 1):
+        try:
+            return _fetch_once(a, dt_from, dt_to, cache, reset=(attempt == 1))
+        except SystemExit:
+            raise
+        except Exception as e:
+            msg = str(e).splitlines()[0]
+            if attempt == 0:
+                print(f'  ⚠️ 조회 실패({msg}) → 재접속 후 재시도')
+                time.sleep(2)
+            else:
+                print(f'  ⚠️ Oracle 실패(재시도 소진): {msg}')
+                close_conn()
+    return False
+
+
+def _fetch_once(a, dt_from, dt_to, cache, reset=False):
+    t0 = time.time()
+    conn = get_conn(a.cfg, reset=reset)
     try:
         cur = conn.cursor()
         cur.execute(SQL_TX, {'msg': MSG,
@@ -200,14 +260,12 @@ def fetch_db(a, dt_from, dt_to, cache):
             if not e['ports']:                     # 실제 변경 없던 조작이면 비움
                 cache.pop(k, None)
         cur.close()
-        print(f'  [DB] {dt_from:%m/%d %H:%M}~{dt_to:%H:%M} → 조작 {len(txs)}회 · 포트변경 {nport}건')
+        print(f'  [DB] {dt_from:%m/%d %H:%M}~{dt_to:%H:%M} → 조작 {len(txs)}회 · '
+              f'포트변경 {nport}건 · {time.time()-t0:.1f}s')
         return True
-    except Exception as e:
-        print(f'  ⚠️ 조회 오류: {e}')
-        return False
     finally:
         try:
-            conn.close()
+            cur.close()
         except Exception:
             pass
 
@@ -355,6 +413,11 @@ def refresh(a, cache, dt_from, dt_to):
 def _loop(a):
     print(f'[mcs_maxcapa] {a.interval}초 간격 · 대상 {a.event} · 원본 '
           + ('CSV ' + str(a.maxcapa) if a.source == 'csv' else f"Oracle {a.cfg['service']}"))
+    # ★ 수집기(매분 00초 Oracle 접속)와 같은 순간에 붙으면 경합해 타임아웃난다 → 시작을 어긋나게
+    off = getattr(a, 'offset', 0)
+    if off > 0:
+        print(f'[mcs_maxcapa] 수집기와 겹치지 않게 {off}초 후 시작')
+        time.sleep(off)
     cache, healed, finishing, cur = {}, set(), {}, None
     user_force = getattr(a, 'force', False)
     while True:
@@ -398,11 +461,12 @@ def _loop(a):
             print(f'  ⚠️ [mcs_maxcapa] 오류(계속): {e}'); time.sleep(a.interval)
 
 
-def run_watch(event='./predict_tobe', interval=60, lookback=20,
+def run_watch(event='./predict_tobe', interval=60, lookback=20, offset=25,
               config='mcs_config.ini', source='db', maxcapa='./maxcapa_v3.csv'):
-    """run_ml 등에서 스레드로 돌리는 진입점."""
+    """run_ml 등에서 스레드로 돌리는 진입점. offset=수집기와 겹침 방지(초)."""
     a = argparse.Namespace(event=event, out=None, interval=interval, lookback=lookback,
-                           source=source, maxcapa=maxcapa, force=False, config=config)
+                           source=source, maxcapa=maxcapa, force=False, config=config,
+                           offset=offset)
     a.cfg = load_cfg(config) if source == 'db' else None
     _loop(a)
 
@@ -437,12 +501,34 @@ def backfill_alldays(a):
 
 
 def diagnose(a):
-    """접속·조회 점검."""
+    """접속·조회 점검 — 노드별 TCP 도달성까지 확인."""
+    import socket
+    c = a.cfg
     print(f"설정: {a.config}")
-    print(f"  hosts   : {', '.join(a.cfg['hosts'])}:{a.cfg['port']}")
-    print(f"  service : {a.cfg['service']}   user: {a.cfg['user']}")
-    print(f"  DSN     : {build_dsn(a.cfg)[:110]}...")
+    print(f"  service : {c['service']}   user: {c['user']}   port: {c['port']}")
+    print(f"  DSN     : {build_dsn(c)[:120]}...")
     print()
+    print(f"[1] RAC 노드별 TCP 도달성 (각 {c['conn_timeout']}초 제한)")
+    alive = 0
+    for h in c['hosts']:
+        t0 = time.time()
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(float(c['conn_timeout']))
+        try:
+            s.connect((h, int(c['port'])))
+            print(f"    ✅ {h}:{c['port']}  ({time.time()-t0:.2f}s)")
+            alive += 1
+        except socket.timeout:
+            print(f"    ⛔ {h}:{c['port']}  타임아웃 — 응답 없음(방화벽/노드 다운)")
+        except Exception as e:
+            print(f"    ❌ {h}:{c['port']}  {e}")
+        finally:
+            s.close()
+    print(f"    → 살아있는 노드 {alive}/{len(c['hosts'])}")
+    if alive == 0:
+        print("    ※ 전부 막혔으면 이 서버에서 DB 로 나가는 경로가 없는 것 — 방화벽/망 확인")
+    print()
+    print("[2] Oracle 로그인 + 조회")
     now = datetime.now()
     for label, (f0, f1) in (('오늘 00:00~현재', (now.replace(hour=0, minute=0, second=0, microsecond=0), now)),
                             ('어제 하루', (now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1),
@@ -453,7 +539,11 @@ def diagnose(a):
         for k in sorted(cache)[:3]:
             e = cache[k]
             print(f"     {k}  {','.join(e['machine'])}  {' / '.join(e['ports'])}  {','.join(e['proc'])}")
-    print('\n[해석]  접속 실패 → hosts/service/계정 확인 · 조회 0건 → 그 기간에 조작이 없던 것')
+    print()
+    print('[해석]')
+    print('  · TCP 전부 ⛔  → 이 서버에서 DB 로 나가는 망이 막힘 (코드 문제 아님, 방화벽 신청)')
+    print('  · TCP 일부 ✅ 인데 로그인 실패 → 계정/서비스명 확인 (ORA-01017 / ORA-12514)')
+    print('  · 전부 ✅ 인데 조회 0건 → 그 기간에 MAXCAPA 조작이 없던 것 (정상)')
 
 
 def main():
@@ -466,6 +556,8 @@ def main():
     ap.add_argument('--test', action='store_true', help='접속·조회 점검 (--event 불필요)')
     ap.add_argument('--interval', type=int, default=60)
     ap.add_argument('--lookback', type=int, default=20, help='매 사이클 재조회할 최근 분 (기본 20)')
+    ap.add_argument('--offset', type=int, default=25,
+                    help='수집기와 접속 시점 겹침 방지 지연(초, 기본 25). --loop 에만 적용')
     ap.add_argument('--config', default='mcs_config.ini')
     ap.add_argument('--source', choices=['db', 'csv'], default='db')
     ap.add_argument('--maxcapa', default='./maxcapa_v3.csv', help='--source csv 일 때 원본')
