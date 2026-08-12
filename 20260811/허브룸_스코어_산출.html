@@ -1,0 +1,506 @@
+﻿<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M16A 허브룸 스코어 산출</title>
+<style>
+:root{
+  --paper:#F5F7FA; --surface:#FFFFFF; --surface2:#EDF1F6;
+  --ink:#10161F; --muted:#5A6675; --faint:#7C8899;
+  --line:#D5DCE5; --line2:#C2CCD8;
+  --accent:#1E5FA8; --accent-soft:#E4EDF8; --accent-line:#A9C6E6;
+  --g1:#B7791F; --g1bg:#FBF1DE; --g2:#C2410C; --g2bg:#FCEBE2; --g3:#A31621; --g3bg:#F9E4E6;
+  --ok:#1F6F4A; --okbg:#E2F1EA;
+  --shadow:0 1px 2px rgba(16,22,31,.05), 0 4px 14px rgba(16,22,31,.05);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0E1319; --surface:#161D26; --surface2:#1C2530;
+    --ink:#E6EBF2; --muted:#94A3B4; --faint:#7A8798;
+    --line:#2A3441; --line2:#384554;
+    --accent:#6BA5E7; --accent-soft:#16273A; --accent-line:#2C4A6B;
+    --g1:#E0A94A; --g1bg:#2E2413; --g2:#F07A45; --g2bg:#331B11; --g3:#E8636F; --g3bg:#331419;
+    --ok:#5FBD8E; --okbg:#13291F;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 4px 14px rgba(0,0,0,.25);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0E1319; --surface:#161D26; --surface2:#1C2530;
+  --ink:#E6EBF2; --muted:#94A3B4; --faint:#7A8798;
+  --line:#2A3441; --line2:#384554;
+  --accent:#6BA5E7; --accent-soft:#16273A; --accent-line:#2C4A6B;
+  --g1:#E0A94A; --g1bg:#2E2413; --g2:#F07A45; --g2bg:#331B11; --g3:#E8636F; --g3bg:#331419;
+  --ok:#5FBD8E; --okbg:#13291F;
+  --shadow:0 1px 2px rgba(0,0,0,.3), 0 4px 14px rgba(0,0,0,.25);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard",
+    "Malgun Gothic","맑은 고딕","Noto Sans KR",sans-serif;
+  font-size:15px; line-height:1.65; -webkit-font-smoothing:antialiased;
+}
+.mono,code,.num,th.n,td.n{
+  font-family:ui-monospace,"SF Mono","Cascadia Mono","JetBrains Mono",Consolas,"D2Coding",monospace;
+  font-variant-numeric:tabular-nums;
+}
+.wrap{max-width:1120px; margin:0 auto; padding:0 24px 96px}
+
+/* ── header ── */
+header{border-bottom:1px solid var(--line); background:var(--surface); margin-bottom:40px}
+.hin{max-width:1120px; margin:0 auto; padding:44px 24px 36px}
+.eyebrow{
+  font-size:11px; letter-spacing:.16em; text-transform:uppercase;
+  color:var(--accent); font-weight:700; margin:0 0 14px;
+}
+h1{font-size:clamp(28px,4.4vw,42px); line-height:1.15; margin:0 0 14px; letter-spacing:-.02em; text-wrap:balance}
+.lede{font-size:17px; color:var(--muted); margin:0; max-width:62ch}
+.formula-strip{
+  margin-top:26px; padding:16px 20px; background:var(--accent-soft);
+  border:1px solid var(--accent-line); border-radius:6px;
+  font-size:15px; overflow-x:auto; white-space:nowrap;
+}
+.formula-strip b{color:var(--accent)}
+
+/* ── pipeline ── */
+.pipe{display:grid; grid-template-columns:repeat(5,1fr); gap:0; margin:0 0 12px}
+.stage{
+  position:relative; background:var(--surface); border:1px solid var(--line);
+  border-right:0; padding:18px 16px 16px; box-shadow:var(--shadow);
+}
+.stage:last-child{border-right:1px solid var(--line)}
+.stage:first-child{border-radius:6px 0 0 6px}
+.stage:last-child{border-radius:0 6px 6px 0}
+.stage .n{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:22px; height:22px; border-radius:50%; background:var(--accent); color:#fff;
+  font-size:12px; font-weight:700; margin-bottom:10px;
+}
+.stage h3{font-size:14px; margin:0 0 6px; letter-spacing:-.01em}
+.stage p{font-size:12.5px; color:var(--muted); margin:0; line-height:1.5}
+.stage .out{
+  margin-top:12px; padding-top:10px; border-top:1px dashed var(--line2);
+  font-size:12px; color:var(--accent); font-weight:600;
+}
+.pipe-note{font-size:12.5px; color:var(--faint); margin:0 0 52px}
+
+/* ── sections ── */
+section{margin:0 0 56px; scroll-margin-top:20px}
+.sechead{display:flex; align-items:baseline; gap:12px; margin:0 0 6px; flex-wrap:wrap}
+.sechead .step{
+  font-size:11px; font-weight:700; letter-spacing:.14em; color:var(--accent);
+  border:1px solid var(--accent-line); background:var(--accent-soft);
+  padding:3px 9px; border-radius:3px; white-space:nowrap;
+}
+h2{font-size:23px; margin:0; letter-spacing:-.02em; text-wrap:balance}
+.subtitle{color:var(--muted); margin:8px 0 22px; max-width:70ch}
+
+/* ── tables ── */
+.tw{overflow-x:auto; border:1px solid var(--line); border-radius:6px; background:var(--surface); box-shadow:var(--shadow)}
+table{border-collapse:collapse; width:100%; font-size:13.5px; min-width:660px}
+th,td{padding:10px 13px; text-align:left; border-bottom:1px solid var(--line); vertical-align:top}
+thead th{
+  background:var(--surface2); font-size:11px; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--muted); font-weight:700; white-space:nowrap; border-bottom:1px solid var(--line2);
+}
+tbody tr:last-child td{border-bottom:0}
+td.n,th.n{text-align:right; white-space:nowrap}
+.rule{font-weight:700; color:var(--accent); white-space:nowrap}
+.col{font-size:12px; color:var(--muted); word-break:break-all}
+.pts{
+  display:inline-block; min-width:30px; text-align:center; padding:2px 7px; border-radius:3px;
+  background:var(--accent-soft); color:var(--accent); font-weight:700; font-size:12.5px;
+  border:1px solid var(--accent-line);
+}
+
+/* ── grade pills ── */
+.pill{display:inline-block; padding:2px 10px; border-radius:3px; font-size:12.5px; font-weight:700; white-space:nowrap}
+.p1{background:var(--g1bg); color:var(--g1); border:1px solid var(--g1)}
+.p2{background:var(--g2bg); color:var(--g2); border:1px solid var(--g2)}
+.p3{background:var(--g3bg); color:var(--g3); border:1px solid var(--g3)}
+.p0{background:var(--surface2); color:var(--faint); border:1px solid var(--line2)}
+
+/* ── callouts ── */
+.note{
+  border:1px solid var(--line); border-left:3px solid var(--accent);
+  background:var(--surface); padding:16px 20px; border-radius:0 6px 6px 0; margin:22px 0;
+}
+.note.warn{border-left-color:var(--g2)}
+.note.key{border-left-color:var(--g3)}
+.note h4{margin:0 0 7px; font-size:14.5px}
+.note p{margin:0; color:var(--muted); font-size:14px}
+.note p+p{margin-top:9px}
+
+/* ── worked example ── */
+.calc{
+  background:var(--surface); border:1px solid var(--line); border-radius:6px;
+  padding:22px 24px; box-shadow:var(--shadow); overflow-x:auto;
+}
+.calc-row{display:flex; align-items:baseline; gap:14px; padding:7px 0; border-bottom:1px dashed var(--line); font-size:13.5px; white-space:nowrap}
+.calc-row:last-of-type{border-bottom:0}
+.calc-row .lbl{width:230px; flex:0 0 230px; color:var(--muted); white-space:normal}
+.calc-row .exp{flex:1; min-width:210px}
+.calc-row .val{font-weight:700; text-align:right; width:74px; flex:0 0 74px}
+.calc-total{
+  display:flex; align-items:baseline; gap:14px; margin-top:14px; padding-top:14px;
+  border-top:2px solid var(--ink); font-size:15px; font-weight:700; white-space:nowrap;
+}
+.calc-total .lbl{width:230px; flex:0 0 230px}
+.calc-total .exp{flex:1; min-width:210px; color:var(--accent)}
+.calc-total .val{width:74px; flex:0 0 74px; text-align:right}
+
+/* ── worked example ── */
+.extbl td{vertical-align:middle}
+.extbl td.area{
+  font-family:ui-monospace,"SF Mono","Cascadia Mono",Consolas,monospace;
+  font-weight:700; color:var(--accent); background:var(--surface2);
+  vertical-align:top; white-space:nowrap; border-right:1px solid var(--line2);
+}
+.extbl td.th{color:var(--faint); font-size:12px}
+.extbl tr.sub td{background:var(--surface2); font-weight:700; color:var(--muted); font-size:12.5px}
+.extbl tr.sub td:last-child{color:var(--ink); font-size:14px}
+.ex-f b{color:var(--ink); font-size:14px}
+
+.verdict{display:flex; align-items:center; gap:26px; margin-top:18px; padding:22px 26px;
+  background:var(--g1bg); border:1px solid var(--g1); border-radius:6px; flex-wrap:wrap}
+.vnum{font-size:56px; font-weight:800; line-height:1; color:var(--g1); letter-spacing:-.04em}
+.vtxt{flex:1; min-width:260px}
+.vtxt p{margin:9px 0 0; font-size:14px; color:var(--ink)}
+
+.props{display:grid; grid-template-columns:repeat(auto-fit,minmax(290px,1fr)); gap:16px; margin-top:8px}
+.prop{background:var(--surface); border:1px solid var(--line); border-radius:6px; padding:20px; box-shadow:var(--shadow)}
+.prop .tag{font-size:11px; letter-spacing:.1em; font-weight:700; color:var(--g2); text-transform:uppercase}
+.prop h4{margin:9px 0 8px; font-size:15.5px; letter-spacing:-.01em}
+.prop p{margin:0; font-size:13.5px; color:var(--muted)}
+
+footer{border-top:1px solid var(--line); margin-top:20px; padding-top:22px; font-size:12.5px; color:var(--faint)}
+footer code{font-size:12px}
+
+@media (max-width:980px){
+
+}
+@media (max-width:860px){
+  .pipe{grid-template-columns:1fr}
+  .vnum{font-size:44px}
+  .stage{border-right:1px solid var(--line); border-bottom:0}
+  .stage:first-child{border-radius:6px 6px 0 0}
+  .stage:last-child{border-radius:0 0 6px 6px; border-bottom:1px solid var(--line)}
+  .stage:not(:last-child){border-bottom:0}
+  .calc-row,.calc-total{flex-wrap:wrap; white-space:normal}
+  .calc-row .lbl,.calc-total .lbl{width:100%; flex:1 0 100%}
+  .calc-row .val,.calc-total .val{width:auto; flex:0 0 auto}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hin">
+    <p class="eyebrow">M16 ↔ M14 Bridge · 정체 예측 룰베이스</p>
+    <h1>위험도 스코어는 어떻게 만들어지는가</h1>
+    <p class="lede">
+      원본 계측값에서 0~100 점수와 등급이 나오기까지, 다섯 단계를 실제 컬럼명·임계값·배점 그대로 펼쳤습니다.
+      모든 수치는 운영 중인 <code class="mono">hubroom_predictor.py</code> 와 <code class="mono">thresholds.json</code> 에서 직접 확인한 값입니다.
+    </p>
+    <div class="formula-strip mono">
+      <b>점수</b> = min(100, round( (영역점수합 + 흐름 + SLA + Sorter + MAXCAPA) &times; 100 &divide; 220 ))
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- PIPELINE -->
+  <div class="pipe">
+    <div class="stage">
+      <div class="n">1</div>
+      <h3>지표 수집</h3>
+      <p>1분마다 원본 CSV 한 줄. 8개 영역별 반송시간·큐·리프터·저장률 등을 읽습니다.</p>
+      <div class="out">→ 최근 90분 창</div>
+    </div>
+    <div class="stage">
+      <div class="n">2</div>
+      <h3>룰 판정</h3>
+      <p>영역마다 9개 룰을 임계값과 대조해 켜짐/꺼짐을 정합니다.</p>
+      <div class="out">→ 룰별 배점</div>
+    </div>
+    <div class="stage">
+      <div class="n">3</div>
+      <h3>영역 점수</h3>
+      <p>켜진 룰의 배점을 더하고 50점에서 자릅니다.</p>
+      <div class="out">→ 영역당 0~50</div>
+    </div>
+    <div class="stage">
+      <div class="n">4</div>
+      <h3>융합</h3>
+      <p>8개 영역 점수에 흐름·SLA·Sorter·MAXCAPA 항을 더해 raw 를 만듭니다.</p>
+      <div class="out">→ raw 합계</div>
+    </div>
+    <div class="stage">
+      <div class="n">5</div>
+      <h3>정규화 · 등급</h3>
+      <p>raw 220 을 100점으로 환산하고 50/71/85 로 등급을 붙입니다.</p>
+      <div class="out">→ 0~100 · 등급</div>
+    </div>
+  </div>
+  <p class="pipe-note">대상 영역 8개 — <span class="mono">M16HUB · M14 · M14B · M16A · M16B · M16 · M16_PKT · M16_WT</span></p>
+
+  <!-- STEP 2 -->
+  <section>
+    <div class="sechead"><span class="step">STEP 2</span><h2>9개 룰 — 무엇을 보고 몇 점인가</h2></div>
+    <p class="subtitle">각 룰은 실제 수집 컬럼 하나(또는 몇 개)를 임계값과 비교합니다. 켜지면 배점이 붙고, 꺼지면 0점입니다.</p>
+    <div class="tw">
+      <table>
+        <thead>
+          <tr><th>룰</th><th>무엇을 보나</th><th>실제 지표 컬럼</th><th>임계값</th><th class="n">배점</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="rule">R-A</td>
+            <td>반송 시간이 기준을 넘었나<br><span class="col">최근 10분 중 1회라도</span></td>
+            <td class="col">…QUE.TIME.AVGTOTALTIME1MIN<br>…QUE.LOAD.AVGLOADTIME1MIN</td>
+            <td class="mono">허브 9.0분 · M14 3.3<br>M16A 3.2 · M16B 3.5 · M14B 5.0</td>
+            <td class="n"><span class="pts">10</span></td>
+          </tr>
+          <tr>
+            <td class="rule">R-A′</td>
+            <td>그 상태가 이어지나<br><span class="col">최근 5분 중 3분 이상</span></td>
+            <td class="col">위와 동일</td>
+            <td class="mono">R-A 임계의 70%</td>
+            <td class="n"><span class="pts">5</span></td>
+          </tr>
+          <tr>
+            <td class="rule">R-B</td>
+            <td>대기 물량이 30분새 늘었나</td>
+            <td class="col">…QUE.M14TOM16.MESCURRENTQCNT<br>…QUE.ALL.*_TO_HUB_JOB</td>
+            <td class="mono">허브 +100 · M14 +80<br>M14B +150 · M16A +84 · M16B +32</td>
+            <td class="n"><span class="pts">10</span></td>
+          </tr>
+          <tr>
+            <td class="rule">R-B fast</td>
+            <td>10분새 급증했나</td>
+            <td class="col">위와 동일</td>
+            <td class="mono">R-B 임계의 30%<br>허브 +30 · M14 +24 · M16A +25</td>
+            <td class="n"><span class="pts">5</span></td>
+          </tr>
+          <tr>
+            <td class="rule">R-C</td>
+            <td>리프터가 역으로 쌓이나<br><span class="col">총합은 주는데 개별은 늘어남</span></td>
+            <td class="col">M16HUB.LFT.{리프터ID}.TOTAL_CURRENTQCNT<br>M14 : CNV 남·북 편중</td>
+            <td class="mono">역증가 리프터 4대 이상<br>M14 편중 0.70 이상</td>
+            <td class="n"><span class="pts">8</span></td>
+          </tr>
+          <tr>
+            <td class="rule">R-D</td>
+            <td>저장·설비가 포화인가<br><span class="col">넷 중 하나만 걸려도 켜짐</span></td>
+            <td class="col">…STRATE.ALL.FABSTORAGERATIO<br>…STRATE.STB.3F_STORAGE_UTIL<br>…3F_TO_3F_MLUD_JOB · CNV 충만도</td>
+            <td class="mono">FAB 25.75% · STB 99.3%<br>MLUD 50건 · CNV 85%<br>타 영역 OHT가동 95%</td>
+            <td class="n"><span class="pts">7</span></td>
+          </tr>
+          <tr>
+            <td class="rule">SLA</td>
+            <td>4분 초과 반송 비율</td>
+            <td class="col">…QUE.ALL.TRANSPORT4MINOVERRATIO<br>…TRANSPORT4MINOVERCNT</td>
+            <td class="mono">허브 5.0% · M14 25.45%<br>M16A 14.05% · M16B 22.05%<br>또는 10분새 건수 +20</td>
+            <td class="n"><span class="pts">5</span></td>
+          </tr>
+          <tr>
+            <td class="rule">SORT</td>
+            <td>소터 대기·이재 실패</td>
+            <td class="col">…SORTER.ABN.SORTERWAITCOUNTOVER<br>…SORTER.ABN.SORTERTRANSFERFAIL</td>
+            <td class="mono">허브 30 · M14 148 · M14B 109<br>M16A 180 · M16B 90<br>이재실패는 1건만 나도</td>
+            <td class="n"><span class="pts">3</span></td>
+          </tr>
+          <tr>
+            <td class="rule">MAXCAPA</td>
+            <td>설비 상한이 내려갔나<br><span class="col">내려간 컬럼 수만큼 배수</span></td>
+            <td class="col">…QUE.LFT.3F_LFT_MAXCAPA<br>…QUE.CNV.3F_CNV_MAXCAPA 외 4종</td>
+            <td class="mono">3F_LFT 100 이하 (평상 165)<br>M14 CNV 150 이하 (평상 244)<br>6F_LFT 100 이하 (평상 149)</td>
+            <td class="n"><span class="pts">10&times;n</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- STEP 3 -->
+  <section>
+    <div class="sechead"><span class="step">STEP 3</span><h2>영역 점수 — 더하고 50에서 자른다</h2></div>
+    <p class="subtitle">한 영역에서 켜진 룰의 배점을 모두 더한 뒤, 50을 넘으면 50으로 잘라냅니다. 한 곳이 아무리 심해도 50점이 상한입니다.</p>
+    <div class="calc">
+      <div class="calc-row"><span class="lbl">허브에서 9개 룰이 모두 켜진 경우</span><span class="exp mono">10 + 5 + 10 + 5 + 8 + 7 + 5 + 3 + 10</span><span class="val mono">63</span></div>
+      <div class="calc-total"><span class="lbl">영역 점수</span><span class="exp mono">min(50, 63)</span><span class="val mono">50</span></div>
+    </div>
+    <div class="note">
+      <h4>왜 자르나</h4>
+      <p>한 영역에 점수가 몰려 전체를 밀어올리는 것을 막기 위해서입니다. 대신 <b>여러 영역이 동시에 걸릴수록 점수가 오르는 구조</b>가 됩니다 — 뒤의 시나리오 표에서 이 성질이 그대로 드러납니다.</p>
+    </div>
+  </section>
+
+  <!-- STEP 4 -->
+  <section>
+    <div class="sechead"><span class="step">STEP 4</span><h2>융합 — 다섯 항을 더해 raw 를 만든다</h2></div>
+    <p class="subtitle">영역 점수 합에 네 개 항이 더 붙습니다.</p>
+    <div class="tw">
+      <table>
+        <thead><tr><th>항</th><th>내용</th><th>계산</th></tr></thead>
+        <tbody>
+          <tr><td class="rule">영역점수합</td><td>8개 영역 점수를 모두 더함</td><td class="mono">Σ 영역점수 &times; 가중치</td></tr>
+          <tr><td class="rule">흐름</td><td>10개 흐름 노드가 최근 30분 평균 대비 몇 배인가</td><td class="mono">3.0배↑ 심각 30점<br>2.0배↑ 위험 15점<br>1.5배↑ 주의 5점</td></tr>
+          <tr><td class="rule">SLA</td><td>SLA 가 걸린 영역 수만큼</td><td class="mono">5 &times; 영역수</td></tr>
+          <tr><td class="rule">Sorter</td><td>소터가 걸린 영역 수만큼</td><td class="mono">3 &times; 영역수</td></tr>
+          <tr><td class="rule">MAXCAPA</td><td>상한이 내려간 컬럼 수만큼</td><td class="mono">10 &times; n &times; 영역수</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note warn">
+      <h4>SLA · Sorter · MAXCAPA 는 두 번 반영됩니다</h4>
+      <p>이 셋은 STEP 3 의 영역 점수 안에 이미 들어가 있고, STEP 4 에서 한 번 더 더해집니다. 결과적으로 <b>실질 가중치가 두 배</b>입니다 — SLA 는 5가 아니라 10, Sorter 는 3이 아니라 6, MAXCAPA 는 컬럼당 20 으로 작동합니다.</p>
+      <p>다만 영역 점수가 50 에서 잘린 경우에는 안쪽 몫이 상한에 흡수되어, 실제 기여는 그보다 작아질 수 있습니다.</p>
+    </div>
+    <div class="note">
+      <h4>영역 가중치 — M16B 는 절반만 반영됩니다</h4>
+      <p>현재 <span class="mono">M16B = 0.5</span> 한 곳만 지정되어 있고 나머지 일곱 영역은 모두 1.0 입니다. M16B 에서 룰이 모두 걸려 영역 점수가 <span class="mono">50</span> 이 나와도, 합산에는 <span class="mono">25</span> 로 들어갑니다.</p>
+      <p>이 가중치는 <b>점수 합산에만</b> 적용됩니다. 최고위험영역(hot_area)·영향영역 목록·단계 판정은 가중 전 원래 점수로 정해지므로 영향을 받지 않습니다. 값은 <span class="mono">thresholds.json</span> 의 <span class="mono">AREA_WEIGHT</span> 에서 조정합니다.</p>
+    </div>
+  </section>
+
+  <!-- STEP 5 -->
+  <section>
+    <div class="sechead"><span class="step">STEP 5</span><h2>정규화와 등급</h2></div>
+    <p class="subtitle">raw 220 을 100점으로 놓고 환산합니다. 220 은 실제 도달 가능한 최댓값이 아니라 척도를 맞추기 위한 기준값입니다.</p>
+    <div class="tw">
+      <table>
+        <thead><tr><th>등급</th><th class="n">점수</th><th class="n">필요한 raw</th><th>의미</th></tr></thead>
+        <tbody>
+          <tr><td><span class="pill p0">등급 없음</span></td><td class="n mono">0 – 49</td><td class="n mono">&lt; 110</td><td>경보를 내지 않음</td></tr>
+          <tr><td><span class="pill p1">경계</span></td><td class="n mono">50 – 70</td><td class="n mono">110</td><td><b>사건 시작</b> — 여기부터 발동이벤트로 기록</td></tr>
+          <tr><td><span class="pill p2">위험</span></td><td class="n mono">71 – 84</td><td class="n mono">156</td><td>복수 영역 동시 정체</td></tr>
+          <tr><td><span class="pill p3">초위험</span></td><td class="n mono">85 – 100</td><td class="n mono">187</td><td>광역 정체</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- WORKED EXAMPLE -->
+  <section>
+    <div class="sechead"><span class="step">전체 예시</span><h2>실측값 한 줄이 70점이 되기까지</h2></div>
+    <p class="subtitle">어느 1분의 수집값이 세 영역에서 룰을 켜고, 그것이 raw 를 거쳐 최종 점수가 되는 전 과정입니다.</p>
+
+    <div class="tw">
+      <table class="extbl">
+        <thead>
+          <tr><th>영역</th><th>지표</th><th class="n">실측값</th><th class="n">기준</th><th>켜진 룰</th><th class="n">점수</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="area" rowspan="10">M16HUB</td><td>반송 시간</td><td class="n mono">15.98분</td><td class="n th mono">≥ 9.0</td><td class="rule">R-A</td><td class="n mono">10</td></tr>
+          <tr><td>반송 시간 지속</td><td class="n mono">5분 중 4분</td><td class="n th mono">≥ 6.3</td><td class="rule">R-A′</td><td class="n mono">5</td></tr>
+          <tr><td>M14→M16 대기 30분 증가</td><td class="n mono">+123</td><td class="n th mono">≥ +100</td><td class="rule">R-B</td><td class="n mono">10</td></tr>
+          <tr><td>같은 대기 10분 증가</td><td class="n mono">+45</td><td class="n th mono">≥ +30</td><td class="rule">R-B fast</td><td class="n mono">5</td></tr>
+          <tr><td>역으로 쌓인 리프터</td><td class="n mono">9대</td><td class="n th mono">≥ 4대</td><td class="rule">R-C</td><td class="n mono">8</td></tr>
+          <tr><td>FAB 저장률</td><td class="n mono">26.4%</td><td class="n th mono">≥ 25.75</td><td class="rule">R-D</td><td class="n mono">7</td></tr>
+          <tr><td>4분 초과 반송 비율</td><td class="n mono">6.1%</td><td class="n th mono">≥ 5.0</td><td class="rule">SLA</td><td class="n mono">5</td></tr>
+          <tr><td>소터 대기</td><td class="n mono">41</td><td class="n th mono">≥ 30</td><td class="rule">SORT</td><td class="n mono">3</td></tr>
+          <tr><td>3F_LFT_MAXCAPA</td><td class="n mono">95</td><td class="n th mono">≤ 100</td><td class="rule">MAXCAPA</td><td class="n mono">10</td></tr>
+          <tr class="sub"><td colspan="4">합 63 — 상한 50 적용</td><td class="n mono">50</td></tr>
+
+          <tr><td class="area" rowspan="5">M16A</td><td>적재 시간</td><td class="n mono">3.4분</td><td class="n th mono">≥ 3.2</td><td class="rule">R-A</td><td class="n mono">10</td></tr>
+          <tr><td>적재 시간 지속</td><td class="n mono">5분 중 3분</td><td class="n th mono">≥ 2.24</td><td class="rule">R-A′</td><td class="n mono">5</td></tr>
+          <tr><td>4분 초과 반송 비율</td><td class="n mono">14.9%</td><td class="n th mono">≥ 14.05</td><td class="rule">SLA</td><td class="n mono">5</td></tr>
+          <tr><td>6F_LFT_MAXCAPA</td><td class="n mono">35</td><td class="n th mono">≤ 100</td><td class="rule">MAXCAPA</td><td class="n mono">10</td></tr>
+          <tr class="sub"><td colspan="4">합 30 — 상한 미만이라 그대로</td><td class="n mono">30</td></tr>
+
+          <tr><td class="area" rowspan="3">M14</td><td>적재 시간 지속</td><td class="n mono">5분 중 3분</td><td class="n th mono">≥ 2.31</td><td class="rule">R-A′</td><td class="n mono">5</td></tr>
+          <tr><td>3F_CNV_MAXCAPA</td><td class="n mono">76</td><td class="n th mono">≤ 150</td><td class="rule">MAXCAPA</td><td class="n mono">10</td></tr>
+          <tr class="sub"><td colspan="4">합 15 — 상한 미만이라 그대로</td><td class="n mono">15</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="calc" style="margin-top:18px">
+      <div class="calc-row"><span class="lbl">영역 점수 합</span><span class="exp mono">50 + 30 + 15</span><span class="val mono">95</span></div>
+      <div class="calc-row"><span class="lbl">흐름 — M14→M16 이 30분 평균의 2.3배</span><span class="exp mono">위험(2.0배↑) = 15</span><span class="val mono">15</span></div>
+      <div class="calc-row"><span class="lbl">SLA — 걸린 영역 2곳</span><span class="exp mono">5 × 2</span><span class="val mono">10</span></div>
+      <div class="calc-row"><span class="lbl">Sorter — 걸린 영역 1곳</span><span class="exp mono">3 × 1</span><span class="val mono">3</span></div>
+      <div class="calc-row"><span class="lbl">MAXCAPA — 내려간 컬럼 3개</span><span class="exp mono">10 × 3</span><span class="val mono">30</span></div>
+      <div class="calc-row"><span class="lbl"><b>raw 합계</b></span><span class="exp mono">95 + 15 + 10 + 3 + 30</span><span class="val mono">153</span></div>
+      <div class="calc-total"><span class="lbl">정규화</span><span class="exp mono">min(100, round(153 × 100 ÷ 220))</span><span class="val mono">70</span></div>
+    </div>
+
+    <div class="verdict">
+      <div class="vnum mono">70</div>
+      <div class="vtxt">
+        <span class="pill p1">경계</span>
+        <p>50점을 넘겨 <b>발동이벤트로 기록되는 시점</b>입니다. 세 영역이 함께 걸렸기 때문에 도달한 점수로, 허브 한 곳만이었다면 50점에 닿지 못합니다.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCENARIOS -->
+  <section>
+    <div class="sechead"><span class="step">검증</span><h2>영역이 늘어날수록 점수가 오른다</h2></div>
+    <p class="subtitle">아래 값은 설명을 위해 지어낸 숫자가 아니라, 예측기 코드를 그대로 호출해 나온 결과입니다.</p>
+    <div class="tw">
+      <table>
+        <thead>
+          <tr><th>상황</th><th class="n">영역합</th><th class="n">흐름</th><th class="n">SLA</th><th class="n">Sort</th><th class="n">MC</th><th class="n">raw</th><th class="n">점수</th><th>등급</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>허브 반송시간만 초과</td><td class="n mono">15</td><td class="n mono">0</td><td class="n mono">0</td><td class="n mono">0</td><td class="n mono">0</td><td class="n mono">15</td><td class="n mono">7</td><td><span class="pill p0">없음</span></td></tr>
+          <tr><td><b>허브 한 곳에 룰 전부 + 흐름 심각</b></td><td class="n mono">48</td><td class="n mono">30</td><td class="n mono">5</td><td class="n mono">3</td><td class="n mono">10</td><td class="n mono">96</td><td class="n mono">44</td><td><span class="pill p0">없음</span></td></tr>
+          <tr><td>허브 + M16A 두 곳</td><td class="n mono">88</td><td class="n mono">0</td><td class="n mono">10</td><td class="n mono">6</td><td class="n mono">20</td><td class="n mono">124</td><td class="n mono">56</td><td><span class="pill p1">경계</span></td></tr>
+          <tr><td>허브 + M16A + M14 세 곳</td><td class="n mono">128</td><td class="n mono">0</td><td class="n mono">15</td><td class="n mono">9</td><td class="n mono">30</td><td class="n mono">182</td><td class="n mono">83</td><td><span class="pill p2">위험</span></td></tr>
+          <tr><td>네 곳 동시 (광역정체)</td><td class="n mono">163</td><td class="n mono">0</td><td class="n mono">15</td><td class="n mono">12</td><td class="n mono">40</td><td class="n mono">230</td><td class="n mono">100</td><td><span class="pill p3">초위험</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note key">
+      <h4>이 표에서 반드시 보셔야 할 한 줄</h4>
+      <p>두 번째 행 — <b>허브 한 곳에서 9개 룰이 전부 켜지고 흐름까지 심각이어도 44점</b>입니다. 경보 기준인 50점에 닿지 않습니다.</p>
+      <p>즉 현재 구조에서 경보는 <b>최소 두 개 영역이 동시에 걸려야</b> 발생합니다. 한 곳에 국한된 정체는 아무리 심해도 점수로는 잡히지 않으며, 이는 임계값 조정이 아니라 구조에서 비롯된 성질입니다.</p>
+    </div>
+  </section>
+
+  <!-- PROPERTIES -->
+  <section>
+    <div class="sechead"><h2>점수와 함께 보시는 값들</h2></div>
+    <p class="subtitle">발동이벤트에 같이 실리지만 점수와는 다른 규칙으로 정해지는 항목들입니다.</p>
+    <div class="props">
+      <div class="prop">
+        <div class="tag">단계</div>
+        <h4>1·2·3 단계는 점수와 별개입니다</h4>
+        <p>단계는 점수가 아니라 룰의 켜짐 조합으로 정해집니다. 1단계는 R-A 계열, 2단계는 R-B 계열, 3단계는 R-A 와 (R-D 또는 R-C) 와 (R-B 또는 흐름 위험) 이 함께 걸린 상태입니다. <b>점수가 낮아도 3단계가 뜰 수 있습니다.</b></p>
+      </div>
+      <div class="prop">
+        <div class="tag">사건</div>
+        <h4>사건은 50점에서 시작해 60분 뒤 닫힙니다</h4>
+        <p>점수가 50 이상이면 사건이 시작되고, 이후 60분 동안 50 이상이 다시 없으면 종료됩니다. 종료 전에 다시 오르면 같은 사건에 재발동으로 누적됩니다.</p>
+      </div>
+      <div class="prop">
+        <div class="tag">관측 창</div>
+        <h4>판단은 최근 90분을 봅니다</h4>
+        <p>R-B 는 30분 전, R-B fast 는 10분 전, R-C 는 20분 전 값과 비교합니다. 따라서 수집을 막 시작한 직후 30분가량은 증감 계열 룰이 켜지지 않습니다.</p>
+      </div>
+      <div class="prop">
+        <div class="tag">예측 유형</div>
+        <h4>유형 이름은 가장 점수가 높은 영역에서 나옵니다</h4>
+        <p>영향 영역이 4개 이상이면 <span class="mono">광역정체</span>, 아니면 최고 점수 영역과 그 영역에서 켜진 룰을 조합해 <span class="mono">HUB-리프터역증가</span> 같은 이름이 붙습니다.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <p>
+      출처 — <code class="mono">hubroom_predictor.py</code> (룰 판정 <code class="mono">eval_area_rules</code>, 융합 <code class="mono">evaluate_unified</code>) ·
+      임계값 <code class="mono">thresholds.json</code>.
+      검증 표의 점수는 예측기 함수를 직접 호출해 산출했습니다.
+      임계값은 <code class="mono">thresholds.json</code> 수정만으로 코드 변경 없이 조정됩니다.
+    </p>
+  </footer>
+</div>
+
+</body>
+</html>
