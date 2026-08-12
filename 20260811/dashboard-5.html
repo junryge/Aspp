@@ -1,0 +1,1941 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AMHS SENTINEL_M16BR — LLM 실시간 이상감지 · 관제</title>
+<style>
+  :root{
+    --bg:#080A0F; --panel:#0D1119; --panel2:#131926; --line:#1C2431; --line2:#26303f;
+    --tx:#E6EDF6; --tx2:#8FA0B6; --tx3:#5E6E85;
+    --cy:#3DDBE8; --crit:#FF4D5E; --major:#FF9F2E; --minor:#F2D338; --ok:#2FD68A;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--tx);
+       font:13.5px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",sans-serif}
+
+  /* ── 상단 바 (오프닝 화면 없이 바로 관제) ── */
+  .top{display:flex;align-items:center;gap:14px;padding:10px 16px;background:var(--panel);
+       border-bottom:1px solid var(--line);position:sticky;top:0;z-index:30}
+  .logo{display:flex;align-items:center;gap:9px}
+  .logo .mk{width:26px;height:26px;border-radius:7px;border:2px solid var(--cy);
+            display:grid;place-items:center}
+  .logo .mk i{width:8px;height:8px;border-radius:50%;background:var(--cy);display:block}
+  .logo b{font-size:14px;letter-spacing:1.4px;font-weight:700}
+  .logo span{display:block;font-size:10.5px;color:var(--tx3);letter-spacing:.2px}
+  .tabs{display:flex;gap:4px;margin-left:10px}
+  .tabs button{background:transparent;border:1px solid transparent;color:var(--tx2);
+               padding:6px 14px;border-radius:7px;cursor:pointer;font:inherit;font-size:12.5px}
+  .tabs button.on{background:#12303a;border-color:#1d4b57;color:var(--cy);font-weight:600}
+  .chan{margin-left:auto;display:flex;gap:14px;font-size:11.5px;color:var(--tx2)}
+  .chan i{width:7px;height:7px;border-radius:50%;background:var(--ok);display:inline-block;margin-right:5px}
+  .chan i.off{background:var(--crit)}
+  .clk{text-align:right;font-variant-numeric:tabular-nums}
+  .clk b{font-size:17px;font-weight:600;letter-spacing:.5px}
+  .clk span{display:block;font-size:10.5px;color:var(--tx3)}
+
+  /* ── KPI ── */
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--line);
+        background:var(--panel)}
+  .kpi{padding:11px 18px;border-right:1px solid var(--line)}
+  .kpi:last-child{border-right:0}
+  .kpi .l{font-size:11.5px;color:var(--tx3)}
+  .kpi .v{font-size:23px;font-weight:700;line-height:1.25;letter-spacing:-.5px}
+  .kpi .v u{font-size:11.5px;font-weight:500;color:var(--tx3);text-decoration:none;margin-left:3px}
+  .kpi .s{font-size:11px;color:var(--tx3)}
+  .c-cy{color:var(--cy)} .c-cr{color:var(--crit)} .c-mj{color:var(--major)} .c-ok{color:var(--ok)}
+
+  /* ── 레이아웃 ── */
+  .main{display:block}
+  .pane{min-height:calc(100vh - 118px)}
+
+  .hd{display:flex;align-items:center;gap:9px;padding:10px 16px;border-bottom:1px solid var(--line)}
+  .hd h2{margin:0;font-size:13px;font-weight:650}
+  .filters{display:flex;gap:5px;margin-left:4px}
+  .filters button{background:transparent;border:1px solid var(--line2);color:var(--tx2);
+                  border-radius:20px;padding:3px 11px;font:inherit;font-size:11.5px;cursor:pointer}
+  .filters button.on{background:#12303a;border-color:#1d4b57;color:var(--cy)}
+  .stream{margin-left:auto;font-size:11.5px;color:var(--tx3);display:flex;align-items:center;gap:7px}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);
+       box-shadow:0 0 0 0 rgba(47,214,138,.6);animation:p 2s infinite}
+  .dot.off{background:var(--crit);animation:none}
+  @keyframes p{70%{box-shadow:0 0 0 7px rgba(47,214,138,0)}100%{box-shadow:0 0 0 0 rgba(47,214,138,0)}}
+
+  /* ── 케이스 목록 ── */
+  table.cases{width:100%;border-collapse:collapse}
+  table.cases th{font-size:11px;color:var(--tx3);font-weight:600;text-align:left;
+                 padding:8px 14px;border-bottom:1px solid var(--line)}
+  table.cases td{padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+  table.cases tr.crow{cursor:pointer}
+  table.cases tr.fresh{background:rgba(61,219,232,.07);
+        box-shadow:inset 3px 0 0 var(--cy);animation:flash 1.6s ease-out}
+  @keyframes flash{from{background:rgba(61,219,232,.22)}to{background:rgba(61,219,232,.07)}}
+  table.cases tr.crow:hover{background:var(--panel2)}
+  table.cases tr.crow.sel{background:#101a24;box-shadow:inset 3px 0 0 var(--cy)}
+  .cid{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--tx2);white-space:nowrap}
+  .cid i{width:7px;height:7px;border-radius:50%;display:inline-block;flex:none}
+  .ttl{font-weight:600;font-size:13.5px}
+  .sub{font-size:11.5px;color:var(--tx3);margin-top:3px}
+  .chip{display:inline-block;padding:1px 7px;border-radius:4px;font-size:10.5px;
+        font-weight:700;letter-spacing:.3px;margin-right:6px}
+  .lv초위험{background:rgba(255,77,94,.15);color:var(--crit)}
+  .lv위험{background:rgba(255,159,46,.15);color:var(--major)}
+  .lv경계{background:rgba(242,211,56,.15);color:var(--minor)}
+  .dim{color:var(--tx3);font-size:12px;white-space:nowrap}
+  .stt{font-size:12px;font-weight:600}
+  .stt.활성{color:var(--crit)} .stt.확인{color:var(--major)} .stt.종결{color:var(--tx3)}
+
+  /* ── 상세 ── */
+  .side .sec{padding:14px 16px;border-bottom:1px solid var(--line)}
+  .side h3{margin:0 0 8px;font-size:11.5px;color:var(--tx3);font-weight:650}
+  .dt-hd{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  .dt-hd .id{font-size:12.5px;color:var(--tx2)}
+  .dt-ttl{font-size:17px;font-weight:700;margin:9px 0 12px;line-height:1.35}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}
+  .grid4 .l{font-size:10.5px;color:var(--tx3)}
+  .grid4 .v{font-size:13px;font-weight:600;margin-top:2px}
+  .step{display:flex;align-items:center;margin:15px 0 4px}
+  .step .n{display:flex;flex-direction:column;align-items:center;gap:6px;flex:none;width:56px}
+  .step .n i{width:9px;height:9px;border-radius:50%;background:#26303f}
+  .step .n.on i{background:var(--cy)}
+  .step .n.cur i{background:var(--crit);box-shadow:0 0 0 4px rgba(255,77,94,.18)}
+  .step .n span{font-size:10.5px;color:var(--tx3)}
+  .step .n.on span,.step .n.cur span{color:var(--tx2)}
+  .step .ln{height:1px;background:#26303f;flex:1;margin-bottom:19px}
+  .llmbox{background:var(--panel2);border:1px solid var(--line2);border-radius:9px;padding:12px}
+  .llmbox .tag{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--cy);
+               font-weight:650;margin-bottom:7px}
+  .llmbox .tag i{width:7px;height:7px;border-radius:50%;background:var(--cy)}
+  ol.act{margin:10px 0 0;padding:0;list-style:none;counter-reset:a}
+  ol.act li{counter-increment:a;font-size:12.5px;padding:4px 0 4px 26px;position:relative;color:var(--tx2)}
+  ol.act li::before{content:counter(a,decimal-leading-zero);position:absolute;left:0;
+                    color:var(--cy);font-size:11px;font-weight:700;top:5px}
+  pre.snap{background:var(--panel2);border:1px solid var(--line2);border-radius:8px;
+           padding:11px;margin:0;overflow:auto;font:11.5px/1.6 ui-monospace,Menlo,Consolas,monospace;
+           color:#8ecfdc;white-space:pre-wrap;word-break:break-all}
+  table.mx{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:9px}
+  table.mx td{padding:7px 10px;border-bottom:1px solid var(--line)}
+  table.mx td:nth-child(2){text-align:right;font-weight:700}
+  table.mx td:nth-child(3){text-align:right;color:var(--tx3);font-size:11.5px;width:88px}
+  .chips{display:flex;flex-wrap:wrap;gap:5px}
+  .zchip{background:var(--panel2);border:1px solid var(--line2);border-radius:5px;
+         padding:2px 8px;font-size:11.5px;color:var(--tx2)}
+  .dirline{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-bottom:4px}
+  .dirline:last-child{margin-bottom:0}
+  .dirline b{font-size:10.5px;flex:none;width:74px;letter-spacing:.2px}
+  .zchip.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:10.5px}
+  ul.tl{list-style:none;margin:0;padding:0;font-size:12.5px}
+  ul.tl li{padding:5px 0 5px 15px;border-left:1px solid var(--line2);position:relative;color:var(--tx2)}
+  ul.tl li::before{content:"";position:absolute;left:-3.5px;top:12px;width:6px;height:6px;
+                   border-radius:50%;background:var(--cy)}
+  ul.tl .k{color:var(--tx3);margin-right:7px;font-variant-numeric:tabular-nums}
+
+  button.act,a.act{background:var(--panel2);border:1px solid var(--line2);color:var(--tx);
+             border-radius:8px;padding:10px 14px;cursor:pointer;font:inherit;font-size:12.5px}
+  a.act{text-decoration:none;display:inline-block}
+  button.act:hover,a.act:hover{background:#1a2331;border-color:#324459}
+  button.act.pri{background:#123039;border-color:#1d4b57;color:var(--cy);font-weight:650;flex:1}
+  button.act:disabled{opacity:.4;cursor:not-allowed}
+  a.act.off{opacity:.4;pointer-events:none}
+  /* 헤더 줄에 들어가는 컨트롤은 표 헤더 높이에 맞춰 작게 */
+  .stream button.act,.stream a.act{padding:5px 11px;font-size:11.5px;border-radius:6px}
+  .stream input,.stream select{padding:4px 7px;font-size:11.5px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
+  input,select,textarea{background:var(--bg);color:var(--tx);border:1px solid var(--line2);
+        border-radius:7px;padding:7px 10px;font:inherit;font-size:12.5px}
+  textarea{width:100%;resize:vertical;min-height:60px}
+  .note{color:var(--tx3);font-size:11.5px;line-height:1.65}
+  .warn{background:rgba(255,159,46,.09);border:1px solid rgba(255,159,46,.3);color:var(--major);
+        padding:9px 12px;border-radius:8px;font-size:12px;margin:12px 16px}
+  .empty{color:var(--tx3);text-align:center;padding:44px 16px;font-size:13px}
+  pre.md{white-space:pre-wrap;font:inherit;margin:0}
+  .page{padding:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-bottom:14px}
+  .card>h2{margin:0;padding:11px 15px;font-size:13px;border-bottom:1px solid var(--line)}
+  .card .bd{padding:14px 15px}
+  table.pol{width:100%;border-collapse:collapse;font-size:12.5px}
+  table.pol th{text-align:left;color:var(--tx3);font-weight:600;font-size:11.5px;
+               padding:7px 9px;border-bottom:1px solid var(--line)}
+  table.pol td{padding:8px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+  .hidden{display:none!important}
+
+  /* ── LLM 최근 판단 한 줄 (KPI 아래) ── */
+  .llmnow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+          padding:8px 16px;background:var(--panel);border-bottom:1px solid var(--line);
+          font-size:12.5px;cursor:pointer}
+  .llmnow:hover{background:var(--panel2)}
+  .llmnow .tag{display:inline-flex;align-items:center;gap:6px;color:var(--cy);
+               font-weight:650;font-size:11.5px;white-space:nowrap}
+  .llmnow .tag i{width:7px;height:7px;border-radius:50%;background:var(--cy);flex:none}
+  .llmnow .jt{color:var(--tx);flex:1;min-width:220px}
+  .llmnow .cf{font-weight:700;white-space:nowrap}
+  .llmnow .bar{width:52px;height:4px;border-radius:2px;background:var(--line2);flex:none}
+  .llmnow .bar i{display:block;height:4px;border-radius:2px}
+
+  /* ── 스코어 추이 스트립 (항상 보이는 실시간 그래프) ── */
+  .strip{border-bottom:1px solid var(--line);background:var(--panel)}
+  .striphd{display:flex;align-items:center;gap:8px;padding:9px 16px 0;font-size:12px}
+  .striphd b{font-size:12px;font-weight:650}
+  .stripbox{padding:5px 16px 9px}
+  .stripbox svg{width:100%;height:auto;display:block;cursor:crosshair;border-radius:6px}
+  .lgd{display:flex;gap:9px;margin-left:auto;font-size:10.5px;color:var(--tx3)}
+  .lgd i{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:4px}
+  .msel{padding:3px 7px;font-size:11.5px;border-radius:6px;max-width:340px}
+  #kpi-acc{cursor:pointer}
+  #kpi-acc:hover{background:var(--panel2)}
+  .mgrp{display:inline-flex;gap:3px}
+  .mgrp button{background:transparent;border:1px solid var(--line2);color:var(--tx3);
+               border-radius:6px;padding:3px 9px;font:inherit;font-size:11px;cursor:pointer}
+  .mgrp button.on{background:#12303a;border-color:#1d4b57;color:var(--cy);font-weight:650}
+
+  /* ── 더블클릭 그래프 ── */
+  .gmask{position:fixed;inset:0;background:rgba(4,7,12,.78);z-index:50;
+         display:flex;align-items:center;justify-content:center;padding:24px}
+  .gbox{background:var(--panel);border:1px solid var(--line2);border-radius:12px;
+        max-width:1120px;width:100%;max-height:92vh;overflow:auto;
+        }
+  .gbox.wide{max-width:1280px;
+        box-shadow:0 18px 60px rgba(0,0,0,.6)}
+  .ghd{display:flex;align-items:center;gap:10px;padding:12px 16px;
+       border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel)}
+  .ghd b{font-size:13.5px}
+  .gbody{padding:14px 16px}
+  .gbody svg{width:100%;height:auto;display:block;border-radius:8px}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="logo">
+    <span class="mk"><i></i></span>
+    <span><b>AMHS SENTINEL_M16BR</b><span>LLM 실시간 이상감지 · 관제</span></span>
+  </div>
+  <div class="tabs">
+    <button data-tab="live" class="on">실시간 관제</button>
+    <button data-tab="past">과거 데이터 조회</button>
+    <button data-tab="analysis">LLM 모델 분석</button>
+    <button data-tab="report">리포트 · 피드백</button>
+    <button data-tab="policy">정책</button>
+  </div>
+  <div class="chan">
+    <span><i id="ch-lp"></i><span id="ch-lp-tx">로그프레소</span></span>
+    <span><i id="ch-llm"></i>LLM</span>
+  </div>
+  <div class="clk"><b id="clk">–</b><span id="clkd">KST</span></div>
+</div>
+
+<div class="kpis">
+  <div class="kpi"><div class="l">활성 케이스</div>
+    <div class="v c-cy" id="k-active">–<u>건</u></div><div class="s" id="k-active-s">–</div></div>
+  <div class="kpi"><div class="l">감지 지연</div>
+    <div class="v" id="k-lat">–<u>ms</u></div><div class="s" id="k-lat-s">폴링 주기 –</div></div>
+  <div class="kpi" id="kpi-recur"><div class="l">재발률 (1h)</div>
+    <div class="v c-mj" id="k-recur">–<u>%</u></div><div class="s" id="k-recur-s">–</div></div>
+  <div class="kpi" id="kpi-acc" title="1분마다 LLM 이 판단한 것을 이후 실제 데이터 흐름과 대조한 값입니다. 검증된 정탐률이 아닙니다.">
+    <div class="l">LLM 판단 일치 <span class="note" style="font-size:10px">· 클릭 상세</span></div>
+    <div class="v c-ok" id="k-acc">–</div><div class="s" id="k-acc-s">1분 추론 누적 시 산출</div></div>
+</div>
+
+<div id="fcnow" class="llmnow hidden" title="최근 추세로 계산한 임계 돌파 예보 — 클릭하면 선행 지표 분석"></div>
+
+<div id="llmnow" class="llmnow hidden"></div>
+
+<div id="warnbox"></div>
+
+<!-- 더블클릭 그래프 -->
+<div id="gmask" class="gmask hidden">
+  <div class="gbox">
+    <div class="ghd">
+      <b id="gtitle">구간 그래프</b>
+      <div class="row" style="margin-left:auto">
+        <select id="gmin">
+          <option value="30">30분</option>
+          <option value="60" selected>1시간</option>
+          <option value="120">2시간</option>
+          <option value="360">6시간</option>
+        </select>
+        <button class="act" id="gclose">닫기</button>
+      </div>
+    </div>
+    <div id="gbody" class="gbody"><div class="empty">불러오는 중…</div></div>
+  </div>
+</div>
+
+<!-- ── 실시간 관제 ── -->
+<div class="main" id="tab-live">
+  <div class="pane">
+    <div class="strip">
+      <div class="striphd"><b>추이</b>
+        <span class="mgrp" id="stripgrp"></span>
+        <select id="stripsel" class="msel" title="볼 지표 선택"></select>
+        <span class="note" id="stripinfo">—</span>
+        <span class="note">· 클릭 → 그 시각 구간 그래프</span>
+        <span class="lgd gradelgd">
+          <span><i style="background:#2FD68A"></i>정상</span>
+          <span><i style="background:#F2D338"></i>경계</span>
+          <span><i style="background:#FF9F2E"></i>위험</span>
+          <span><i style="background:#FF4D5E"></i>초위험</span>
+        </span>
+      </div>
+      <div class="stripbox" id="strip"></div>
+    </div>
+    <div class="hd">
+      <h2>실시간 데이터 <span class="note" id="feedinfo"></span><span class="note" style="margin-left:6px;color:var(--tx3)">— 행 더블클릭 시 구간 그래프</span></h2>
+      <div class="filters">
+        <button data-f="all" class="on">전체 <b id="n-all">0</b></button>
+        <button data-f="정상">정상 <b id="n-정상">0</b></button>
+        <button data-f="경계">경계 <b id="n-경계">0</b></button>
+        <button data-f="위험">위험 <b id="n-위험">0</b></button>
+        <button data-f="초위험">초위험 <b id="n-초위험">0</b></button>
+      </div>
+      <div class="stream">
+        <label style="color:var(--tx3)">수집 주기</label>
+        <select id="selPoll" title="몇 초마다 가져올지"></select>
+        <span class="dot" id="dot"></span><span id="streamtx">연결 확인 중</span>
+      </div>
+    </div>
+    <table class="cases">
+      <thead><tr>
+        <th style="width:132px">시간</th>
+        <th style="width:150px">CASE</th>
+        <th style="width:104px">스코어</th>
+        <th>reason</th>
+        <th style="width:250px">실제지표</th>
+        <th style="width:210px">AMOS HID구역</th>
+        <th style="width:270px">AMOS QUEUE지표</th>
+      </tr></thead>
+      <tbody id="cases"><tr><td colspan="7" class="empty">불러오는 중…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── 과거 데이터 조회 (실시간 관제와 동일 · 보는 날짜만 다름) ── -->
+<div class="main hidden" id="tab-past">
+  <div class="pane">
+    <div class="strip">
+      <div class="striphd"><b>추이</b>
+        <span class="mgrp" id="pstripgrp"></span>
+        <select id="pstripsel" class="msel" title="볼 지표 선택"></select>
+        <span class="note" id="pstripinfo">—</span>
+        <span class="note">· 클릭 → 그 시각 구간 그래프</span>
+        <span class="lgd gradelgd">
+          <span><i style="background:#2FD68A"></i>정상</span>
+          <span><i style="background:#F2D338"></i>경계</span>
+          <span><i style="background:#FF9F2E"></i>위험</span>
+          <span><i style="background:#FF4D5E"></i>초위험</span>
+        </span>
+      </div>
+      <div class="stripbox" id="pstrip"></div>
+    </div>
+    <div class="hd">
+      <h2>과거 데이터 <span class="note" id="pinfo"></span><span class="note" id="pllm" style="margin-left:6px"></span><span class="note" style="margin-left:6px;color:var(--tx3)">— 행 더블클릭 시 구간 그래프</span></h2>
+      <div class="filters" id="pfilters">
+        <button data-f="all" class="on">전체 <b id="pn-all">0</b></button>
+        <button data-f="정상">정상 <b id="pn-정상">0</b></button>
+        <button data-f="경계">경계 <b id="pn-경계">0</b></button>
+        <button data-f="위험">위험 <b id="pn-위험">0</b></button>
+        <button data-f="초위험">초위험 <b id="pn-초위험">0</b></button>
+      </div>
+      <div class="stream">
+        <label style="color:var(--tx3)">날짜</label>
+        <input type="date" id="pdate" title="아무 날짜나 고르면 서버에서 가져옵니다">
+        <select id="pday" title="이미 저장된 날짜 빠른 선택 (data/YYYYMMDD_TOTAL.CSV)"></select>
+        <button class="act" id="pload" title="선택한 날짜 조회 — 저장본이 없으면 서버에서 자동으로 가져옵니다">조회</button>
+        <button class="act" id="pget" title="저장본이 있어도 서버에서 다시 가져옵니다">다시 확보</button>
+        <select id="pback" title="과거 며칠치를 한꺼번에 받아 채웁니다" style="width:96px">
+          <option value="">과거 채우기</option>
+          <option value="7">최근 7일</option>
+          <option value="14">최근 14일</option>
+          <option value="30">최근 30일</option>
+          <option value="60">최근 60일</option>
+        </select>
+        <a class="act" id="pcsv" href="#" download>CSV</a>
+      </div>
+    </div>
+    <table class="cases">
+      <thead><tr>
+        <th style="width:132px">시간</th>
+        <th style="width:150px">CASE</th>
+        <th style="width:104px">스코어</th>
+        <th>reason</th>
+        <th style="width:250px">실제지표</th>
+        <th style="width:210px">AMOS HID구역</th>
+        <th style="width:270px">AMOS QUEUE지표</th>
+      </tr></thead>
+      <tbody id="pcases"><tr><td colspan="7" class="empty">날짜를 선택하고 조회하세요</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── 리포트 · 피드백 ── -->
+<!-- ── 🧪 분석 (4-LLM 병렬) ── -->
+<div class="page hidden" id="tab-analysis">
+  <div class="card">
+    <h2>4-LLM 파이프라인 분석
+      <span class="note">— 1차(구간 병렬) → 2차 해석 → 3차 원자료 대조 검증 → 최종 판정</span></h2>
+    <div class="bd">
+      <div class="row" style="margin-bottom:8px">
+        <label>날짜</label>
+        <select id="anday" title="저장된 날짜 (data/YYYYMMDD_TOTAL.CSV)"></select>
+        <input type="date" id="andate" title="목록에 없는 날짜 직접 지정">
+        <label style="margin-left:10px">범위</label>
+        <select id="anmode" onchange="anModeChange()">
+          <option value="day">하루 전체</option>
+          <option value="range">시간 구간</option>
+        </select>
+        <span id="anrange" style="display:none;align-items:center;gap:4px">
+          <input type="time" id="anstart" value="08:00">
+          <span class="note">~</span>
+          <input type="time" id="anend" value="10:00">
+        </span>
+        <button class="act pri" id="btnan" style="flex:0 0 auto">🧪 분석 실행</button>
+        <button class="act" id="btnanstop" style="flex:0 0 auto;display:none;color:var(--crit);border-color:#5a2530"
+                title="진행 중인 LLM 호출이 끝나는 대로 멈춥니다 (그때까지 결과는 저장)">■ 분석 중지</button>
+        <button class="act" onclick="checkAnModels()" title="게이트웨이가 이 키에 허용한 모델 확인 (/v1/models)">모델 확인</button>
+        <span class="note" id="anmsg"></span>
+      </div>
+      <div class="row" style="margin-top:6px;align-items:flex-start">
+        <label style="align-self:center">모델</label>
+        <div id="anpick" style="display:flex;gap:8px;flex-wrap:wrap;flex:1"></div>
+        <button class="act" onclick="anResetModels()" style="flex:0 0 auto;padding:3px 10px;font-size:11.5px"
+                title="네 단계를 모두 config.json 기본값으로">기본값으로</button>
+      </div>
+      <div class="note" style="margin:2px 0 4px">
+        비워두면 config.json 의 기본 모델을 씁니다. 여기서 고른 값은 <b>이번 실행에만</b> 적용되고
+        config.json 은 바뀌지 않습니다. 목록은 게이트웨이가 이 키에 허용한 모델입니다.
+      </div>
+      <div id="anroles" style="display:none;grid-template-columns:repeat(4,1fr);gap:14px;margin:10px 0"></div>
+      <div id="anout"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>지난 분석</h2>
+    <div class="bd"><div id="anlist" class="note">불러오는 중…</div></div>
+  </div>
+</div>
+
+<div class="page hidden" id="tab-report">
+  <div class="card">
+    <h2>LLM 리포트</h2>
+    <div class="bd">
+      <h3 class="note" style="margin:0 0 7px">날짜 검색 — 로그프레소에서 직접 조회 (실시간 관제와 별개)</h3>
+      <div class="row" style="margin-bottom:8px">
+        <label>날짜</label>
+        <input type="date" id="rdate">
+        <button class="act pri" id="btnday" style="flex:0 0 auto">사건 보고서 생성</button>
+        <button class="act" id="btndayhtml"
+          title="데모스 개인 에이전트 '사건발생 보고서' 와 같은 화면 — 체크박스 표·수동 기입·저장 포함">HTML 열기</button>
+        <span class="note">하루 사건(점수 50↑) 기준 5섹션 보고서 — 데모스 개인 에이전트와 같은 형식</span>
+      </div>
+      <div id="repout"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── 정책 ── -->
+<div class="page hidden" id="tab-policy">
+  <div class="card">
+    <h2>선행 감지 <span class="note" id="fcstat"></span></h2>
+    <div class="bd">
+      <p class="note" style="margin:0 0 10px">점수가 임계를 <b style="color:var(--tx2)">넘기 전에</b> 추세로 미리 띄웁니다.
+        조건(상승 기울기 · 지속 · 도달 예상 시간)을 모두 만족할 때만 화면 위에 경보 줄이 나타납니다.</p>
+      <div id="fcnowbox" class="note">불러오는 중… <span class="dim">(이 줄이 계속 그대로면 서버가 구버전입니다)</span></div>
+      <div class="row" style="margin-top:10px">
+        <button class="act" onclick="openLeading()">선행 지표 분석 열기</button>
+        <span class="note">과거 사건에서 어느 지표가 점수보다 먼저 움직였는지 — 조치 우선순위를 정하는 근거</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>감지 · 확인 · 에스컬레이션 정책</h2>
+    <div class="bd">
+      <p class="note" style="margin:0 0 12px">감지는 항상 실시간입니다. <b style="color:var(--tx2)">“이상 없음” 판정은
+        케이스를 닫지 않고 재확인 예약만 갱신</b>하며, 종결 후에도 억제 창 동안 재발이 같은 케이스로 묶입니다.</p>
+      <table class="pol"><thead><tr>
+        <th>심각도</th><th>감지 즉시</th><th>미확인 5분</th><th>미확인 15분</th><th>재확인 주기</th>
+      </tr></thead><tbody id="routing"></tbody></table>
+    </div>
+  </div>
+  <div class="card">
+    <h2>평가 주기 설정</h2>
+    <div class="bd">
+      <p class="note" style="margin:0 0 12px">감지는 항상 실시간입니다. 아래는
+        <b style="color:var(--tx2)">누적 구간을 다시 평가해 리포트로 내보내는</b> 주기입니다.</p>
+      <table class="pol"><thead><tr>
+        <th>주기</th><th>사용</th><th>평가 범위</th><th>필터</th><th>수신 채널</th>
+      </tr></thead><tbody id="evalrows"></tbody></table>
+      <p class="note" style="margin-top:12px">짧은 주기(1·5분)는 노이즈가 커서 <b style="color:var(--tx2)">초위험만</b>
+        필터링해 보내는 것을 권장합니다. 주기를 늘리는 방향이 아니라 <b style="color:var(--tx2)">수신 대상과 필터를
+        좁히는 방향</b>으로 조정하세요 — 감지 자체를 늦추면 누락이 생깁니다.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const api = async (u,o) => (await fetch(u,o)).json();
+const post = (u,b) => api(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});
+const esc = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const hhmm = s => (s||'').slice(11,16);
+/* 점수 등급 — 50 미만 정상 / 50~70 경계 / 71~84 위험 / 85~100 초위험.
+   위험·초위험은 사람 확인이 필요한 구간이다 (config.grade.bands 와 같은 기준). */
+const gradeOf = s => s>=85 ? {n:'초위험', c:'var(--crit)',  chk:true}
+                   : s>=71 ? {n:'위험',   c:'var(--major)', chk:true}
+                   : s>=50 ? {n:'경계',   c:'var(--minor)', chk:false}
+                           : {n:'정상',   c:'var(--tx2)',   chk:false};
+
+let CASES=[], SEL=null, FILTER='all', POLL=30;
+let LAST_LATEST=null, NEW_AT=null;
+
+/* 탭 */
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));
+  ['live','past','analysis','report','policy'].forEach(t =>
+    $('#tab-'+t).classList.toggle('hidden', t !== b.dataset.tab));
+  if(b.dataset.tab==='past'){
+    initPast();
+    if(PDAY) loadPastLlm(PDAY);          // 과거 탭 = 그 날짜 LLM 판단
+  }else if(b.dataset.tab==='analysis'){
+    initAnalysis();
+  }else if(ACC){
+    renderLlmNow(ACC);                   // 그 외 탭 = 오늘 최근 판단
+  }
+});
+
+/* ══════════ 🧪 분석 탭 — 4-LLM 병렬 분석 ══════════
+   ①위험도 종합 ②구역 진단 ③전파 경로 ④조치 요약 이 병렬로 돌고
+   ⑤통합 리포트가 종합한다. 서버가 백그라운드로 돌리고 여기선 2초 폴링. */
+let AN_TIMER=null, AN_INIT=false, AN_OPEN=null;
+
+async function initAnalysis(){
+  loadAnalysisList();
+  anLoadPickers();
+  if(AN_INIT) return;
+  AN_INIT=true;
+  try{
+    const d = await api('/api/data/days');
+    const sel = $('#anday');
+    sel.innerHTML = (d.days||[]).slice().reverse().map(x=>
+      `<option value="${esc(x.day)}">${esc(x.day)} (${x.rows}행)</option>`).join('')
+      || '<option value="">저장된 날짜 없음</option>';
+  }catch(e){}
+  // 아직 돌고 있으면 이어서 폴링 (탭을 나갔다 와도)
+  try{ const s=await api('/api/analysis/status'); if(s.running) pollAnalysis(); }catch(e){}
+}
+
+function anModeChange(){
+  $('#anrange').style.display = $('#anmode').value==='range' ? 'inline-flex' : 'none';
+}
+
+$('#btnan').onclick = async () => {
+  const day = ($('#andate').value||'').replace(/-/g,'') || $('#anday').value;
+  if(!day){ $('#anmsg').textContent='날짜를 고르세요'; return; }
+  const body = {day, models: anPickedModels()};
+  if($('#anmode').value==='range'){ body.start=$('#anstart').value; body.end=$('#anend').value; }
+  $('#anmsg').textContent='시작 중…';
+  const r = await post('/api/analysis/run', body);
+  if(r.error){ $('#anmsg').textContent='❌ '+r.error; return; }
+  $('#anmsg').textContent='';
+  $('#anout').innerHTML='';
+  pollAnalysis();
+};
+
+/* 중지 — 이미 나간 LLM 호출은 못 끊으므로 '다음 단계 경계에서' 멈춘다 */
+$('#btnanstop').onclick = async () => {
+  const b = $('#btnanstop');
+  b.disabled = true; b.textContent = '중지 중…';
+  const r = await post('/api/analysis/stop', {});
+  $('#anmsg').textContent = r.msg || '중지 요청됨';
+};
+
+function pollAnalysis(){
+  clearInterval(AN_TIMER);
+  const tick = async () => {
+    try{
+      const s = await api('/api/analysis/status');
+      renderAnRoles(s);
+      if(!s.running && (s.progress||{}).done){
+        clearInterval(AN_TIMER); AN_TIMER=null;
+        renderAnRoles({running:false, progress:s.progress});
+        if((s.progress||{}).cancelled) $('#anmsg').textContent='■ 중지됨 — 그때까지 결과는 저장했습니다';
+        if(s.progress.error){ $('#anmsg').textContent='❌ '+s.progress.error; return; }
+        if(s.last_id){ loadAnalysis(s.last_id); loadAnalysisList(); }
+      }
+    }catch(e){}
+  };
+  tick();
+  AN_TIMER = setInterval(tick, 2000);
+}
+
+const AN_ORDER = ['p1','p2','p3','final'];
+
+function renderAnRoles(s){
+  const box = $('#anroles');
+  // 실행/중지 버튼 상태 — 돌고 있을 때만 중지가 보인다
+  const run = !!s.running, stopBtn = $('#btnanstop');
+  if(stopBtn){
+    stopBtn.style.display = run ? '' : 'none';
+    if(run && !s.cancelling){ stopBtn.disabled = false; stopBtn.textContent = '■ 분석 중지'; }
+    if(s.cancelling){ stopBtn.disabled = true; stopBtn.textContent = '중지 중…'; }
+  }
+  if($('#btnan')) $('#btnan').disabled = run;
+  const roles = (s.progress||{}).roles || {};
+  const ids = AN_ORDER.filter(id=>roles[id]);
+  if(!ids.length){ box.style.display='none'; return; }
+  box.style.display='grid';
+  box.innerHTML = ids.map((id,i)=>{
+    const r=roles[id];
+    const running = /분석중|작성중/.test(r.status||'');
+    const st = r.status==='완료' ? '<span style="color:var(--ok)">✅ 완료</span>'
+             : /숫자만 채움/.test(r.status||'')
+               ? `<span style="color:var(--major)" title="${esc(r.error||'')}">⚠ ${esc(r.status)}</span>`
+             : r.status==='실패' ? `<span style="color:var(--crit)" title="${esc(r.error||'')}">❌ 실패</span>`
+             : running ? `<span style="color:var(--cy)">⏳ ${esc(r.status)}</span>`
+             : '<span class="dim">· 대기</span>';
+    return `<div style="border:1px solid ${running?'var(--cy)':'var(--line)'};border-radius:10px;
+                 padding:9px 11px;background:var(--panel);position:relative">
+      <div style="font-weight:650;font-size:12.5px">${r.icon||''} ${esc(r.name||id)}</div>
+      <div class="mono note" style="font-size:10px;margin:3px 0;word-break:break-all">${esc(r.model||'')}</div>
+      <div style="font-size:12px">${st}${r.took_s!=null?` <span class="dim">${r.took_s}초</span>`:''}</div>
+      ${id==='p1'?'<div class="note" style="font-size:10px;color:var(--tx3)">구간을 쪼개 동시 실행</div>':''}
+      ${i<ids.length-1?'<div style="position:absolute;right:-7px;top:50%;color:var(--tx3);font-size:12px">→</div>':''}
+    </div>`;
+  }).join('');
+}
+
+function anMd(md){
+  // 통합 리포트용 초경량 md → html (헤딩·불릿·굵게만)
+  return String(md||'').split('\n').map(ln=>{
+    ln = esc(ln);
+    if(/^##\s+/.test(ln)) return `<h3 style="margin:14px 0 6px;color:var(--cy);font-size:14px">${ln.replace(/^##\s+/,'')}</h3>`;
+    if(/^-\s+/.test(ln))  return `<div style="margin:2px 0 2px 6px">• ${ln.replace(/^-\s+/,'')}</div>`;
+    return ln ? `<div style="margin:2px 0">${ln}</div>` : '';
+  }).join('').replace(/\*\*(.+?)\*\*/g,'<b style="color:var(--tx)">$1</b>');
+}
+
+function anVal(v){
+  if(Array.isArray(v)){
+    if(v.length && typeof v[0]==='object')
+      return `<table class="pol" style="margin:4px 0"><tbody>${v.map(o=>
+        `<tr>${Object.values(o).map(x=>`<td>${esc(String(x))}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+    return v.map(x=>`<span class="chip lv경계" style="margin:1px 2px">${esc(String(x))}</span>`).join(' ');
+  }
+  if(v && typeof v==='object') return `<span class="mono" style="font-size:11px">${esc(JSON.stringify(v))}</span>`;
+  return esc(String(v??''));
+}
+
+/* 3차 검증 표 — 확인/의심/반박을 색으로 구분해서 한눈에 보이게 */
+function anVerify(rows){
+  if(!Array.isArray(rows) || !rows.length) return '<span class="dim">검증 항목 없음</span>';
+  const chip = v => v==='확인' ? '<span class="chip lv경계" style="background:rgba(47,214,138,.15);color:var(--ok)">확인</span>'
+                  : v==='반박' ? '<span class="chip lv초위험">반박</span>'
+                  : '<span class="chip lv위험">의심</span>';
+  return `<table class="pol" style="margin:4px 0"><thead><tr>
+      <th>1·2차 주장</th><th style="width:58px">판정</th><th style="width:40%">원자료 근거</th>
+    </tr></thead><tbody>${rows.map(o=>`<tr>
+      <td>${esc(String(o['주장']??''))}</td>
+      <td>${chip(String(o['판정']??''))}</td>
+      <td class="note">${esc(String(o['근거']??''))}</td></tr>`).join('')}</tbody></table>`;
+}
+
+/* 1차 관찰 — 구간 조각별 카드 (병렬로 돈 결과라 나란히 보여준다) */
+function anObs(obs){
+  if(!Array.isArray(obs) || !obs.length) return '<span class="dim">관찰 없음</span>';
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:6px">
+    ${obs.map(o=>`<div style="border:1px solid var(--line);border-radius:8px;padding:7px 9px">
+      <div style="font-weight:650;font-size:11.5px;color:var(--cy)">${esc(String(o['구간']??''))}</div>
+      <div style="font-size:11.5px;margin:2px 0">${esc(String(o['점수흐름']??''))}</div>
+      <div class="note" style="font-size:11px">최고 ${esc(String(o['최고점수']??''))}점
+        ${esc(String(o['최고시각']??''))} ${(o['이상구역']||[]).map(esc).join(', ')}</div>
+      ${(o['관찰']||[]).map(x=>`<div style="font-size:11px;margin-top:2px">• ${esc(String(x))}</div>`).join('')}
+    </div>`).join('')}</div>`;
+}
+
+async function loadAnalysis(aid){
+  const r = await api('/api/analysis/'+encodeURIComponent(aid));
+  AN_OPEN = r && !r.error ? aid : null;
+  if(r.error){ $('#anout').innerHTML=`<div class="warn">${esc(r.error)}</div>`; return; }
+  const pk = r.peak||{};
+  const roleIds = (r.pipeline && r.pipeline.length) ? r.pipeline : AN_ORDER;
+  $('#anout').innerHTML = `
+    ${r.cancelled?`<div class="warn" style="margin:10px 0 0">■ 중지된 분석 — 중지 시점까지의 결과입니다</div>`:''}
+    <div class="note" style="margin:10px 0 8px">
+      ${esc(r.day)} · ${esc(r.span)} · ${r.minutes}분 · 최고 ${pk.emoji||''} ${esc(pk.level||'')}
+      ${pk.score||''}점 (${esc(pk.time||'')}, ${esc(pk.area||'')}) · 사건 ${r.incidents}건
+      · 소요 ${r.took_s}초 <span class="mono" style="font-size:10.5px">${esc(r.id)}</span></div>
+    ${r.graph ? `<div style="border:1px solid var(--line);border-radius:10px;padding:8px;
+         background:var(--panel);margin-bottom:8px;overflow-x:auto">
+         <div class="note" style="margin:0 0 4px 4px">분석 구간 점수 추이 — 아래 판정의 근거 데이터</div>
+         ${r.graph}</div>` : ''}
+    <div style="border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--panel);font-size:13px;line-height:1.7">
+      ${anMd(r.final)}</div>
+    ${r.final_error?`<div class="warn" style="margin-top:8px">통합 LLM 실패 — 역할 결과로 조립 (${esc(r.final_error)})</div>`:''}
+    <div style="display:grid;gap:8px;margin-top:10px">
+      ${roleIds.map(id=>{
+        const o=(r.roles||{})[id]||{};
+        const res=o.result||{};
+        let bodyHtml;
+        const filled = !o.ok && res && Object.keys(res).length;   // LLM 실패 → 통계로 채운 결과
+        // 실패 사유를 카드에 바로 보여준다 — 툴팁에만 있으면 원인을 못 찾는다
+        const failBox = (!o.ok && (o.error || (o.log||[]).length))
+          ? `<div style="border:1px solid #5a2530;border-radius:8px;padding:7px 9px;margin:4px 0;
+                 background:rgba(255,77,94,.07)">
+               <div style="color:var(--crit);font-size:11.5px;font-weight:650">실패 사유</div>
+               <div style="font-size:11.5px;color:var(--tx2);margin-top:2px;word-break:break-all">${esc(o.error||'')}</div>
+               ${(o.log||[]).length ? `<div class="mono" style="font-size:10.5px;color:var(--tx3);margin-top:4px">
+                 ${(o.log||[]).map(x=>esc(x)).join('<br>')}</div>` : ''}
+             </div>` : '';
+        if(!o.ok && !filled){
+          bodyHtml = failBox;
+        }else if(id==='p1'){
+          bodyHtml = `<div class="note" style="font-size:11px;margin-bottom:5px">구간 ${res['조각수']}개를 병렬 분석 · 성공 ${res['성공']}개</div>`
+                   + anObs(res['관찰']);
+        }else if(id==='p3'){
+          bodyHtml = `<div style="font-size:12px;margin:3px 0"><span class="dim">요약</span> ${esc(String(res['요약']??''))}</div>`
+                   + anVerify(res['검증'])
+                   + ['확인된사실','즉시조치','모니터링','에스컬레이션'].map(k=> res[k]!=null
+                       ? `<div style="font-size:12px;margin:3px 0"><span class="dim">${k}</span> ${anVal(res[k])}</div>` : '').join('');
+        }else{
+          bodyHtml = Object.entries(res).map(([k,v])=>
+              `<div style="font-size:12px;margin:3px 0"><span class="dim">${esc(k)}</span> ${anVal(v)}</div>`).join('');
+        }
+        if(!o.ok && filled) bodyHtml = failBox + bodyHtml;   // 채운 결과 위에 사유 먼저
+        return `<div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--panel)">
+          <div style="font-weight:650;font-size:12.5px;margin-bottom:5px">${o.icon||''} ${esc(o.name||id)}
+            <span class="mono note" style="font-size:10px">${esc(o.model||'')} · ${o.took_s??'–'}초</span>
+            ${o.ok&&o.error?`<span class="note" style="color:var(--major)">일부 실패: ${esc(o.error)}</span>`:''}
+            ${o.note?`<span class="note" style="color:var(--cy)">${esc(o.note)}</span>`:''}
+            ${(!o.ok && res && Object.keys(res).length)
+              ? `<span class="chip lv위험" title="${esc(o.error||'')}">⚠ ${o.fail_kind==='gateway'
+                  ? 'LLM 게이트웨이가 응답하지 않았습니다 (서버 혼잡·재시작) — 아래는 코드가 센 숫자입니다'
+                  : 'LLM 실패 — 아래는 LLM 해석이 아니라 코드가 센 숫자입니다'}</span>`:''}</div>
+          ${bodyHtml}
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+/* 게이트웨이 허용 모델 확인 — 400/403 으로 단계가 죽을 때 원인을 바로 보게 */
+/* ── 단계별 모델 선택 ────────────────────────────────────────────────
+   기본값은 config.json 의 llm.analysis.roles. 고른 값은 이번 실행에만 쓰이고
+   서버가 config 사본에 얹어 돌린다(원본 config.json 은 안 건드림). */
+const AN_STAGES = [['p1','1차 데이터 훑기'],['p2','2차 원인·전파'],
+                   ['p3','3차 교차 검증'],['final','최종 통합']];
+let AN_MODELS = null;            // {models:[], used:{}} — 한 번만 받아 캐시
+
+function anPickedModels(){
+  const out = {};
+  AN_STAGES.forEach(([k])=>{
+    const el = document.getElementById('anm-'+k);
+    if(el && el.value) out[k] = el.value;
+  });
+  return out;
+}
+function anResetModels(){
+  AN_STAGES.forEach(([k])=>{ const el=document.getElementById('anm-'+k); if(el) el.value=''; });
+}
+async function anLoadPickers(){
+  const box = $('#anpick'); if(!box) return;
+  if(!AN_MODELS){
+    try{ AN_MODELS = await api('/api/analysis/models'); }
+    catch(e){ AN_MODELS = {error:'조회 실패'}; }
+  }
+  const d = AN_MODELS || {};
+  const list = (d.models||[]);
+  const used = d.used||{};
+  box.innerHTML = AN_STAGES.map(([k,label])=>{
+    const def = used[k] || '';
+    const opts = list.length
+      ? list.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join('')
+      : '';
+    return `<div style="min-width:210px;flex:1">
+      <div class="note" style="font-size:11px;margin-bottom:2px">${esc(label)}</div>
+      <select id="anm-${k}" style="width:100%" title="${esc(def||'config 기본값')}">
+        <option value="">기본값${def?` — ${esc(def)}`:''}</option>${opts}
+      </select></div>`;
+  }).join('');
+  if(d.error || !list.length){
+    box.insertAdjacentHTML('beforeend',
+      `<div class="note" style="flex-basis:100%;color:var(--major)">
+         모델 목록을 못 받았습니다(${esc(d.error||'빈 목록')}) — 기본값으로만 실행됩니다.</div>`);
+  }
+}
+
+async function checkAnModels(){
+  const out = $('#anout');
+  out.innerHTML = '<div class="note">모델 목록 조회 중…</div>';
+  try{
+    const d = await api('/api/analysis/models');
+    if(d.error){ out.innerHTML = `<div class="warn">모델 조회 실패 — ${esc(d.error)}
+      ${d.detail?`<pre class="snap" style="margin-top:6px">${esc(d.detail)}</pre>`:''}</div>`; return; }
+    const used = d.used||{};
+    out.innerHTML = `
+      <div class="note" style="margin:10px 0 6px">게이트웨이 허용 모델 <b style="color:var(--tx2)">${(d.models||[]).length}종</b>
+        (gaia 계열 ${(d.gaia||[]).length}종)</div>
+      ${(d.missing||[]).length
+        ? `<div class="warn">설정된 모델 중 목록에 없는 것: <b>${d.missing.map(esc).join(', ')}</b>
+             — config.json 의 llm.analysis.roles 를 아래 목록에서 골라 고치세요</div>` : ''}
+      <table class="pol" style="margin-top:8px"><thead><tr><th style="width:120px">단계</th><th>설정된 모델</th><th style="width:70px">사용 가능</th></tr></thead><tbody>
+        ${['p1','p2','p3','final'].map(k=>{
+          const m = used[k]||'(기본값)';
+          const ok = (d.models||[]).includes(m);
+          return `<tr><td>${k}</td><td class="mono" style="font-size:11.5px">${esc(m)}</td>
+            <td>${ok?'<span style="color:var(--ok)">✅</span>':'<span style="color:var(--crit)">❌</span>'}</td></tr>`;
+        }).join('')}
+      </tbody></table>
+      <div class="note" style="margin-top:8px">전체 목록</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">
+        ${(d.models||[]).map(m=>`<span class="chip ${String(m).toLowerCase().startsWith('gaia')?'lv경계':''}"
+             style="font-size:11px">${esc(m)}</span>`).join('')}</div>`;
+  }catch(e){ out.innerHTML = '<div class="warn">모델 조회 실패 — 서버 확인</div>'; }
+}
+
+let AN_SEL = new Set();          // 다중 삭제용 선택 목록
+
+async function loadAnalysisList(){
+  try{
+    const d = await api('/api/analysis/list');
+    const items = d.items||[];
+    AN_SEL.forEach(id=>{ if(!items.some(x=>x.id===id)) AN_SEL.delete(id); });  // 사라진 건 정리
+    if(!items.length){
+      $('#anlist').innerHTML='아직 분석 기록이 없습니다 — 날짜를 고르고 <b style="color:var(--tx2)">🧪 분석 실행</b>을 누르세요.';
+      return;
+    }
+    $('#anlist').innerHTML =
+      `<div class="row" style="margin-bottom:6px">
+         <label class="note" style="display:inline-flex;align-items:center;gap:5px;cursor:pointer">
+           <input type="checkbox" id="anallchk" onchange="anToggleAll(this.checked)"> 전체 선택</label>
+         <button class="act" id="anbulkdel" onclick="anDeleteSelected()" disabled
+                 style="padding:3px 10px;font-size:11.5px;color:var(--crit);border-color:#5a2530">
+           선택 삭제 <span id="anselN">0</span></button>
+         <span class="note" style="margin-left:auto">${items.length}건</span>
+       </div>
+       <table class="pol"><thead><tr><th style="width:34px"></th><th>날짜</th><th>범위</th><th>분</th>
+         <th>최고</th><th>역할 성공</th><th>생성</th><th style="width:96px"></th></tr></thead><tbody>`
+      + items.map(x=>{
+          const pk=x.peak||{};
+          const ck = AN_SEL.has(x.id) ? 'checked' : '';
+          return `<tr><td><input type="checkbox" ${ck} onchange="anToggle('${esc(x.id)}',this.checked)"></td>
+            <td>${esc(x.day)}</td><td>${esc(x.span)}</td><td>${x.minutes}</td>
+            <td>${pk.emoji||''} ${pk.score||''}점</td><td>${x.roles_ok}/${x.roles_n||4}</td>
+            <td class="mono" style="font-size:11px">${esc((x.generated_at||'').replace('T',' ').slice(5,16))}</td>
+            <td><a href="#" style="color:var(--cy)" onclick="loadAnalysis('${esc(x.id)}');return false;">열기</a>
+              &nbsp;<a href="#" style="color:var(--crit)" onclick="anDelete('${esc(x.id)}');return false;">삭제</a></td></tr>`;
+        }).join('')+`</tbody></table>`;
+    anSyncSel();
+  }catch(e){ $('#anlist').textContent='목록 조회 실패'; }
+}
+
+function anSyncSel(){
+  const n = AN_SEL.size, b = $('#anbulkdel');
+  if($('#anselN')) $('#anselN').textContent = n;
+  if(b) b.disabled = !n;
+}
+function anToggle(id, on){ on ? AN_SEL.add(id) : AN_SEL.delete(id); anSyncSel(); }
+function anToggleAll(on){
+  document.querySelectorAll('#anlist tbody input[type=checkbox]').forEach((c,i)=>{ c.checked=on; });
+  AN_SEL.clear();
+  if(on) document.querySelectorAll('#anlist tbody tr').forEach(tr=>{
+    const a = tr.querySelector('a[onclick^="loadAnalysis"]');
+    const m = a && a.getAttribute('onclick').match(/loadAnalysis\('([^']+)'/);
+    if(m) AN_SEL.add(m[1]);
+  });
+  anSyncSel();
+}
+
+async function anDeleteIds(ids, msg){
+  if(!ids.length) return;
+  if(!confirm(msg)) return;
+  const r = await post('/api/analysis/delete', {ids});
+  if(r.error){ alert(r.error); return; }
+  (r.deleted||[]).forEach(id=>AN_SEL.delete(id));
+  // 지금 열려 있는 분석이 지워졌으면 화면도 비운다
+  if(AN_OPEN && (r.deleted||[]).includes(AN_OPEN)){ $('#anout').innerHTML=''; AN_OPEN=null; }
+  $('#anmsg').textContent = `삭제 ${(r.deleted||[]).length}건`
+    + ((r.missing||[]).length ? ` · 없음 ${(r.missing).length}` : '');
+  loadAnalysisList();
+}
+function anDelete(id){ anDeleteIds([id], '이 분석 기록을 삭제할까요?'); }
+function anDeleteSelected(){
+  anDeleteIds([...AN_SEL], `선택한 ${AN_SEL.size}건을 삭제할까요?`);
+}
+/* ══════════ /분석 탭 ══════════ */
+
+/* 시계 */
+setInterval(()=>{
+  const d=new Date();
+  $('#clk').textContent=d.toLocaleTimeString('ko-KR',{hour12:false});
+  $('#clkd').textContent=d.toLocaleDateString('ko-KR')+' KST';
+},1000);
+
+/* 상태 + KPI */
+async function pollStatus(){
+  try{
+    const s = await api('/api/status'), st = s.state||{};
+    POLL = s.poll_interval_s;
+    $('#dot').className = 'dot'+(st.connected?'':' off');
+    const sv = st.saved || {};
+    // 데이터 출처 — 주피터 CSV 모드면 '로그프레소' 라고 쓰면 안 된다
+    const jup = st.source === 'jupyter';
+    SRC = st.source || SRC;
+    $('#streamtx').textContent = st.connected
+      ? `STREAMING · ${jup?'주피터 CSV':'로그프레소'} · ${st.latency_ms??'–'}ms · ${pollLabel(POLL)}마다 수집`
+        + (st.gap_min > 5 ? ` · ${st.gap_min}분 구간 보충` : '')
+        + (sv.files?.length ? ` → ${sv.files[0]}` : '')
+        + ` · 임계 ${s.alarm_floor}점`
+      : `연결 끊김 — ${st.error||'대기'}`;
+    $('#ch-lp').className  = st.connected?'':'off';
+    $('#ch-lp-tx').textContent = jup ? '주피터 CSV' : '로그프레소';
+    renderPolicy(s.policy, s.evaluation);
+    // AMOS 채널 표시는 뺐다 — 주피터 CSV 에 AMOS 컬럼이 이미 들어 있어서
+    // 따로 조인하지 않는다. 조인을 안 하니 '조인 경고' 도 나올 일이 없다.
+    $('#warnbox').innerHTML = '';
+    if(st.error) $('#warnbox').innerHTML +=
+      `<div class="warn">${jup?'주피터 CSV':'로그프레소'} — ${esc(st.error)}</div>`;
+  }catch(e){ $('#dot').className='dot off'; $('#streamtx').textContent='서버 응답 없음'; }
+
+  try{
+    const k = await api('/api/kpi');
+    $('#k-active').innerHTML   = `${k.active}<u>건</u>`;
+    $('#k-active-s').textContent = `최근 30분 신규 ${k.active_new_30m}건`;
+    $('#k-lat').innerHTML      = `${k.detect_latency_ms??'–'}<u>ms</u>`;
+    $('#k-lat-s').textContent  = `폴링 주기 ${POLL}초`;
+    // 재발률 — 임계(50점) 이상이 가라앉았다 다시 올라온 비율. 표본이 없으면 '–'
+    if(k.recur_rate_1h == null){
+      $('#k-recur').innerHTML     = `–<u>%</u>`;
+      $('#k-recur-s').textContent = `최근 1시간 ${k.recur_floor??50}점 이상 없음`;
+    }else{
+      $('#k-recur').innerHTML     = `${k.recur_rate_1h}<u>%</u>`;
+      $('#k-recur-s').textContent = `최근 1시간 정체 ${k.recur_base}구간 · 재발 ${k.recur_events}회`
+        + ` (${k.recur_minutes}분)`;
+    }
+    $('#kpi-recur').title =
+      `${k.recur_floor??50}점 이상 구간이 임계 아래로 내려갔다가 다시 올라온 비율입니다.`
+      + `\n· 분모 = 최근 1시간 ${k.recur_floor??50}점 이상 구간 수`
+      + `\n· 분자 = 그중 다시 올라온 횟수 (구간 수 − 1)`
+      + `\n· 예) 3구간이면 재발 2회 → 67%`
+      + `\n기준 시각(데이터 최신) ${(k.recur_ref||'').replace('T',' ').slice(0,16)}`;
+    renderAcc(k.llm_match);
+  }catch(e){}
+
+  try{
+    const fc = await api('/api/forecast');
+    if(!fc || typeof fc !== 'object' || fc.ok === undefined) throw new Error('bad payload');
+    renderForecast(fc);
+  }catch(e){
+    // 조용히 죽으면 '왜 안 보이는지' 를 알 수가 없다 — 구버전 서버가 제일 흔한 원인
+    const st = $('#fcnowbox');
+    if(st) st.innerHTML = '<b style="color:var(--crit)">선행 감지 API 응답 없음</b> — '
+      + '<span class="mono">/api/forecast</span> 가 없습니다. '
+      + '<b style="color:var(--tx2)">server.py·forecast.py 를 새 버전으로 바꾸고 서버를 재시작</b>했는지 확인하세요.';
+    $('#fcnow').classList.add('hidden');
+  }
+}
+
+/* ── 🔮 선행 감지 — '이대로면 N분 뒤 임계 돌파' ──
+   점수가 50을 넘은 뒤에야 케이스가 생기는 구조라, 넘기 전에 미리 띄운다.
+   경보 조건을 못 채우면 줄 자체를 숨긴다 (조용할 땐 안 보이는 게 맞다). */
+function renderForecast(fc){
+  const box = $('#fcnow');
+  if(!box) return;
+  FC = fc || null;
+  // 정책 탭 쪽 상태 — 경보가 없을 때 '왜 없는지' 를 보여줘야 설정을 조정할 수 있다
+  const st = $('#fcnowbox');
+  if(st && fc){
+    st.innerHTML = fc.warn
+      ? `<b style="color:var(--major)">경보 중</b> — ${fc.eta_min}분 뒤 ${fc.floor}점 돌파 예상
+         (현재 ${fc.current}점, 분당 ${fc.slope>0?'+':''}${fc.slope}점, 확신 ${fc.confidence}%)`
+      : `<b style="color:var(--ok)">조용함</b> — ${esc(fc.reason||'')}
+         ${fc.current!=null?`<span class="dim">· 현재 ${fc.current}점 · 표본 ${fc.points}분</span>`:''}`;
+  }
+  if($('#fcstat')) $('#fcstat').textContent = fc && fc.ok===false ? '· 꺼짐' : '';
+  if(!fc){ box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  box.onclick = openLeading;
+
+  // ── 경보 조건 미달 = 조용한 상태. 줄을 숨기면 기능이 도는지 알 수가 없어
+  //    한 줄로 '지금 왜 조용한지' 를 항상 보여준다. 눈에 띄지 않게 흐린 색으로.
+  if(!fc.warn){
+    box.innerHTML =
+        `<span class="tag" style="color:var(--tx3)"><i style="background:var(--tx3)"></i>선행 감지</span>`
+      + `<span class="dim">감시 중 — ${esc(fc.reason || '조건 미달')}</span>`
+      + (fc.current!=null ? `<span class="dim">현재 ${fc.current}점 · 분당 ${fc.slope>0?'+':''}${fc.slope}점`
+          + ` · 표본 ${fc.points}분 · 임계 ${fc.floor}점</span>` : '')
+      + (fc.lead_n ? `<span class="dim" title="${esc((fc.lead_names||[]).join(', '))}">선행 지표 ${fc.lead_n}개 상승 중</span>` : '')
+      + `<span class="dim" style="margin-left:auto">클릭 → 선행 지표 분석</span>`;
+    return;
+  }
+  const dr = (fc.drivers||[]).slice(0,3).map(d =>
+      `<span class="chip lv경계">${esc(d.label)} ${d.now}${esc(d.unit||'')}</span>`).join('');
+  // 선행 지표가 같이 오르면 그 사실을 앞에 붙인다 — 같은 경보라도 근거가 다르다
+  const lead = fc.assisted
+    ? `<span class="chip lv위험" title="선행 지표가 같이 올라 기준을 완화해 더 일찍 띄운 경보입니다: ${
+        esc((fc.lead_names||[]).join(', '))}">선행 지표 ${fc.lead_n}개 동반</span>` : '';
+  box.innerHTML =
+      `<span class="tag" style="color:var(--major)"><i style="background:var(--major)"></i>선행 감지</span>`
+    + `<b style="color:var(--major)">${fc.eta_min}분 뒤 임계(${fc.floor}점) 돌파 예상</b>` + lead
+    + `<span class="dim">현재 ${fc.current}점 · 분당 ${fc.slope>0?'+':''}${fc.slope}점`
+    + ` · ${fc.horizon||15}분 뒤 ${fc.projected}점 ${fc.emoji} ${esc(fc.level)}</span>`
+    + `<span class="cf" style="color:${fc.confidence>=70?'var(--major)':'var(--tx2)'}">확신 ${fc.confidence}%</span>`
+    + (dr ? `<span class="dim">함께 오르는 지표</span>${dr}` : '')
+    + `<span class="dim" style="margin-left:auto">클릭 → 선행 지표 분석</span>`;
+  box.onclick = openLeading;
+}
+
+/* ── LLM 판단 일치 (1분 추론 사후검증) ──
+   ★ 검증된 '정탐률'이 아니라 '이후 데이터와 일치했나' 다. 표본이 차기 전엔
+   퍼센트를 내지 않고 건수만 보여준다 — 그게 튜닝에도 더 쓸모 있다. */
+let ACC = null, FC = null, SRC = null;   // SRC = 데이터 출처(logpresso/jupyter)
+
+/* ── 선행 지표 분석 — '어느 지표가 점수보다 몇 분 먼저 움직였나' ──
+   과거 저장분에서 임계 돌파 시점을 찾아 지표별 선행 시간의 중앙값을 낸다.
+   표본이 적으면 숫자를 믿게 만들지 말고 적다고 말해야 한다. */
+async function openLeading(){
+  $('#gtitle').textContent = '선행 지표 — 점수보다 먼저 움직인 지표';
+  document.querySelector('.gbox').classList.add('wide');
+  $('#gmin').classList.add('hidden');
+  $('#gmask').classList.remove('hidden');
+  $('#gbody').innerHTML = '<div class="empty">저장된 날짜를 훑는 중…</div>';
+  try{
+    const d = await api('/api/forecast/leading');
+    if(!d.ok){ $('#gbody').innerHTML = `<div class="empty">${esc(d.error||'분석 실패')}</div>`; return; }
+    const rows = (d.metrics||[]).filter(m=>m.samples>0);
+    const fc = FC && FC.warn ? FC : null;
+    $('#gbody').innerHTML = `
+      ${fc ? `<div class="warn" style="margin:0 0 10px">지금 <b>${fc.eta_min}분 뒤 ${fc.floor}점 돌파</b> 예상 —
+              현재 ${fc.current}점, 분당 ${fc.slope>0?'+':''}${fc.slope}점 (확신 ${fc.confidence}%)</div>` : ''}
+      <div id="fcscore"><div class="empty">경보 성적 채점 중…</div></div>
+      <div id="fccmp" style="margin-top:14px"></div>
+      <h4 style="margin:18px 0 6px;font-size:13px">③ 어느 지표가 먼저 움직이나</h4>
+      <p class="note" style="margin:0 0 10px">
+        저장된 <b style="color:var(--tx2)">${(d.days||[]).length}일</b>에서 점수가 ${d.floor}점을 넘은
+        <b style="color:var(--tx2)">${d.events}건</b>을 찾아, 그 앞 ${d.lookback_min}분에서 각 지표가
+        <b>확실히 오르기 시작한 시각</b>을 쟀습니다. 값은 사건마다의 <b>중앙값</b>입니다.<br>
+        <span class="dim">※ '확실히 오른 시점' 기준이라 최초 미세 움직임보다는 짧게 나옵니다 —
+        절대 시간보다 <b style="color:var(--tx2)">지표 사이의 순서</b>를 보세요.</span>
+        ${d.note ? `<br><b style="color:var(--major)">${esc(d.note)}</b>` : ''}
+      </p>
+      ${rows.length ? `<table class="pol"><thead><tr>
+          <th style="width:44px">순위</th><th>지표</th><th style="width:110px">중앙 선행</th>
+          <th style="width:92px">사건 적중</th><th style="width:74px">표본</th><th>AMOS 컬럼</th>
+        </tr></thead><tbody>${rows.map((m,i)=>`<tr>
+          <td>${i+1}</td>
+          <td><b style="color:var(--tx)">${esc(m.label)}</b></td>
+          <td><b style="color:${i===0?'var(--cy)':'var(--tx2)'}">${m.median_lead}분 먼저</b>
+              ${m.censored ? `<br><span class="note" style="font-size:10.5px">그보다 이른 건 ${m.censored}회</span>`:''}</td>
+          <td>${m.hit_rate}%</td><td>${m.samples}건</td>
+          <td class="mono" style="font-size:11px;color:var(--tx3)">${esc(m.raw)}</td>
+        </tr>`).join('')}</tbody></table>`
+        : '<div class="empty">아직 임계를 넘은 사건이 없어 분석할 게 없습니다 — 데이터가 쌓이면 채워집니다.</div>'}`;
+    fcScore();
+  }catch(e){ $('#gbody').innerHTML = '<div class="empty">분석 실패 — 서버 확인</div>'; }
+}
+
+/* ── 선행 감지 사후 채점 ────────────────────────────────────────────
+   경보만 띄우고 맞았는지 안 보면 min_slope 같은 값이 영원히 '감' 으로 남는다.
+   저장된 CSV 를 1분씩 되감아 그때 예보를 다시 돌리고 실제 돌파와 대조한다. */
+const pct = v => (v==null ? '–' : v+'%');
+function tile(n, label, color){
+  return `<div style="flex:1;min-width:96px;border:1px solid var(--line);border-radius:10px;
+    padding:9px 11px;background:var(--panel)">
+    <div style="font-size:19px;font-weight:700;color:${color}">${n}</div>
+    <div class="note" style="font-size:11px">${label}</div></div>`;
+}
+async function fcScore(){
+  const box = $('#fcscore'); if(!box) return;
+  try{
+    const d = await api('/api/forecast/score');
+    if(!d.ok){ box.innerHTML = `<div class="empty">${esc(d.error||'채점 실패')}</div>`; return; }
+    const per = (d.per_day||[]).filter(p=>p.hit+p.false+p.miss>0);
+    box.innerHTML = `
+      <h4 style="margin:0 0 6px;font-size:13px">① 지금 임계로 낸 경보, 맞았나
+        <span class="note">— 저장된 ${(d.days||[]).length}일을 되감아 채점</span></h4>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        ${tile(d.hit,'적중 — 경보 뒤 실제 돌파','var(--ok)')}
+        ${tile(d.false,'오보 — 경보했는데 안 넘음','var(--major)')}
+        ${tile(d.miss,'놓침 — 경보 없이 돌파','var(--crit)')}
+        ${tile(pct(d.precision),'정밀도 — 경보 중 맞은 비율','var(--tx)')}
+        ${tile(pct(d.recall),'재현율 — 돌파 중 맞힌 비율','var(--tx)')}
+        ${tile(d.median_lead!=null?d.median_lead+'분':'–','중앙 선행 — 얼마나 먼저','var(--cy)')}
+      </div>
+      <p class="note" style="margin:0 0 8px">
+        현재 임계: 기울기 <b style="color:var(--tx2)">${d.params.min_slope}</b>점/분 ·
+        지속 <b style="color:var(--tx2)">${d.params.sustain_min}</b>분 ·
+        창 ${d.params.window_min}분 · 예보범위 ${d.params.horizon_min}분
+        ${d.note ? `<br><b style="color:var(--major)">${esc(d.note)}</b>` : ''}
+      </p>
+      ${per.length ? `<table class="pol"><thead><tr><th>날짜</th><th>적중</th><th>오보</th>
+        <th>놓침</th><th>정밀도</th><th>재현율</th><th>중앙 선행</th></tr></thead><tbody>
+        ${per.map(p=>`<tr><td class="mono">${esc(p.day)}</td><td>${p.hit}</td>
+          <td>${p.false}</td><td>${p.miss}</td><td>${pct(p.precision)}</td>
+          <td>${pct(p.recall)}</td>
+          <td>${p.median_lead!=null?p.median_lead+'분':'–'}</td></tr>`).join('')}
+        </tbody></table>` : ''}
+      <div style="margin:8px 0 4px">
+        <button class="btn" id="btntune">임계 탐색 — 지금보다 나은 값이 있나</button>
+        <span class="note">기울기·지속을 격자로 훑어 F1(정밀도·재현율 조화평균)이
+          가장 높은 조합을 찾습니다. 몇 초 걸립니다.</span>
+      </div>
+      <div id="tunebox"></div>`;
+    $('#btntune').onclick = fcTune;
+    fcCompare();
+  }catch(e){ box.innerHTML = '<div class="empty">채점 실패 — 서버 확인</div>'; }
+}
+/* ── 다지표 선행 감지 A/B ────────────────────────────────────────────
+   '지표를 같이 본다' 로 바꿨는데 정말 나아졌는지 같은 날짜로 맞대본다.
+   자동으로 갈아타지 않는다 — 숫자만 보여주고 켜고 끄는 건 사람이 정한다. */
+async function fcCompare(){
+  const box = $('#fccmp'); if(!box) return;
+  box.innerHTML = '<div class="note">다지표 비교 채점 중…</div>';
+  try{
+    const d = await api('/api/forecast/compare');
+    if(!d.ok){ box.innerHTML = `<div class="empty">${esc(d.error||'비교 실패')}</div>`; return; }
+    const cur = d.current||{};
+    const curKey = !cur.enabled ? 'off' : (cur.require_for_warn ? 'strict' : 'on');
+    const row = (key, nm, sub, v) => {
+      const isCur = key===curKey, isBest = key===d.best;
+      return `<tr${isBest?' style="background:rgba(34,197,94,.10)"':''}>
+      <td><b style="color:var(--tx)">${nm}</b>${isCur?' <span class="note">(지금 설정)</span>':''}
+        ${isBest&&!isCur?' <span class="chip lv경계" style="font-size:9.5px">이 데이터 최선</span>':''}
+        <div class="note" style="font-size:10.5px">${sub}</div></td>
+      <td>${v.hit}</td><td>${v.false}</td>
+      <td>${v.miss}</td><td>${pct(v.precision)}</td><td>${pct(v.recall)}</td>
+      <td><b>${v.f1}</b></td><td>${v.median_lead!=null?v.median_lead+'분':'–'}</td></tr>`;};
+    const dl = d.delta||{};
+    const arrow = (n, good) => n==null||n===0 ? '<span class="dim">변화 없음</span>'
+      : `<b style="color:${(n>0)===good?'var(--ok)':'var(--crit)'}">${n>0?'+':''}${n}</b>`;
+    box.innerHTML = `
+      <h4 style="margin:0 0 6px;font-size:13px">② 지표까지 같이 보면 나아지나
+        <span class="note">— 같은 날짜·같은 임계로 양쪽 채점</span></h4>
+      <p class="note" style="margin:0 0 6px">
+        점수는 <b style="color:var(--tx2)">결과</b>이고 지표가 <b style="color:var(--tx2)">원인</b>입니다.
+        선행 지표가 같이 오르면 같은 상승이라도 더 믿을 수 있어, 기울기 기준을 낮추고
+        더 먼 미래까지 봅니다(그만큼 일찍 뜹니다).<br>
+        보는 지표: <b style="color:var(--tx2)">${esc((d.lead_keys||[]).join(', ')||'없음')}</b>
+        <span class="dim">(${esc(d.lead_source||'')})</span>
+        ${d.note ? `<br><b style="color:var(--major)">${esc(d.note)}</b>` : ''}
+      </p>
+      <table class="pol"><thead><tr><th>방식</th><th>적중</th><th>오보</th><th>놓침</th>
+        <th>정밀도</th><th>재현율</th><th>F1</th><th>중앙 선행</th></tr></thead><tbody>
+        ${row('off', '기존 — 점수 기울기만', 'multi.enabled = false', d.off)}
+        ${row('on', '다지표 — 보조', 'enabled=true · require_for_warn=false', d.on)}
+        ${row('strict', '다지표 — 선행 신호 필수', 'enabled=true · require_for_warn=true', d.strict)}
+      </tbody></table>
+      <p class="note" style="margin:6px 0 0">
+        적중 ${arrow(dl.hit, true)} · 오보 ${arrow(dl.false, false)} ·
+        놓침 ${arrow(dl.miss, false)} · F1 ${arrow(dl.f1, true)} ·
+        선행 시간 ${arrow(dl.median_lead, true)}분
+        <span class="dim">(기존 → 다지표 보조)</span>
+        ${d.took_s?`<span class="dim"> · ${d.took_s}초</span>`:''}<br>
+        <span class="dim">세 줄은 <b>같은 데이터·같은 임계</b>로 방식만 바꿔 채점한 것입니다.
+        바꾸려면 config.json 의 forecast.multi 에서 enabled / require_for_warn 을 고치세요 —
+        여기서 자동으로 갈아타지 않습니다.</span>
+      </p>`;
+  }catch(e){ box.innerHTML = '<div class="empty">비교 실패 — 서버 확인</div>'; }
+}
+
+async function fcTune(){
+  const b = $('#btntune'), box = $('#tunebox');
+  b.disabled = true; b.textContent = '탐색 중…';
+  try{
+    const d = await api('/api/forecast/tune');
+    if(!d.ok){ box.innerHTML = `<div class="empty">${esc(d.error||'탐색 실패')}</div>`; return; }
+    const g = d.grid||[];
+    box.innerHTML = `
+      <p class="note" style="margin:6px 0">
+        ${d.better
+          ? `<b style="color:var(--ok)">더 나은 조합이 있습니다</b> — 기울기
+             <b style="color:var(--tx2)">${d.best.min_slope}</b>, 지속
+             <b style="color:var(--tx2)">${d.best.sustain_min}분</b>
+             (F1 ${d.current_score.f1} → <b style="color:var(--ok)">${d.best.f1}</b>).
+             config.json 의 forecast.min_slope / sustain_min 을 바꾸면 적용됩니다.`
+          : `<b style="color:var(--tx2)">지금 값이 이 데이터에서는 최선입니다</b> (F1 ${d.current_score.f1}).`}
+        ${d.took_s?`<span class="dim"> · ${d.took_s}초</span>`:''}
+        ${d.note ? `<br><b style="color:var(--major)">${esc(d.note)}</b>` : ''}
+      </p>
+      <table class="pol"><thead><tr><th>기울기</th><th>지속</th><th>적중</th><th>오보</th>
+        <th>놓침</th><th>정밀도</th><th>재현율</th><th>F1</th><th>중앙 선행</th></tr></thead><tbody>
+        ${g.map(r=>{
+          const cur = r.min_slope==d.current.min_slope && r.sustain_min==d.current.sustain_min;
+          return `<tr${cur?' style="background:rgba(56,189,248,.08)"':''}>
+            <td class="mono">${r.min_slope}${cur?' <span class="note">(현재)</span>':''}</td>
+            <td class="mono">${r.sustain_min}분</td><td>${r.hit}</td><td>${r.false}</td>
+            <td>${r.miss}</td><td>${pct(r.precision)}</td><td>${pct(r.recall)}</td>
+            <td><b style="color:var(--tx)">${r.f1}</b></td>
+            <td>${r.median_lead!=null?r.median_lead+'분':'–'}</td></tr>`;}).join('')}
+      </tbody></table>`;
+  }catch(e){ box.innerHTML = '<div class="empty">탐색 실패 — 서버 확인</div>'; }
+  finally{ b.disabled = false; b.textContent = '임계 탐색 — 지금보다 나은 값이 있나'; }
+}
+
+function renderAcc(a){
+  ACC = a || null;
+  if(!a || a.error){
+    $('#k-acc').textContent = '–';
+    $('#k-acc-s').textContent = a && a.error ? '집계 실패' : '1분 추론 누적 시 산출';
+    return;
+  }
+  // 과거 탭을 보는 중이면 그 날짜 표시를 실시간 값으로 덮지 않는다
+  if($('#tab-past').classList.contains('hidden')) renderLlmNow(a);
+  const cnt = `적중 ${a.hit} · 과다 ${a.fp} · 누락 ${a.fn}`
+            + (a.effect ? ` · 조치효과 ${a.effect}` : '');
+  // 확신도 평균을 카드 밑줄에 항상 붙인다
+  const cf = a.conf_avg!=null ? `확신도 평균 ${a.conf_avg}% (${a.conf_n}건) · ` : '';
+  if(a.human_rate != null){
+    $('#k-acc').innerHTML = `${a.human_rate}<u>%</u>`;
+    $('#k-acc-s').textContent = `${cf}확인 ${a.human_ok+a.human_ng}건 기준 · 자동 ${cnt}`;
+  }else if(a.match_rate != null){
+    $('#k-acc').innerHTML = `${a.match_rate}<u>%</u>`;
+    $('#k-acc-s').textContent = `${cf}${cnt} · 대기 ${a.waiting}`;
+  }else{
+    // 표본 부족 — 퍼센트 대신 건수
+    $('#k-acc').innerHTML = a.base
+      ? `<span style="font-size:15px">${cnt}</span>`
+      : '–';
+    $('#k-acc-s').textContent = a.base
+      ? `${cf}표본 ${a.base}/${a.min_sample}건 · 대기 ${a.waiting}`
+      : `${cf}1분 추론 ${a.rows||0}건 · 대기 ${a.waiting} · ${a.window_min}분 뒤 채점`;
+  }
+}
+
+// 실시간 탭이면 오늘, 과거 탭을 보고 있으면 그 날짜의 LLM CSV 를 연다
+/* LLM 이 방금 뭐라고 판단했는지 — 모달 안 열고도 보이게 (200자 요약이라 한 줄에 들어간다) */
+function renderLlmNow(a, past){
+  const box = $('#llmnow');
+  const r = a && a.latest;
+  if(!r || (!r.판단 && !r.오류)){
+    box.classList.remove('hidden');
+    box.innerHTML = `<span class="tag"><i style="background:var(--tx3)"></i>LLM 판단</span>`
+      + `<span class="dim">${past
+          ? esc(fmtDay((a&&a.day)||past)) + ' — 이 날짜에는 LLM 판단 기록이 없습니다 (상세에서 빈 구간 메움 가능)'
+          : '아직 LLM 판단 기록이 없습니다 — 1분마다 쌓입니다'}</span>`;
+    box.onclick = () => openAcc(past || null);
+    box.title = '';
+    return;
+  }
+  box.classList.remove('hidden');
+  const c = (r.확신도==='' || r.확신도==null) ? null : Math.max(0, Math.min(100, +r.확신도||0));
+  const col = c==null ? 'var(--tx3)' : c>=80 ? 'var(--ok)' : c>=60 ? 'var(--minor)' : 'var(--major)';
+  const yn = r.실제이상==='예' ? `<span class="chip lv위험">이상 예</span>`
+           : r.실제이상==='아니오' ? `<span class="chip lv경계" style="background:rgba(47,214,138,.15);color:var(--ok)">이상 아니오</span>`
+           : '';
+  box.innerHTML =
+      `<span class="tag"><i></i>LLM ${past ? '판단' : '최근 판단'}</span>`
+    + (past ? `<span class="dim">${esc(fmtDay(a.day||past))}</span>` : '')
+    + `<span class="dim">${esc((r.datetime||'').slice(11,16))}</span>`
+    + (()=>{ const s=parseFloat(r.스코어), g=gradeOf(s);
+             return isFinite(s)
+               ? `<span style="color:${g.c}">${esc(r.스코어)}점 ${g.n}</span>`
+                 + (g.chk ? `<span class="chip lv초위험">사람 확인 필요</span>` : '')
+               : `<span class="dim">–</span>`; })()
+    + yn
+    + (c==null ? `<span class="dim">확신도 –</span>`
+       : `<span class="cf" style="color:${col}">확신도 ${c}%</span>`
+         + `<span class="bar"><i style="width:${c}%;background:${col}"></i></span>`)
+    + `<span class="jt">${r.판단 ? esc(r.판단)
+         : `<span style="color:var(--crit)">${esc(r.오류||'')}</span>`}</span>`
+    + (r.판정 ? `<span class="dim">판정 ${esc(r.판정)}</span>`
+              : `<span class="dim">채점 대기</span>`);
+  box.title = [r.근거 ? '근거 · ' + r.근거 : '', r.조치 ? '조치 · ' + r.조치 : '']
+              .filter(Boolean).join('\n') || '클릭하면 전체 내역이 열립니다';
+  box.onclick = () => openAcc(past || null);
+}
+
+/* 과거 탭 — 그 날짜의 LLM 판단을 같은 줄에 보여준다 */
+async function loadPastLlm(day){
+  if(!day) return;
+  try{
+    const a = await api(`/api/accuracy?day=${encodeURIComponent(day)}`);
+    PACC = a;
+    renderLlmNow(a, day);
+    $('#pllm').innerHTML = a.rows
+      ? `LLM 판단 <b style="color:var(--tx2)">${a.rows}건</b>`
+        + (a.conf_avg!=null ? ` · 확신도 평균 ${a.conf_avg}%` : '')
+        + ` · 적중 ${a.hit} · 과다 ${a.fp} · 누락 ${a.fn}`
+        + (a.waiting ? ` · 대기 ${a.waiting}` : '')
+      : `<span style="color:var(--major)">LLM 판단 없음</span>`;
+  }catch(e){ $('#pllm').textContent = ''; }
+}
+
+$('#kpi-acc').onclick = () => openAcc(
+  $('#tab-past').classList.contains('hidden') ? null : (PDAY || null));
+
+let ACCDAY = null;
+async function openAcc(day){
+  ACCDAY = day || new Date().toLocaleDateString('sv-SE').replace(/-/g,'');
+  $('#gtitle').textContent = 'LLM 판단 일치 — 1분 추론 사후검증 (LLM CSV 원본)';
+  document.querySelector('.gbox').classList.add('wide');
+  $('#gmin').classList.add('hidden');          // 구간 선택은 그래프용 — 여기선 숨김
+  $('#gmask').classList.remove('hidden');
+  $('#gbody').innerHTML = '<div class="empty">불러오는 중…</div>';
+  try{
+    const a = await api(`/api/accuracy?day=${encodeURIComponent(ACCDAY)}&rows=1500`);
+    const rows = a.rows_data || [];
+    const scoreCell = v => {
+      const s = parseFloat(v); if(!isFinite(s)) return '<span class="dim">–</span>';
+      const g = gradeOf(s);
+      return `<b style="color:${g.c}" title="${g.n}">${esc(v)}점</b>`;
+    };
+    const vchip = (v, r) => v==='적중' ? `<span class="chip lv경계" style="background:rgba(47,214,138,.15);color:var(--ok)">적중</span>`
+                    : v==='과다탐지' ? `<span class="chip lv위험">과다탐지</span>`
+                    : v==='누락' ? `<span class="chip lv초위험">누락</span>`
+                    : v==='조치효과' ? `<span class="chip lv경계">조치효과</span>`
+                    : v==='정탐' ? `<span class="chip lv경계" style="background:rgba(47,214,138,.15);color:var(--ok)">정탐(확인)</span>`
+                    : v==='오탐' ? `<span class="chip lv위험">오탐(확인)</span>`
+                    : v==='판정불가' ? `<span class="dim">판정불가</span>`
+                    : (r && r.대기분!=null
+                        ? `<span class="dim">채점 대기 <b style="color:var(--tx2)">${r.대기분}분</b></span>`
+                        : `<span class="dim">대기</span>`);
+    const file = `${a.day}_LLM.CSV`;
+    $('#gbody').innerHTML = `
+      <div class="row" style="margin:0 0 8px">
+        <b class="mono" style="font-size:12.5px;color:var(--cy)">${esc(file)}</b>
+        <span class="note">1분 1행 · ${a.rows}행 · 검증 창 ${a.window_min}분 · ${a.sustain_min}분 유지 기준</span>
+        <span class="note">| 추론 ${(a.state&&a.state.calls)||0}회${
+          a.state&&a.state.errors ? ` · <span style="color:var(--crit)">실패 ${a.state.errors}</span>` : ''}${
+          a.state&&a.state.skipped ? ` · 지연스킵 ${a.state.skipped}` : ''}${
+          a.state&&a.state.last_ms!=null ? ` · 최근 ${a.state.last_ms}ms` : ''}${
+          a.backlog ? ` · <span style="color:var(--major)">미판단 ${a.backlog}분</span>` : ''}</span>
+        <button class="act" id="accfill" style="padding:4px 10px;font-size:11.5px"
+          title="그 날 수집됐는데 아직 LLM 판단이 없는 분을 통째로 메웁니다 (LLM 을 그만큼 호출합니다)">
+          ${a.backfill&&a.backfill.running ? '메우는 중…' : '빈 구간 메움'}</button>
+        <label class="note" style="margin-left:auto">날짜</label>
+        <input type="date" id="accdate" value="${esc(a.day.slice(0,4)+'-'+a.day.slice(4,6)+'-'+a.day.slice(6,8))}"
+               style="padding:4px 7px;font-size:11.5px">
+        <a class="act" style="padding:4px 10px;font-size:11.5px"
+           href="/api/data/${esc(a.day)}_LLM.csv" download>CSV 내려받기</a>
+      </div>
+      <p class="note" style="margin:0 0 10px">
+        <b style="color:var(--major)">이 값은 검증된 정탐률이 아닙니다</b> —
+        LLM 판단이 이후 실제 데이터 흐름과 일치했는지만 봅니다.
+        조치로 빨리 회복된 건은 '조치효과' 로 빼고 분모에서 제외합니다.
+        아래에서 직접 정탐/오탐을 눌러주시면 그게 최종 판정입니다.<br>
+        <b>판정이 '채점 대기' 인 건 정상입니다</b> — LLM 판단은 이미 끝났고,
+        그 판단이 맞았는지는 이후 ${a.window_min}분 실제 흐름을 봐야 알 수 있어 그때 채워집니다.
+        (같은 시각을 <b>${esc(a.day)}_TOTAL.CSV</b> 와 <span class="mono">datetime</span> 으로 맞춰 보면 그때 원데이터가 나옵니다)<br>
+        <b>확신도</b> = LLM 이 자기 판단을 얼마나 확신하는지 (0~100).<br>
+        <b>점수 등급</b> —
+        <span style="color:var(--ok)">50 미만 정상</span> ·
+        <span style="color:var(--minor)">50~70 경계</span> ·
+        <span style="color:var(--major)">71~84 위험</span> ·
+        <span style="color:var(--crit)">85~100 초위험</span>
+        <b style="color:var(--crit)">— 위험·초위험은 무조건 사람 확인이 필요합니다</b>
+      </p>
+      <table class="pol"><thead><tr>
+        <th style="width:62px">시각</th><th style="width:92px">점수</th>
+        <th style="width:66px">실제이상</th>
+        <th style="width:66px" title="LLM 이 자기 판단을 얼마나 확신하는지 (0~100)">확신도</th>
+        <th>판단</th><th style="width:92px">판정</th>
+        <th style="width:270px">판정근거</th><th style="width:106px">확인</th>
+      </tr></thead><tbody>` + (rows.length ? rows.map(r=>`<tr>
+        <td title="${esc(r.datetime)}">${esc((r.datetime||'').slice(11,16))}</td>
+        <td>${scoreCell(r.스코어)}${gradeOf(parseFloat(r.스코어)).chk
+             ? `<br><span class="note" style="color:var(--crit);font-size:10.5px;white-space:nowrap">사람 확인 필요</span>` : ''}</td>
+        <td>${r.실제이상 ? `<b style="color:${r.실제이상==='예'?'var(--crit)':'var(--ok)'}">${esc(r.실제이상)}</b>` : '<span class="dim">–</span>'}</td>
+        <td>${r.확신도!=='' && r.확신도!=null ? esc(r.확신도)+'%' : '<span class="dim">–</span>'}</td>
+        <td title="${esc(r.근거||'')}">${r.판단 ? esc(r.판단)
+             : (r.오류 ? `<span style="color:var(--crit)">${esc(r.오류)}</span>` : '<span class="dim">–</span>')}</td>
+        <td>${vchip((r.판정||'').trim(), r)}</td>
+        <td class="note">${esc(r.판정근거||'') || (r.대기분!=null
+             ? `LLM 판단은 끝났습니다 — 이후 ${a.window_min}분 실제 흐름을 봐야 채점됩니다`
+             : '')}</td>
+        <td><button class="act hv" data-dt="${esc(r.datetime)}" data-v="정탐"
+              style="padding:2px 7px;font-size:11px">정탐</button>
+            <button class="act hv" data-dt="${esc(r.datetime)}" data-v="오탐"
+              style="padding:2px 7px;font-size:11px">오탐</button></td>
+      </tr>`).join('') : '<tr><td colspan="8" class="empty">아직 추론 기록이 없습니다 — 1분마다 쌓입니다</td></tr>')
+      + `</tbody></table>`;
+    $('#accdate').onchange = e => openAcc(e.target.value.replace(/-/g,''));
+    $('#accfill').onclick = async () => {
+      const btn = $('#accfill');
+      if(btn.textContent.includes('메우는 중')) return;
+      if(!confirm(`${ACCDAY} 에 수집됐는데 LLM 판단이 없는 분을 전부 판단합니다.\n`
+        + `분당 1회씩 LLM 을 호출하므로 시간이 걸립니다. 진행할까요?`)) return;
+      btn.disabled = true; btn.textContent = '메우는 중…';
+      try{
+        const r = await post('/api/accuracy/backfill', {date: ACCDAY});
+        if(!r.ok){ alert(r.error || '시작 실패'); btn.disabled=false; btn.textContent='빈 구간 메움'; return; }
+        // 진행 상황을 몇 초마다 다시 읽어 화면을 갱신
+        const tick = setInterval(async () => {
+          const st = await api('/api/accuracy/backfill');
+          if(!st.running){ clearInterval(tick); openAcc(ACCDAY); }
+        }, 4000);
+      }catch(e){ btn.disabled=false; btn.textContent='빈 구간 메움'; }
+    };
+    $('#gbody').querySelectorAll('button.hv').forEach(b => b.onclick = async () => {
+      b.disabled = true;
+      await post('/api/accuracy/verdict', {datetime: b.dataset.dt, verdict: b.dataset.v});
+      openAcc(ACCDAY);
+    });
+  }catch(e){ $('#gbody').innerHTML = '<div class="empty">불러오지 못했습니다</div>'; }
+}
+
+function renderPolicy(p, ev){
+  if(p && p.routing && !$('#routing').dataset.done){
+    $('#routing').dataset.done='1';
+    $('#routing').innerHTML = p.routing.map(r=>`<tr>
+      <td><span class="chip lv${esc(r.level)}">${esc(r.level)}</span></td>
+      <td>${(r.on_detect||[]).map(esc).join('<br>')||'–'}</td>
+      <td>${(r.unack_5m||[]).map(esc).join('<br>')||'–'}</td>
+      <td>${(r.unack_15m||[]).map(esc).join('<br>')||'–'}</td>
+      <td>${r.recheck_min}분</td></tr>`).join('')
+      + `<tr><td colspan="5" class="note">억제 창 ${p.suppression_window_min}분 · 종결은 확인 처리 후 가능</td></tr>`;
+  }
+  if(ev && ev.periods && !$('#evalrows').dataset.done){
+    $('#evalrows').dataset.done='1';
+    $('#evalrows').innerHTML = ev.periods.map(e=>`<tr>
+      <td><b>${esc(e.every)}</b></td>
+      <td>${e.enabled?'<span style="color:var(--ok)">사용</span>':'<span class="note">미사용</span>'}</td>
+      <td>${esc(e.scope)}</td><td>${esc(e.filter)}</td>
+      <td>${(e.channels||[]).map(esc).join(', ')}</td></tr>`).join('');
+  }
+}
+
+/* 목록 — 수집한 전체 데이터를 4등급으로, 경계 이상은 케이스와 연결 */
+let FEED = [];
+
+/* ── 실시간·과거 공통 렌더 (표 모양은 완전히 동일, 보는 날짜만 다르다) ── */
+function applyFilter(rows, filter, byId){
+  if(filter!=='all')   return rows.filter(r=>r.level===filter);
+  return rows;
+}
+
+/* 발동 룰이 실제로 보는 raw 지표 컬럼명. 한글 요약만으로는 '무슨 숫자를
+   보고 그렇게 판단했나' 를 알 수 없어 옆 칸에 같이 보여준다. */
+function metricCell(ms){
+  if(!ms || !ms.length) return '<span class="dim">–</span>';
+  const all = ms.map(m=>m.raw).join('\n');
+  const show = ms.slice(0,4);
+  return `<div class="mono" style="font-size:10.5px;line-height:1.5" title="${esc(all)}">`
+    + show.map(m=>`<div title="${esc(m.label||'')}">${esc(m.raw)}</div>`).join('')
+    + (ms.length>4 ? `<div class="dim">외 ${ms.length-4}개</div>` : '')
+    + '</div>';
+}
+
+function rowsHtml(list, byId, newAt){
+  if(!list.length) return `<tr><td colspan="7" class="empty">해당 등급 데이터 없음</td></tr>`;
+  return list.map(r=>{
+    const isNew = newAt && r.datetime===newAt;
+    return `<tr class="crow${isNew?' fresh':''}" data-at="${esc(r.at)}">
+      <td><div>${esc((r.datetime||'').slice(11) || r.time)}</div>
+          <div class="dim">${esc((r.datetime||'').slice(0,10))}</div></td>
+      <td><div class="cid"><i style="background:${lvColor(r.level)}"></i>${
+          r.case_id ? esc(shortId(r.case_id)) : '<span class="dim">—</span>'}</div></td>
+      <td><div class="ttl">${Math.round(r.score)}<span class="dim" style="font-weight:400"> 점</span></div>
+          <div class="sub"><span class="chip lv${esc(r.level)}">${esc(r.severity)}</span></div></td>
+      <td><div title="${esc(r.reason_raw||'')}">${esc(r.reason || (r.level==='정상' ? '정상 운영' : '–'))}</div></td>
+      <td>${metricCell(r.metrics)}</td>
+      <td>${dirCell(r.bott_down, r.bott_up)}</td>
+      <td>${dirCell(r.queue_down, r.queue_up, true)}</td>
+    </tr>`;}).join('');
+}
+
+/* 더블클릭 → 구간 그래프 (실시간·과거 각 표에 개별 바인딩) */
+function bindGraph(tbodySel){
+  document.querySelectorAll(tbodySel+' tr.crow').forEach(el =>
+    el.ondblclick = () => openGraph(el.dataset.at));
+}
+
+/* ── 스코어 추이 스트립 — 하루치를 항상 띄워두고 폴링마다 갱신 ──
+   graphs.py 와 같은 색 체계(다크 밴드 + --cy 선)로 그린다. 순수 SVG. */
+const STRIP_BANDS = [[0,50,'#0F1622'],[50,71,'#2B2612'],[71,85,'#33210F'],[85,100,'#331419']];
+const STRIP_W = 1000, STRIP_H = 132, STRIP_L = 30, STRIP_R = 10, STRIP_T = 9, STRIP_B = 17;
+
+function dayStartOf(rows){
+  const s = (rows[0]?.at || '').slice(0,10);
+  return s ? new Date(s + 'T00:00:00') : new Date(new Date().toDateString());
+}
+
+/* 지표 묶음 — /api/feed 가 준다 (config.ui.metric_groups 기반, 값 있는 것만) */
+const SCORE_KEY = 'unified_risk_score';
+const FALLBACK_M = {key:SCORE_KEY, raw:SCORE_KEY, label:'스코어', unit:'점',
+                    color:'#3DDBE8', max:100, bands:true};
+let GROUPS = [];
+let STRIPG = null,  STRIPK  = SCORE_KEY;    // 실시간 탭 (묶음, 지표)
+let PSTRIPG = null, PSTRIPK = SCORE_KEY;    // 과거 탭 — 서로 독립
+
+function groupOf(gid){
+  return GROUPS.find(g=>g.id===gid) || GROUPS[0] || {id:null, name:'지표', metrics:[FALLBACK_M]};
+}
+
+function metricOf(gid, key){
+  const ms = groupOf(gid).metrics || [];
+  return ms.find(m=>m.key===key) || ms[0] || FALLBACK_M;
+}
+
+/* 지표 값 — 스코어는 rows 최상위, 나머지는 m{} 에 실려온다 */
+function mval(r, key){
+  const v = key===SCORE_KEY ? r.score : (r.m || {})[key];
+  return (v===null || v===undefined || v==='') ? null : +v;
+}
+
+function fmtV(v, unit){
+  const a = Math.abs(v);
+  return (a>=100 ? v.toFixed(0) : a>=10 ? v.toFixed(1) : v.toFixed(2)).replace(/\.0+$/,'') + unit;
+}
+
+function stripSvg(rows, mt){
+  const iw = STRIP_W - STRIP_L - STRIP_R, ih = STRIP_H - STRIP_T - STRIP_B;
+  const d0 = dayStartOf(rows), t0 = d0.getTime(), t1 = t0 + 86400000;
+  const X = t => STRIP_L + iw * ((t - t0) / (t1 - t0));
+
+  const vals = rows.map(r=>mval(r, mt.key)).filter(v=>v!==null && !isNaN(v));
+  const isScore = !!mt.bands;
+  // 스코어는 0~100 고정 + 등급 밴드, 나머지는 값 범위에 맞춰 자동 스케일
+  let lo = 0, hi = mt.max || 100;
+  if(!isScore){
+    lo = vals.length ? Math.min(...vals) : 0;
+    hi = vals.length ? Math.max(...vals) : 1;
+    const pad = (hi - lo) * 0.12 || Math.abs(hi)*0.1 || 1;
+    lo = Math.max(0, lo - pad); hi = hi + pad;
+    if(mt.max) hi = Math.min(hi, mt.max);
+    if(hi <= lo) hi = lo + 1;
+  }
+  const Y = v => STRIP_T + ih * (1 - (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo));
+
+  const o = [`<svg viewBox="0 0 ${STRIP_W} ${STRIP_H}" xmlns="http://www.w3.org/2000/svg" font-family="inherit">`,
+             `<rect width="${STRIP_W}" height="${STRIP_H}" fill="#0D1119"/>`];
+  if(isScore){
+    STRIP_BANDS.forEach(([bl,bh,c]) =>
+      o.push(`<rect x="${STRIP_L}" y="${Y(bh).toFixed(1)}" width="${iw}" height="${(Y(bl)-Y(bh)).toFixed(1)}" fill="${c}"/>`));
+  }
+  const ticks = isScore ? [50,71,85,100] : [lo, lo+(hi-lo)/2, hi];
+  ticks.forEach(v => {
+    o.push(`<line x1="${STRIP_L}" y1="${Y(v).toFixed(1)}" x2="${STRIP_L+iw}" y2="${Y(v).toFixed(1)}" stroke="#2E3A4C" stroke-width=".7" stroke-dasharray="3 3"/>`);
+    o.push(`<text x="${STRIP_L-4}" y="${(Y(v)+3.4).toFixed(1)}" font-size="8.5" fill="#8FA0B6" text-anchor="end">${
+      isScore ? v : (Math.abs(v)>=10 ? v.toFixed(0) : v.toFixed(1))}</text>`);
+  });
+  for(let h=0; h<=24; h+=2){
+    const x = X(t0 + h*3600000);
+    o.push(`<line x1="${x.toFixed(1)}" y1="${STRIP_T}" x2="${x.toFixed(1)}" y2="${STRIP_T+ih}" stroke="#1C2431" stroke-width=".6"/>`);
+    o.push(`<text x="${x.toFixed(1)}" y="${STRIP_H-5}" font-size="8.5" fill="#5E6E85" text-anchor="middle">${String(h).padStart(2,'0')}:00</text>`);
+  }
+  const pts = rows.slice().sort((a,b)=> a.at < b.at ? -1 : 1)
+    .map(r=>({x:X(new Date(r.at).getTime()), v:mval(r, mt.key), at:r.at, lv:r.level}))
+    .filter(p=>p.v!==null && !isNaN(p.v))
+    .map(p=>({...p, y:Y(p.v)}));
+  if(pts.length > 1){
+    const line = pts.map((p,i)=>`${i?'L':'M'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+    o.push(`<path d="M${pts[0].x.toFixed(1)},${(STRIP_T+ih).toFixed(1)} ${line.slice(1)} L${pts[pts.length-1].x.toFixed(1)},${(STRIP_T+ih).toFixed(1)} Z" fill="${mt.color}" opacity=".13"/>`);
+    o.push(`<path d="${line}" fill="none" stroke="${mt.color}" stroke-width="1.4"/>`);
+  }
+  // 스코어는 경계 이상만 등급 색 점으로
+  if(isScore){
+    pts.filter(p=>p.v>=50).forEach(p =>
+      o.push(`<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2.2" fill="${
+        p.lv==='초위험'?'#FF4D5E':p.lv==='위험'?'#FF9F2E':'#F2D338'}"/>`));
+  }
+  // 최고점
+  if(pts.length){
+    const pk = pts.reduce((a,b)=> b.v>a.v?b:a);
+    const c = isScore ? '#FF4D5E' : mt.color;
+    o.push(`<circle cx="${pk.x.toFixed(1)}" cy="${pk.y.toFixed(1)}" r="3.6" fill="none" stroke="${c}" stroke-width="1.5"/>`);
+    o.push(`<text x="${Math.min(STRIP_L+iw-52, Math.max(STRIP_L+2, pk.x-22)).toFixed(1)}" y="${Math.max(STRIP_T+9, pk.y-6).toFixed(1)}" font-size="9" fill="${c}" font-weight="700">▲${fmtV(pk.v, mt.unit)}</text>`);
+  }
+  // 현재 시각 (오늘일 때만)
+  const now = new Date();
+  if(now.getTime() >= t0 && now.getTime() < t1){
+    const nx = X(now.getTime());
+    o.push(`<line x1="${nx.toFixed(1)}" y1="${STRIP_T}" x2="${nx.toFixed(1)}" y2="${STRIP_T+ih}" stroke="#E6EDF6" stroke-width="1" opacity=".55"/>`);
+  }
+  o.push('</svg>');
+  return o.join('');
+}
+
+/* 묶음 버튼 + 지표 선택 상자 채우기 (실시간·과거 각각) */
+function fillMetricUI(grpSel, selSel, gid, key){
+  if(!GROUPS.length) return;
+  const gEl = $(grpSel), sEl = $(selSel);
+  if(gEl){
+    const sig = GROUPS.map(g=>g.id).join(',') + '|' + gid;
+    if(gEl.dataset.sig !== sig){
+      gEl.dataset.sig = sig;
+      gEl.innerHTML = GROUPS.map(g=>`<button type="button" data-g="${esc(g.id)}"${
+        g.id===gid ? ' class="on"' : ''} title="${esc(g.desc||'')}">${esc(g.name)}</button>`).join('');
+    }
+  }
+  if(sEl){
+    const ms = groupOf(gid).metrics || [];
+    const sig = gid + '|' + ms.length;
+    if(sEl.dataset.sig !== sig){
+      sEl.dataset.sig = sig;
+      // 컬럼명을 대괄호로 같이 보여준다 — 어느 컬럼인지 바로 알게
+      sEl.innerHTML = ms.map(m=>`<option value="${esc(m.key)}">${esc(m.label)}${
+        m.unit ? ' ('+esc(m.unit)+')' : ''} [${esc(m.raw || m.key)}]</option>`).join('');
+    }
+    sEl.value = key;
+    if(sEl.selectedIndex < 0) sEl.selectedIndex = 0;   // 묶음에 없는 지표면 첫 항목
+  }
+}
+
+/* 스트립 클릭 → 가장 가까운 데이터 시각의 구간 그래프 */
+function drawStrip(boxSel, infoSel, rows, gid, key){
+  const box = $(boxSel);
+  if(!box) return;
+  const live = boxSel === '#strip';
+  fillMetricUI(live ? '#stripgrp' : '#pstripgrp', live ? '#stripsel' : '#pstripsel', gid, key);
+  const mt = metricOf(gid, key);
+  const isScore = !!mt.bands;
+  // 등급 범례는 스코어일 때만 의미가 있다
+  const lgd = box.closest('.strip')?.querySelector('.gradelgd');
+  if(lgd) lgd.classList.toggle('hidden', !isScore);
+  if(!rows.length){
+    box.innerHTML = '<div class="empty" style="padding:26px 0">데이터 없음</div>';
+    $(infoSel).textContent = '—';
+    return;
+  }
+  box.innerHTML = stripSvg(rows, mt);
+  const vs = rows.map(r=>mval(r, mt.key)).filter(v=>v!==null && !isNaN(v));
+  const raw = `<span class="zchip mono" style="padding:0 5px">${esc(mt.raw || mt.key)}</span>`;
+  if(!vs.length){
+    $(infoSel).innerHTML = `${esc((rows[0].datetime||'').slice(0,10))} · ${raw} `
+      + `<span style="color:var(--major)">값 없음</span>`;
+  }else{
+    const pk = rows.filter(r=>mval(r,mt.key)!==null)
+                   .reduce((a,b)=> mval(b,mt.key) > mval(a,mt.key) ? b : a);
+    $(infoSel).innerHTML = `${esc((rows[0].datetime||'').slice(0,10))} · ${raw} · ${vs.length}분 · `
+      + `최고 <b style="color:${isScore?'var(--crit)':esc(mt.color)}">${esc(fmtV(mval(pk,mt.key), mt.unit))}</b> `
+      + `${esc((pk.datetime||'').slice(11))} · 평균 ${esc(fmtV(vs.reduce((a,b)=>a+b,0)/vs.length, mt.unit))}`;
+  }
+  const svg = box.querySelector('svg');
+  if(!svg) return;
+  svg.onclick = ev => {
+    const b = svg.getBoundingClientRect();
+    const frac = (ev.clientX - b.left) / b.width;               // viewBox 좌표로 환산
+    const vx = frac * STRIP_W;
+    const iw = STRIP_W - STRIP_L - STRIP_R;
+    const d0 = dayStartOf(rows).getTime();
+    const tms = d0 + 86400000 * Math.max(0, Math.min(1, (vx - STRIP_L) / iw));
+    let best = null, bd = Infinity;
+    rows.forEach(r=>{ const d = Math.abs(new Date(r.at).getTime() - tms); if(d < bd){ bd = d; best = r; } });
+    if(best) openGraph(best.at);
+  };
+}
+
+async function pollCases(){
+  try{
+    // 종결 케이스도 목록에 연결돼야 하므로 전체를 받는다
+    const [cs, fd] = await Promise.all([api('/api/cases?all=1'), api('/api/feed')]);
+    CASES = cs.cases||[];
+    FEED  = fd.rows||[];
+    const cnt = fd.counts||{};
+    $('#n-all').textContent = fd.total||0;
+    ['정상','경계','위험','초위험'].forEach(l => $('#n-'+l).textContent = cnt[l]||0);
+
+    // 최신 데이터가 들어왔는지 바로 보이게
+    const d = fd.day ? `${fd.day.slice(0,4)}-${fd.day.slice(4,6)}-${fd.day.slice(6,8)}` : '';
+    const from_ = (fd.earliest||'').slice(11), to_ = (fd.latest||'').slice(11);
+    $('#feedinfo').innerHTML =
+      (fd.fallback ? `<span style="color:var(--major)">오늘 데이터 없음 → ${esc(d)} 표시</span> · ` : `${esc(d)} · `)
+      + (from_ ? `<b style="color:var(--tx2)">${esc(from_)}~${esc(to_)}</b>` : '–')
+      + (fd.total > fd.shown
+          ? ` · <span style="color:var(--major)">${fd.shown}/${fd.total}행만 표시</span>`
+          : ` · ${fd.total}행`)
+      + ` · 갱신 ${new Date().toLocaleTimeString('ko-KR',{hour12:false})}`;
+    if(fd.latest && fd.latest !== LAST_LATEST){ NEW_AT = fd.latest; LAST_LATEST = fd.latest; }
+
+    const byId = Object.fromEntries(CASES.map(c=>[c.id,c]));
+    $('#cases').innerHTML = rowsHtml(applyFilter(FEED, FILTER, byId), byId, NEW_AT);
+    bindGraph('#cases');
+    // 스코어 추이는 필터와 무관하게 하루치 전체 (폴링마다 갱신 = 실시간)
+    if(fd.groups){ GROUPS = fd.groups; if(!STRIPG) STRIPG = GROUPS[0]?.id; }
+    drawStrip('#strip', '#stripinfo', FEED, STRIPG, STRIPK);
+  }catch(e){ console.error('목록 갱신 실패', e); }
+}
+
+/* ── 과거 데이터 조회 — 저장된 CSV 를 날짜로 읽어 같은 표에 뿌린다 ── */
+let PFEED = [], PFILTER = 'all', PDAY = null, PINIT = false, PACC = null;
+const fmtDay = d => `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`;
+
+async function initPast(){
+  if(PINIT) return;
+  PINIT = true;
+  await loadPastDays();
+  // 저장된 날짜가 있으면 최신 날짜, 없으면 오늘을 기본으로 잡아 바로 조회한다
+  const day = $('#pday').value || new Date().toLocaleDateString('sv-SE').replace(/-/g,'');
+  $('#pdate').value = `${day.slice(0,4)}-${day.slice(4,6)}-${day.slice(6,8)}`;
+  await loadPast(day);
+}
+
+async function loadPastDays(keep){
+  try{
+    const d = await api('/api/data/days');
+    const days = d.days || [];
+    $('#pday').innerHTML = days.length
+      ? days.map(x=>`<option value="${esc(x.day)}">${esc(fmtDay(x.day))} · ${x.rows}행</option>`).join('')
+      : `<option value="">저장된 날짜 없음</option>`;
+    if(keep && days.some(x=>x.day===keep)) $('#pday').value = keep;
+  }catch(e){ $('#pday').innerHTML = '<option value="">목록 조회 실패</option>'; }
+}
+
+function pickedDay(){
+  return ($('#pdate').value||'').replace(/-/g,'') || $('#pday').value || '';
+}
+
+function paintPast(){
+  const byId = Object.fromEntries(CASES.map(c=>[c.id,c]));
+  $('#pcases').innerHTML = rowsHtml(applyFilter(PFEED, PFILTER, byId), byId, null);
+  bindGraph('#pcases');
+  drawStrip('#pstrip', '#pstripinfo', PFEED, PSTRIPG, PSTRIPK);
+}
+
+/* 조회 중에는 날짜 컨트롤을 잠근다 (하루치 확보는 몇 분 걸릴 수 있다) */
+let PBUSY = false;
+function pastBusy(on){
+  PBUSY = on;
+  ['#pload','#pget','#pday','#pdate'].forEach(s => $(s).disabled = on);
+}
+
+/* 날짜를 고르면 저장된 CSV 를 읽고, 없으면 그 자리에서 서버(로그프레소)로 확보한다 */
+async function loadPast(day, opt){
+  opt = opt || {};
+  day = day || pickedDay();
+  if(!day){ $('#pinfo').textContent = '— 날짜를 고르세요'; return; }
+  if(PBUSY) return;
+  PDAY = day;
+  pastBusy(true);
+  $('#pcases').innerHTML = '<tr><td colspan="7" class="empty">불러오는 중…</td></tr>';
+  $('#pcsv').href = `/api/data/${day}.csv`;
+  try{
+    if(opt.force && !await fetchDay(day)) return;    // '다시 확보'
+    let fd = await api(`/api/feed?day=${encodeURIComponent(day)}&limit=5000`);
+    // 저장된 게 없으면 서버에서 그 날짜를 확보한 뒤 다시 읽는다
+    if(!(fd.rows||[]).length && !opt.force && opt.autoFetch !== false){
+      if(await fetchDay(day)) fd = await api(`/api/feed?day=${encodeURIComponent(day)}&limit=5000`);
+      else return;
+    }
+    PFEED = fd.rows || [];
+    if(fd.groups){ GROUPS = fd.groups; if(!PSTRIPG) PSTRIPG = GROUPS[0]?.id; }
+    const cnt = fd.counts || {};
+    $('#pn-all').textContent = fd.total || 0;
+    ['정상','경계','위험','초위험'].forEach(l => $('#pn-'+l).textContent = cnt[l]||0);
+    $('#pcsv').classList.toggle('off', !PFEED.length);
+    const from_ = (fd.earliest||'').slice(11), to_ = (fd.latest||'').slice(11);
+    $('#pinfo').innerHTML = PFEED.length
+      ? `${esc(fmtDay(day))} · <b style="color:var(--tx2)">${esc(from_)}~${esc(to_)}</b>`
+        + (fd.total > fd.shown
+            ? ` · <span style="color:var(--major)">${fd.shown}/${fd.total}행만 표시</span>`
+            : ` · ${fd.total}행`)
+      : `<span style="color:var(--major)">${esc(fmtDay(day))} 데이터 없음 — 그 날짜는 로그프레소에도 기록이 없습니다</span>`;
+    paintPast();
+    loadPastLlm(day);
+  }catch(e){
+    console.error('과거 조회 실패', e);
+    $('#pinfo').innerHTML = '<span style="color:var(--crit)">조회 실패</span>';
+    $('#pcases').innerHTML = '<tr><td colspan="7" class="empty">조회 실패</td></tr>';
+  }finally{ pastBusy(false); }
+}
+
+/* 과거 N일 한꺼번에 채우기 — 이미 저장된 날도 다시 받는다.
+   같은 시각은 건너뛰지만, 컬럼이 모자란 옛 파일은 이 참에 헤더가 넓어진다. */
+$('#pback').onchange = async function(){
+  const n = this.value; this.value = '';
+  if(!n) return;
+  if(!confirm(`최근 ${n}일치를 서버에서 받아 채웁니다.\n`
+            + `이미 저장된 날도 다시 받아 빠진 컬럼을 채웁니다. 계속할까요?`)) return;
+  $('#pinfo').innerHTML = `최근 ${n}일 받는 중… <span class="dim">몇 분 걸릴 수 있습니다</span>`;
+  try{
+    const r = await post('/api/collect', {back: Number(n)});
+    if(r.error && !r.days){
+      $('#pinfo').innerHTML = `<span style="color:var(--crit)">채우기 실패 — ${esc(r.error)}</span>`;
+      return;
+    }
+    const miss = (r.missing||[]).length, fail = (r.failed||[]).length;
+    $('#pinfo').innerHTML = `<b style="color:var(--ok)">${(r.days||[]).length}일</b> 받음 · `
+      + `신규 <b>${r.written||0}</b>행`
+      + (miss ? ` · <span class="dim">파일 없는 날 ${miss}일</span>` : '')
+      + (fail ? ` · <span style="color:var(--crit)">실패 ${fail}일</span>` : '');
+    await loadPastDays();
+  }catch(e){
+    $('#pinfo').innerHTML = '<span style="color:var(--crit)">채우기 실패 — 서버 응답 없음</span>';
+  }
+};
+
+/* 서버에 그 날짜 확보를 시킨다. 성공하면 날짜 목록도 갱신. */
+async function fetchDay(day){
+  const jup = SRC === 'jupyter';
+  $('#pinfo').innerHTML = `${esc(fmtDay(day))} 서버에서 가져오는 중… `
+    + `<span class="dim">${jup ? '주피터 CSV 를 받습니다' : '로그프레소 하루치는 몇 분 걸릴 수 있습니다'}</span>`;
+  $('#pcases').innerHTML = '<tr><td colspan="7" class="empty">서버 조회 중…</td></tr>';
+  try{
+    const r = await post('/api/collect', {date: day});
+    if(!r.ok){
+      $('#pinfo').innerHTML = `<span style="color:var(--crit)">${esc(fmtDay(day))} 확보 실패 — ${esc(r.error||'')}</span>`;
+      $('#pcases').innerHTML = '<tr><td colspan="7" class="empty">확보 실패</td></tr>';
+      return false;
+    }
+    await loadPastDays(day);
+    return true;
+  }catch(e){
+    $('#pinfo').innerHTML = '<span style="color:var(--crit)">확보 실패 — 서버 응답 없음</span>';
+    $('#pcases').innerHTML = '<tr><td colspan="7" class="empty">확보 실패</td></tr>';
+    return false;
+  }
+}
+
+/* 지표 묶음 버튼 / 지표 선택 — 실시간·과거 각각 독립 */
+function redrawLive(){ drawStrip('#strip','#stripinfo',FEED,STRIPG,STRIPK); }
+function redrawPast(){ drawStrip('#pstrip','#pstripinfo',PFEED,PSTRIPG,PSTRIPK); }
+
+$('#stripsel').onchange  = () => { STRIPK  = $('#stripsel').value;  redrawLive(); };
+$('#pstripsel').onchange = () => { PSTRIPK = $('#pstripsel').value; redrawPast(); };
+$('#stripgrp').onclick = e => {
+  const b = e.target.closest('button[data-g]'); if(!b) return;
+  STRIPG = b.dataset.g;
+  // 바꾼 묶음에 같은 지표가 없으면 그 묶음의 첫 지표(스코어)로
+  if(!(groupOf(STRIPG).metrics||[]).some(m=>m.key===STRIPK))
+    STRIPK = (groupOf(STRIPG).metrics||[{key:SCORE_KEY}])[0].key;
+  redrawLive();
+};
+$('#pstripgrp').onclick = e => {
+  const b = e.target.closest('button[data-g]'); if(!b) return;
+  PSTRIPG = b.dataset.g;
+  if(!(groupOf(PSTRIPG).metrics||[]).some(m=>m.key===PSTRIPK))
+    PSTRIPK = (groupOf(PSTRIPG).metrics||[{key:SCORE_KEY}])[0].key;
+  redrawPast();
+};
+
+$('#pload').onclick  = () => loadPast();
+$('#pget').onclick   = () => loadPast(pickedDay(), {force:true});
+$('#pdate').onchange = () => loadPast();
+$('#pday').onchange  = () => {
+  const d = $('#pday').value;
+  if(!d) return;
+  $('#pdate').value = `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`;
+  loadPast(d);
+};
+
+document.querySelectorAll('#pfilters button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#pfilters button').forEach(x=>x.classList.toggle('on',x===b));
+  PFILTER = b.dataset.f; paintPast();
+});
+/* ── 더블클릭 → 구간 그래프 ── */
+let GAT = null;
+async function openGraph(at){
+  GAT = at;
+  document.querySelector('.gbox').classList.remove('wide');
+  $('#gmin').classList.remove('hidden');
+  const r = FEED.find(x=>x.at===at) || PFEED.find(x=>x.at===at);
+  $('#gtitle').textContent = r
+    ? `${r.datetime} · ${r.area} · ${Math.round(r.score)}점 ${r.emoji} ${r.level}`
+    : '구간 그래프';
+  $('#gmask').classList.remove('hidden');
+  await drawGraph();
+}
+async function drawGraph(){
+  if(!GAT) return;
+  const m = $('#gmin').value;
+  $('#gbody').innerHTML = '<div class="empty">그리는 중…</div>';
+  try{
+    // 그래프 + 기여도 추정을 같이 띄운다 — '왜 이 점수인가' 가 그래프 옆에 있어야
+    // 관제가 다음 행동을 정할 수 있다. 기여도는 실패해도 그래프는 나오게 따로 처리.
+    const [svg, con] = await Promise.all([
+      fetch(`/api/graph?at=${encodeURIComponent(GAT)}&minutes=${m}`).then(r=>r.text()),
+      fetch(`/api/contrib?at=${encodeURIComponent(GAT)}`).then(r=>r.text()).catch(()=>''),
+    ]);
+    $('#gbody').innerHTML = svg
+      + (con ? `<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">${con}</div>` : '');
+  }catch(e){ $('#gbody').innerHTML = '<div class="empty">그래프를 불러오지 못했습니다</div>'; }
+}
+$('#gmin').onchange = drawGraph;
+$('#gclose').onclick = () => $('#gmask').classList.add('hidden');
+$('#gmask').onclick = e => { if(e.target.id==='gmask') $('#gmask').classList.add('hidden'); };
+document.addEventListener('keydown', e => {
+  if(e.key==='Escape') $('#gmask').classList.add('hidden');
+});
+
+/* downward / upward 를 표시와 내용을 함께 나눠서 보여준다 (CSV 의 AMOS 4개 컬럼) */
+function dirCell(down, up, mono){
+  down = down||[]; up = up||[];
+  if(!down.length && !up.length) return '<span class="dim">—</span>';
+  const cls = mono ? 'zchip mono' : 'zchip';
+  const line = (mark, name, arr, color) => arr.length
+    ? `<div class="dirline"><b style="color:${color}">${mark} ${name}</b>`
+      + arr.map(v=>`<span class="${cls}">${esc(v)}</span>`).join('') + `</div>`
+    : '';
+  return line('▼', 'downward', down, 'var(--cy)')
+       + line('▲', 'upward',   up,   'var(--major)');
+}
+
+const shortId = id => String(id||'').replace(/^C\d{8}/,'C');
+const lvColor = l => l==='초위험'?'var(--crit)':l==='위험'?'var(--major)'
+                   : l==='경계'?'var(--minor)':'var(--ok)';
+
+/* 정상 행(케이스 없음) 상세 */
+document.querySelectorAll('#tab-live .filters button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#tab-live .filters button').forEach(x=>x.classList.toggle('on',x===b));
+  FILTER = b.dataset.f; pollCases();
+});
+
+/* 상세 */
+const elapsed = iso => {
+  if(!iso) return '–';
+  const m = Math.floor((Date.now()-new Date(iso))/60000);
+  if(m < 0) return '방금';                 // 시계 차이로 음수가 나오면 '방금'
+  return m<60 ? `${m}분` : `${Math.floor(m/60)}시간 ${m%60}분`;
+};
+
+/* 리포트 — 하루 사건 보고서 (데모스 개인 에이전트 '사건발생 보고서' 와 같은 5섹션) */
+const dayParam = () => ($('#rdate').value || '').replace(/-/g,'');
+
+$('#btnday').onclick = async () => {
+  const d = dayParam();
+  if(!d){ alert('날짜를 먼저 고르세요'); return; }
+  const btn=$('#btnday'), label=btn.textContent;
+  btn.disabled=true; btn.textContent='생성 중…';
+  $('#repout').innerHTML = `<div class="note" style="margin:12px 0">${d} 보고서 생성 중… (로그프레소 조회 + LLM 분석)</div>`;
+  try{
+    const rep = await post('/api/report', {date: $('#rdate').value, kind:'day'});
+    if(rep.error){ $('#repout').innerHTML=`<div class="warn" style="margin:12px 0">${esc(rep.error)}</div>`; return; }
+    const s=rep.summary||{};
+    $('#repout').innerHTML =
+      `<div class="ok-line" style="margin:12px 0">✓ ${esc(s.span||d)} 보고서 생성 완료 — ${s.count||0}건 ·
+        최고 ${s.top_emoji||''} ${esc(s.top_level||'정상')} ${Math.round(s.top_score||0)}점
+        ${rep.llm_error?`<span class="note" style="color:var(--major)">· LLM 미연결(통계 요약)</span>`:''}
+        ${rep.fetch_warn?`<span class="note" style="color:var(--major)">· ${esc(rep.fetch_warn)}</span>`:''}
+      </div>
+      <div class="row" style="margin:8px 0 4px">
+        <button class="act pri" id="btnopen" style="flex:0 0 auto">HTML 열기</button>
+        <a class="act" href="/api/report/day.html?date=${encodeURIComponent(d)}&download=1" style="flex:0 0 auto">내려받기</a>
+      </div>`;
+    $('#btnopen').onclick=()=>window.open(`/api/report/day.html?date=${encodeURIComponent(d)}`,'_blank');
+  } finally { btn.disabled=false; btn.textContent=label; }
+};
+
+/* 체크박스 표·수동 기입·저장이 들어간 인터랙티브 보고서는 별도 창으로 (데모스와 동일) */
+$('#btndayhtml').onclick = () => {
+  const d = dayParam();
+  if(!d){ alert('날짜를 먼저 고르세요'); return; }
+  window.open(`/api/report/day.html?date=${encodeURIComponent(d)}`, '_blank');
+};
+
+
+/* 수집 설정 — 데이터 구간 / 수집 주기 */
+const pollLabel = s => s < 60 ? `${s}초` : `${s/60}분`;
+
+async function initSettings(){
+  const s = await api('/api/window');
+  $('#selPoll').innerHTML = s.poll_options
+    .map(p => `<option value="${p}" ${p===s.poll_interval_s?'selected':''}>${pollLabel(p)}</option>`).join('');
+  POLL = s.poll_interval_s;
+}
+$('#selPoll').onchange = async e => {
+  const r = await post('/api/window', {poll_interval_s: parseInt(e.target.value)});
+  if(r.error) alert(r.error); else { POLL = r.poll_interval_s; pollStatus(); }
+};
+
+/* 시작 — 스플래시 없이 바로 */
+(function initDate(){
+  const d = new Date();
+  $('#rdate').value = new Date(d - d.getTimezoneOffset()*60000).toISOString().slice(0,10);
+})();
+initSettings(); pollStatus(); pollCases();
+setInterval(pollStatus,5000);
+setInterval(pollCases,3000);
+</script>
+</body>
+</html>
