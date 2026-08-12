@@ -56,6 +56,53 @@ def resolve_model(path: str) -> str:
     return path
 
 
+QUANTILES = [0.1, 0.5, 0.9]
+
+
+def _as_lists(obj):
+    """텐서/배열/리스트 → 순수 파이썬 중첩 리스트."""
+    if hasattr(obj, "tolist"):
+        return obj.tolist()
+    if isinstance(obj, (list, tuple)):
+        return [_as_lists(o) for o in obj]
+    return obj
+
+
+def _normalize(result, horizon):
+    """
+    predict_quantiles 반환값을 [{'q10','q50','q90'}, ...] 로 정규화.
+    버전에 따라 아래가 모두 가능하므로 형태를 보고 대응한다:
+      · (quantiles, mean) 튜플  또는  quantiles 단독
+      · [series][horizon][3]    또는  [series][3][horizon]
+      · 시리즈 1개일 때 축이 하나 빠진 형태
+    """
+    q = result
+    if isinstance(q, tuple) and len(q) >= 1:
+        q = q[0]
+    arr = _as_lists(q)
+
+    def one(a):
+        """한 시리즈 → dict"""
+        if len(a) == horizon and len(a[0]) == 3:          # [horizon][3]
+            rows = a
+        elif len(a) == 3 and len(a[0]) == horizon:        # [3][horizon]
+            rows = [[a[0][h], a[1][h], a[2][h]] for h in range(horizon)]
+        else:
+            raise ValueError(f"예상 못한 분위수 형태: {len(a)}x{len(a[0])} "
+                             f"(horizon={horizon})")
+        return {"q10": [float(r[0]) for r in rows],
+                "q50": [float(r[1]) for r in rows],
+                "q90": [float(r[2]) for r in rows]}
+
+    # 시리즈 축이 있는지 판별: arr[0][0] 이 스칼라면 시리즈 축 없음
+    first = arr[0]
+    if not isinstance(first, (list, tuple)):
+        raise ValueError(f"예상 못한 반환 구조: {type(q)}")
+    if isinstance(first[0], (list, tuple)):
+        return [one(a) for a in arr]      # [series][...][...]
+    return [one(arr)]                    # 시리즈 1개
+
+
 class Forecaster:
     """Chronos-2 (배치 예측). 실패 시 baseline 폴백."""
 
@@ -63,6 +110,7 @@ class Forecaster:
         self.pipe = None
         self.err = None
         self.backend = "baseline"
+        self._form = None          # 통하는 호출 형태를 기억해 재사용
         try:
             from chronos import Chronos2Pipeline
             mp = resolve_model(model)
@@ -73,45 +121,52 @@ class Forecaster:
         except Exception as e:
             self.err = repr(e)
 
+    def _forms(self, ctx_tensor, ctx_list, horizon):
+        """버전별 호출 시그니처 후보 (Chronos-2 는 inputs=, Bolt 는 context=)."""
+        kw = dict(prediction_length=horizon, quantile_levels=QUANTILES)
+        return [
+            ("inputs(positional)", lambda: self.pipe.predict_quantiles(ctx_tensor, **kw)),
+            ("inputs=",            lambda: self.pipe.predict_quantiles(inputs=ctx_tensor, **kw)),
+            ("inputs=list",        lambda: self.pipe.predict_quantiles(inputs=ctx_list, **kw)),
+            ("context=",           lambda: self.pipe.predict_quantiles(context=ctx_tensor, **kw)),
+        ]
+
     def predict(self, contexts: list[list[float]], horizon: int) -> list[dict]:
         """contexts 여러 개를 한 번에 → [{'q10','q50','q90'}, ...]"""
-        if self.pipe is not None:
-            try:
-                import torch
-                L = min(len(c) for c in contexts)
-                ctx = torch.tensor([c[-L:] for c in contexts], dtype=torch.float32)
-                qs, _ = self.pipe.predict_quantiles(
-                    context=ctx, prediction_length=horizon,
-                    quantile_levels=[0.1, 0.5, 0.9])
-                # 반환 축 순서가 버전에 따라 다를 수 있음:
-                #   [series, horizon, quantile]  또는  [series, quantile, horizon]
-                out = []
-                for s in range(qs.shape[0]):
-                    a = qs[s]
-                    if a.shape[0] == horizon and a.shape[-1] == 3:
-                        arr = a.tolist()                       # [horizon][3]
-                    elif a.shape[0] == 3:
-                        t = a.tolist()                         # [3][horizon]
-                        arr = [[t[0][h], t[1][h], t[2][h]] for h in range(horizon)]
-                    else:
-                        raise ValueError(
-                            f"예상 못한 predict_quantiles 형태: {tuple(a.shape)} "
-                            f"(horizon={horizon})")
-                    out.append({"q10": [float(r[0]) for r in arr],
-                                "q50": [float(r[1]) for r in arr],
-                                "q90": [float(r[2]) for r in arr]})
-                return out
-            except Exception as e:
-                # 실모델 예측 실패 → 즉시 알린다 (조용한 폴백은 결과를 오인시킴)
-                self.err = repr(e)
-                self.pipe = None
-                self.backend = "baseline"
-                print("=" * 72)
-                print("⚠ 실모델 예측 실패 → baseline 으로 폴백합니다.")
-                print(f"   원인: {self.err}")
-                print("   이 결과는 Chronos-2 성적이 아닙니다. 원인 해결 후 재실행하세요.")
-                print("=" * 72)
-        return [_baseline(c, horizon) for c in contexts]
+        if self.pipe is None:
+            return [_baseline(c, horizon) for c in contexts]
+        try:
+            import torch
+            L = min(len(c) for c in contexts)
+            trimmed = [c[-L:] for c in contexts]
+            ctx_tensor = torch.tensor(trimmed, dtype=torch.float32)
+            ctx_list = [torch.tensor(c, dtype=torch.float32) for c in trimmed]
+
+            forms = self._forms(ctx_tensor, ctx_list, horizon)
+            if self._form is not None:                    # 이미 통하는 형태 사용
+                return _normalize(forms[self._form][1](), horizon)
+
+            errors = []
+            for i, (name, call) in enumerate(forms):
+                try:
+                    out = _normalize(call(), horizon)
+                    self._form = i
+                    print(f"   [모델 호출 형태] {name} 사용")
+                    return out
+                except Exception as e:
+                    errors.append(f"{name}: {e}")
+            raise RuntimeError("모든 호출 형태 실패 →\n     " + "\n     ".join(errors))
+        except Exception as e:
+            # 실모델 예측 실패 → 즉시 알린다 (조용한 폴백은 결과를 오인시킴)
+            self.err = repr(e)
+            self.pipe = None
+            self.backend = "baseline"
+            print("=" * 72)
+            print("⚠ 실모델 예측 실패 → baseline 으로 폴백합니다.")
+            print(f"   원인: {e}")
+            print("   이 결과는 Chronos-2 성적이 아닙니다. 원인 해결 후 재실행하세요.")
+            print("=" * 72)
+            return [_baseline(c, horizon) for c in contexts]
 
 
 def _baseline(ctx: list[float], horizon: int) -> dict:
