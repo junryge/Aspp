@@ -68,39 +68,50 @@ def _as_lists(obj):
     return obj
 
 
-def _normalize(result, horizon):
+def _dims(a) -> list[int]:
+    """중첩 리스트의 각 축 길이."""
+    d = []
+    while isinstance(a, (list, tuple)) and a:
+        d.append(len(a))
+        a = a[0]
+    return d
+
+
+def _to_qrows(a, horizon):
+    """중첩 리스트 → [[q10,q50,q90], ...] (horizon개). 축 순서/여분축 자동 처리."""
+    d = _dims(a)
+    while len(d) > 2 and d[0] == 1:          # 앞쪽 크기1 축 제거 (variate 등)
+        a = a[0]
+        d = d[1:]
+    if len(d) > 2 and d[1] == 1:             # 중간 크기1 축 제거
+        a = [row[0] for row in a]
+        d = [d[0], d[2]]
+    if d[:2] == [horizon, 3]:
+        rows = a
+    elif d[:2] == [3, horizon]:
+        rows = [[a[0][h], a[1][h], a[2][h]] for h in range(horizon)]
+    else:
+        raise ValueError(f"예상 못한 분위수 형태: {d} (horizon={horizon})")
+    return {"q10": [float(r[0]) for r in rows],
+            "q50": [float(r[1]) for r in rows],
+            "q90": [float(r[2]) for r in rows]}
+
+
+def _normalize(result, horizon, n_series=1):
     """
     predict_quantiles 반환값을 [{'q10','q50','q90'}, ...] 로 정규화.
-    버전에 따라 아래가 모두 가능하므로 형태를 보고 대응한다:
-      · (quantiles, mean) 튜플  또는  quantiles 단독
-      · [series][horizon][3]    또는  [series][3][horizon]
-      · 시리즈 1개일 때 축이 하나 빠진 형태
+    버전에 따라 (quantiles, mean) 튜플 / 4-D (series,variate,horizon,q) /
+    3-D (series,horizon,q) / 축 순서 반전 등이 모두 올 수 있어 형태로 판별한다.
     """
-    q = result
-    if isinstance(q, tuple) and len(q) >= 1:
-        q = q[0]
+    q = result[0] if isinstance(result, tuple) and result else result
     arr = _as_lists(q)
-
-    def one(a):
-        """한 시리즈 → dict"""
-        if len(a) == horizon and len(a[0]) == 3:          # [horizon][3]
-            rows = a
-        elif len(a) == 3 and len(a[0]) == horizon:        # [3][horizon]
-            rows = [[a[0][h], a[1][h], a[2][h]] for h in range(horizon)]
-        else:
-            raise ValueError(f"예상 못한 분위수 형태: {len(a)}x{len(a[0])} "
-                             f"(horizon={horizon})")
-        return {"q10": [float(r[0]) for r in rows],
-                "q50": [float(r[1]) for r in rows],
-                "q90": [float(r[2]) for r in rows]}
-
-    # 시리즈 축이 있는지 판별: arr[0][0] 이 스칼라면 시리즈 축 없음
-    first = arr[0]
-    if not isinstance(first, (list, tuple)):
-        raise ValueError(f"예상 못한 반환 구조: {type(q)}")
-    if isinstance(first[0], (list, tuple)):
-        return [one(a) for a in arr]      # [series][...][...]
-    return [one(arr)]                    # 시리즈 1개
+    d = _dims(arr)
+    if len(d) < 2:
+        raise ValueError(f"예상 못한 반환 구조: dims={d}")
+    # 시리즈 축이 있고 시리즈가 여러 개면 시리즈별로 처리
+    if n_series > 1 and d[0] == n_series:
+        return [_to_qrows(a, horizon) for a in arr]
+    return [_to_qrows(arr, horizon)]
 
 
 class Forecaster:
@@ -121,14 +132,24 @@ class Forecaster:
         except Exception as e:
             self.err = repr(e)
 
-    def _forms(self, ctx_tensor, ctx_list, horizon):
-        """버전별 호출 시그니처 후보 (Chronos-2 는 inputs=, Bolt 는 context=)."""
+    def _forms(self, t3d, t2d, ctx_list, horizon):
+        """
+        버전별 호출 시그니처 후보.
+        Chronos-2 는 inputs 를 3-D (n_series, n_variates, history_length) 로 받는다.
+        Chronos-Bolt 는 context= 에 2-D 를 받는다.
+        """
         kw = dict(prediction_length=horizon, quantile_levels=QUANTILES)
         return [
-            ("inputs(positional)", lambda: self.pipe.predict_quantiles(ctx_tensor, **kw)),
-            ("inputs=",            lambda: self.pipe.predict_quantiles(inputs=ctx_tensor, **kw)),
-            ("inputs=list",        lambda: self.pipe.predict_quantiles(inputs=ctx_list, **kw)),
-            ("context=",           lambda: self.pipe.predict_quantiles(context=ctx_tensor, **kw)),
+            ("inputs 3-D (n_series,n_variates,history)",
+             lambda: self.pipe.predict_quantiles(t3d, **kw)),
+            ("inputs= 3-D",
+             lambda: self.pipe.predict_quantiles(inputs=t3d, **kw)),
+            ("inputs= list of 2-D",
+             lambda: self.pipe.predict_quantiles(inputs=ctx_list, **kw)),
+            ("inputs 2-D",
+             lambda: self.pipe.predict_quantiles(t2d, **kw)),
+            ("context= 2-D (Bolt)",
+             lambda: self.pipe.predict_quantiles(context=t2d, **kw)),
         ]
 
     def predict(self, contexts: list[list[float]], horizon: int) -> list[dict]:
@@ -139,19 +160,21 @@ class Forecaster:
             import torch
             L = min(len(c) for c in contexts)
             trimmed = [c[-L:] for c in contexts]
-            ctx_tensor = torch.tensor(trimmed, dtype=torch.float32)
-            ctx_list = [torch.tensor(c, dtype=torch.float32) for c in trimmed]
+            t2d = torch.tensor(trimmed, dtype=torch.float32)      # (S, L)
+            t3d = t2d.unsqueeze(1)                                # (S, 1, L)
+            ctx_list = [t3d[i] for i in range(t3d.shape[0])]      # [(1, L), ...]
+            n = len(contexts)
 
-            forms = self._forms(ctx_tensor, ctx_list, horizon)
+            forms = self._forms(t3d, t2d, ctx_list, horizon)
             if self._form is not None:                    # 이미 통하는 형태 사용
-                return _normalize(forms[self._form][1](), horizon)
+                return _normalize(forms[self._form][1](), horizon, n)
 
             errors = []
             for i, (name, call) in enumerate(forms):
                 try:
-                    out = _normalize(call(), horizon)
+                    out = _normalize(call(), horizon, n)
                     self._form = i
-                    print(f"   [모델 호출 형태] {name} 사용")
+                    print(f"   [모델 호출 형태] {name}")
                     return out
                 except Exception as e:
                     errors.append(f"{name}: {e}")
