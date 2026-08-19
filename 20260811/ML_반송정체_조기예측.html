@@ -1,0 +1,506 @@
+﻿<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>반송 정체 조기예측</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --paper:#F2F6F6; --surface:#FFFFFF; --surface2:#E7EEEE;
+  --ink:#131A24; --muted:#54646A; --faint:#7C8C92;
+  --line:#D2DDDD; --line2:#BCCBCB;
+  --accent:#0E7C7B; --accent-soft:#DCEDEC; --accent-line:#8FC6C4;
+  --thr:#B45309; --thr-soft:#FBEEDD;
+  --alert:#B02A37; --alert-soft:#FAE6E8;
+  --ok:#2F6F4F;
+  --shadow:0 1px 2px rgba(19,26,36,.05), 0 6px 18px rgba(19,26,36,.06);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0C1416; --surface:#131E20; --surface2:#1A2729;
+    --ink:#E3EDEC; --muted:#93A6A9; --faint:#76878B;
+    --line:#25373A; --line2:#31474A;
+    --accent:#35B0AE; --accent-soft:#0F2C2C; --accent-line:#2A5F5E;
+    --thr:#DFA05A; --thr-soft:#2E2214;
+    --alert:#E8737F; --alert-soft:#33161A;
+    --ok:#5FBD8E;
+    --shadow:0 1px 2px rgba(0,0,0,.35), 0 6px 18px rgba(0,0,0,.28);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0C1416; --surface:#131E20; --surface2:#1A2729;
+  --ink:#E3EDEC; --muted:#93A6A9; --faint:#76878B;
+  --line:#25373A; --line2:#31474A;
+  --accent:#35B0AE; --accent-soft:#0F2C2C; --accent-line:#2A5F5E;
+  --thr:#DFA05A; --thr-soft:#2E2214;
+  --alert:#E8737F; --alert-soft:#33161A;
+  --ok:#5FBD8E;
+  --shadow:0 1px 2px rgba(0,0,0,.35), 0 6px 18px rgba(0,0,0,.28);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"IBM Plex Sans KR",-apple-system,BlinkMacSystemFont,
+    "Apple SD Gothic Neo","Malgun Gothic","맑은 고딕","Noto Sans KR",sans-serif;
+  font-size:15.5px; line-height:1.7; -webkit-font-smoothing:antialiased;
+}
+.mono,code,td.n,th.n,.col{
+  font-family:"IBM Plex Mono",ui-monospace,"SF Mono",Consolas,monospace;
+  font-variant-numeric:tabular-nums;
+}
+.wrap{max-width:1080px; margin:0 auto; padding:0 24px 100px}
+
+/* header */
+header{background:var(--surface); border-bottom:1px solid var(--line)}
+.hin{max-width:1080px; margin:0 auto; padding:52px 24px 40px}
+.eyebrow{
+  font-size:11px; letter-spacing:.18em; text-transform:uppercase;
+  color:var(--accent); font-weight:600; margin:0 0 16px;
+}
+h1{font-size:clamp(30px,4.6vw,46px); line-height:1.12; margin:0 0 16px;
+   letter-spacing:-.025em; text-wrap:balance; font-weight:700}
+.lede{font-size:17.5px; color:var(--muted); margin:0; max-width:60ch}
+
+/* fan chart */
+.fans{display:grid; grid-template-columns:1fr 1fr; gap:18px; margin:34px 0 0}
+.fan{background:var(--surface); border:1px solid var(--line); border-radius:8px;
+     padding:18px 18px 12px; box-shadow:var(--shadow); overflow:hidden}
+.fan h3{margin:0 0 2px; font-size:14.5px; letter-spacing:-.01em}
+.fan .sub{margin:0 0 12px; font-size:12.5px; color:var(--faint)}
+.fan svg{display:block; width:100%; height:auto}
+.fan .read{display:flex; gap:18px; margin-top:12px; padding-top:11px;
+  border-top:1px dashed var(--line2); font-size:12.5px; flex-wrap:wrap}
+.fan .read b{display:block; font-size:17px; letter-spacing:-.01em}
+.fan .read span{color:var(--faint); font-size:11px; letter-spacing:.04em}
+.legend{display:flex; gap:16px; flex-wrap:wrap; margin:14px 0 0;
+  font-size:12px; color:var(--muted)}
+.legend i{display:inline-block; width:20px; height:3px; border-radius:2px;
+  vertical-align:middle; margin-right:6px}
+
+/* sections */
+section{margin:64px 0 0}
+.sechead{display:flex; align-items:baseline; gap:13px; flex-wrap:wrap; margin:0 0 8px}
+.tag{font-size:10.5px; font-weight:600; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--accent); border:1px solid var(--accent-line); background:var(--accent-soft);
+  padding:3px 9px; border-radius:3px; white-space:nowrap}
+h2{font-size:24px; margin:0; letter-spacing:-.025em; text-wrap:balance; font-weight:700}
+.sub{color:var(--muted); margin:10px 0 24px; max-width:68ch}
+h3.sh{font-size:16px; margin:32px 0 0; letter-spacing:-.01em}
+h3.sh + .sub{margin-top:7px}
+
+/* tables */
+.tw{overflow-x:auto; border:1px solid var(--line); border-radius:8px;
+    background:var(--surface); box-shadow:var(--shadow)}
+table{border-collapse:collapse; width:100%; font-size:13.5px; min-width:620px}
+th,td{padding:11px 14px; text-align:left; border-bottom:1px solid var(--line); vertical-align:top}
+thead th{background:var(--surface2); font-size:10.5px; letter-spacing:.09em;
+  text-transform:uppercase; color:var(--muted); font-weight:600; white-space:nowrap}
+tbody tr:last-child td{border-bottom:0}
+td.n,th.n{text-align:right; white-space:nowrap}
+.col{font-size:12.5px; color:var(--accent); font-weight:600; white-space:nowrap}
+.dim{color:var(--faint)}
+
+/* compare (before/after) */
+.cmp{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+.cmp>div{border:1px solid var(--line); border-radius:8px; padding:20px 22px;
+  background:var(--surface); box-shadow:var(--shadow)}
+.cmp .t{font-size:11px; letter-spacing:.12em; text-transform:uppercase;
+  color:var(--faint); font-weight:600; margin:0 0 12px}
+.cmp.bad .t{color:var(--alert)}
+.big{font-size:34px; font-weight:700; letter-spacing:-.03em; line-height:1.1}
+.cmp p{margin:8px 0 0; font-size:13.5px; color:var(--muted)}
+
+/* stage list */
+.stages{display:grid; gap:10px}
+.st{display:grid; grid-template-columns:52px 1fr auto; gap:16px; align-items:center;
+  border:1px solid var(--line); border-left:4px solid var(--line2);
+  background:var(--surface); border-radius:0 8px 8px 0; padding:14px 18px; box-shadow:var(--shadow)}
+.st .num{font-size:22px; font-weight:700; text-align:center; letter-spacing:-.02em}
+.st .nm{font-weight:600; font-size:15px}
+.st .ds{font-size:13px; color:var(--muted); margin-top:2px}
+.st .when{font-size:12px; color:var(--faint); white-space:nowrap; text-align:right}
+.st.s0{border-left-color:var(--line2)} .st.s0 .num{color:var(--faint)}
+.st.s1{border-left-color:var(--thr)}   .st.s1 .num{color:var(--thr)}
+.st.s2{border-left-color:var(--alert)} .st.s2 .num{color:var(--alert)}
+.st.s3{border-left-color:var(--alert); background:var(--alert-soft)} .st.s3 .num{color:var(--alert)}
+
+/* callout */
+.note{border:1px solid var(--line); border-left:3px solid var(--accent);
+  background:var(--surface); padding:17px 21px; border-radius:0 8px 8px 0; margin:24px 0}
+.note.warn{border-left-color:var(--thr)}
+.note.key{border-left-color:var(--alert)}
+.note h4{margin:0 0 8px; font-size:14.5px}
+.note p{margin:0; color:var(--muted); font-size:14px}
+.note p+p{margin-top:10px}
+
+/* prob ramp */
+.ramp td.bar{width:44%}
+.ramp .b{height:9px; border-radius:5px; background:var(--accent); display:block; min-width:2px}
+.ramp .b0{background:var(--line2)}
+
+footer{border-top:1px solid var(--line); margin-top:72px; padding-top:24px;
+  font-size:12.5px; color:var(--faint)}
+
+@media (max-width:820px){
+  .fans,.cmp{grid-template-columns:1fr}
+  .st{grid-template-columns:40px 1fr; }
+  .st .when{grid-column:2; text-align:left}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hin">
+    <p class="eyebrow">M16A HUBROOM · 반송 정체 예측</p>
+    <h1>정체가 터지기 전에<br>미리 알려드립니다</h1>
+    <p class="lede">
+      지난 90분의 반송 흐름을 보고 앞으로 30분을 내다봅니다.
+      임계를 넘을 것 같으면 <b>넘기 전에</b> 알립니다.
+      아래 두 그림이 이 시스템이 실제로 하는 일의 전부입니다.
+    </p>
+
+    <div class="fans">
+      <div class="fan">
+        <h3>지금 (평소)</h3>
+        <p class="sub">2026-08-19 10:24 · 운영 실측</p>
+        <svg id="fanA" viewBox="0 0 420 200" role="img"
+             aria-label="평소 상태의 예측 밴드 — 임계선에 한참 못 미침"></svg>
+        <div class="read">
+          <div><span>10분 내</span><b class="mono">0.00</b></div>
+          <div><span>30분 내</span><b class="mono">0.00</b></div>
+          <div><span>판정</span><b>정상</b></div>
+        </div>
+      </div>
+      <div class="fan">
+        <h3>정체가 다가올 때</h3>
+        <p class="sub">예시 — 임계를 향해 올라가는 중</p>
+        <svg id="fanB" viewBox="0 0 420 200" role="img"
+             aria-label="상승 중인 예측 밴드가 임계선을 넘어 경보가 발생"></svg>
+        <div class="read">
+          <div><span>10분 내</span><b class="mono">0.30</b></div>
+          <div><span>30분 내</span><b class="mono">0.92</b></div>
+          <div><span>판정</span><b style="color:var(--alert)">선제경보</b></div>
+        </div>
+      </div>
+    </div>
+    <p class="legend">
+      <span><i style="background:var(--accent)"></i>실제 반송시간 (10분 평균)</span>
+      <span><i style="background:var(--accent-line)"></i>예측 범위</span>
+      <span><i style="background:var(--thr)"></i>정체 임계 14.765분</span>
+    </p>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- 왜 -->
+  <section>
+    <div class="sechead"><span class="tag">출발점</span><h2>세는 방법부터 바꿨습니다</h2></div>
+    <p class="sub">
+      이전 방식은 반송시간이 순간적으로 튀면 그때마다 "정체"로 셌습니다.
+      그런데 그렇게 세면 대부분이 1분 만에 사라지는 센서 튐이었습니다.
+      예측할 수 없는 것을 예측하라고 시킨 셈입니다.
+    </p>
+    <div class="cmp">
+      <div class="bad">
+        <p class="t">순간값으로 셀 때</p>
+        <p class="big mono">657<span style="font-size:16px; font-weight:400">건</span></p>
+        <p>이 중 <b>78%가 지속 1분</b>. 임계를 올려도 지속시간이 오히려 짧아졌습니다 — 신호가 아니라 잡음을 세고 있었다는 뜻입니다.</p>
+      </div>
+      <div>
+        <p class="t">10분 평균으로 셀 때</p>
+        <p class="big mono" style="color:var(--accent)">18<span style="font-size:16px; font-weight:400">건</span></p>
+        <p>평균 <b>52분</b> 지속, 최장 156분. 그리고 <b>83%는 터지기 전에 쌓이는 조짐</b>이 보였습니다 — 예측할 수 있는 대상입니다.</p>
+      </div>
+    </div>
+    <div class="note">
+      <h4>그래서 판단 기준은 &lsquo;10분 평균&rsquo;입니다</h4>
+      <p>순간적으로 튄 값 하나로는 경보가 나가지 않습니다. 실제로 10분 동안 이어진 흐름만 정체로 봅니다. 운영 데이터에서도 원본은 4분~10분 사이를 오르내리는데 10분 평균은 6.4~6.9로 안정적입니다 — 튐이 걸러지고 있다는 증거입니다.</p>
+    </div>
+  </section>
+
+  <!-- 어떻게 -->
+  <section>
+    <div class="sechead"><span class="tag">동작</span><h2>매 1분, 네 걸음</h2></div>
+    <p class="sub">수집기가 데이터를 갱신할 때마다 아래를 반복합니다. 사람이 개입할 것은 없습니다.</p>
+    <div class="tw">
+      <table>
+        <thead><tr><th style="width:38px">　</th><th>무엇을 하나</th><th>결과</th></tr></thead>
+        <tbody>
+          <tr><td class="n mono">1</td>
+              <td><b>최근 90분을 읽습니다</b><br><span class="dim">HUB 평균 반송시간 1개 컬럼. 10분 평균으로 다듬습니다.</span></td>
+              <td class="col">90분 흐름</td></tr>
+          <tr><td class="n mono">2</td>
+              <td><b>앞으로 30분을 예측합니다</b><br><span class="dim">한 값이 아니라 <i>범위</i>로 냅니다 — 낮게 잡으면 얼마, 높게 잡으면 얼마.</span></td>
+              <td class="col">30분 예측 범위</td></tr>
+          <tr><td class="n mono">3</td>
+              <td><b>임계를 넘을 확률을 셉니다</b><br><span class="dim">예측 범위가 임계선 위로 얼마나 걸치는지로 계산합니다.</span></td>
+              <td class="col">0.00 ~ 1.00</td></tr>
+          <tr><td class="n mono">4</td>
+              <td><b>단계를 정합니다</b><br><span class="dim">확률이 0.30을 넘으면 선제경보. 한 번 켜지면 0.20 아래로 떨어질 때까지 유지합니다.</span></td>
+              <td class="col">정상 / 관찰 / 선제경보 / 진행중</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="sh">예측 모델은 학습하지 않습니다</h3>
+    <p class="sub">
+      Amazon이 공개한 시계열 전용 모델 <span class="mono">Chronos-2</span>를 씁니다.
+      수많은 시계열로 이미 학습된 모델이라 <b>우리 데이터로 다시 훈련시키지 않습니다.</b>
+      그래서 재학습 실패나 과적합 같은 문제가 없고, 3개월마다 임계값만 다시 계산하면 됩니다.
+    </p>
+  </section>
+
+  <!-- 임계 -->
+  <section>
+    <div class="sechead"><span class="tag">기준</span><h2>임계 14.765분은 어디서 나왔나</h2></div>
+    <p class="sub">
+      사람이 정한 값이 아닙니다. 4~6월 석 달치 실제 분포에서 <b>상위 1%</b> 지점을 그대로 가져왔습니다.
+      손으로 정한 기준이 데이터와 맞지 않아 실패했던 경험이 있어, 이번에는 데이터가 정하게 했습니다.
+    </p>
+    <div class="tw">
+      <table>
+        <thead><tr><th>구간</th><th class="n">10분 평균 반송시간</th><th>의미</th></tr></thead>
+        <tbody>
+          <tr><td>절반의 시간</td><td class="n mono">5.833분</td><td class="dim">평상 수준</td></tr>
+          <tr><td>상위 5%</td><td class="n mono">8.843분</td><td class="dim">조금 바쁜 정도</td></tr>
+          <tr style="background:var(--thr-soft)"><td><b>상위 1% — 임계</b></td><td class="n mono"><b>14.765분</b></td><td><b>여기부터 정체로 봅니다</b></td></tr>
+          <tr><td>가장 나빴던 순간</td><td class="n mono">23.493분</td><td class="dim">석 달 최댓값</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub" style="margin-top:16px">
+      이 기준으로 학습기간에서 <b>23건</b>의 정체가 잡혔습니다. 평균 <b>52분</b> 지속, 가장 긴 것은 235분이었습니다.
+      한 달에 7~9건 꼴입니다.
+    </p>
+  </section>
+
+  <!-- 결과 읽기 -->
+  <section>
+    <div class="sechead"><span class="tag">결과</span><h2>매분 한 줄씩 기록됩니다</h2></div>
+    <p class="sub">
+      날짜별 파일에 1분에 한 줄씩 쌓입니다. 아래는 실제 운영에서 나온 줄입니다.
+    </p>
+    <div class="tw">
+      <table>
+        <thead><tr><th>칸</th><th>실제 값</th><th>뜻</th></tr></thead>
+        <tbody>
+          <tr><td class="col">datetime</td><td class="mono">2026-08-19 10:24</td><td>판정한 시각</td></tr>
+          <tr style="background:var(--accent-soft)"><td class="col">ml_score_10m</td><td class="mono"><b>0.0000</b></td><td><b>앞으로 10분 안에</b> 임계를 넘을 확률</td></tr>
+          <tr style="background:var(--accent-soft)"><td class="col">ml_score_30m</td><td class="mono"><b>0.0000</b></td><td><b>앞으로 30분 안에</b> 넘을 확률</td></tr>
+          <tr><td class="col">ml_level_10m / 30m</td><td class="mono dim">(빈칸)</td><td>확률이 0.30을 넘으면 <b>경계</b>, 0.60을 넘으면 <b>위험</b></td></tr>
+          <tr><td class="col">raw_value</td><td class="mono">10.879</td><td>그 순간 반송시간 — 튐이 섞여 있습니다</td></tr>
+          <tr><td class="col">smoothed</td><td class="mono">6.546</td><td><b>10분 평균 — 실제 판단 기준</b></td></tr>
+          <tr><td class="col">threshold</td><td class="mono">14.765</td><td>정체 임계</td></tr>
+          <tr><td class="col">stage / stage_name</td><td class="mono">0 · 정상</td><td>아래 네 단계 중 하나</td></tr>
+          <tr><td class="col">lead_min</td><td class="mono dim">(빈칸)</td><td>몇 분 뒤 넘을지 — 선제경보일 때만 채워집니다</td></tr>
+          <tr><td class="col">reason</td><td class="mono">정상</td><td>판정 사유</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      <h4>이 줄이 말하는 것</h4>
+      <p>순간 반송시간은 <span class="mono">10.879</span>분으로 튀었지만 10분 평균은 <span class="mono">6.546</span>분입니다. 임계 <span class="mono">14.765</span>의 절반도 안 되고, 앞으로 30분 안에 넘을 가능성도 없습니다. <b>평온한 상태가 맞습니다.</b></p>
+      <p>확률이 계속 0으로 나오는 것은 고장이 아니라 정상입니다 — 아무 일도 일어나지 않고 있다는 뜻입니다.</p>
+    </div>
+
+    <h3 class="sh">네 단계</h3>
+    <div class="stages" style="margin-top:14px">
+      <div class="st s0"><div class="num mono">0</div>
+        <div><div class="nm">정상</div><div class="ds">임계를 넘을 조짐이 없습니다.</div></div>
+        <div class="when">확률 0.20 미만</div></div>
+      <div class="st s1"><div class="num mono">1</div>
+        <div><div class="nm">관찰</div><div class="ds">올라가는 기미가 보입니다. 아직 알리지는 않습니다.</div></div>
+        <div class="when">확률 0.20 ~ 0.30</div></div>
+      <div class="st s2"><div class="num mono">2</div>
+        <div><div class="nm">선제경보</div><div class="ds">곧 임계를 넘을 것으로 봅니다. <b>몇 분 뒤인지 같이 알려드립니다.</b></div></div>
+        <div class="when">확률 0.30 이상</div></div>
+      <div class="st s3"><div class="num mono">3</div>
+        <div><div class="nm">진행중</div><div class="ds">이미 임계를 넘었습니다. 예측이 아니라 현재 상태입니다.</div></div>
+        <div class="when">10분 평균이 임계 초과</div></div>
+    </div>
+  </section>
+
+  <!-- 언제 움직이나 -->
+  <section>
+    <div class="sechead"><span class="tag">감도</span><h2>확률은 언제부터 움직이나</h2></div>
+    <p class="sub">
+      10분 평균이 임계에 가까워질수록 확률이 가파르게 오릅니다.
+      평소 수준(6분대)에서는 아무리 흔들려도 0입니다.
+    </p>
+    <div class="tw">
+      <table class="ramp">
+        <thead><tr><th class="n">10분 평균이</th><th class="n">넘을 확률</th><th class="bar">　</th><th>판정</th></tr></thead>
+        <tbody>
+          <tr><td class="n mono">6분대 <span class="dim">(지금)</span></td><td class="n mono">0.00</td><td class="bar"><i class="b b0" style="width:2%"></i></td><td class="dim">정상</td></tr>
+          <tr><td class="n mono">12</td><td class="n mono">0.00</td><td class="bar"><i class="b b0" style="width:2%"></i></td><td class="dim">정상</td></tr>
+          <tr><td class="n mono">13</td><td class="n mono">0.03</td><td class="bar"><i class="b" style="width:3%"></i></td><td class="dim">정상</td></tr>
+          <tr><td class="n mono">13.5</td><td class="n mono">0.16</td><td class="bar"><i class="b" style="width:16%"></i></td><td class="dim">관찰</td></tr>
+          <tr style="background:var(--alert-soft)"><td class="n mono">14</td><td class="n mono"><b>0.30</b></td><td class="bar"><i class="b" style="width:30%; background:var(--alert)"></i></td><td><b style="color:var(--alert)">선제경보</b></td></tr>
+          <tr><td class="n mono">14.765 <span class="dim">(임계)</span></td><td class="n mono">0.50</td><td class="bar"><i class="b" style="width:50%; background:var(--alert)"></i></td><td><b style="color:var(--alert)">선제경보</b></td></tr>
+          <tr><td class="n mono">15.5</td><td class="n mono">0.70</td><td class="bar"><i class="b" style="width:70%; background:var(--alert)"></i></td><td><b style="color:var(--alert)">선제경보</b></td></tr>
+          <tr><td class="n mono">17</td><td class="n mono">1.00</td><td class="bar"><i class="b" style="width:100%; background:var(--alert)"></i></td><td><b style="color:var(--alert)">선제경보</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub" style="margin-top:16px">
+      <span class="mono">ml_score_30m</span>이 먼저 오르고, 가까워지면 <span class="mono">ml_score_10m</span>이 따라 오릅니다.
+      두 칸을 같이 보면 <b>얼마나 임박했는지</b>를 알 수 있습니다.
+    </p>
+  </section>
+
+  <!-- 성적 -->
+  <section>
+    <div class="sechead"><span class="tag">검증</span><h2>학습에 쓰지 않은 7월로 확인했습니다</h2></div>
+    <p class="sub">
+      4~6월로 기준을 잡고, 한 번도 보지 않은 7월 데이터로 채점했습니다.
+      분 단위가 아니라 <b>사건 단위</b>로 셌습니다 — 한 사건을 시작 전에 알렸는지 아닌지.
+    </p>
+    <div class="tw">
+      <table>
+        <thead><tr><th class="n">경보 문턱</th><th class="n">놓친 사건</th><th class="n">평균 예고</th><th class="n">10분 이상 전</th><th class="n">헛울림</th></tr></thead>
+        <tbody>
+          <tr style="background:var(--accent-soft)"><td class="n mono"><b>0.30</b> <span class="dim">(적용값)</span></td><td class="n mono"><b>0건</b></td><td class="n mono"><b>9.8분</b></td><td class="n mono">4건 중 3건</td><td class="n mono">하루 0.4회</td></tr>
+          <tr><td class="n mono">0.40</td><td class="n mono">0건</td><td class="n mono">8.2분</td><td class="n mono">4건 중 2건</td><td class="n mono">하루 0.3회</td></tr>
+          <tr><td class="n mono">0.60</td><td class="n mono">0건</td><td class="n mono">3.8분</td><td class="n mono">0건</td><td class="n mono">하루 0.03회</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      <h4>문턱은 조절할 수 있습니다</h4>
+      <p>낮추면 더 일찍 알리는 대신 헛울림이 늘고, 올리면 반대가 됩니다. <b>정체는 놓치면 손실이 크고 헛울림은 확인 한 번이면 되므로</b> 0.30을 적용했습니다. 운영하시면서 헛울림이 부담되면 올려드릴 수 있습니다.</p>
+    </div>
+  </section>
+
+  <!-- 한계 -->
+  <section>
+    <div class="sechead"><span class="tag">한계</span><h2>이건 안 됩니다</h2></div>
+    <p class="sub">먼저 말씀드리는 편이 낫다고 생각합니다.</p>
+    <div class="tw">
+      <table>
+        <thead><tr><th>못 하는 것</th><th>이유와 대응</th></tr></thead>
+        <tbody>
+          <tr><td><b>갑자기 터지는 정체</b></td>
+              <td>쌓이는 과정 없이 한 번에 터지는 유형이 <b>약 17%</b> 있습니다. 미리 볼 조짐이 없어 원리적으로 예측이 불가능합니다. 이 경우는 예측 대신 <b>즉시 감지(진행중)</b>로 알립니다.</td></tr>
+          <tr><td><b>7월 검증 표본이 작습니다</b></td>
+              <td>평가기간의 심각 정체가 <b>4건</b>뿐이었습니다. 놓친 것이 없다는 결과는 이 4건 기준입니다. 5·6월로 교차검증을 추가할 예정입니다.</td></tr>
+          <tr><td><b>정답이 &lsquo;임계 초과&rsquo;입니다</b></td>
+              <td>운영자분들이 실제로 문제라고 느끼신 시점과 대조해야 진짜 정확도를 알 수 있습니다. <b>현장 피드백이 필요한 부분</b>입니다.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 룰베이스와 -->
+  <section>
+    <div class="sechead"><span class="tag">관계</span><h2>기존 룰베이스와 겹치지 않습니다</h2></div>
+    <p class="sub">둘은 같은 지표를 보지만 기준이 다르고, 서로의 입력에 영향을 주지 않습니다.</p>
+    <div class="tw">
+      <table>
+        <thead><tr><th>　</th><th>룰베이스</th><th>ML 조기예측</th></tr></thead>
+        <tbody>
+          <tr><td class="dim">보는 값</td><td>순간값 <span class="mono">9.0분</span> 기준</td><td>10분 평균 <span class="mono">14.765분</span> 기준</td></tr>
+          <tr><td class="dim">판단 방식</td><td>여러 지표의 규칙 조합</td><td>한 지표의 미래 예측</td></tr>
+          <tr><td class="dim">알리는 시점</td><td>지금 상태가 나쁨</td><td>앞으로 나빠질 것</td></tr>
+          <tr><td class="dim">결과 파일</td><td class="mono" style="font-size:12px">발동이벤트.csv</td><td class="mono" style="font-size:12px">predictions.csv</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub" style="margin-top:16px">
+      ML은 룰베이스의 판정 결과를 입력으로 쓰지 않습니다. 완전히 독립적으로 판단하므로
+      <b>두 시스템이 같은 사건을 각각 언제 알렸는지 비교</b>할 수 있습니다.
+      실제 정체가 발생하면 그 비교표를 만들어 드리겠습니다.
+    </p>
+  </section>
+
+  <footer>
+    <p>
+      예측 모델 <span class="mono">amazon/chronos-2</span> · 판정 기준 <span class="mono">model_config.json</span>
+      (학습기간 2026-04-01 ~ 06-30 · 임계 14.765 · 사건 23건).
+      기준값은 3개월마다 최근 데이터로 다시 계산합니다.
+      본 문서의 수치는 실제 운영 기록과 7월 검증 결과에서 가져온 것입니다.
+    </p>
+  </footer>
+</div>
+
+<script>
+(function () {
+  // 예측 밴드 그리기 — 데이터로부터 좌표를 계산해 SVG 를 구성한다
+  const W = 420, H = 200, PAD = { l: 34, r: 10, t: 12, b: 24 };
+  const IW = W - PAD.l - PAD.r, IH = H - PAD.t - PAD.b;
+  const THR = 14.765, YMAX = 20;
+
+  const y = v => PAD.t + IH * (1 - v / YMAX);
+  const x = i => PAD.l + IW * (i / 59);          // 0..29 과거, 30..59 예측
+
+  function series(kind) {
+    const hist = [], q10 = [], q50 = [], q90 = [];
+    for (let i = 0; i < 30; i++) {
+      const t = i / 29;
+      hist.push(kind === 'calm'
+        ? 6.5 + Math.sin(i * 0.9) * 0.35 + Math.sin(i * 0.31) * 0.25
+        : 7.0 + t * t * 5.4 + Math.sin(i * 0.8) * 0.3);
+    }
+    const last = hist[29];
+    for (let h = 0; h < 30; h++) {
+      const t = (h + 1) / 30, spread = 0.9 + t * (kind === 'calm' ? 1.5 : 2.6);
+      const mid = kind === 'calm' ? last + Math.sin(h * 0.4) * 0.2 : last + t * 7.6;
+      q50.push(mid); q10.push(mid - spread); q90.push(mid + spread);
+    }
+    return { hist, q10, q50, q90 };
+  }
+
+  function path(vals, off) {
+    return vals.map((v, i) => (i ? 'L' : 'M') + x(i + off).toFixed(1) + ' ' + y(v).toFixed(1)).join(' ');
+  }
+
+  function draw(id, kind) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const d = series(kind);
+    const band = path(d.q90, 30) + ' ' +
+      d.q10.map((v, i) => 'L' + x(59 - i).toFixed(1) + ' ' + y(d.q10[29 - i]).toFixed(1)).join(' ') + ' Z';
+
+    const grid = [5, 10, 15, 20].map(v =>
+      `<line x1="${PAD.l}" y1="${y(v).toFixed(1)}" x2="${W - PAD.r}" y2="${y(v).toFixed(1)}"
+             stroke="var(--line)" stroke-width="1"/>
+       <text x="${PAD.l - 7}" y="${(y(v) + 3.5).toFixed(1)}" text-anchor="end"
+             font-size="9" fill="var(--faint)" font-family="IBM Plex Mono,monospace">${v}</text>`).join('');
+
+    el.innerHTML = `
+      ${grid}
+      <line x1="${PAD.l}" y1="${y(THR).toFixed(1)}" x2="${W - PAD.r}" y2="${y(THR).toFixed(1)}"
+            stroke="var(--thr)" stroke-width="1.6" stroke-dasharray="5 3"/>
+      <text x="${PAD.l + 4}" y="${(y(THR) - 5).toFixed(1)}" text-anchor="start"
+            font-size="9" fill="var(--thr)" font-family="IBM Plex Mono,monospace">임계 14.765</text>
+      <line x1="${x(29).toFixed(1)}" y1="${PAD.t}" x2="${x(29).toFixed(1)}" y2="${PAD.t + IH}"
+            stroke="var(--line2)" stroke-width="1"/>
+      <text x="${x(29).toFixed(1)}" y="${H - 8}" text-anchor="middle"
+            font-size="9" fill="var(--faint)" font-family="IBM Plex Mono,monospace">지금</text>
+      <text x="${PAD.l}" y="${H - 8}" text-anchor="start"
+            font-size="9" fill="var(--faint)" font-family="IBM Plex Mono,monospace">-90분</text>
+      <text x="${W - PAD.r}" y="${H - 8}" text-anchor="end"
+            font-size="9" fill="var(--faint)" font-family="IBM Plex Mono,monospace">+30분</text>
+      <path d="${band}" fill="var(--accent)" opacity="0.16"/>
+      <path d="${path(d.q50, 30)}" fill="none" stroke="var(--accent-line)"
+            stroke-width="1.6" stroke-dasharray="4 3"/>
+      <path d="${path(d.hist, 0)}" fill="none" stroke="var(--accent)"
+            stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+      <circle cx="${x(29).toFixed(1)}" cy="${y(d.hist[29]).toFixed(1)}" r="3"
+              fill="var(--accent)"/>`;
+  }
+
+  draw('fanA', 'calm');
+  draw('fanB', 'rise');
+})();
+</script>
+
+</body>
+</html>
