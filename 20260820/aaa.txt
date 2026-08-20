@@ -6,6 +6,9 @@ top1.py — ml_v2/ 폴더에 넣고 돌리면 된다 (data.py 를 재사용하�
 
 python top1.py --data "RAW/*.CSV" --out-dir top1
 
+
+python top1.py --data "RAW/*.CSV" --only-normal --max-missing 10 --exclude-contains MAXCAPA --no-points --out-dir top1
+
 정체 예측과 같은 기준(10분 이동평균)으로
 
 python top1.py --data "RAW/*.CSV" --window 10 --min-duration 10 --gap 10 --out-dir top1_ma
