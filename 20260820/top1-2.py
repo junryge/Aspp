@@ -276,6 +276,7 @@ def main():
         ev_thr = (cfg or {}).get(
             "threshold", percentile([v for v in ev_sm if v is not None], 0.99))
         events = episodes(sd.times, ev_sm, ev_thr, ev_mind, ev_gap)
+        ev_by_no = {e["no"]: e for e in events}
         src = f"config {a.events_config}" if cfg else "자동 산출"
         print(f"  사건   : {len(events)}건  ({ev_target} · {ev_win}분 이동평균 "
               f">= {ev_thr} · {ev_mind}분+ · {src})")
@@ -336,16 +337,20 @@ def main():
             hits = cross(events, vals, st["threshold"], a.lead)
             base = st["over_ratio"] or 1e-9
             for h in hits:
-                lift = h["hit_ratio"] / base
+                ev = ev_by_no[h["no"]]
                 evcol_rows.append([
-                    h["no"], name, h["hit_n"], f'{h["hit_ratio"] * 100:.1f}%',
+                    h["no"],
+                    ev["t_start"].strftime("%Y-%m-%d %H:%M"),
+                    ev["t_end"].strftime("%Y-%m-%d %H:%M"), ev["duration"],
+                    name, h["hit_n"], f'{h["hit_ratio"] * 100:.1f}%',
                     h["lead_min"], h["pre_n"], r(st["threshold"]), r(h["peak"]),
-                    round(lift, 1),
+                    round(h["hit_ratio"] / base, 1),
                 ])
             if hits:
                 cov = [h for h in hits if h["hit_n"] > 0 or h["pre_n"] > 0]
                 rank[name] = {
                     "cov": len(cov),
+                    "nos": [h["no"] for h in cov],
                     "lead": sum(h["lead_min"] for h in cov) / len(cov),
                     "ratio": sum(h["hit_ratio"] for h in cov) / len(cov),
                     "lift": (sum(h["hit_ratio"] for h in cov) / len(cov)) / base,
@@ -375,7 +380,7 @@ def main():
         col_rows = [r for r in col_rows if r[0] in keep]
         ep_rows = [r for r in ep_rows if r[0] in keep]
         pt_rows = [r for r in pt_rows if r[0] in keep]
-        evcol_rows = [r for r in evcol_rows if r[1] in keep]
+        evcol_rows = [r for r in evcol_rows if r[4] in keep]
         rank = {n: v for n, v in rank.items() if n in keep}
         if not results:
             print("필터 후 남은 컬럼이 없습니다."); return 1
@@ -490,32 +495,44 @@ def main():
         for row in evcol_rows:
             by_ev.setdefault(row[0], []).append(row)
         for ev in events:
-            lst = sorted(by_ev.get(ev["no"], []), key=lambda x: -x[8])
+            lst = sorted(by_ev.get(ev["no"], []), key=lambda x: -x[11])
             ev_rows.append([
                 ev["no"], ev["t_start"].strftime("%Y-%m-%d %H:%M"),
                 ev["t_end"].strftime("%Y-%m-%d %H:%M"), ev["duration"],
                 r(ev["peak"]), ev["t_peak"].strftime("%Y-%m-%d %H:%M"),
-                len(lst), " | ".join(x[1] for x in lst[:5]),
+                len(lst), " | ".join(x[4] for x in lst[:5]),
             ])
         n4 = write_csv(j("top1_events.csv"), [
             "사건#", "시작", "종료", "지속(분)", "피크", "피크시각",
             "겹친컬럼수", "상위5개 컬럼(lift순)"], ev_rows)
         print(f"  {j('top1_events.csv'):<34} 사건 {n4}행")
 
-        evcol_rows.sort(key=lambda x: (x[0], -x[8]))
+        evcol_rows.sort(key=lambda x: (x[0], -x[11]))
         n5 = write_csv(j("top1_event_columns.csv"), [
-            "사건#", "컬럼", "겹친분수", "겹침비율", "선행(분)", "사전초과분수",
+            "사건#", "사건시작", "사건종료", "사건지속(분)", "컬럼",
+            "겹친분수", "겹침비율", "선행(분)", "사전초과분수",
             "임계", "구간피크", "lift"], evcol_rows)
         print(f"  {j('top1_event_columns.csv'):<34} 사건×컬럼 {n5}행")
+
+        # 순위표에도 "어느 사건이었나"를 시각으로 붙인다.
+        # 사건이 많으면 한 칸이 길어지므로 번호 목록과 시각 목록을 나눠 넣는다.
+        def ev_times(nos):
+            return " | ".join(
+                f'{n}:{ev_by_no[n]["t_start"]:%m-%d %H:%M}'
+                f'~{ev_by_no[n]["t_end"]:%H:%M}({ev_by_no[n]["duration"]}분)'
+                for n in nos)
 
         rk = sorted(rank.items(), key=lambda x: (-x[1]["cov"], -x[1]["lift"]))
         n6 = write_csv(j("top1_event_ranking.csv"), [
             "컬럼", "사건커버(건)", "전체사건", "커버율", "평균선행(분)",
-            "평균겹침비율", "평상시초과비율", "lift", "판정"],
+            "평균겹침비율", "평상시초과비율", "lift", "판정",
+            "커버사건#", "커버사건 시각(시작~종료·지속)"],
             [[n, v["cov"], len(events),
               f'{v["cov"] / len(events) * 100:.0f}%', round(v["lead"], 1),
               f'{v["ratio"] * 100:.1f}%', f'{v["base"] * 100:.2f}%',
-              round(v["lift"], 2), v["verdict"]] for n, v in rk])
+              round(v["lift"], 2), v["verdict"],
+              ",".join(str(x) for x in v["nos"]), ev_times(v["nos"])]
+             for n, v in rk])
         print(f"  {j('top1_event_ranking.csv'):<34} 순위 {n6}행  ← 원인 분석용")
 
     # ── 요약 ──────────────────────────────────────────────
