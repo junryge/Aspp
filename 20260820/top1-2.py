@@ -91,6 +91,19 @@ def episodes(times, vals, threshold, min_duration=1, gap=0):
     return out
 
 
+def event_missing(raw, ev):
+    """
+    사건 구간의 결측률과 실제 관측 최고값.
+    이동평균은 결측을 직전 값으로 채워 계산하므로, 원본이 통째로 비어 있으면
+    '값이 계속 높았던 것처럼' 보인다. 그런 구간은 실제 정체가 아닐 수 있어
+    결측률을 같이 내보내 확인하게 한다.
+    """
+    seg = [raw[i] for i in range(ev["i0"], ev["i1"] + 1)]
+    got = [v for v in seg if v is not None]
+    miss = 1.0 - (len(got) / len(seg)) if seg else 1.0
+    return miss, (max(got) if got else None)
+
+
 def smooth(raw, window):
     """이동평균 (결측은 직전 값으로 채운 뒤, 과거만 보는 인과적 계산)."""
     if not window or window <= 1:
@@ -233,6 +246,8 @@ def main():
     # ── 사건 교차 ──
     ap.add_argument("--events", action="store_true",
                     help="정체 사건(예: 학습기간 23건)과 교차분석")
+    ap.add_argument("--events-only", action="store_true",
+                    help="사건 목록만 뽑고 끝 (컬럼 분석 생략 — 몇 초면 끝난다)")
     ap.add_argument("--events-config", default="model_config.json",
                     help="사건 기준을 읽을 config (없으면 자동 산출)")
     ap.add_argument("--lead", type=int, default=30,
@@ -262,6 +277,8 @@ def main():
 
     # ── 정체 사건 산출 (--events) ─────────────────────────
     events, ev_target = [], None
+    if a.events_only:
+        a.events = True
     if a.events:
         cfg = None
         if os.path.exists(a.events_config):
@@ -284,6 +301,50 @@ def main():
             print("  ✗ 사건이 0건 — 기간/임계 확인"); return 1
         print(f"  선행창 : 사건 시작 {a.lead}분 전까지 함께 확인")
     print("=" * 82)
+
+    # ── 사건 목록만 (--events-only) ────────────────────────
+    # 고객이 "이 시간에 진짜 막혔나"를 자기 로그로 대조하는 용도.
+    if a.events_only:
+        ev_raw = sd.get(ev_target)
+        rows = []
+        print(f"\n[정체 사건 {len(events)}건]  "
+              f"{ev_target}  ·  {ev_win}분 이동평균 >= {ev_thr}\n")
+        print(f"{'#':>3}  {'요일':<3}{'시작':<20}{'종료':<20}"
+              f"{'지속':>6}{'이동평균피크':>13}{'순간최고':>10}{'결측':>8}")
+        print("-" * 82)
+        WD = "월화수목금토일"
+        for e in events:
+            miss, pk_raw = event_missing(ev_raw, e)
+            wd = WD[e["t_start"].weekday()]
+            print(f'{e["no"]:>3}  {wd:<3}'
+                  f'{e["t_start"]:%Y-%m-%d %H:%M}    '
+                  f'{e["t_end"]:%Y-%m-%d %H:%M}    '
+                  f'{e["duration"]:>4}분{e["peak"]:>12.2f}'
+                  + (f'{pk_raw:>10.2f}' if pk_raw is not None else f'{"-":>10}')
+                  + (f'{miss * 100:>7.0f}%' + ("  ⚠결측많음" if miss > .5 else "")))
+            rows.append([
+                e["no"], f"{e['t_start']:%Y-%m-%d}", wd,
+                f"{e['t_start']:%H:%M}", f"{e['t_end']:%H:%M}",
+                e["duration"], round(e["peak"], 2),
+                "" if pk_raw is None else round(pk_raw, 2),
+                f"{e['t_peak']:%H:%M}", round(ev_thr, 3),
+                f"{miss * 100:.0f}%",
+                "결측많음(확인필요)" if miss > 0.5 else "정상",
+            ])
+        tot = sum(e["duration"] for e in events)
+        print("-" * 82)
+        print(f"     합계 {len(events)}건 · {tot}분 ({tot / 60:.1f}시간) · "
+              f"평균 {tot / len(events):.0f}분 · 최장 "
+              f"{max(e['duration'] for e in events)}분")
+
+        os.makedirs(a.out_dir, exist_ok=True)
+        p = os.path.join(a.out_dir, "사건목록.csv")
+        write_csv(p, ["사건#", "날짜", "요일", "시작", "종료", "지속(분)",
+                      "이동평균피크", "순간최고", "피크시각", "임계",
+                      "결측률", "판정"], rows)
+        print(f"\n[파일] {p}   ← 고객 확인용")
+        print("=" * 82)
+        return 0
 
     col_rows, ep_rows, pt_rows = [], [], []
     evcol_rows, rank = [], {}
@@ -490,22 +551,32 @@ def main():
         print(f"  {j('top1_points.csv'):<34} 시점 {n3}행")
 
     if events:
+        ev_raw = sd.get(ev_target)
         ev_rows = []
         by_ev = {}
         for row in evcol_rows:
             by_ev.setdefault(row[0], []).append(row)
         for ev in events:
             lst = sorted(by_ev.get(ev["no"], []), key=lambda x: -x[11])
+            miss, pk_raw = event_missing(ev_raw, ev)
             ev_rows.append([
                 ev["no"], ev["t_start"].strftime("%Y-%m-%d %H:%M"),
                 ev["t_end"].strftime("%Y-%m-%d %H:%M"), ev["duration"],
-                r(ev["peak"]), ev["t_peak"].strftime("%Y-%m-%d %H:%M"),
-                len(lst), " | ".join(x[4] for x in lst[:5]),
+                r(ev["peak"]), "" if pk_raw is None else round(pk_raw, 2),
+                ev["t_peak"].strftime("%Y-%m-%d %H:%M"),
+                f"{miss * 100:.0f}%",
+                "결측많음(확인필요)" if miss > 0.5 else "정상",
+                len(lst), "\n".join(x[4] for x in lst[:5]),
             ])
         n4 = write_csv(j("top1_events.csv"), [
-            "사건#", "시작", "종료", "지속(분)", "피크", "피크시각",
-            "겹친컬럼수", "상위5개 컬럼(lift순)"], ev_rows)
+            "사건#", "시작", "종료", "지속(분)", "이동평균피크", "순간최고",
+            "피크시각", "결측률", "판정", "겹친컬럼수",
+            "상위5개 컬럼(lift순)"], ev_rows)
         print(f"  {j('top1_events.csv'):<34} 사건 {n4}행")
+        bogus = [r_ for r_ in ev_rows if r_[8] != "정상"]
+        if bogus:
+            print(f"  {'':<34} ⚠ 결측 50%+ 사건 {len(bogus)}건 "
+                  f"(#{','.join(str(x[0]) for x in bogus)}) — 실제 정체 아닐 수 있음")
 
         evcol_rows.sort(key=lambda x: (x[0], -x[11]))
         n5 = write_csv(j("top1_event_columns.csv"), [
@@ -517,7 +588,7 @@ def main():
         # 순위표에도 "어느 사건이었나"를 시각으로 붙인다.
         # 사건이 많으면 한 칸이 길어지므로 번호 목록과 시각 목록을 나눠 넣는다.
         def ev_times(nos):
-            return " | ".join(
+            return "\n".join(
                 f'{n}:{ev_by_no[n]["t_start"]:%m-%d %H:%M}'
                 f'~{ev_by_no[n]["t_end"]:%H:%M}({ev_by_no[n]["duration"]}분)'
                 for n in nos)
