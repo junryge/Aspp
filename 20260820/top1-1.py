@@ -221,6 +221,12 @@ def main():
     ap.add_argument("--top", type=int, default=25, help="화면 표시 상위 N개")
     ap.add_argument("--include-degenerate", action="store_true",
                     help="분위수 임계가 무의미한 컬럼(0/1 플래그 등)도 화면에 표시")
+    ap.add_argument("--only-normal", action="store_true",
+                    help="판정 '정상' 컬럼만 CSV 에 쓴다 (고객 전달용)")
+    ap.add_argument("--summary", type=int, default=12,
+                    help="고객 전달용 요약표에 남길 컬럼 수 (기본 12, 0이면 생략)")
+    ap.add_argument("--max-missing", type=float, default=None,
+                    help="결측률이 이 값(%%)을 넘는 컬럼 제외. 예: --max-missing 10")
     ap.add_argument("--sort", default="ep_max",
                     choices=["ep_max", "ep_n", "over_n", "ep_mean", "name"],
                     help="화면 정렬 기준 (기본: 최장 에피소드)")
@@ -350,6 +356,30 @@ def main():
     if not results:
         print("분석 가능한 숫자 컬럼이 없습니다."); return 1
 
+    # 전달용 필터 — 컬럼 하나를 빼면 그 컬럼의 에피소드·시점·순위도 같이 뺀다
+    if a.only_normal or a.max_missing is not None:
+        keep = set()
+        for name, st, _ in results:
+            if a.only_normal and not st["ok"]:
+                continue
+            if a.max_missing is not None:
+                tot = st["n"] + st["missing"]
+                if tot and st["missing"] / tot * 100 > a.max_missing:
+                    continue
+            keep.add(name)
+        cond = ([" 판정=정상"] if a.only_normal else []) + \
+               ([f" 결측≤{a.max_missing:g}%"] if a.max_missing is not None else [])
+        print(f"\n[필터]{' ·'.join(cond)} → {len(keep)}개 유지 "
+              f"/ {len(results) - len(keep)}개 제외")
+        results = [x for x in results if x[0] in keep]
+        col_rows = [r for r in col_rows if r[0] in keep]
+        ep_rows = [r for r in ep_rows if r[0] in keep]
+        pt_rows = [r for r in pt_rows if r[0] in keep]
+        evcol_rows = [r for r in evcol_rows if r[1] in keep]
+        rank = {n: v for n, v in rank.items() if n in keep}
+        if not results:
+            print("필터 후 남은 컬럼이 없습니다."); return 1
+
     # ── ① 컬럼 표 ─────────────────────────────────────────
     key = {"ep_max": lambda x: -x[1]["ep_max"],
            "ep_n": lambda x: -x[1]["ep_n"],
@@ -375,6 +405,28 @@ def main():
               f"(0/1 플래그·고정값 등 계단형 분포 → p99 가 바닥값과 같아짐).")
         print(f"    CSV 에는 '판정' 컬럼과 함께 전부 들어있다. "
               f"화면에도 보려면 --include-degenerate")
+
+    # ── ② 고객 전달용 요약표 ──────────────────────────────
+    # "상위 N% 임계가 얼마고, 몇 번, 얼마나 오래 넘었나" — 딱 6칸.
+    # 정렬은 평균 지속. 같은 초과분수라도 뭉쳐서 오는 컬럼이 진짜 신호다.
+    summary = []
+    if a.summary:
+        thr_label = f"상위{(1 - a.pct) * 100:g}% 임계"
+        top = sorted([x for x in results if x[1]["ok"]] or results,
+                     key=lambda x: -x[1]["ep_mean"])[:a.summary]
+        print(f"\n[② 요약]  고객 전달용 — {thr_label} · 평균 지속 순\n")
+        print(f"{'#':>3}  {'컬럼':<44}{thr_label:>13}{'최대':>10}"
+              f"{'몇 번':>8}{'평균 지속':>10}")
+        print("-" * 90)
+        for k, (name, st, _) in enumerate(top, 1):
+            print(f"{k:>3}  {name:<44}{st['threshold']:>13.1f}"
+                  f"{st['max']:>10.1f}{st['ep_n']:>7}회{st['ep_mean']:>8.0f}분")
+            summary.append([k, name, round(st["threshold"], 1),
+                            round(st["max"], 1), st["ep_n"],
+                            round(st["ep_mean"])])
+        print(f"\n  읽는 법 — 1번은 {top[0][1]['threshold']:.0f} 넘으면 이상, "
+              f"{days}일간 {top[0][1]['ep_n']}번 그랬고, "
+              f"한 번 넘으면 평균 {top[0][1]['ep_mean']:.0f}분 갔다.")
 
     # ── ④ 사건 교차 순위 ──────────────────────────────────
     if events:
@@ -403,13 +455,20 @@ def main():
     # ── 파일 ──────────────────────────────────────────────
     os.makedirs(a.out_dir, exist_ok=True)
     j = lambda f: os.path.join(a.out_dir, f)
+
     print(f"\n[파일]")
 
     n1 = write_csv(j("top1_columns.csv"), [
         "컬럼", "데이터수", "결측수", "최소", "p50", "p95", "p99", "임계", "최대",
         "초과분수", "초과비율", "에피소드수", "최장(분)", "평균(분)", "에피소드/일",
         "판정"], col_rows)
-    print(f"  {j('top1_columns.csv'):<34} 컬럼 {n1}행   ← 고객이 먼저 볼 표")
+    print(f"  {j('top1_columns.csv'):<34} 컬럼 {n1}행   (전체 상세)")
+
+    if summary:
+        ns = write_csv(j("top1_요약.csv"), [
+            "#", "컬럼", f"상위{(1 - a.pct) * 100:g}% 임계", "최대",
+            "몇 번(회)", "평균 지속(분)"], summary)
+        print(f"  {j('top1_요약.csv'):<34} 요약 {ns}행   ← 고객에게 줄 표")
 
     ep_rows.sort(key=lambda x: (-x[4], x[0]))
     n2 = write_csv(j("top1_episodes.csv"), [
