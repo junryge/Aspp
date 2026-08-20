@@ -40,7 +40,9 @@ top1.py — 상위 1% 임계 · 시점 / 에피소드 / 컬럼 (+ 정체 사건 
     top1_points.csv           초과 시점 목록 (--no-points 로 생략 가능)
     top1_events.csv           사건별 요약            (--events)
     top1_event_columns.csv    사건 × 컬럼 상세        (--events)
-    top1_event_ranking.csv    선행지표 후보 순위      (--events)  ← 원인 분석용
+    top1_event_ranking.csv    선행지표 후보 순위      (--events)
+    사건별_원인.csv            사건마다 뭐가 튀었나     (--events)  ← 고객 설명용
+    사건목록.csv               사건 목록만            (--events-only)
 """
 from __future__ import annotations
 
@@ -250,8 +252,15 @@ def main():
                     help="사건 목록만 뽑고 끝 (컬럼 분석 생략 — 몇 초면 끝난다)")
     ap.add_argument("--events-config", default="model_config.json",
                     help="사건 기준을 읽을 config (없으면 자동 산출)")
+    ap.add_argument("--max-event-missing", type=float, default=None,
+                    help="사건 구간 결측률이 이 값(%%)을 넘으면 가짜로 보고 제외. "
+                         "예: --max-event-missing 50")
     ap.add_argument("--lead", type=int, default=30,
                     help="사건 시작 몇 분 전까지 함께 볼지 (선행지표 탐색)")
+    ap.add_argument("--why", type=int, default=6,
+                    help="사건별 원인 컬럼 몇 개까지 뽑을지 (기본 6)")
+    ap.add_argument("--why-show", type=int, default=3,
+                    help="화면에 카드로 보여줄 사건 수 (기본 3, 0이면 생략)")
     ap.add_argument("--min-lift", type=float, default=2.0,
                     help="순위표에 남길 최소 lift (기대 대비 배수)")
     a = ap.parse_args()
@@ -293,6 +302,22 @@ def main():
         ev_thr = (cfg or {}).get(
             "threshold", percentile([v for v in ev_sm if v is not None], 0.99))
         events = episodes(sd.times, ev_sm, ev_thr, ev_mind, ev_gap)
+
+        # 결측 구간이 만들어낸 가짜 사건 제외 (포워드필 부작용)
+        if a.max_event_missing is not None:
+            ev_raw0 = sd.get(ev_target)
+            keep_ev, drop_ev = [], []
+            for e in events:
+                m, _ = event_missing(ev_raw0, e)
+                (drop_ev if m * 100 > a.max_event_missing else keep_ev).append(e)
+            if drop_ev:
+                print(f"  제외   : 결측 {a.max_event_missing:g}% 초과 사건 "
+                      f"{len(drop_ev)}건 — "
+                      + ", ".join(f'{e["t_start"]:%m-%d %H:%M}({e["duration"]}분)'
+                                  for e in drop_ev))
+            events = keep_ev
+            for k, e in enumerate(events, 1):      # 번호 다시 매김
+                e["no"] = k
         ev_by_no = {e["no"]: e for e in events}
         src = f"config {a.events_config}" if cfg else "자동 산출"
         print(f"  사건   : {len(events)}건  ({ev_target} · {ev_win}분 이동평균 "
@@ -347,7 +372,7 @@ def main():
         return 0
 
     col_rows, ep_rows, pt_rows = [], [], []
-    evcol_rows, rank = [], {}
+    evcol_rows, rank, why_rows = [], {}, []
     results, skipped = [], 0
 
     for name in names:
@@ -397,16 +422,27 @@ def main():
         if events:
             hits = cross(events, vals, st["threshold"], a.lead)
             base = st["over_ratio"] or 1e-9
+            span = st["threshold"] - st["p50"]
             for h in hits:
                 ev = ev_by_no[h["no"]]
+                # 강도 = (사건 때 피크 - 평상시 중앙값) / (임계 - 평상시 중앙값)
+                #   1.0 = 딱 임계까지, 2.0 = 임계만큼 더 올라감. 단위가 달라도 비교된다.
+                power = (h["peak"] - st["p50"]) / span if span > 0 else None
                 evcol_rows.append([
                     h["no"],
                     ev["t_start"].strftime("%Y-%m-%d %H:%M"),
                     ev["t_end"].strftime("%Y-%m-%d %H:%M"), ev["duration"],
                     name, h["hit_n"], f'{h["hit_ratio"] * 100:.1f}%',
-                    h["lead_min"], h["pre_n"], r(st["threshold"]), r(h["peak"]),
+                    h["lead_min"], h["pre_n"], r(st["p50"]), r(st["threshold"]),
+                    r(h["peak"]), r(power, 2),
                     round(h["hit_ratio"] / base, 1),
                 ])
+                why_rows.append({
+                    "no": h["no"], "ev": ev, "name": name,
+                    "p50": st["p50"], "thr": st["threshold"],
+                    "peak": h["peak"], "power": power,
+                    "lead": h["lead_min"], "hit": h["hit_ratio"],
+                })
             if hits:
                 cov = [h for h in hits if h["hit_n"] > 0 or h["pre_n"] > 0]
                 rank[name] = {
@@ -557,7 +593,7 @@ def main():
         for row in evcol_rows:
             by_ev.setdefault(row[0], []).append(row)
         for ev in events:
-            lst = sorted(by_ev.get(ev["no"], []), key=lambda x: -x[11])
+            lst = sorted(by_ev.get(ev["no"], []), key=lambda x: -(x[12] or 0))
             miss, pk_raw = event_missing(ev_raw, ev)
             ev_rows.append([
                 ev["no"], ev["t_start"].strftime("%Y-%m-%d %H:%M"),
@@ -578,11 +614,11 @@ def main():
             print(f"  {'':<34} ⚠ 결측 50%+ 사건 {len(bogus)}건 "
                   f"(#{','.join(str(x[0]) for x in bogus)}) — 실제 정체 아닐 수 있음")
 
-        evcol_rows.sort(key=lambda x: (x[0], -x[11]))
+        evcol_rows.sort(key=lambda x: (x[0], -x[13]))
         n5 = write_csv(j("top1_event_columns.csv"), [
             "사건#", "사건시작", "사건종료", "사건지속(분)", "컬럼",
             "겹친분수", "겹침비율", "선행(분)", "사전초과분수",
-            "임계", "구간피크", "lift"], evcol_rows)
+            "평상시(p50)", "임계", "사건때피크", "강도", "lift"], evcol_rows)
         print(f"  {j('top1_event_columns.csv'):<34} 사건×컬럼 {n5}행")
 
         # 순위표에도 "어느 사건이었나"를 시각으로 붙인다.
@@ -592,6 +628,58 @@ def main():
                 f'{n}:{ev_by_no[n]["t_start"]:%m-%d %H:%M}'
                 f'~{ev_by_no[n]["t_end"]:%H:%M}({ev_by_no[n]["duration"]}분)'
                 for n in nos)
+
+        # ── 사건별 원인 카드 ──────────────────────────────
+        # "이 사건은 뭐 때문에 났나" — 고객 설명용.
+        # 사건 때 평상시보다 가장 크게 튄 컬럼을 강도 순으로 뽑는다.
+        by_no = {}
+        for w in why_rows:
+            if w["power"] is None:
+                continue
+            # 원인 후보 조건
+            #  · 사건 중에도 임계를 넘었어야 한다 (사전에만 튄 건 원인 아님)
+            #  · 평상시 0 이고 임계도 1 이하인 저해상도 카운터는 제외
+            #    (0 → 0.2 같은 미미한 변화가 배수만 크게 나온다)
+            if w["hit"] <= 0:
+                continue
+            if w["p50"] == 0 and w["thr"] <= 1:
+                continue
+            by_no.setdefault(w["no"], []).append(w)
+        why_out = []
+        for ev in events:
+            lst = sorted(by_no.get(ev["no"], []), key=lambda w: -w["power"])
+            for k, w in enumerate(lst[:a.why], 1):
+                why_out.append([
+                    ev["no"], f'{ev["t_start"]:%Y-%m-%d %H:%M}',
+                    f'{ev["t_end"]:%H:%M}', ev["duration"], k, w["name"],
+                    r(w["p50"]), r(w["thr"]), r(w["peak"]), round(w["power"], 2),
+                    w["lead"], f'{w["hit"] * 100:.0f}%',
+                    f'평상시 {w["p50"]:g} → 사건 때 {w["peak"]:g}'
+                    + (f' ({w["lead"]}분 먼저 상승)' if w["lead"] > 0 else ''),
+                ])
+        n7 = write_csv(j("사건별_원인.csv"), [
+            "사건#", "시작", "종료", "지속(분)", "순위", "컬럼",
+            "평상시(p50)", "임계", "사건때피크", "강도", "선행(분)",
+            "겹침비율", "설명"], why_out)
+        print(f"  {j('사건별_원인.csv'):<34} {n7}행  ← 고객 설명용")
+
+        # 화면에는 앞의 몇 건만 카드 형태로
+        show = min(a.why_show, len(events))
+        if show:
+            print(f"\n[사건별 원인]  {len(events)}건 중 앞 {show}건 "
+                  f"(전체는 사건별_원인.csv)")
+            for ev in events[:show]:
+                lst = sorted(by_no.get(ev["no"], []), key=lambda w: -w["power"])
+                print(f'\n  ● 사건 {ev["no"]}  {ev["t_start"]:%Y-%m-%d %H:%M}'
+                      f'~{ev["t_end"]:%H:%M} ({ev["duration"]}분, '
+                      f'피크 {ev["peak"]:.1f})')
+                if not lst:
+                    print("      (평상시 대비 튄 컬럼 없음)")
+                for w in lst[:a.why]:
+                    ld = f'{w["lead"]:>3}분 먼저' if w["lead"] > 0 else "  동시  "
+                    print(f'      {w["name"]:<44} '
+                          f'{w["p50"]:>8.4g} → {w["peak"]:>8.4g}  '
+                          f'({w["power"]:>4.1f}배)  {ld}')
 
         rk = sorted(rank.items(), key=lambda x: (-x[1]["cov"], -x[1]["lift"]))
         n6 = write_csv(j("top1_event_ranking.csv"), [
