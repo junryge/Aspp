@@ -1,0 +1,1907 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>prime-agent-py 소스 핸드오버</title>
+<meta name="description" content="prime-agent-py 소스 구조·API·확장 포인트 핸드오버 문서">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<style>/* ============================================================
+   Prime Agent reference — tokens
+   light palette on :root, redefined for the two dark states
+   ============================================================ */
+:root{
+  --bg:#F4F6F8;
+  --bg-2:#EAEEF2;
+  --surface:#FFFFFF;
+  --ink:#131A21;
+  --ink-2:#55636F;
+  --ink-3:#7E8C99;
+  --line:#DCE3E9;
+  --line-2:#C6D0D8;
+  --accent:#0B6B78;
+  --accent-ink:#08525C;
+  --accent-soft:#E3F0F1;
+  --amber:#8F5406;
+  --amber-soft:#FAF0DE;
+  --rose:#96322F;
+  --rose-soft:#FBEAE8;
+  --code-bg:#F2F5F7;
+  --code-ink:#1D262E;
+  --sel:#CDE7EA;
+
+  --t-key:#8A3F86;
+  --t-str:#2C6E4A;
+  --t-num:#9A5B08;
+  --t-com:#7E8C99;
+  --t-fn:#0B6B78;
+  --t-op:#55636F;
+  --t-tag:#96322F;
+
+  --shadow:0 1px 2px rgba(19,26,33,.05), 0 8px 24px -16px rgba(19,26,33,.25);
+
+  --f-sans:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --f-cond:"IBM Plex Sans Condensed","IBM Plex Sans KR",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+
+  --side-w:288px;
+  --measure:74ch;
+}
+
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0D1117;
+    --bg-2:#11171F;
+    --surface:#151B23;
+    --ink:#E4EAF0;
+    --ink-2:#95A3B1;
+    --ink-3:#6E7D8B;
+    --line:#242F3A;
+    --line-2:#33414E;
+    --accent:#4FBCCA;
+    --accent-ink:#7FD3DD;
+    --accent-soft:#0F3138;
+    --amber:#E3A85F;
+    --amber-soft:#2E2311;
+    --rose:#E68B86;
+    --rose-soft:#331A19;
+    --code-bg:#0F151C;
+    --code-ink:#D6DEE6;
+    --sel:#12414A;
+
+    --t-key:#D4A0D0;
+    --t-str:#87C9A2;
+    --t-num:#E3A85F;
+    --t-com:#6E7D8B;
+    --t-fn:#4FBCCA;
+    --t-op:#95A3B1;
+    --t-tag:#E68B86;
+
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+  }
+}
+
+:root[data-theme="dark"]{
+  --bg:#0D1117;
+  --bg-2:#11171F;
+  --surface:#151B23;
+  --ink:#E4EAF0;
+  --ink-2:#95A3B1;
+  --ink-3:#6E7D8B;
+  --line:#242F3A;
+  --line-2:#33414E;
+  --accent:#4FBCCA;
+  --accent-ink:#7FD3DD;
+  --accent-soft:#0F3138;
+  --amber:#E3A85F;
+  --amber-soft:#2E2311;
+  --rose:#E68B86;
+  --rose-soft:#331A19;
+  --code-bg:#0F151C;
+  --code-ink:#D6DEE6;
+  --sel:#12414A;
+
+  --t-key:#D4A0D0;
+  --t-str:#87C9A2;
+  --t-num:#E3A85F;
+  --t-com:#6E7D8B;
+  --t-fn:#4FBCCA;
+  --t-op:#95A3B1;
+  --t-tag:#E68B86;
+
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+}
+
+/* ============================================================ base */
+*{box-sizing:border-box}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--f-sans);
+  font-size:16px;
+  line-height:1.75;
+  -webkit-font-smoothing:antialiased;
+  word-break:keep-all;
+  overflow-wrap:break-word;
+}
+::selection{background:var(--sel)}
+a{color:var(--accent-ink);text-decoration:none;border-bottom:1px solid color-mix(in srgb,var(--accent) 35%,transparent)}
+a:hover{border-bottom-color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
+
+/* ============================================================ shell */
+.shell{display:flex;min-height:100vh}
+
+.side{
+  position:sticky;top:0;
+  width:var(--side-w);flex:0 0 var(--side-w);
+  height:100vh;
+  display:flex;flex-direction:column;
+  background:var(--bg-2);
+  border-right:1px solid var(--line);
+}
+.brand{display:flex;gap:12px;align-items:center;padding:22px 22px 16px}
+.mark{display:flex;flex-direction:column;gap:3px;padding-top:3px}
+.mark span{display:block;height:3px;background:var(--accent);border-radius:1px}
+.mark span:nth-child(1){width:22px}
+.mark span:nth-child(2){width:14px;opacity:.7}
+.mark span:nth-child(3){width:18px;opacity:.45}
+.bt{font-family:var(--f-cond);font-weight:700;font-size:17px;letter-spacing:.02em;line-height:1.2}
+.bs{font-family:var(--f-cond);font-size:12px;color:var(--ink-3);letter-spacing:.06em;text-transform:uppercase}
+
+.findwrap{padding:0 18px 12px}
+#find{
+  width:100%;padding:7px 10px;
+  font-family:var(--f-sans);font-size:13px;
+  color:var(--ink);background:var(--surface);
+  border:1px solid var(--line-2);border-radius:3px;
+}
+#find::placeholder{color:var(--ink-3)}
+
+.nav{flex:1;overflow-y:auto;padding:0 12px 20px;scrollbar-width:thin}
+.np{
+  font-family:var(--f-cond);font-size:11px;font-weight:700;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);
+  padding:18px 10px 7px;margin-top:6px;border-top:1px solid var(--line);
+}
+.np:first-child{border-top:0;margin-top:0;padding-top:4px}
+.n2{
+  display:flex;gap:9px;align-items:baseline;
+  padding:5px 10px;border-radius:3px;border-bottom:0;
+  font-size:13.5px;line-height:1.45;color:var(--ink-2);
+}
+.n2:hover{background:var(--surface);color:var(--ink)}
+.n2 .nn{
+  font-family:var(--f-cond);font-size:11.5px;font-weight:600;
+  color:var(--ink-3);min-width:26px;flex:0 0 auto;
+  font-variant-numeric:tabular-nums;
+}
+.n2.on{background:var(--accent-soft);color:var(--accent-ink);font-weight:600}
+.n2.on .nn{color:var(--accent)}
+.n2.hide,.np.hide{display:none}
+
+.sidefoot{
+  padding:12px 22px 18px;border-top:1px solid var(--line);
+  display:flex;flex-direction:column;gap:2px;
+  font-family:var(--f-cond);font-size:11.5px;color:var(--ink-3);letter-spacing:.03em;
+}
+.sidefoot a{color:var(--ink-3);border:0}
+.sidefoot a:hover{color:var(--accent-ink)}
+
+/* ============================================================ main */
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+
+.topbar{
+  position:sticky;top:0;z-index:20;
+  display:flex;align-items:center;gap:14px;
+  height:46px;padding:0 24px;
+  background:color-mix(in srgb,var(--bg) 88%,transparent);
+  backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--line);
+}
+.crumb{
+  font-family:var(--f-cond);font-size:12px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--ink-3);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.prog{margin-left:auto;width:120px;height:2px;background:var(--line)}
+.prog i{display:block;height:100%;width:0;background:var(--accent)}
+.mbtn{
+  display:none;font-family:var(--f-cond);font-size:12px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--ink-2);
+  background:var(--surface);border:1px solid var(--line-2);border-radius:3px;
+  padding:4px 10px;cursor:pointer;
+}
+
+.doc{
+  max-width:calc(var(--measure) + 120px);
+  padding:0 60px 120px;
+  margin:0;
+}
+
+/* ============================================================ hero */
+.hero{padding:56px 0 40px;border-bottom:1px solid var(--line);margin-bottom:8px}
+.eyebrow{
+  font-family:var(--f-cond);font-size:12px;font-weight:600;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--accent);
+  margin-bottom:14px;
+}
+.hero h1{
+  font-size:clamp(40px,6vw,60px);line-height:1.02;letter-spacing:-.025em;
+  font-weight:700;margin:0 0 18px;text-wrap:balance;
+}
+.lede{
+  font-size:18px;line-height:1.7;color:var(--ink-2);
+  max-width:60ch;margin:0 0 30px;
+}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line)}
+.facts>div{background:var(--bg);padding:12px 14px;display:flex;flex-direction:column;gap:1px}
+.facts span{
+  font-family:var(--f-cond);font-size:11px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink-3);
+}
+.facts b{font-size:14px;font-weight:600;line-height:1.4}
+
+/* ============================================================ headings */
+.doc h1.part{
+  font-family:var(--f-cond);
+  font-size:13px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--surface);background:var(--accent);
+  display:inline-block;padding:5px 14px;border-radius:2px;
+  margin:76px 0 6px;
+}
+.doc h2{
+  font-size:27px;line-height:1.25;letter-spacing:-.015em;font-weight:700;
+  margin:56px 0 18px;padding-top:22px;border-top:1px solid var(--line);
+  text-wrap:balance;position:relative;
+}
+.doc h1.part + h2{border-top:0;padding-top:6px;margin-top:14px}
+.doc h3{
+  font-size:19px;line-height:1.35;letter-spacing:-.01em;font-weight:600;
+  margin:40px 0 12px;text-wrap:balance;position:relative;
+}
+.doc h4{
+  font-family:var(--f-cond);font-size:13px;font-weight:700;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);
+  margin:30px 0 10px;
+}
+.hn{
+  font-family:var(--f-cond);font-weight:600;color:var(--accent);
+  font-variant-numeric:tabular-nums;margin-right:.5em;
+}
+.doc h2 .hn{display:inline-block}
+.ah{
+  opacity:0;margin-left:.4em;font-weight:400;color:var(--ink-3);
+  border:0;font-size:.7em;vertical-align:.15em;
+}
+h2:hover .ah,h3:hover .ah{opacity:1}
+
+/* ============================================================ text */
+.doc p{margin:0 0 16px;max-width:var(--measure)}
+.doc ul,.doc ol{margin:0 0 18px;padding-left:1.35em;max-width:var(--measure)}
+.doc li{margin:0 0 6px}
+.doc li>ul,.doc li>ol{margin:6px 0 4px}
+.doc strong{font-weight:600;color:var(--ink)}
+.doc hr{border:0;border-top:1px solid var(--line);margin:52px 0}
+.doc em{font-style:normal;color:var(--ink-2)}
+
+li.cb{list-style:none;position:relative;padding-left:26px}
+li.cb::before{
+  content:"";position:absolute;left:0;top:.45em;
+  width:14px;height:14px;border:1.5px solid var(--line-2);border-radius:2px;
+}
+li.cb.done::before{background:var(--accent);border-color:var(--accent)}
+.doc ul:has(>li.cb){padding-left:2px}
+
+/* ============================================================ inline code */
+.doc code,.doc .hl{overflow-wrap:anywhere}
+.doc td,.doc th{overflow-wrap:break-word}
+.doc :not(pre)>code{
+  font-family:var(--f-mono);font-size:.86em;
+  background:var(--code-bg);color:var(--code-ink);
+  padding:.12em .38em;border-radius:3px;
+  border:1px solid color-mix(in srgb,var(--line) 70%,transparent);
+}
+.doc a>code{color:var(--accent-ink)}
+
+/* ============================================================ code blocks */
+.doc .hl,.doc pre{
+  position:relative;
+  background:var(--code-bg);
+  border:1px solid var(--line);
+  border-left:2px solid var(--accent);
+  border-radius:0 3px 3px 0;
+  margin:0 0 20px;
+  overflow-x:auto;
+}
+.doc .hl pre{margin:0;border:0;border-radius:0;background:transparent;overflow:visible}
+.doc pre code,.doc .hl code{
+  display:block;
+  font-family:var(--f-mono);font-size:13px;line-height:1.65;
+  color:var(--code-ink);
+  padding:14px 16px;
+  background:transparent;border:0;
+  white-space:pre;
+}
+.cpy{
+  position:absolute;top:6px;right:6px;
+  font-family:var(--f-cond);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--ink-3);background:var(--surface);
+  border:1px solid var(--line-2);border-radius:2px;
+  padding:2px 7px;cursor:pointer;opacity:0;transition:opacity .12s;
+}
+.hl:hover .cpy,pre:hover .cpy,.cpy:focus-visible{opacity:1}
+.cpy.ok{color:var(--accent);border-color:var(--accent)}
+
+/* pygments tokens */
+.hl .k,.hl .kn,.hl .kd,.hl .kc,.hl .kr,.hl .kt,.hl .ow{color:var(--t-key)}
+.hl .s,.hl .s1,.hl .s2,.hl .sb,.hl .se,.hl .sd,.hl .si,.hl .sx{color:var(--t-str)}
+.hl .m,.hl .mi,.hl .mf,.hl .mh,.hl .il{color:var(--t-num)}
+.hl .c,.hl .c1,.hl .cm,.hl .cp,.hl .cs{color:var(--t-com);font-style:italic}
+.hl .nf,.hl .nd,.hl .nb,.hl .bp{color:var(--t-fn)}
+.hl .nt{color:var(--t-tag)}
+.hl .na,.hl .nv,.hl .vg{color:var(--t-num)}
+.hl .o,.hl .p{color:var(--t-op)}
+.hl .err{color:var(--rose)}
+.hl .gh,.hl .gu{color:var(--t-key);font-weight:600}
+
+/* ============================================================ tables */
+.tw{overflow-x:auto;margin:0 0 22px;border:1px solid var(--line);border-radius:3px;background:var(--surface)}
+.doc table{border-collapse:collapse;width:100%;font-size:14px;line-height:1.6}
+.doc thead th{
+  font-family:var(--f-cond);font-size:11.5px;font-weight:700;
+  letter-spacing:.09em;text-transform:uppercase;color:var(--ink-2);
+  text-align:left;padding:9px 14px;
+  background:var(--bg-2);border-bottom:1px solid var(--line-2);
+  white-space:nowrap;
+}
+.doc tbody td{padding:9px 14px;border-bottom:1px solid var(--line);vertical-align:top;
+  font-variant-numeric:tabular-nums}
+.doc tbody td:has(>code:only-child){white-space:nowrap}
+.doc tbody tr:last-child td{border-bottom:0}
+.doc tbody tr:hover{background:color-mix(in srgb,var(--accent-soft) 45%,transparent)}
+.doc td>code{white-space:nowrap}
+.doc td:first-child{color:var(--ink)}
+
+/* ============================================================ callouts */
+.cal{
+  margin:0 0 22px;padding:14px 18px;
+  border:1px solid var(--line);border-left:3px solid var(--ink-3);
+  border-radius:0 3px 3px 0;
+  background:var(--surface);
+  font-size:14.5px;line-height:1.7;color:var(--ink-2);
+  max-width:var(--measure);
+}
+.cal>p{margin:0 0 8px;max-width:none}
+.cal>p:last-child{margin:0}
+.cal.note{border-left-color:var(--line-2)}
+.cal.key{border-left-color:var(--accent);background:var(--accent-soft);color:var(--ink)}
+.cal.warn{border-left-color:var(--amber);background:var(--amber-soft);color:var(--ink)}
+.cal strong{color:var(--ink)}
+
+/* ============================================================ diagrams */
+.dia{
+  margin:0 0 24px;padding:22px 20px 16px;
+  background:var(--surface);border:1px solid var(--line);border-radius:3px;
+  overflow-x:auto;
+}
+.dia svg{display:block;width:100%;height:auto;min-width:640px}
+.dia figcaption{
+  font-family:var(--f-cond);font-size:11.5px;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--ink-3);
+  margin-top:14px;padding-top:10px;border-top:1px solid var(--line);
+}
+.dia .bx{fill:var(--surface);stroke:var(--line-2);stroke-width:1.2}
+.dia .bx-a{fill:var(--accent-soft);stroke:var(--accent);stroke-width:1.4}
+.dia .bx-d{fill:var(--bg-2);stroke:var(--line-2);stroke-width:1.2;stroke-dasharray:4 3}
+.dia .lb{fill:var(--ink);font-family:var(--f-cond);font-size:12.5px;font-weight:600}
+.dia .sb{fill:var(--ink-3);font-family:var(--f-mono);font-size:10px}
+.dia .ed{stroke:var(--line-2);stroke-width:1.2;fill:none}
+.dia .ed-a{stroke:var(--accent);stroke-width:1.4;fill:none}
+.dia .et{fill:var(--ink-3);font-family:var(--f-mono);font-size:10px;text-anchor:middle}
+.dia .arw{fill:var(--line-2)}
+.dia .arw-a{fill:var(--accent)}
+
+/* ============================================================ footer + fab */
+.docfoot{
+  margin-top:70px;padding-top:20px;border-top:1px solid var(--line);
+  font-size:13px;color:var(--ink-3);max-width:var(--measure);
+}
+.totop{
+  position:fixed;right:22px;bottom:22px;z-index:30;
+  width:38px;height:38px;border-radius:3px;
+  background:var(--surface);color:var(--ink-2);
+  border:1px solid var(--line-2);box-shadow:var(--shadow);
+  cursor:pointer;font-size:15px;
+  opacity:0;pointer-events:none;transition:opacity .18s;
+}
+.totop.on{opacity:1;pointer-events:auto}
+.totop:hover{color:var(--accent-ink);border-color:var(--accent)}
+
+/* ============================================================ responsive */
+@media (max-width:1080px){
+  .doc{padding:0 36px 100px}
+}
+@media (max-width:860px){
+  .side{
+    position:fixed;left:0;top:0;z-index:40;
+    transform:translateX(-100%);transition:transform .2s ease;
+    box-shadow:var(--shadow);
+  }
+  .side.open{transform:none}
+  .mbtn{display:block}
+  .doc{padding:0 20px 90px;max-width:100%}
+  .hero{padding:34px 0 28px}
+  .prog{display:none}
+  .doc h2{font-size:23px}
+}
+@media (prefers-reduced-motion:reduce){
+  *{transition:none!important;scroll-behavior:auto!important}
+}
+html{scroll-behavior:smooth;scroll-padding-top:64px}
+@media print{
+  .side,.topbar,.totop,.cpy,.ah{display:none}
+  .doc{max-width:100%;padding:0}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="side" id="side">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"><span></span><span></span><span></span></div>
+      <div>
+        <div class="bt">prime-agent-py</div>
+        <div class="bs">0.1.0 소스 문서</div>
+      </div>
+    </div>
+    <div class="findwrap">
+      <input id="find" type="search" placeholder="섹션 검색" aria-label="섹션 검색" autocomplete="off">
+    </div>
+    <nav class="nav" id="nav">
+<a class="n2" href="#0-한-눈에" data-t="0. 한 눈에"><span class="nn">0</span><span>한 눈에</span></a>
+<a class="n2" href="#1-왜-이식했나" data-t="1. 왜 이식했나"><span class="nn">1</span><span>왜 이식했나</span></a>
+<a class="n2" href="#2-아키텍처" data-t="2. 아키텍처"><span class="nn">2</span><span>아키텍처</span></a>
+<a class="n2" href="#3-모듈-맵" data-t="3. 모듈 맵"><span class="nn">3</span><span>모듈 맵</span></a>
+<a class="n2" href="#4-실행-흐름" data-t="4. 실행 흐름"><span class="nn">4</span><span>실행 흐름</span></a>
+<a class="n2" href="#5-원본에서-그대로-옮긴-규칙" data-t="5. 원본에서 그대로 옮긴 규칙"><span class="nn">5</span><span>원본에서 그대로 옮긴 규칙</span></a>
+<a class="n2" href="#6-커널-api" data-t="6. 커널 API"><span class="nn">6</span><span>커널 API</span></a>
+<a class="n2" href="#7-설정" data-t="7. 설정"><span class="nn">7</span><span>설정</span></a>
+<a class="n2" href="#8-cli" data-t="8. CLI"><span class="nn">8</span><span>CLI</span></a>
+<a class="n2" href="#9-스킬" data-t="9. 스킬"><span class="nn">9</span><span>스킬</span></a>
+<a class="n2" href="#10-세션-포맷" data-t="10. 세션 포맷"><span class="nn">10</span><span>세션 포맷</span></a>
+<a class="n2" href="#11-검증" data-t="11. 검증"><span class="nn">11</span><span>검증</span></a>
+<a class="n2" href="#12-설치" data-t="12. 설치"><span class="nn">12</span><span>설치</span></a>
+<a class="n2" href="#13-확장-포인트" data-t="13. 확장 포인트"><span class="nn">13</span><span>확장 포인트</span></a>
+<a class="n2" href="#14-원본-대비-차이" data-t="14. 원본 대비 차이"><span class="nn">14</span><span>원본 대비 차이</span></a>
+<a class="n2" href="#15-보안-원본과-동일하게-샌드박스가-아니다" data-t="15. 보안 — 원본과 동일하게 샌드박스가 아니다"><span class="nn">15</span><span>보안 — 원본과 동일하게 샌드박스가 아니다</span></a>
+<a class="n2" href="#16-알려진-한계" data-t="16. 알려진 한계"><span class="nn">16</span><span>알려진 한계</span></a>
+    </nav>
+    <div class="sidefoot">
+      <a href="https://github.com/PrimeIntellect-ai/prime-agent">원본: PrimeIntellect-ai/prime-agent</a>
+      <span>MIT · 2026-08-25</span>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <button class="mbtn" id="mbtn" aria-label="목차 열기">목차</button>
+      <div class="crumb" id="crumb">개요</div>
+      <div class="prog" aria-hidden="true"><i id="prog"></i></div>
+    </header>
+
+    <article class="doc">
+      <div class="hero">
+        <div class="eyebrow">소스 핸드오버 · Python 이식본</div>
+        <h1>prime-agent-py</h1>
+        <p class="lede">Prime Agent v0.8.0의 RLM 하네스를 순수 Python으로 이식한 구현. Node·npm·bash 의존이 없고 Windows 폐쇄망에서 pip만으로 돈다. 이 문서는 소스를 넘겨받아 고칠 사람을 위한 것이다.</p>
+        <div class="facts">
+          <div><span>소스 규모</span><b>4,289줄 · 모듈 11개</b></div>
+          <div><span>런타임 의존성</span><b>5개</b></div>
+          <div><span>e2e 검증</span><b>42건 통과</b></div>
+          <div><span>Node.js 의존</span><b>없음</b></div>
+        </div>
+      </div>
+
+<blockquote class="cal note">
+<p><a href="https://github.com/PrimeIntellect-ai/prime-agent">PrimeIntellect-ai/prime-agent</a> v0.8.0 의 RLM 하네스를 <strong>순수 Python 으로 이식한 구현</strong>의 소스 문서.
+총 4,289줄 · 모듈 11개 · e2e 검증 42건 통과 · Node.js/npm/bash 의존 0
+대상 환경: <strong>Windows 폐쇄망</strong>, Python 3.10+</p>
+</blockquote>
+<h2 id="0-한-눈에"><span class="hn">0</span>한 눈에<a class="ah" href="#0-한-눈에" aria-label="이 섹션 링크">#</a></h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>항목</th>
+<th>값</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>패키지명</td>
+<td><code>prime-agent-py</code> · 실행 파일 <code>pa</code></td>
+</tr>
+<tr>
+<td>런타임 의존성</td>
+<td><code>httpx</code>, <code>jupyter-client</code>, <code>ipykernel</code>, <code>prompt-toolkit</code>, <code>rich</code> — <strong>5개</strong></td>
+</tr>
+<tr>
+<td>소스 규모</td>
+<td><code>src/pa</code> 9개 모듈 3,915줄 + 테스트 374줄</td>
+</tr>
+<tr>
+<td>커널</td>
+<td>진짜 IPython 커널 (<code>jupyter_client</code>) — 원본과 동일</td>
+</tr>
+<tr>
+<td>호스트↔커널</td>
+<td>loopback TCP + 토큰 (원본은 Jupyter comm)</td>
+</tr>
+<tr>
+<td>프로바이더</td>
+<td>OpenAI 호환 1종 (사내 vLLM/SGLang/게이트웨이)</td>
+</tr>
+<tr>
+<td>세션 포맷</td>
+<td>원본 JSONL <strong>version 3 호환</strong></td>
+</tr>
+<tr>
+<td>스킬</td>
+<td>저장소 원본 9종 동봉, <strong>수정 없이 동작</strong></td>
+</tr>
+<tr>
+<td>라이선스</td>
+<td>MIT</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>설계 한 줄:</strong> 모델에게 노출되는 툴은 <code>ipython</code> 하나뿐이고, 파일·셸·데이터·스킬·서브에이전트 위임이 전부 그 커널 안에서 Python 코드로 일어난다.</p>
+<h2 id="1-왜-이식했나"><span class="hn">1</span>왜 이식했나<a class="ah" href="#1-왜-이식했나" aria-label="이 섹션 링크">#</a></h2>
+<p>원본은 TypeScript 모노레포 4패키지 + Python 커널 런타임이다. Windows 폐쇄망에서 막히는 지점이 6군데다.</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>원본 요구</th>
+<th>폐쇄망 Windows 에서</th>
+<th>이식본</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Node.js 22.8+</td>
+<td>별도 배포 필요</td>
+<td><strong>불필요</strong></td>
+</tr>
+<tr>
+<td><code>npm ci</code> 의존성 212건</td>
+<td>사내 레지스트리 미러 필요</td>
+<td><strong>불필요</strong></td>
+</tr>
+<tr>
+<td><code>zeromq</code>·<code>canvas</code> 네이티브 빌드</td>
+<td>Windows 빌드 툴체인 필요</td>
+<td><strong>불필요</strong> (<code>pyzmq</code> wheel 만 씀)</td>
+</tr>
+<tr>
+<td>TypeScript 7 프리릴리스 핀</td>
+<td>미러에 없으면 소스 빌드 자체가 막힘</td>
+<td><strong>불필요</strong></td>
+</tr>
+<tr>
+<td><code>install.sh</code> (POSIX sh)</td>
+<td>Windows 경로 없음</td>
+<td><code>install.py</code> / <code>install.bat</code></td>
+</tr>
+<tr>
+<td>실행 시 bash 필수 (Git Bash·WSL)</td>
+<td>별도 설치</td>
+<td><strong>불필요</strong></td>
+</tr>
+<tr>
+<td><code>uv</code>(astral.sh) + CPython(GitHub) + PyPI 13종</td>
+<td>외부 호스트 3곳</td>
+<td>wheel 39개 동봉</td>
+</tr>
+</tbody>
+</table></div>
+<p>실측으로 확인한 원본 빌드 실패 두 가지도 그대로 회피된다.</p>
+<ol>
+<li><code>npm run build</code> 가 <code>generate-models</code> 단계에서 Prime Inference API 를 조회하다 실패</li>
+<li><code>tsgo</code>(TypeScript 7 프리뷰) 가 <code>packages/ai/src/models.ts</code> 에서 <code>TS2536</code> 다발</li>
+</ol>
+<h2 id="2-아키텍처"><span class="hn">2</span>아키텍처<a class="ah" href="#2-아키텍처" aria-label="이 섹션 링크">#</a></h2>
+<h3 id="21-프로세스-구조"><span class="hn">2.1</span>프로세스 구조<a class="ah" href="#21-프로세스-구조" aria-label="이 섹션 링크">#</a></h3>
+<p>원본의 3프로세스(슈퍼바이저 · 워커 · 커널)를 <strong>단일 프로세스 + 스레드 + 커널 1개</strong>로 접었다.
+"한 워커가 root 세션과 그 아래 RLM 자손 전부를 소유한다"는 원본의 소유권 규칙은 그대로다.</p>
+<h3 id="22-호스트-브리지"><span class="hn">2.2</span>호스트 브리지<a class="ah" href="#22-호스트-브리지" aria-label="이 섹션 링크">#</a></h3>
+<p>원본은 워커(TS) ↔ 커널(Python) 을 Jupyter comm <code>host.request</code> 로 잇는다.
+이식본은 호스트도 Python 이므로 <strong>loopback TCP + 줄단위 JSON + 토큰 인증</strong>으로 단순화했다.</p>
+<figure class="dia">
+<svg viewBox="0 0 960 500" role="img" aria-label="prime-agent-py 프로세스 및 모듈 구조">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" class="arw"></path>
+    </marker>
+    <marker id="ara" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" class="arw-a"></path>
+    </marker>
+  </defs>
+
+  <!-- 사내 추론 서버 (우측 상단) -->
+  <rect class="bx-d" x="596" y="24" width="352" height="54" rx="2"></rect>
+  <text class="lb" x="612" y="46">사내 추론 서버</text>
+  <text class="sb" x="612" y="64">vLLM / SGLang / 게이트웨이 — OpenAI 호환</text>
+
+  <!-- 호스트 프로세스 -->
+  <rect class="bx-d" x="16" y="24" width="368" height="452" rx="2"></rect>
+  <text class="lb" x="32" y="46">호스트 프로세스 — pa</text>
+  <text class="sb" x="32" y="64">프로바이더 호출 · 세션 기록 · 자식 라이프사이클</text>
+
+  <rect class="bx" x="32" y="80" width="336" height="44" rx="2"></rect>
+  <text class="lb" x="46" y="100">cli.py</text>
+  <text class="sb" x="46" y="116">REPL · 슬래시 23종 · autonomous</text>
+
+  <rect class="bx-a" x="32" y="134" width="336" height="62" rx="2"></rect>
+  <text class="lb" x="46" y="154">agent.py — AgentSession</text>
+  <text class="sb" x="46" y="171">에이전트 루프 · 툴 디스패치 · 핸들러 27종</text>
+  <text class="sb" x="46" y="188">서브에이전트 · 컴팩션 · 정제</text>
+
+  <rect class="bx" x="32" y="206" width="336" height="42" rx="2"></rect>
+  <text class="lb" x="46" y="226">provider.py</text>
+  <text class="sb" x="46" y="242">OpenAI 호환 SSE · 툴 콜 누적</text>
+
+  <rect class="bx" x="32" y="258" width="162" height="42" rx="2"></rect>
+  <text class="lb" x="46" y="278">session.py</text>
+  <text class="sb" x="46" y="294">JSONL 트리 v3</text>
+
+  <rect class="bx" x="206" y="258" width="162" height="42" rx="2"></rect>
+  <text class="lb" x="220" y="278">harness.py</text>
+  <text class="sb" x="220" y="294">하네스 · 롤백</text>
+
+  <rect class="bx" x="32" y="310" width="162" height="42" rx="2"></rect>
+  <text class="lb" x="46" y="330">skills.py</text>
+  <text class="sb" x="46" y="346">SKILL.md 계약</text>
+
+  <rect class="bx" x="206" y="310" width="162" height="42" rx="2"></rect>
+  <text class="lb" x="220" y="330">config.py</text>
+  <text class="sb" x="220" y="346">경로 · 설정 · 모델</text>
+
+  <rect class="bx-a" x="32" y="362" width="336" height="44" rx="2"></rect>
+  <text class="lb" x="46" y="382">kernel.py — HostBridge</text>
+  <text class="sb" x="46" y="398">TCP 서버 · 토큰 인증 · 핸들러 디스패치</text>
+
+  <text class="sb" x="32" y="432">프로바이더 호출도, 트랜스크립트 기록도</text>
+  <text class="sb" x="32" y="450">전부 이쪽에만 있다</text>
+
+  <!-- 커널 프로세스 -->
+  <rect class="bx-d" x="596" y="120" width="352" height="356" rx="2"></rect>
+  <text class="lb" x="612" y="142">커널 프로세스 — ipykernel</text>
+  <text class="sb" x="612" y="160">모델이 보는 유일한 실행면</text>
+
+  <rect class="bx-a" x="612" y="176" width="320" height="66" rx="2"></rect>
+  <text class="lb" x="626" y="196">kernel_runtime/rlm</text>
+  <text class="sb" x="626" y="213">rlm · harness · agent_message · goal</text>
+  <text class="sb" x="626" y="230">compact · refine · rlm_heartbeat · edit</text>
+
+  <rect class="bx" x="612" y="252" width="320" height="52" rx="2"></rect>
+  <text class="lb" x="626" y="272">스킬 9종 — 저장소 원본</text>
+  <text class="sb" x="626" y="290">sys.path 직접 주입 · pip 설치 불필요</text>
+
+  <rect class="bx" x="612" y="314" width="320" height="52" rx="2"></rect>
+  <text class="lb" x="626" y="334">모델이 생성한 Python</text>
+  <text class="sb" x="626" y="352">파일 · 셸 · 데이터 · 위임 전부 여기서</text>
+
+  <text class="sb" x="612" y="392">변수 · import · 함수가 턴과 컴팩션을 넘어 유지된다</text>
+  <text class="sb" x="612" y="412">에이전트 루프도, 프로바이더 호출도 여기엔 없다</text>
+  <text class="sb" x="612" y="440">호스트와 같은 OS 권한 —</text>
+  <text class="sb" x="612" y="458">프로세스 분리는 라이프사이클 격리이지 샌드박스가 아니다</text>
+
+  <!-- 엣지 A: provider → 사내 추론 서버 (ㄱ자, 교차 없음) -->
+  <polyline class="ed" points="368,222 470,222 470,51 590,51" marker-end="url(#ar)"></polyline>
+  <text class="et" x="428" y="214">HTTPS / SSE</text>
+
+  <!-- 엣지 B: agent → 커널 (execute) -->
+  <line class="ed-a" x1="368" y1="165" x2="590" y2="165" marker-end="url(#ara)"></line>
+  <text class="et" x="486" y="157">execute</text>
+  <text class="et" x="486" y="177">Jupyter / ZeroMQ</text>
+
+  <!-- 엣지 C: 커널 → HostBridge (host request) -->
+  <line class="ed-a" x1="590" y1="384" x2="374" y2="384" marker-end="url(#ara)"></line>
+  <text class="et" x="486" y="376">host request</text>
+  <text class="et" x="486" y="396">TCP 127.0.0.1 · 토큰</text>
+</svg>
+<figcaption>프로세스 2개와 모듈 배치 — 커널은 프로바이더를 호출하지 않고 에이전트 루프도 갖지 않는다. 권위 있는 동작은 전부 호스트 요청으로 되돌아온다.</figcaption>
+</figure>
+
+
+<p>Windows 에서 named pipe·유닉스 소켓을 신경 쓸 필요가 없고, 커널이 별도 프로세스라
+모델이 커널을 죽여도 호스트가 살아남는 원본의 성질도 유지된다.</p>
+<p>원본과 같은 방어 하나를 그대로 옮겼다 — 요청 직렬화 시 <strong><code>payload</code> 를 먼저 펼치고 <code>type</code> 을 나중에</strong> 넣는다. payload 안의 <code>type</code> 키가 요청을 가로챌 수 없게.</p>
+<div class="hl"><pre><span></span><code><span class="n">msg</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;payload&quot;</span><span class="p">:</span> <span class="n">payload</span> <span class="ow">or</span> <span class="p">{},</span> <span class="s2">&quot;rid&quot;</span><span class="p">:</span> <span class="n">rid</span><span class="p">,</span> <span class="s2">&quot;token&quot;</span><span class="p">:</span> <span class="n">_TOKEN</span><span class="p">,</span> <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="n">rtype</span><span class="p">}</span>
+</code></pre></div>
+
+<h3 id="23-등록된-호스트-요청-27종"><span class="hn">2.3</span>등록된 호스트 요청 27종<a class="ah" href="#23-등록된-호스트-요청-27종" aria-label="이 섹션 링크">#</a></h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>그룹</th>
+<th>요청</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>RLM</td>
+<td><code>rlm.run</code> <code>rlm.find_models</code> <code>rlm.list_subagents</code> <code>rlm.delete_subagent</code></td>
+</tr>
+<tr>
+<td>하네스</td>
+<td><code>harness.overview</code> <code>harness.list</code> <code>harness.get</code> <code>harness.delete</code> <code>harness.upsert</code> <code>harness.record_refinement</code></td>
+</tr>
+<tr>
+<td>goal</td>
+<td><code>goal.get</code> <code>goal.create</code> <code>goal.complete</code></td>
+</tr>
+<tr>
+<td>컴팩션</td>
+<td><code>compact.status</code> <code>compact.run</code></td>
+</tr>
+<tr>
+<td>정제</td>
+<td><code>refine.status</code> <code>refine.run</code></td>
+</tr>
+<tr>
+<td>메시징</td>
+<td><code>agent_message.list_agents</code> <code>agent_message.send</code> <code>agent_message.broadcast</code></td>
+</tr>
+<tr>
+<td>관측</td>
+<td><code>agent_observe.list_agents</code> <code>agent_observe.get_agent</code> <code>agent_observe.recent_messages</code></td>
+</tr>
+<tr>
+<td>heartbeat</td>
+<td><code>rlm_heartbeat.list</code> <code>rlm_heartbeat.create</code> <code>rlm_heartbeat.update</code> <code>rlm_heartbeat.delete</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>핸들러 추가는 <code>AgentSession._register_handlers()</code> 에 한 줄 등록하고 커널 쪽 <code>rlm/__init__.py</code> 에 래퍼를 붙이면 끝난다.</p>
+<h2 id="3-모듈-맵"><span class="hn">3</span>모듈 맵<a class="ah" href="#3-모듈-맵" aria-label="이 섹션 링크">#</a></h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>파일</th>
+<th>줄</th>
+<th>책임</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>src/pa/agent.py</code></td>
+<td>817</td>
+<td><strong><code>AgentSession</code></strong> — 에이전트 루프, 툴 디스패치, 호스트 핸들러 27종, 서브에이전트 생성·레지스트리, 컴팩션, 정제</td>
+</tr>
+<tr>
+<td><code>src/pa/cli.py</code></td>
+<td>700</td>
+<td>argparse + 대화형 REPL, 슬래시 커맨드 23종, 스트리밍 출력기, autonomous 루프, <code>doctor</code>/<code>init</code>/<code>sessions</code></td>
+</tr>
+<tr>
+<td><code>src/pa/harness.py</code></td>
+<td>458</td>
+<td>Continual Harness — <code>HarnessStore</code> CRUD, 원자적 쓰기, refine 제안 적용, before/after 스냅샷 롤백</td>
+</tr>
+<tr>
+<td><code>src/pa/kernel_runtime/rlm/__init__.py</code></td>
+<td>447</td>
+<td><strong>커널 안에서 도는 shim.</strong> <code>rlm</code>·<code>harness</code>·<code>agent_message</code>·<code>goal</code>·<code>compact</code>·<code>refine</code>·<code>rlm_heartbeat</code>·<code>edit</code></td>
+</tr>
+<tr>
+<td><code>src/pa/kernel.py</code></td>
+<td>337</td>
+<td><code>HostBridge</code>(TCP 서버) + <code>Kernel</code>(jupyter_client 래퍼) + 부트스트랩 코드 생성</td>
+</tr>
+<tr>
+<td><code>src/pa/session.py</code></td>
+<td>322</td>
+<td><code>SessionManager</code> — JSONL 트리, 엔트리 append, 브랜치 순회, 컨텍스트 구성</td>
+</tr>
+<tr>
+<td><code>src/pa/provider.py</code></td>
+<td>280</td>
+<td>OpenAI 호환 SSE 스트리밍, 툴 콜 누적, <code>compat</code> 플래그 처리, 토큰 근사</td>
+</tr>
+<tr>
+<td><code>src/pa/skills.py</code></td>
+<td>256</td>
+<td>SKILL.md 탐색·프론트매터 파싱·Python 스킬 4조건 검증·프롬프트 블록</td>
+</tr>
+<tr>
+<td><code>src/pa/config.py</code></td>
+<td>222</td>
+<td>경로(Windows 대응), <code>settings.json</code> 병합, <code>models.json</code> → <code>Model</code> 데이터클래스</td>
+</tr>
+<tr>
+<td><code>src/pa/kernel_runtime/rlm/skill.py</code></td>
+<td>55</td>
+<td><code>rlm.skill:cli</code> — 저장소 스킬의 <code>[project.scripts]</code> 호환</td>
+</tr>
+<tr>
+<td><code>tests/test_e2e.py</code> + <code>mock_llm.py</code></td>
+<td>374</td>
+<td>목 LLM(툴콜·SSE) + 검증 42건</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="31-의존-방향"><span class="hn">3.1</span>의존 방향<a class="ah" href="#31-의존-방향" aria-label="이 섹션 링크">#</a></h3>
+<div class="hl"><pre><span></span><code>cli ──▶ agent ──▶ provider ──▶ (HTTP)
+          │  ├──▶ kernel ──▶ (IPython 프로세스) ──▶ kernel_runtime/rlm
+          │  ├──▶ harness
+          │  ├──▶ skills
+          │  └──▶ session
+          └──▶ config  (전부가 참조)
+</code></pre></div>
+
+<p>순환 없음. <code>kernel_runtime/rlm</code> 은 <strong>호스트 코드를 import 하지 않는다</strong> — 커널 프로세스에만 올라간다.</p>
+<h2 id="4-실행-흐름"><span class="hn">4</span>실행 흐름<a class="ah" href="#4-실행-흐름" aria-label="이 섹션 링크">#</a></h2>
+<div class="hl"><pre><span></span><code>1  사용자 입력            cli.main() → AgentSession.run_turn(text)
+2  컴팩션 판정            maybe_compact() — contextTokens &gt; contextWindow - reserveTokens
+3  컨텍스트 구성          SessionManager.build_context() — leaf→root 경로, compaction 반영
+4  시스템 프롬프트 조립    기본 + 자식 독트린 + 스킬 목록 + 하네스 + AGENTS.md + goal
+5  모델 호출              provider.stream_completion() — SSE, on_delta 로 스트리밍
+6  분기
+   ├ 툴 콜 없음  →  루프 종료
+   └ 툴 콜 있음  →  kernel.execute(code) → toolResult append → 2번으로
+7  턴 경계 후처리         예약된 compact 실행 → 인박스 배수 → 예약된 refine 실행
+</code></pre></div>
+
+<p><strong>턴 경계 규칙</strong>(원본과 동일): 컴팩션과 정제는 셀 중간에 절대 돌지 않는다. 커널에서 <code>await compact.run()</code> / <code>await refine.run()</code> 을 부르면 예약만 되고, 현재 턴이 끝날 때 호스트가 실행한다.</p>
+<h2 id="5-원본에서-그대로-옮긴-규칙"><span class="hn">5</span>원본에서 그대로 옮긴 규칙<a class="ah" href="#5-원본에서-그대로-옮긴-규칙" aria-label="이 섹션 링크">#</a></h2>
+<p>이식하면서 <strong>의도적으로 보존한 동작</strong>들이다. 고칠 때 여기를 깨지 않게 조심해야 한다.</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>규칙</th>
+<th>구현 위치</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rlm(...)</code> 은 <strong>admission 시점 반환</strong>. 자식 답변을 절대 반환하지 않음</td>
+<td><code>agent.py::_h_rlm_run</code></td>
+</tr>
+<tr>
+<td>자식 결과는 <code>agent_message</code> 나 파일로만</td>
+<td>설계 + 시스템 프롬프트</td>
+</tr>
+<tr>
+<td><code>run()</code> 지원 옵션은 <code>name</code>/<code>model</code>/<code>thinking</code> 3개뿐, <strong>모르는 옵션은 실패</strong></td>
+<td><code>rlm/__init__.py::_RLM.run</code></td>
+</tr>
+<tr>
+<td>요청 모델을 못 쓰면 <strong>조용히 대체하지 않고 spawn 실패</strong></td>
+<td><code>agent.py::_h_rlm_run</code></td>
+</tr>
+<tr>
+<td>재귀 깊이 기본 2 (root→자식→손자). Python 과 호스트 <strong>양쪽에서</strong> 검사</td>
+<td><code>rlm/__init__.py</code> + <code>agent.py</code></td>
+</tr>
+<tr>
+<td>메시징 범위는 <strong>부모·형제·직계 자식</strong>. 발신자 신원은 호스트가 정함</td>
+<td><code>agent.py::_family</code></td>
+</tr>
+<tr>
+<td><code>receiver_name</code> 은 sibling/child 에 필수, parent 에는 금지</td>
+<td><code>rlm/__init__.py::_AgentMessage.send</code></td>
+</tr>
+<tr>
+<td>기본 시스템 프롬프트 <strong>불변</strong> — <code>base_system_prompt</code> id 하드 거부</td>
+<td><code>harness.py::HarnessStore.upsert</code></td>
+</tr>
+<tr>
+<td>skill 엔트리는 <code>reference.type == "python"</code> + import + callable/call_pattern + arguments 필수</td>
+<td><code>harness.py::_validate_skill_reference</code></td>
+</tr>
+<tr>
+<td>update 시 생략된 <code>path</code>/<code>reference</code>/<code>arguments</code>/<code>metadata</code> 는 <strong>보존</strong>, 명시값(<code>{}</code> 포함)은 덮어씀</td>
+<td><code>harness.py::upsert</code></td>
+</tr>
+<tr>
+<td>refine 은 <strong>역순 재생</strong>으로 롤백</td>
+<td><code>harness.py::rollback</code></td>
+</tr>
+<tr>
+<td>손상된 <code>refinements.jsonl</code> 한 줄이 롤백 전체를 막지 않음</td>
+<td><code>harness.py::history</code></td>
+</tr>
+<tr>
+<td>하네스 상태는 mtime 이 바뀌면 다시 읽음 (커널·호스트 동시 쓰기 방어)</td>
+<td><code>harness.py::_sync</code></td>
+</tr>
+<tr>
+<td>컴팩션 컷 포인트는 <strong>툴 결과에서 자르지 않음</strong></td>
+<td><code>agent.py::compact</code></td>
+</tr>
+<tr>
+<td><code>goal.complete()</code> 만이 성공 완료 신호</td>
+<td><code>agent.py::_h_goal_complete</code></td>
+</tr>
+<tr>
+<td>autonomous 판정 순서 <strong>게이트 먼저</strong> → 연속 → 턴 → 토큰 → 시간</td>
+<td><code>cli.py::run_autonomous</code></td>
+</tr>
+<tr>
+<td>게이트 통과는 한도 도달을 무시하고 완료 허용</td>
+<td><code>cli.py::run_autonomous</code></td>
+</tr>
+<tr>
+<td>변경 없이 실패한 게이트는 재실행하지 않고 시도 횟수만 증가</td>
+<td><code>cli.py::run_autonomous</code></td>
+</tr>
+<tr>
+<td>description 없는 스킬은 <strong>로드하지 않음</strong></td>
+<td><code>skills.py::load_skill</code></td>
+</tr>
+<tr>
+<td>Python 스킬 4조건 미충족 시 마크다운으로 <strong>조용히 강등</strong> + 경고</td>
+<td><code>skills.py::load_skill</code></td>
+</tr>
+<tr>
+<td>스킬 import 실패가 커널을 깨뜨리지 않음 (호출 시 원래 에러를 담은 RuntimeError)</td>
+<td><code>kernel.py::_bootstrap</code></td>
+</tr>
+<tr>
+<td><code>run()</code> 가진 스킬 모듈은 async callable 로 래핑</td>
+<td><code>kernel.py::BOOTSTRAP</code></td>
+</tr>
+<tr>
+<td>이름 충돌 시 <strong>처음 찾은 스킬</strong> 유지 + 경고</td>
+<td><code>skills.py::discover</code></td>
+</tr>
+<tr>
+<td>자식 usage 를 부모 assistant 턴에 귀속 (<code>child_usage_attributed</code>)</td>
+<td><code>agent.py::_h_rlm_run</code></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="6-커널-api"><span class="hn">6</span>커널 API<a class="ah" href="#6-커널-api" aria-label="이 섹션 링크">#</a></h2>
+<p>커널 부트스트랩이 만드는 네임스페이스. <code>sys.modules["rlm"]</code> 는 패키지로 남아 저장소 스킬의 <code>from rlm import host_request</code> 가 그대로 동작한다.</p>
+<h3 id="61-rlm"><span class="hn">6.1</span><code>rlm</code><a class="ah" href="#61-rlm" aria-label="이 섹션 링크">#</a></h3>
+<div class="hl"><pre><span></span><code><span class="n">handle</span> <span class="o">=</span> <span class="k">await</span> <span class="n">rlm</span><span class="p">(</span><span class="s2">&quot;독립 하위 작업&quot;</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;reviewer&quot;</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s2">&quot;internal/Qwen3-32B&quot;</span><span class="p">,</span>
+                   <span class="n">thinking</span><span class="o">=</span><span class="s2">&quot;medium&quot;</span><span class="p">)</span>
+<span class="c1"># → RLMSpawnHandle(rlm_child_id, name, session_dir, model)   ※ 자식 답변 없음</span>
+
+<span class="k">await</span> <span class="n">rlm</span><span class="o">.</span><span class="n">find_models</span><span class="p">(</span><span class="n">query</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>      <span class="c1"># [RLMModel(provider,id,name,selector)]</span>
+<span class="k">await</span> <span class="n">rlm</span><span class="o">.</span><span class="n">list_subagents</span><span class="p">()</span>                    <span class="c1"># [RLMSubagent(..., status)]</span>
+<span class="k">await</span> <span class="n">rlm</span><span class="o">.</span><span class="n">delete_subagent</span><span class="p">(</span><span class="s2">&quot;reviewer&quot;</span><span class="p">)</span>         <span class="c1"># 툼스톤. 디스크 트랜스크립트는 안 지움</span>
+<span class="k">await</span> <span class="n">rlm</span><span class="o">.</span><span class="n">host_request</span><span class="p">(</span><span class="s2">&quot;사용자정의.요청&quot;</span><span class="p">,</span> <span class="p">{</span><span class="o">...</span><span class="p">})</span>
+</code></pre></div>
+
+<p>병렬은 "여러 번 호출하고 턴을 끝내는 것". <code>rlm.background</code> 는 <strong>존재하지 않는다</strong>(원본과 동일).</p>
+<h3 id="62-agent_message-agent_observe"><span class="hn">6.2</span><code>agent_message</code> / <code>agent_observe</code><a class="ah" href="#62-agent_message-agent_observe" aria-label="이 섹션 링크">#</a></h3>
+<div class="hl"><pre><span></span><code><span class="k">await</span> <span class="n">agent_message</span><span class="o">.</span><span class="n">list_agents</span><span class="p">()</span>             <span class="c1"># {current, entries[relationship,name,id,depth,status]}</span>
+<span class="k">await</span> <span class="n">agent_message</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="s2">&quot;결과&quot;</span><span class="p">,</span> <span class="n">receiver_role</span><span class="o">=</span><span class="s2">&quot;parent&quot;</span><span class="p">)</span>
+<span class="k">await</span> <span class="n">agent_message</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="s2">&quot;확인해라&quot;</span><span class="p">,</span> <span class="n">receiver_role</span><span class="o">=</span><span class="s2">&quot;child&quot;</span><span class="p">,</span> <span class="n">receiver_name</span><span class="o">=</span><span class="s2">&quot;reviewer&quot;</span><span class="p">)</span>
+<span class="k">await</span> <span class="n">agent_message</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="s2">&quot;all&quot;</span><span class="p">,</span> <span class="s2">&quot;전체 공지&quot;</span><span class="p">)</span>   <span class="c1"># 브로드캐스트 → {receipts:[...]}</span>
+
+<span class="k">await</span> <span class="n">agent_observe</span><span class="o">.</span><span class="n">recent_messages</span><span class="p">(</span><span class="s2">&quot;reviewer&quot;</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">max_chars</span><span class="o">=</span><span class="mi">800</span><span class="p">)</span>   <span class="c1"># 읽기 전용</span>
+</code></pre></div>
+
+<p>배송 상태는 <code>delivered</code>(유휴 대상 도달) 또는 <code>queued</code>(실행 중이라 대기). <code>send</code> 는 블로킹하지 않는다.
+<strong><code>send</code> 직후 자식을 삭제하지 마라</strong> — 배달된 follow-up 이 아직 돌고 있을 수 있다.</p>
+<h3 id="63-harness"><span class="hn">6.3</span><code>harness</code><a class="ah" href="#63-harness" aria-label="이 섹션 링크">#</a></h3>
+<div class="hl"><pre><span></span><code><span class="k">await</span> <span class="n">harness</span><span class="o">.</span><span class="n">overview</span><span class="p">()</span>
+<span class="k">await</span> <span class="n">harness</span><span class="o">.</span><span class="n">list</span><span class="p">(</span><span class="n">kind</span><span class="o">=</span><span class="s2">&quot;memory&quot;</span><span class="p">,</span> <span class="n">global_</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="k">await</span> <span class="n">harness</span><span class="o">.</span><span class="n">create_memory</span><span class="p">(</span><span class="s2">&quot;배포 규칙&quot;</span><span class="p">,</span> <span class="s2">&quot;릴리스는 금요일에 하지 않는다&quot;</span><span class="p">,</span> <span class="n">global_</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">await</span> <span class="n">harness</span><span class="o">.</span><span class="n">update_prompt_note</span><span class="p">(</span><span class="s2">&quot;보고 형식&quot;</span><span class="p">,</span> <span class="s2">&quot;표부터 제시할 것&quot;</span><span class="p">)</span>
+<span class="k">await</span> <span class="n">harness</span><span class="o">.</span><span class="n">create_subagent</span><span class="p">(</span><span class="s2">&quot;로그 분석가&quot;</span><span class="p">,</span> <span class="s2">&quot;MCS 로그에서 이상 패턴을 찾는다&quot;</span><span class="p">)</span>
+<span class="k">await</span> <span class="n">harness</span><span class="o">.</span><span class="n">create_skill</span><span class="p">(</span><span class="s2">&quot;로그 파서&quot;</span><span class="p">,</span> <span class="s2">&quot;MCS 로그를 파싱한다&quot;</span><span class="p">,</span>
+    <span class="n">reference</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;type&quot;</span><span class="p">:</span><span class="s2">&quot;python&quot;</span><span class="p">,</span><span class="s2">&quot;import&quot;</span><span class="p">:</span><span class="s2">&quot;mcs_log&quot;</span><span class="p">,</span><span class="s2">&quot;call_pattern&quot;</span><span class="p">:</span><span class="s2">&quot;await mcs_log(path)&quot;</span><span class="p">},</span>
+    <span class="n">arguments</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;path&quot;</span><span class="p">:{</span><span class="s2">&quot;type&quot;</span><span class="p">:</span><span class="s2">&quot;string&quot;</span><span class="p">,</span><span class="s2">&quot;required&quot;</span><span class="p">:</span><span class="kc">True</span><span class="p">,</span><span class="s2">&quot;description&quot;</span><span class="p">:</span><span class="s2">&quot;로그 경로&quot;</span><span class="p">}})</span>
+<span class="k">await</span> <span class="n">harness</span><span class="o">.</span><span class="n">record_refinement</span><span class="p">(</span><span class="s2">&quot;반복 실패&quot;</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;memory 추가&quot;</span><span class="p">],</span> <span class="n">evidence</span><span class="o">=</span><span class="s2">&quot;...&quot;</span><span class="p">,</span> <span class="n">outcome</span><span class="o">=</span><span class="s2">&quot;...&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>Python 예약어 때문에 <code>global=True</code> 는 문법 오류다 → <strong><code>global_=True</code></strong>.</p>
+<h3 id="64-goal-compact-refine-heartbeat-edit"><span class="hn">6.4</span>goal / compact / refine / heartbeat / edit<a class="ah" href="#64-goal-compact-refine-heartbeat-edit" aria-label="이 섹션 링크">#</a></h3>
+<div class="hl"><pre><span></span><code><span class="k">await</span> <span class="n">goal</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>          <span class="c1"># {goal, remaining_tokens, completion_budget_report}</span>
+<span class="k">await</span> <span class="n">goal</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="s2">&quot;전체 테스트 통과시키기&quot;</span><span class="p">,</span> <span class="n">token_budget</span><span class="o">=</span><span class="mi">200000</span><span class="p">)</span>
+<span class="k">await</span> <span class="n">goal</span><span class="o">.</span><span class="n">complete</span><span class="p">()</span>     <span class="c1"># ← 이것만이 성공 완료 신호</span>
+
+<span class="k">await</span> <span class="n">compact</span><span class="o">.</span><span class="n">status</span><span class="p">()</span>    <span class="c1"># {tokens, context_window, percent, scheduled}</span>
+<span class="k">await</span> <span class="n">compact</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="s2">&quot;인증 리팩터링에 집중&quot;</span><span class="p">)</span>     <span class="c1"># 예약만. 턴 끝날 때 실행</span>
+
+<span class="k">await</span> <span class="n">refine</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="s2">&quot;반복 실패를 메모리로 남겨라&quot;</span><span class="p">,</span> <span class="n">global_</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+<span class="k">await</span> <span class="n">rlm_heartbeat</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="s2">&quot;빌드 상태 확인&quot;</span><span class="p">,</span> <span class="n">interval</span><span class="o">=</span><span class="s2">&quot;10m&quot;</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;build&quot;</span><span class="p">,</span>
+                           <span class="n">delivery_mode</span><span class="o">=</span><span class="s2">&quot;steer&quot;</span><span class="p">)</span>   <span class="c1"># steer | follow_up</span>
+<span class="k">await</span> <span class="n">rlm_heartbeat</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">hid</span><span class="p">,</span> <span class="n">status</span><span class="o">=</span><span class="s2">&quot;pause&quot;</span><span class="p">)</span>
+
+<span class="k">await</span> <span class="n">edit</span><span class="p">(</span><span class="s2">&quot;src/app.py&quot;</span><span class="p">,</span> <span class="s2">&quot;old_line&quot;</span><span class="p">,</span> <span class="s2">&quot;new_line&quot;</span><span class="p">)</span>   <span class="c1"># 유일 일치 1회 치환</span>
+</code></pre></div>
+
+<h3 id="65-셸-규칙"><span class="hn">6.5</span>셸 규칙<a class="ah" href="#65-셸-규칙" aria-label="이 섹션 링크">#</a></h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>규칙</th>
+<th>내용</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>%%bash</code></td>
+<td><strong>셀의 첫 줄</strong>이어야 한다. 앞에 주석·공백·빈 줄·import 금지</td>
+</tr>
+<tr>
+<td><code>%%bash</code> 범위</td>
+<td>일회용 서브셸 — <code>cd</code>·<code>export</code>·<code>source</code>·셸 변수가 다음 셀로 안 넘어감</td>
+</tr>
+<tr>
+<td>지속시키려면</td>
+<td><code>%cd &lt;dir&gt;</code>, <code>os.environ['VAR'] = '...'</code></td>
+</tr>
+<tr>
+<td>Python 상태</td>
+<td>변수·import·함수가 툴 호출·턴·컴팩션을 넘어 유지</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="7-설정"><span class="hn">7</span>설정<a class="ah" href="#7-설정" aria-label="이 섹션 링크">#</a></h2>
+<h3 id="71-파일"><span class="hn">7.1</span>파일<a class="ah" href="#71-파일" aria-label="이 섹션 링크">#</a></h3>
+<div class="hl"><pre><span></span><code>~/.prime/agent-py/            (PA_AGENT_DIR 로 변경 가능. Windows: C:\Users\&lt;id&gt;\.prime\agent-py)
+├── settings.json
+├── models.json
+├── history                              prompt_toolkit 입력 이력
+├── skills/&lt;이름&gt;/SKILL.md
+├── sessions/&lt;uuid&gt;.jsonl                원본 v3 포맷
+├── session-artifacts/&lt;uuid&gt;/
+│   ├── harness/harness_state.json       로컬 하네스
+│   └── sub-xxxxxxxx/&lt;child&gt;.jsonl       RLM 자식 (재귀 중첩)
+├── harness/
+│   ├── harness_state.json               전역 하네스
+│   └── refinements.jsonl                전역 정제 이력 (롤백 소스)
+└── logs/
+</code></pre></div>
+
+<p>프로젝트 설정은 <code>&lt;프로젝트&gt;/.prime/agent-py/settings.json</code> — 전역을 덮되 <strong>중첩 객체는 키 단위 병합</strong>.</p>
+<h3 id="72-modelsjson"><span class="hn">7.2</span><code>models.json</code><a class="ah" href="#72-modelsjson" aria-label="이 섹션 링크">#</a></h3>
+<p>원본 스키마와 호환된다.</p>
+<div class="hl"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;providers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;internal&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;사내 추론&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;baseUrl&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;http://10.0.0.42:8000/v1&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;api&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;openai-completions&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;apiKey&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;INTERNAL_LLM_KEY&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;authHeader&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;headers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;X-Corp-Auth&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;CORP_TOKEN_ENV&quot;</span><span class="w"> </span><span class="p">},</span>
+<span class="w">      </span><span class="nt">&quot;compat&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">&quot;supportsDeveloperRole&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;supportsReasoningEffort&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;supportsUsageInStreaming&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;maxTokensField&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;max_tokens&quot;</span>
+<span class="w">      </span><span class="p">},</span>
+<span class="w">      </span><span class="nt">&quot;models&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span>
+<span class="w">        </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Qwen/Qwen3-32B&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Qwen3 32B&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;reasoning&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;input&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;text&quot;</span><span class="p">],</span>
+<span class="w">        </span><span class="nt">&quot;contextWindow&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">262144</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;maxTokens&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">32768</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;compat&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;thinkingFormat&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;qwen-chat-template&quot;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">      </span><span class="p">}]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p><code>apiKey</code>·<code>headers</code> 값 해석은 원본과 동일한 3형태다.</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>형태</th>
+<th>동작</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>"!command"</code></td>
+<td>셸 실행 후 stdout (요청마다 실행, 캐시 없음)</td>
+</tr>
+<tr>
+<td><code>"ENV_NAME"</code></td>
+<td>그 환경변수 값이 있으면 사용</td>
+</tr>
+<tr>
+<td>그 외</td>
+<td>리터럴</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong><code>compat</code> 플래그</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>키</th>
+<th>효과</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>supportsDeveloperRole</code></td>
+<td><code>false</code> → <code>developer</code> 대신 <code>system</code> 역할 전송 (vLLM/SGLang 권장)</td>
+</tr>
+<tr>
+<td><code>supportsReasoningEffort</code></td>
+<td><code>false</code> → <code>reasoning_effort</code> 미전송</td>
+</tr>
+<tr>
+<td><code>supportsUsageInStreaming</code></td>
+<td>기본 <code>true</code> → <code>stream_options.include_usage</code></td>
+</tr>
+<tr>
+<td><code>maxTokensField</code></td>
+<td><code>max_tokens</code> | <code>max_completion_tokens</code></td>
+</tr>
+<tr>
+<td><code>requiresToolResultName</code></td>
+<td>툴 결과에 <code>name</code> 필드 추가</td>
+</tr>
+<tr>
+<td><code>thinkingFormat</code></td>
+<td><code>qwen-chat-template</code> → <code>chat_template_kwargs.enable_thinking</code>, <code>qwen</code> → 최상위 <code>enable_thinking</code></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="73-settingsjson"><span class="hn">7.3</span><code>settings.json</code><a class="ah" href="#73-settingsjson" aria-label="이 섹션 링크">#</a></h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>키</th>
+<th>기본값</th>
+<th>비고</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>defaultProvider</code> / <code>defaultModel</code></td>
+<td>–</td>
+<td></td>
+</tr>
+<tr>
+<td><code>defaultThinkingLevel</code></td>
+<td>–</td>
+<td><code>off</code>|<code>minimal</code>|<code>low</code>|<code>medium</code>|<code>high</code>|<code>xhigh</code>|<code>max</code></td>
+</tr>
+<tr>
+<td><code>compaction.enabled</code></td>
+<td><code>true</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>compaction.reserveTokens</code></td>
+<td><code>16384</code></td>
+<td>트리거: <code>tokens &gt; contextWindow - reserve</code></td>
+</tr>
+<tr>
+<td><code>compaction.keepRecentTokens</code></td>
+<td><code>20000</code></td>
+<td>보존할 최근 토큰</td>
+</tr>
+<tr>
+<td><code>rlm.maxDepth</code></td>
+<td><code>2</code></td>
+<td>root→자식→손자</td>
+</tr>
+<tr>
+<td><code>autonomous.maxContinuations</code></td>
+<td><code>3</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>autonomous.maxTurns</code></td>
+<td><code>12</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>autonomous.maxTokens</code></td>
+<td><code>80000</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>autonomous.timeoutMs</code></td>
+<td><code>1800000</code></td>
+<td>30분</td>
+</tr>
+<tr>
+<td><code>autonomous.gateRetries</code></td>
+<td><code>3</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>autonomous.gateTimeoutMs</code></td>
+<td><code>300000</code></td>
+<td>5분</td>
+</tr>
+<tr>
+<td><code>skills</code></td>
+<td><code>[]</code></td>
+<td>경로 목록. <code>"-이름"</code> 은 제외</td>
+</tr>
+<tr>
+<td><code>enableSkillCommands</code></td>
+<td><code>true</code></td>
+<td><code>/skill:&lt;이름&gt;</code> 등록</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="74-환경변수"><span class="hn">7.4</span>환경변수<a class="ah" href="#74-환경변수" aria-label="이 섹션 링크">#</a></h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>변수</th>
+<th>의미</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PA_AGENT_DIR</code></td>
+<td>설정 디렉터리</td>
+</tr>
+<tr>
+<td><code>PA_KERNEL_PYTHON</code></td>
+<td>커널로 쓸 Python 인터프리터 (<code>ipykernel</code> 필요)</td>
+</tr>
+<tr>
+<td><code>PA_OFFLINE</code></td>
+<td>오프라인 표시</td>
+</tr>
+<tr>
+<td><code>RLM_DEPTH</code> / <code>RLM_MAX_DEPTH</code></td>
+<td>커널에 주입되는 깊이 정보</td>
+</tr>
+<tr>
+<td><code>RLM_SESSION_DIR</code></td>
+<td>세션 아티팩트 경로</td>
+</tr>
+<tr>
+<td><code>PA_SKILL_IMPORTS</code> / <code>PA_SKILL_PATHS</code></td>
+<td>커널이 import 할 스킬 (내부용)</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote class="cal note">
+<p><strong><code>contextWindow</code> 는 서버 <code>--max-model-len</code> 과 반드시 맞춰라.</strong> 컴팩션 트리거 계산에 직접 들어간다.
+크게 잡으면 컴팩션이 안 걸려 프로바이더 오류, 작게 잡으면 불필요한 컴팩션이 반복된다.</p>
+</blockquote>
+<h2 id="8-cli"><span class="hn">8</span>CLI<a class="ah" href="#8-cli" aria-label="이 섹션 링크">#</a></h2>
+<div class="hl"><pre><span></span><code>pa<span class="w">                                   </span>대화형
+pa<span class="w"> </span><span class="s2">&quot;초기 프롬프트&quot;</span><span class="w">                     </span>대화형<span class="w"> </span>+<span class="w"> </span>첫<span class="w"> </span>턴
+pa<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="w">                          </span>한<span class="w"> </span>번<span class="w"> </span>실행하고<span class="w"> </span>종료
+pa<span class="w"> </span>--mode<span class="w"> </span>json<span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="w">                 </span>이벤트를<span class="w"> </span>JSON<span class="w"> </span>라인으로
+pa<span class="w"> </span>-c<span class="w">                                </span>최근<span class="w"> </span>세션<span class="w"> </span>이어가기
+pa<span class="w"> </span>-r<span class="w"> </span>&lt;id<span class="p">|</span>경로&gt;<span class="w">                       </span>세션<span class="w"> </span>재개
+pa<span class="w"> </span>--no-session<span class="w">                      </span>기록<span class="w"> </span>남기지<span class="w"> </span>않음
+pa<span class="w"> </span>doctor<span class="w">                            </span>환경·엔드포인트·스킬<span class="w"> </span>점검
+pa<span class="w"> </span>init<span class="w"> </span>--llm-base-url<span class="w"> </span>...<span class="w"> </span>--llm-model<span class="w"> </span>...
+pa<span class="w"> </span>sessions<span class="w">                          </span>세션<span class="w"> </span>목록
+</code></pre></div>
+
+<div class="tw"><table>
+<thead>
+<tr>
+<th>옵션</th>
+<th>설명</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--model</code> / <code>--provider</code> / <code>--api-key</code></td>
+<td>모델 선택 (<code>provider/id</code>, 부분 일치 지원)</td>
+</tr>
+<tr>
+<td><code>--thinking &lt;레벨&gt;</code></td>
+<td>추론 강도</td>
+</tr>
+<tr>
+<td><code>--cwd &lt;경로&gt;</code></td>
+<td>작업 디렉터리</td>
+</tr>
+<tr>
+<td><code>--skill &lt;경로&gt;</code></td>
+<td>스킬 명시 로드 (반복 가능)</td>
+</tr>
+<tr>
+<td><code>--no-skills</code></td>
+<td>탐색 비활성 (명시 경로는 유지)</td>
+</tr>
+<tr>
+<td><code>--goal</code> / <code>--goal-token-budget</code></td>
+<td>지속 목표</td>
+</tr>
+<tr>
+<td><code>--autonomous</code> + <code>--autonomous-*</code></td>
+<td>무인 실행</td>
+</tr>
+<tr>
+<td><code>--quiet</code></td>
+<td>thinking 출력 숨김</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="81-슬래시-커맨드-23종"><span class="hn">8.1</span>슬래시 커맨드 23종<a class="ah" href="#81-슬래시-커맨드-23종" aria-label="이 섹션 링크">#</a></h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>그룹</th>
+<th>커맨드</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>세션</td>
+<td><code>/new</code> <code>/sessions</code> <code>/session</code> <code>/name</code> <code>/tree</code></td>
+</tr>
+<tr>
+<td>컨텍스트</td>
+<td><code>/compact [지시]</code> <code>/usage</code> <code>/context</code></td>
+</tr>
+<tr>
+<td>하네스</td>
+<td><code>/refine [지시]</code> <code>/refine --global</code> <code>/refine --rollback &lt;id&gt;</code> <code>/harness</code></td>
+</tr>
+<tr>
+<td>장기실행</td>
+<td><code>/goal</code> <code>/heartbeat</code> <code>/autonomous</code></td>
+</tr>
+<tr>
+<td>에이전트</td>
+<td><code>/agents</code> <code>/send &lt;이름&gt; &lt;메시지&gt;</code></td>
+</tr>
+<tr>
+<td>모델</td>
+<td><code>/model</code> <code>/models</code> <code>/effort</code></td>
+</tr>
+<tr>
+<td>스킬</td>
+<td><code>/skills</code> <code>/skill:&lt;이름&gt;</code> <code>/reload</code></td>
+</tr>
+<tr>
+<td>기타</td>
+<td><code>/shell &lt;명령&gt;</code> (또는 <code>!명령</code>) <code>/help</code> <code>/quit</code></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="82-autonomous"><span class="hn">8.2</span>autonomous<a class="ah" href="#82-autonomous" aria-label="이 섹션 링크">#</a></h3>
+<div class="hl"><pre><span></span><code>pa<span class="w"> </span>-p<span class="w"> </span>--autonomous<span class="w"> </span><span class="se">\</span>
+<span class="w">   </span>--autonomous-gate<span class="w"> </span><span class="s2">&quot;python -m pytest -q&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">   </span>--autonomous-gate<span class="w"> </span><span class="s2">&quot;python -m ruff check .&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">   </span>--autonomous-gate-retries<span class="w"> </span><span class="m">2</span><span class="w"> </span><span class="se">\</span>
+<span class="w">   </span>--autonomous-max-turns<span class="w"> </span><span class="m">12</span><span class="w"> </span><span class="se">\</span>
+<span class="w">   </span>--autonomous-max-tokens<span class="w"> </span><span class="m">80000</span><span class="w"> </span><span class="se">\</span>
+<span class="w">   </span><span class="s2">&quot;실패하는 테스트를 고치고 검증 결과를 보고해라&quot;</span>
+</code></pre></div>
+
+<p>판정 순서: <strong>게이트 → 연속 → 턴 → 토큰 → 시간</strong>.
+게이트가 통과하면 한도에 도달했어도 완료를 허용한다.
+<strong>한도 도달은 작업 성공을 뜻하지 않는다. 통과한 게이트는 그 게이트가 검증한 것만 보증한다.</strong>
+사내에서는 게이트 없이 쓰지 마라.</p>
+<h2 id="9-스킬"><span class="hn">9</span>스킬<a class="ah" href="#9-스킬" aria-label="이 섹션 링크">#</a></h2>
+<h3 id="91-계약"><span class="hn">9.1</span>계약<a class="ah" href="#91-계약" aria-label="이 섹션 링크">#</a></h3>
+<div class="hl"><pre><span></span><code>my-skill/
+├── SKILL.md                       프론트매터에 name, description 필수
+├── pyproject.toml                 ← 이 파일의 존재가 Python 스킬임을 표시
+└── src/
+    └── my_skill/
+        └── __init__.py            run() 이 있으면 모듈이 async callable 이 된다
+</code></pre></div>
+
+<p><strong>4조건이 전부 성립해야 한다.</strong> 하나라도 어긋나면 경고와 함께 마크다운 전용으로 강등된다.</p>
+<ol>
+<li><code>SKILL.md</code> 존재 (<strong>description 없으면 아예 로드 안 됨</strong>)</li>
+<li>루트에 <code>pyproject.toml</code></li>
+<li>import 이름 = 스킬명의 하이픈→언더스코어, 유효한 Python 식별자</li>
+<li><code>src/&lt;import_name&gt;/__init__.py</code></li>
+</ol>
+<p>추가 규칙:</p>
+<ul>
+<li><code>name</code> 은 <strong>부모 디렉터리명과 일치</strong>해야 한다 (아니면 경고)</li>
+<li><code>[project.scripts]</code> 이름은 import 이름과 <strong>정확히 일치</strong> (<code>word_count</code>, <code>word-count</code> 아님)</li>
+<li>hatchling 사용 시 <code>[tool.hatch.build.targets.wheel]</code> 필수</li>
+</ul>
+<h3 id="92-탐색-우선순위"><span class="hn">9.2</span>탐색 우선순위<a class="ah" href="#92-탐색-우선순위" aria-label="이 섹션 링크">#</a></h3>
+<div class="hl"><pre><span></span><code>1. --skill 명시 경로 / settings.skills
+2. &lt;프로젝트&gt;/.prime/agent-py/skills/   ·  &lt;프로젝트&gt;/.agents/skills/
+3. ~/.prime/agent-py/skills/            ·  ~/.agents/skills/
+4. 패키지 동봉 bundled_skills/          (최저)
+</code></pre></div>
+
+<p>이름 충돌 시 <strong>처음 찾은 것</strong>을 유지하고 경고한다.</p>
+<h3 id="93-폐쇄망에서-pip-없이-로드"><span class="hn">9.3</span>폐쇄망에서 pip 없이 로드<a class="ah" href="#93-폐쇄망에서-pip-없이-로드" aria-label="이 섹션 링크">#</a></h3>
+<p>이식본은 각 Python 스킬의 <code>src</code> 디렉터리를 <strong>커널 <code>sys.path</code> 에 직접 넣는다.</strong>
+<code>pip install -e</code> 없이 import 되므로 폐쇄망에서 설치 단계가 하나 줄어든다.</p>
+<div class="hl"><pre><span></span><code><span class="c1"># skills.py</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">src_paths</span><span class="p">(</span><span class="n">skills</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">pathsep</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">root</span> <span class="o">/</span> <span class="s2">&quot;src&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">skills</span>
+                           <span class="k">if</span> <span class="n">s</span><span class="o">.</span><span class="n">python</span> <span class="ow">and</span> <span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">root</span> <span class="o">/</span> <span class="s2">&quot;src&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">is_dir</span><span class="p">())</span>
+</code></pre></div>
+
+<p>외부 의존성이 있는 스킬(예: <code>attach-image</code> → pillow)만 wheelhouse 에서 설치하면 된다.</p>
+<h3 id="94-동봉-스킬-9종"><span class="hn">9.4</span>동봉 스킬 9종<a class="ah" href="#94-동봉-스킬-9종" aria-label="이 섹션 링크">#</a></h3>
+<p><code>agent-message</code> · <code>agent-observe</code> · <code>attach-image</code> · <code>compact</code> · <code>edit</code> · <code>goal</code> · <code>refine</code> · <code>rlm-heartbeat</code> · <code>skill-creator</code></p>
+<p><strong>저장소 원본 코드 그대로다.</strong> 커널에 <code>rlm</code> 패키지를 같은 이름으로 노출하므로
+<code>from rlm import host_request</code> 를 쓰는 원본 파일이 수정 없이 동작한다.</p>
+<p>외부 서비스를 타는 4종(<code>linear</code>·<code>notion</code>·<code>websearch</code>·<code>prime-intellect</code>)은 제외했다.</p>
+<h2 id="10-세션-포맷"><span class="hn">10</span>세션 포맷<a class="ah" href="#10-세션-포맷" aria-label="이 섹션 링크">#</a></h2>
+<p>원본 <code>docs/session-format.md</code> 의 version 3 과 호환된다.</p>
+<div class="hl"><pre><span></span><code>{&quot;type&quot;:&quot;session&quot;,&quot;version&quot;:3,&quot;id&quot;:&quot;uuid&quot;,&quot;timestamp&quot;:&quot;...&quot;,&quot;cwd&quot;:&quot;/path&quot;}   // 헤더
+{&quot;type&quot;:&quot;message&quot;,&quot;id&quot;:&quot;a1b2c3d4&quot;,&quot;parentId&quot;:&quot;prev1234&quot;,&quot;timestamp&quot;:&quot;...&quot;,&quot;message&quot;:{...}}
+{&quot;type&quot;:&quot;model_change&quot;,...,&quot;provider&quot;:&quot;internal&quot;,&quot;modelId&quot;:&quot;Qwen3-32B&quot;}
+{&quot;type&quot;:&quot;compaction&quot;,...,&quot;summary&quot;:&quot;...&quot;,&quot;firstKeptEntryId&quot;:&quot;c3d4e5f6&quot;,&quot;tokensBefore&quot;:50000}
+{&quot;type&quot;:&quot;branch_summary&quot;,...,&quot;fromId&quot;:&quot;f6g7h8i9&quot;,&quot;summary&quot;:&quot;...&quot;}
+{&quot;type&quot;:&quot;custom&quot;,...,&quot;customType&quot;:&quot;prime-agent.refinement&quot;,&quot;data&quot;:{...}}
+{&quot;type&quot;:&quot;session_info&quot;,...,&quot;name&quot;:&quot;세션 이름&quot;}
+{&quot;type&quot;:&quot;child_usage_attributed&quot;,...,&quot;targetId&quot;:&quot;...&quot;,&quot;childUsage&quot;:{...},&quot;aggregateUsage&quot;:{...}}
+</code></pre></div>
+
+<ul>
+<li>엔트리 id 는 <strong>8자리 hex</strong>, 첫 엔트리 <code>parentId</code> 는 <code>null</code></li>
+<li>현재 위치 = 활성 leaf, 브랜치는 이전 엔트리에서 새 자식을 만드는 것</li>
+<li>손상된 줄은 건너뛴다 (한 줄이 세션 전체를 막지 않게)</li>
+</ul>
+<p><strong>컨텍스트 구성</strong> (<code>build_context()</code>): leaf→root 경로를 모으고, 경로에 compaction 이 있으면
+<strong>요약 먼저 → <code>firstKeptEntryId</code> 부터 compaction 까지 → compaction 이후</strong> 순으로 배치한다.
+부기 엔트리(<code>child_usage_attributed</code>, <code>label</code>, <code>session_info</code>)는 제외된다.</p>
+<h2 id="11-검증"><span class="hn">11</span>검증<a class="ah" href="#11-검증" aria-label="이 섹션 링크">#</a></h2>
+<p>목 LLM 서버(툴 콜 + SSE 스트리밍)를 띄우고 실제 IPython 커널을 붙여 돌린 결과. <strong>42건 전부 통과.</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>영역</th>
+<th>검증 항목</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>설정</td>
+<td>models.json 파싱 · baseUrl 해석 · 엔드포인트 probe</td>
+</tr>
+<tr>
+<td>커널 루프</td>
+<td>최종 텍스트 수신 · 툴 결과 기록 · 커널 실행 결과 반영 · <strong>툴 호출 사이 변수 유지</strong></td>
+</tr>
+<tr>
+<td>세션 포맷</td>
+<td>version 3 헤더 · cwd · <code>parentId=null</code> · 8자리 hex id · 트리 연결 유효성 · 재열기</td>
+</tr>
+<tr>
+<td>하네스</td>
+<td>생성/업데이트 version 증가 · path 보존 · <strong>기본 시스템 프롬프트 보호</strong> · skill reference 검증</td>
+</tr>
+<tr>
+<td>정제</td>
+<td>제안 적용 · 생성 확인 · 수정 확인 · <strong>롤백으로 생성분 삭제</strong> · <strong>롤백으로 수정분 복원</strong></td>
+</tr>
+<tr>
+<td>서브에이전트</td>
+<td>spawn · 이름 · 완료 상태 · <strong>자식→부모 메시지 수신</strong> · usage 귀속 · 세션 디렉터리</td>
+</tr>
+<tr>
+<td>제약</td>
+<td><code>RLM_MAX_DEPTH</code> 강제 · 존재하지 않는 모델은 spawn 실패</td>
+</tr>
+<tr>
+<td>컴팩션</td>
+<td>엔트리 기록 · <code>firstKeptEntryId</code> · <code>customInstructions</code> 보존 · 컨텍스트 축소 · 요약이 선두</td>
+</tr>
+<tr>
+<td>스킬</td>
+<td>Python 스킬 인식 · import 이름 변환 · <strong>description 없으면 미로드</strong> · 이름 불일치 경고</td>
+</tr>
+<tr>
+<td>호환</td>
+<td>커널에서 <code>from rlm import host_request</code> 동작</td>
+</tr>
+</tbody>
+</table></div>
+<p>추가로 <strong>깨끗한 venv 에 오프라인 설치</strong>(wheel 39개만 사용) 후 CLI 기동과 스킬 9종 탐색까지 확인했다.</p>
+<div class="hl"><pre><span></span><code>python3<span class="w"> </span>tests/test_e2e.py<span class="w">      </span><span class="c1"># 42건, 약 90초 (실제 커널 기동 포함)</span>
+</code></pre></div>
+
+<h2 id="12-설치"><span class="hn">12</span>설치<a class="ah" href="#12-설치" aria-label="이 섹션 링크">#</a></h2>
+<h3 id="121-windows-폐쇄망"><span class="hn">12.1</span>Windows 폐쇄망<a class="ah" href="#121-windows-폐쇄망" aria-label="이 섹션 링크">#</a></h3>
+<div class="hl"><pre><span></span><code>prime-agent-py-windows.zip 압축 해제
+install.bat 실행                          (또는)
+python install.py --venv C:\prime-agent\venv ^
+       --llm-base-url http://10.0.0.42:8000/v1 ^
+       --llm-model Qwen/Qwen3-32B ^
+       --context-window 262144
+</code></pre></div>
+
+<p><code>install.py</code> 는 표준 라이브러리만 쓴다. 하는 일:</p>
+<ol>
+<li>Python 3.10+ · wheel 개수 · 바이너리 wheel 태그(<code>cp311</code>/<code>win_amd64</code>) 점검</li>
+<li>venv 생성 (<code>--system</code> 이면 현재 Python 에 직접)</li>
+<li><code>pip install --no-index --find-links wheels prime-agent-py</code> — <strong>외부 접속 0</strong></li>
+<li><code>models.json</code> / <code>settings.json</code> 생성</li>
+<li>실행 경로와 환경변수 안내</li>
+</ol>
+<p><code>--check</code> 는 점검만, <code>--dry-run</code> 은 변경 없이 계획만 출력한다.</p>
+<h3 id="122-소스에서"><span class="hn">12.2</span>소스에서<a class="ah" href="#122-소스에서" aria-label="이 섹션 링크">#</a></h3>
+<div class="hl"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.<span class="w">                    </span><span class="c1"># 개발</span>
+python<span class="w"> </span>-m<span class="w"> </span>build<span class="w">                     </span><span class="c1"># wheel + sdist</span>
+python<span class="w"> </span>tests/test_e2e.py<span class="w">            </span><span class="c1"># 검증</span>
+</code></pre></div>
+
+<h3 id="123-커널-인터프리터-분리"><span class="hn">12.3</span>커널 인터프리터 분리<a class="ah" href="#123-커널-인터프리터-분리" aria-label="이 섹션 링크">#</a></h3>
+<div class="hl"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">PA_KERNEL_PYTHON</span><span class="o">=</span>/opt/pa/kernel-venv/bin/python<span class="w">    </span><span class="c1"># Windows: set PA_KERNEL_PYTHON=...</span>
+</code></pre></div>
+
+<p>그 환경에 <code>ipykernel</code> 이 있어야 한다. 무거운 데이터 패키지(pandas/numpy/scipy)를
+커널 쪽에만 두고 호스트를 가볍게 유지할 때 쓴다.</p>
+<h2 id="13-확장-포인트"><span class="hn">13</span>확장 포인트<a class="ah" href="#13-확장-포인트" aria-label="이 섹션 링크">#</a></h2>
+<p>소스를 고칠 때 어디를 건드리면 되는지.</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>하고 싶은 것</th>
+<th>고칠 곳</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>호스트 요청 추가</td>
+<td><code>agent.py::_register_handlers</code> 에 한 줄 + <code>rlm/__init__.py</code> 에 래퍼</td>
+</tr>
+<tr>
+<td>툴 추가 (ipython 외)</td>
+<td><code>provider.py::IPYTHON_TOOL</code> 옆에 정의 + <code>agent.py::run_turn</code> 의 디스패치 분기</td>
+</tr>
+<tr>
+<td>다른 프로바이더 (Anthropic 등)</td>
+<td><code>provider.py::to_wire</code> / <code>_payload</code> / <code>stream_completion</code> 분기</td>
+</tr>
+<tr>
+<td>시스템 프롬프트 변경</td>
+<td><code>agent.py::BASE_SYSTEM_PROMPT</code> (하네스는 <strong>보충</strong>이지 대체가 아님)</td>
+</tr>
+<tr>
+<td>컴팩션 전략 변경</td>
+<td><code>agent.py::compact</code> — 컷 포인트 탐색과 요약 프롬프트</td>
+</tr>
+<tr>
+<td>토큰 계산 정밀화</td>
+<td><code>provider.py::estimate_tokens</code> — 지금은 한글 1.5자/토큰 근사. 실토크나이저로 교체 가능</td>
+</tr>
+<tr>
+<td>데몬화 (백그라운드 상주)</td>
+<td><code>cli.py::main</code> 을 서비스 진입점으로 감싸고 <code>AgentSession</code> 을 프로세스에 상주</td>
+</tr>
+<tr>
+<td>슬래시 커맨드 추가</td>
+<td><code>cli.py::handle_slash</code></td>
+</tr>
+<tr>
+<td>세션 엔트리 타입 추가</td>
+<td><code>session.py::SessionManager.append_*</code> + <code>build_context</code> 처리</td>
+</tr>
+<tr>
+<td>스킬 탐색 경로 추가</td>
+<td><code>skills.py::discover</code></td>
+</tr>
+<tr>
+<td>MCP 연동</td>
+<td>스킬로 붙이는 게 맞다 — <code>mcp</code> Python SDK 를 쓰는 Python 스킬 하나</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="14-원본-대비-차이"><span class="hn">14</span>원본 대비 차이<a class="ah" href="#14-원본-대비-차이" aria-label="이 섹션 링크">#</a></h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>원본</th>
+<th>이식본</th>
+<th>사유</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>데몬 + 슈퍼바이저 + 워커 3프로세스</td>
+<td>단일 프로세스 + 스레드</td>
+<td>Windows named pipe·프로세스 그룹 관리 회피</td>
+</tr>
+<tr>
+<td>Jupyter comm <code>host.request</code></td>
+<td>loopback TCP + 토큰</td>
+<td>단순화, Windows 친화</td>
+</tr>
+<tr>
+<td>프로바이더 20여 종</td>
+<td>OpenAI 호환 1종</td>
+<td>사내 vLLM/SGLang/게이트웨이가 대상</td>
+</tr>
+<tr>
+<td>TUI (차등 렌더링·테마·키바인딩)</td>
+<td>스트리밍 콘솔 + prompt_toolkit</td>
+<td>의존성 최소화</td>
+</tr>
+<tr>
+<td>세션 리스·크래시 복구 저널</td>
+<td>없음</td>
+<td>단일 프로세스라 불필요</td>
+</tr>
+<tr>
+<td>MCP 통합 (linear/notion/범용)</td>
+<td>없음</td>
+<td>스킬로 추가 가능</td>
+</tr>
+<tr>
+<td>TypeScript 확장 · 패키지 시스템</td>
+<td>없음</td>
+<td>스킬로 대체</td>
+</tr>
+<tr>
+<td>RPC/ACP/SDK 모드</td>
+<td><code>--mode json</code> 만</td>
+<td>필요 시 추가</td>
+</tr>
+<tr>
+<td><code>/fork</code> <code>/clone</code> <code>/branch</code></td>
+<td><code>/tree</code> 조회만</td>
+<td>세션 트리 구조는 이미 있음 — append 만 붙이면 됨</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="141-가장-큰-실질적-차이"><span class="hn">14.1</span>가장 큰 실질적 차이<a class="ah" href="#141-가장-큰-실질적-차이" aria-label="이 섹션 링크">#</a></h3>
+<p><strong>데몬이 없으므로 터미널을 닫으면 세션이 끝난다.</strong></p>
+<p>세션 JSONL 은 계속 남으므로 <code>pa -r &lt;id&gt;</code> 로 언제든 이어갈 수 있다.
+백그라운드 상주가 필요하면 다음 중 하나를 쓴다.</p>
+<ul>
+<li>Windows: 작업 스케줄러 또는 NSSM 으로 서비스 등록</li>
+<li>Linux: <code>systemd --user</code> 유닛 또는 <code>screen</code>/<code>tmux</code></li>
+<li>또는 §13 의 "데몬화" 확장 포인트를 직접 구현</li>
+</ul>
+<h2 id="15-보안-원본과-동일하게-샌드박스가-아니다"><span class="hn">15</span>보안 — 원본과 동일하게 샌드박스가 아니다<a class="ah" href="#15-보안-원본과-동일하게-샌드박스가-아니다" aria-label="이 섹션 링크">#</a></h2>
+<p>커널은 모델이 만든 Python 을 <strong>호스트와 같은 OS 권한으로</strong> 실행한다.
+프로세스 분리는 라이프사이클 격리이지 권한 격리가 아니다.</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>항목</th>
+<th>권고</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>실행 계정</td>
+<td>전용 저권한 계정</td>
+</tr>
+<tr>
+<td>실행 위치</td>
+<td>일회용 클론 / 깨끗한 worktree</td>
+</tr>
+<tr>
+<td>격리</td>
+<td>진짜 격리가 필요하면 <strong>외부 샌드박스</strong>(컨테이너·전용 VM)를 바깥에</td>
+</tr>
+<tr>
+<td>신뢰 코드</td>
+<td>스킬·Python 패키지는 전부 신뢰 코드. 사내 검토 절차를 태울 것</td>
+</tr>
+<tr>
+<td>데이터</td>
+<td>커널이 접근 가능한 파일 = 모델에 보낼 수 있는 파일</td>
+</tr>
+<tr>
+<td>autonomous</td>
+<td>게이트 없이 쓰지 말 것</td>
+</tr>
+<tr>
+<td>기록</td>
+<td>세션 JSONL 과 하네스는 대화 원문을 그대로 담는다. 보존·파기 정책 필요</td>
+</tr>
+</tbody>
+</table></div>
+<p>호스트 브리지는 loopback(127.0.0.1) 에만 바인딩하고 랜덤 포트 + 32자 토큰으로 인증하지만,
+<strong>같은 머신의 같은 사용자</strong>에 대한 방어는 아니다. 원본의 하드닝과 같은 수준이다.</p>
+<h2 id="16-알려진-한계"><span class="hn">16</span>알려진 한계<a class="ah" href="#16-알려진-한계" aria-label="이 섹션 링크">#</a></h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>항목</th>
+<th>영향</th>
+<th>대응</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>토큰 수를 근사치로 계산 (한글 1.5자/토큰)</td>
+<td>컴팩션 트리거가 실제와 다를 수 있음</td>
+<td><code>estimate_tokens</code> 를 실토크나이저로 교체</td>
+</tr>
+<tr>
+<td>2</td>
+<td>데몬 없음</td>
+<td>터미널 닫으면 세션 종료</td>
+<td><code>pa -r</code> 로 재개, 또는 서비스로 감싸기</td>
+</tr>
+<tr>
+<td>3</td>
+<td>자식이 스레드</td>
+<td>자식이 커널을 오래 점유하면 부모도 대기</td>
+<td>자식마다 별도 커널을 띄우도록 확장 가능</td>
+</tr>
+<tr>
+<td>4</td>
+<td>세션 잠금 없음</td>
+<td>같은 세션 파일을 두 프로세스가 열면 충돌</td>
+<td>단일 프로세스 전제로 운영</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>/fork</code> <code>/clone</code> 미구현</td>
+<td>브랜칭 UI 없음</td>
+<td>트리 구조는 이미 있으므로 append 만 추가하면 됨</td>
+</tr>
+<tr>
+<td>6</td>
+<td>이미지 입력</td>
+<td><code>attach-image</code> 스킬은 있으나 프로바이더 경로 미검증</td>
+<td>멀티모달 필요 시 <code>to_wire</code> 확장</td>
+</tr>
+<tr>
+<td>7</td>
+<td>스트리밍 중 중단</td>
+<td>Ctrl+C 시 커널 인터럽트는 되나 HTTP 스트림은 끝까지 소비</td>
+<td><code>stream_completion</code> 에 취소 토큰 추가</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<p><em>prime-agent-py 0.1.0 · 원본 Prime Agent v0.8.0 및 그 기반 <a href="https://github.com/earendil-works/pi"><code>pi</code></a> 의 설계를 따랐다 · MIT</em></p>
+      <footer class="docfoot">
+        <p>prime-agent-py 0.1.0 · 소스를 고칠 때는 §5(원본에서 옮긴 규칙)를 먼저 읽고 §13(확장 포인트)에서 시작할 것.</p>
+      </footer>
+    </article>
+  </div>
+</div>
+
+<button class="totop" id="totop" aria-label="맨 위로">↑</button>
+<script>(function () {
+  "use strict";
+
+  /* ---------------------------------------------- copy buttons */
+  document.querySelectorAll(".doc .hl, .doc > pre").forEach(function (block) {
+    var btn = document.createElement("button");
+    btn.className = "cpy";
+    btn.type = "button";
+    btn.textContent = "복사";
+    btn.addEventListener("click", function () {
+      var code = block.querySelector("code");
+      var text = code ? code.innerText : block.innerText;
+      navigator.clipboard.writeText(text).then(
+        function () {
+          btn.textContent = "복사됨";
+          btn.classList.add("ok");
+          setTimeout(function () {
+            btn.textContent = "복사";
+            btn.classList.remove("ok");
+          }, 1400);
+        },
+        function () {
+          btn.textContent = "실패";
+          setTimeout(function () { btn.textContent = "복사"; }, 1400);
+        }
+      );
+    });
+    block.appendChild(btn);
+  });
+
+  /* ---------------------------------------------- scroll spy */
+  var links = Array.prototype.slice.call(document.querySelectorAll(".n2"));
+  var crumb = document.getElementById("crumb");
+  var byId = {};
+  links.forEach(function (a) { byId[a.getAttribute("href").slice(1)] = a; });
+
+  var targets = links
+    .map(function (a) { return document.getElementById(a.getAttribute("href").slice(1)); })
+    .filter(Boolean);
+
+  var current = null;
+  function setActive(id) {
+    if (id === current) return;
+    current = id;
+    links.forEach(function (a) { a.classList.remove("on"); });
+    var a = byId[id];
+    if (!a) return;
+    a.classList.add("on");
+    if (crumb) crumb.textContent = a.dataset.t || a.textContent.trim();
+    var nav = document.getElementById("nav");
+    var top = a.offsetTop - nav.clientHeight / 2;
+    if (Math.abs(nav.scrollTop - top) > nav.clientHeight / 2) {
+      nav.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    }
+  }
+
+  function onScroll() {
+    var best = null;
+    for (var i = 0; i < targets.length; i++) {
+      var r = targets[i].getBoundingClientRect();
+      if (r.top <= 120) best = targets[i];
+      else break;
+    }
+    if (best) setActive(best.id);
+    else if (targets[0]) setActive(targets[0].id);
+
+    var doc = document.documentElement;
+    var max = doc.scrollHeight - doc.clientHeight;
+    var bar = document.getElementById("prog");
+    if (bar) bar.style.width = (max > 0 ? (doc.scrollTop / max) * 100 : 0) + "%";
+
+    var t = document.getElementById("totop");
+    if (t) t.classList.toggle("on", doc.scrollTop > 700);
+  }
+
+  var ticking = false;
+  window.addEventListener(
+    "scroll",
+    function () {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(function () { onScroll(); ticking = false; });
+    },
+    { passive: true }
+  );
+  onScroll();
+
+  /* ---------------------------------------------- section filter */
+  var find = document.getElementById("find");
+  if (find) {
+    find.addEventListener("input", function () {
+      var q = find.value.trim().toLowerCase();
+      var groups = Array.prototype.slice.call(document.querySelectorAll(".np, .n2"));
+      var visibleInGroup = 0;
+      var lastGroup = null;
+      groups.forEach(function (el) {
+        if (el.classList.contains("np")) {
+          if (lastGroup) lastGroup.classList.toggle("hide", visibleInGroup === 0);
+          lastGroup = el;
+          visibleInGroup = 0;
+          el.classList.remove("hide");
+          return;
+        }
+        var hit = !q || el.textContent.toLowerCase().indexOf(q) !== -1;
+        el.classList.toggle("hide", !hit);
+        if (hit) visibleInGroup++;
+      });
+      if (lastGroup) lastGroup.classList.toggle("hide", visibleInGroup === 0);
+    });
+  }
+
+  /* ---------------------------------------------- mobile drawer */
+  var side = document.getElementById("side");
+  var mbtn = document.getElementById("mbtn");
+  if (mbtn && side) {
+    mbtn.addEventListener("click", function () { side.classList.toggle("open"); });
+    side.addEventListener("click", function (e) {
+      if (e.target.closest(".n2")) side.classList.remove("open");
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") side.classList.remove("open");
+    });
+  }
+
+  /* ---------------------------------------------- to top */
+  var totop = document.getElementById("totop");
+  if (totop) {
+    totop.addEventListener("click", function () {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  }
+})();
+</script>
+</body>
+</html>
