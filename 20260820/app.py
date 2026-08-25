@@ -21,6 +21,7 @@ import os
 import re
 import sqlite3
 import sys
+import uuid
 from datetime import datetime, date, timedelta
 
 from flask import Flask, g, jsonify, request, send_file, Response
@@ -32,9 +33,15 @@ HOST = os.environ.get("REQLOG_HOST", "0.0.0.0")
 PORT = int(os.environ.get("REQLOG_PORT", "10500"))
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("REQLOG_DB", os.path.join(BASE_DIR, "reqlog.db"))
+UPLOAD_DIR = os.environ.get("REQLOG_UPLOAD", os.path.join(BASE_DIR, "uploads"))
 
 CATEGORIES = ["요청", "제안", "확인", "이슈"]
 STATUSES = ["대기", "검토중", "적용완료", "보류", "반려"]
+
+# 사진만 허용 (엑셀에는 이미지가 아니라 파일명만 들어간다)
+ALLOWED_EXT = {"png", "jpg", "jpeg", "gif", "bmp", "webp"}
+MIME_BY_EXT = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+               "gif": "image/gif", "bmp": "image/bmp", "webp": "image/webp"}
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024  # 업로드 32MB 제한
@@ -82,6 +89,20 @@ CREATE TABLE IF NOT EXISTS history (
     ts        TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS attachments (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id     INTEGER NOT NULL,
+    response_id INTEGER,                    -- NULL 이면 요청에 직접 붙은 사진
+    filename    TEXT NOT NULL,              -- 사용자가 올린 원래 이름
+    stored      TEXT NOT NULL,              -- 실제 저장 파일명
+    thumb       TEXT,                       -- 썸네일 파일명 (없으면 원본 사용)
+    mime        TEXT NOT NULL DEFAULT 'image/png',
+    size        INTEGER NOT NULL DEFAULT 0,
+    uploader    TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_att_item ON attachments(item_id);
 CREATE INDEX IF NOT EXISTS idx_resp_item ON responses(item_id);
 CREATE INDEX IF NOT EXISTS idx_hist_item ON history(item_id, id);
 """
@@ -107,6 +128,8 @@ def init_db():
     con.executescript(SCHEMA)
     con.commit()
     con.close()
+    if not os.path.isdir(UPLOAD_DIR):
+        os.makedirs(UPLOAD_DIR)
 
 
 def now_str():
@@ -240,9 +263,29 @@ def fetch_items(db, args):
     bucket = {i: [] for i in ids}
     for r in rows:
         bucket[r["item_id"]].append(dict(r))
+
+    # 첨부(사진) — 요청 직속 / 응답 소속 분리
+    atts = db.execute(
+        "SELECT id,item_id,response_id,filename,mime,size,uploader,created_at,"
+        "(thumb IS NOT NULL) AS has_thumb FROM attachments WHERE item_id IN (%s)"
+        " ORDER BY id ASC" % ",".join("?" * len(ids)), ids).fetchall()
+    item_att = {i: [] for i in ids}
+    resp_att = {}
+    for a in atts:
+        d = dict(a)
+        if d["response_id"]:
+            resp_att.setdefault(d["response_id"], []).append(d)
+        else:
+            item_att[d["item_id"]].append(d)
+
     for it in items:
         it["responses"] = bucket.get(it["id"], [])
+        for rp in it["responses"]:
+            rp["attachments"] = resp_att.get(rp["id"], [])
+        it["attachments"] = item_att.get(it["id"], [])
         it["tags"] = [t.strip() for t in it["target"].split(",") if t.strip()]
+        it["att_total"] = len(it["attachments"]) + sum(
+            len(r["attachments"]) for r in it["responses"])
     return items
 
 
@@ -344,10 +387,26 @@ def api_item_delete(iid):
         return jsonify({"ok": False, "error": "not found"}), 404
     log_history(db, iid, "item", iid, "delete", None, row["content"][:200], None,
                 actor_of(request))
+    purge_files(db, "SELECT stored,thumb FROM attachments WHERE item_id=?", (iid,))
+    db.execute("DELETE FROM attachments WHERE item_id=?", (iid,))
     db.execute("DELETE FROM responses WHERE item_id=?", (iid,))
     db.execute("DELETE FROM items WHERE id=?", (iid,))
     db.commit()
     return jsonify({"ok": True})
+
+
+def purge_files(db, sql, params):
+    """삭제되는 레코드에 딸린 실제 이미지 파일을 지운다."""
+    for r in db.execute(sql, params).fetchall():
+        for f in (r["stored"], r["thumb"]):
+            if not f:
+                continue
+            p = os.path.join(UPLOAD_DIR, os.path.basename(f))
+            if os.path.isfile(p):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
 
 
 @app.route("/api/items/<int:iid>/responses", methods=["POST"])
@@ -379,6 +438,9 @@ def api_resp_edit(rid):
     if request.method == "DELETE":
         log_history(db, old["item_id"], "response", rid, "delete", "응답",
                     old["content"][:200], None, actor)
+        purge_files(db, "SELECT stored,thumb FROM attachments WHERE response_id=?",
+                    (rid,))
+        db.execute("DELETE FROM attachments WHERE response_id=?", (rid,))
         db.execute("DELETE FROM responses WHERE id=?", (rid,))
         db.commit()
         return jsonify({"ok": True})
@@ -403,6 +465,110 @@ def api_resp_edit(rid):
     return jsonify({"ok": True, "changed": changed})
 
 
+# ----------------------------------------------------------------------------
+# 첨부(사진)
+#   - 이미지 파일만 받는다. 엑셀에는 이미지가 아니라 '파일명/장수'만 나간다.
+#   - 원본과 함께 브라우저에서 만든 썸네일을 같이 받아 목록을 가볍게 유지한다.
+# ----------------------------------------------------------------------------
+def ext_of(name):
+    return (name.rsplit(".", 1)[-1].lower() if "." in (name or "") else "")
+
+
+def save_blob(fs, ext):
+    stored = "%s.%s" % (uuid.uuid4().hex, ext)
+    path = os.path.join(UPLOAD_DIR, stored)
+    fs.save(path)
+    return stored, os.path.getsize(path)
+
+
+@app.route("/api/items/<int:iid>/attachments", methods=["POST"])
+def api_att_upload(iid):
+    db = get_db()
+    if db.execute("SELECT 1 FROM items WHERE id=?", (iid,)).fetchone() is None:
+        return jsonify({"ok": False, "error": "요청을 찾을 수 없다"}), 404
+    if "file" not in request.files:
+        return jsonify({"ok": False, "error": "파일이 없다"}), 400
+    fs = request.files["file"]
+    ext = ext_of(fs.filename)
+    if ext not in ALLOWED_EXT:
+        return jsonify({"ok": False,
+                        "error": "사진 파일만 등록된다 (%s)"
+                                 % ", ".join(sorted(ALLOWED_EXT))}), 400
+
+    rid = request.form.get("response_id") or None
+    if rid:
+        try:
+            rid = int(rid)
+        except ValueError:
+            rid = None
+        if rid and db.execute("SELECT 1 FROM responses WHERE id=? AND item_id=?",
+                              (rid, iid)).fetchone() is None:
+            return jsonify({"ok": False, "error": "응답을 찾을 수 없다"}), 404
+
+    if not os.path.isdir(UPLOAD_DIR):
+        os.makedirs(UPLOAD_DIR)
+    stored, size = save_blob(fs, ext)
+
+    thumb = None
+    if "thumb" in request.files:
+        try:
+            thumb, _ = save_blob(request.files["thumb"], "jpg")
+        except Exception:  # noqa: BLE001  썸네일 실패해도 원본은 살린다
+            thumb = None
+
+    actor = actor_of(request)
+    cur = db.execute(
+        "INSERT INTO attachments(item_id,response_id,filename,stored,thumb,mime,size,"
+        "uploader,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+        (iid, rid, os.path.basename(fs.filename)[:180], stored, thumb,
+         MIME_BY_EXT.get(ext, "application/octet-stream"), size, actor, now_str()))
+    log_history(db, iid, "attachment", cur.lastrowid, "create", "사진", None,
+                os.path.basename(fs.filename)[:180], actor)
+    db.execute("UPDATE items SET updated_at=? WHERE id=?", (now_str(), iid))
+    db.commit()
+    return jsonify({"ok": True, "id": cur.lastrowid, "size": size})
+
+
+@app.route("/api/attachments/<int:aid>")
+@app.route("/api/attachments/<int:aid>/<mode>")
+def api_att_get(aid, mode=None):
+    row = get_db().execute("SELECT * FROM attachments WHERE id=?", (aid,)).fetchone()
+    if row is None:
+        return jsonify({"ok": False, "error": "not found"}), 404
+    use_thumb = (mode == "thumb") and row["thumb"]
+    fname = row["thumb"] if use_thumb else row["stored"]
+    path = os.path.join(UPLOAD_DIR, os.path.basename(fname))
+    if not os.path.isfile(path):
+        return jsonify({"ok": False, "error": "파일이 없다"}), 404
+    resp = send_file(path, mimetype="image/jpeg" if use_thumb else row["mime"],
+                     download_name=row["filename"])
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["Cache-Control"] = "private, max-age=86400"
+    return resp
+
+
+@app.route("/api/attachments/<int:aid>", methods=["DELETE"])
+def api_att_delete(aid):
+    db = get_db()
+    row = db.execute("SELECT * FROM attachments WHERE id=?", (aid,)).fetchone()
+    if row is None:
+        return jsonify({"ok": False, "error": "not found"}), 404
+    for f in (row["stored"], row["thumb"]):
+        if not f:
+            continue
+        p = os.path.join(UPLOAD_DIR, os.path.basename(f))
+        if os.path.isfile(p):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+    log_history(db, row["item_id"], "attachment", aid, "delete", "사진",
+                row["filename"], None, actor_of(request))
+    db.execute("DELETE FROM attachments WHERE id=?", (aid,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
 @app.route("/api/items/<int:iid>/history")
 def api_history(iid):
     rows = get_db().execute(
@@ -415,7 +581,16 @@ def api_history(iid):
 # 엑셀 내보내기
 # ----------------------------------------------------------------------------
 EXPORT_HEADERS = ["No.", "해당", "작성자/응답자", "작성날짜", "내용",
-                  "대상(시스템/FAB)", "적용여부", "적용날짜"]
+                  "대상(시스템/FAB)", "첨부(사진)", "적용여부", "적용날짜"]
+
+
+def att_label(atts):
+    """엑셀에는 사진 자체가 아니라 '장수 + 파일명'만 찍는다.
+    표만 봐도 뭐가 등록돼 있는지 알 수 있게 하는 용도."""
+    if not atts:
+        return ""
+    names = [a["filename"] for a in atts]
+    return "%d장: %s" % (len(names), ", ".join(names))
 
 
 @app.route("/api/export.xlsx")
@@ -445,39 +620,41 @@ def api_export():
 
     for it in items:
         ws.append([it["seq"], it["category"], it["requester"], it["request_date"],
-                   it["content"], it["target"], it["status"], it["applied_date"] or ""])
+                   it["content"], it["target"], att_label(it["attachments"]),
+                   it["status"], it["applied_date"] or ""])
         r = ws.max_row
         for c in ws[r]:
             c.fill, c.border, c.alignment = req_fill, border, wrap
         ws.cell(row=r, column=1).alignment = center
         ws.cell(row=r, column=2).alignment = center
-        ws.cell(row=r, column=7).alignment = center
+        ws.cell(row=r, column=8).alignment = center
         for rp in it["responses"]:
             ws.append(["", "확인", rp["responder"], rp["response_date"],
-                       rp["content"], "", "", ""])
+                       rp["content"], "", att_label(rp["attachments"]), "", ""])
             rr = ws.max_row
             for c in ws[rr]:
                 c.border, c.alignment = border, wrap
             ws.cell(row=rr, column=2).alignment = center
 
-    widths = [6, 8, 16, 13, 70, 22, 11, 13]
+    widths = [6, 8, 16, 13, 62, 20, 30, 11, 13]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = "A1:H%d" % max(ws.max_row, 1)
+    ws.auto_filter.ref = "A1:I%d" % max(ws.max_row, 1)
 
     # 요약 시트
     ws2 = wb.create_sheet("요약")
     ws2.append(["No.", "구분", "요청자", "요청일", "내용", "대상", "상태",
-                "적용일", "응답수", "최근응답"])
+                "적용일", "응답수", "사진수", "최근응답"])
     for c in ws2[1]:
         c.fill, c.font, c.alignment, c.border = head_fill, head_font, center, border
     for it in items:
         last = it["responses"][-1]["content"] if it["responses"] else ""
         ws2.append([it["seq"], it["category"], it["requester"], it["request_date"],
                     it["content"], it["target"], it["status"],
-                    it["applied_date"] or "", len(it["responses"]), last])
-    for i, w in enumerate([6, 8, 14, 13, 50, 20, 10, 13, 8, 50], start=1):
+                    it["applied_date"] or "", len(it["responses"]),
+                    it["att_total"], last])
+    for i, w in enumerate([6, 8, 14, 13, 50, 20, 10, 13, 8, 8, 50], start=1):
         ws2.column_dimensions[get_column_letter(i)].width = w
     for row in ws2.iter_rows(min_row=2):
         for c in row:
@@ -499,6 +676,43 @@ def api_export():
 #   No.가 있으면 새 요청, 비어있고 '확인/응답'이면 직전 요청의 응답으로 붙인다.
 # ----------------------------------------------------------------------------
 RESP_KINDS = {"확인", "응답", "답변", "회신", "코멘트", "댓글"}
+
+# 헤더 이름 → 내부 필드. 기존 표와 이 시스템이 뽑은 엑셀 둘 다 받는다.
+HEADER_MAP = [
+    ("no", ("no", "no.", "번호")),
+    ("kind", ("해당", "구분")),
+    ("who", ("작성자", "응답자", "요청자", "작성자/응답자")),
+    ("date", ("작성날짜", "요청일", "작성일", "날짜")),
+    ("content", ("내용",)),
+    ("target", ("대상",)),
+    ("attach", ("첨부", "사진")),
+    ("applied", ("적용여부", "상태")),
+    ("applied_date", ("적용날짜", "적용일")),
+]
+LEGACY_COLS = ["no", "kind", "who", "date", "content", "applied", "applied_date"]
+
+
+def build_colmap(rows):
+    """헤더 행을 찾아 컬럼 위치를 잡는다. 못 찾으면 기존 표 순서로 간주."""
+    for row in rows[:6]:
+        cells = [clean(c) for c in row]
+        joined = " ".join(cells)
+        if "내용" not in joined:
+            continue
+        cmap = {}
+        for idx, cell_txt in enumerate(cells):
+            low = cell_txt.replace(" ", "").lower()
+            if not low:
+                continue
+            for field, keys in HEADER_MAP:
+                if field in cmap:
+                    continue
+                if any(k in low for k in keys):
+                    cmap[field] = idx
+                    break
+        if "content" in cmap:
+            return cmap, rows.index(row)
+    return {f: i for i, f in enumerate(LEGACY_COLS)}, -1
 
 
 def read_rows(fs):
@@ -536,16 +750,24 @@ def api_import():
     except Exception as e:  # noqa: BLE001
         return jsonify({"ok": False, "error": "파일 파싱 실패: %s" % e}), 400
 
+    cmap, head_at = build_colmap(rows)
     n_item = n_resp = 0
     last_id = None
     seq = next_seq(db)
-    for row in rows:
-        vals = [clean(cell(row, i)) for i in range(8)]
-        if not any(vals):
+    for ridx, row in enumerate(rows):
+        if ridx <= head_at:
             continue
-        no, kind, who, d1, content, applied, applied_d = (
-            vals[0], vals[1], vals[2], vals[3], vals[4], vals[5], vals[6])
-        if no.lower().startswith("no") or content in ("내용",):
+        if not any(clean(c) for c in row):
+            continue
+
+        def col(field):
+            i = cmap.get(field)
+            return clean(cell(row, i)) if i is not None else ""
+
+        no, kind, who = col("no"), col("kind"), col("who")
+        d1, content = col("date"), col("content")
+        target, applied, applied_d = col("target"), col("applied"), col("applied_date")
+        if no.lower().startswith("no") or content == "내용":
             continue  # 헤더 행
         is_resp = (not no) and (kind in RESP_KINDS or bool(who))
         the_date = norm_date(d1) or norm_date(applied) or norm_date(applied_d)
@@ -565,7 +787,7 @@ def api_import():
         cur = db.execute(
             "INSERT INTO items(seq,category,requester,request_date,content,target,"
             "status,applied_date,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
-            (seq, cat, who, the_date, content, "", st,
+            (seq, cat, who, the_date, content, norm_tags(target), st,
              norm_date(applied_d) or norm_date(applied), now_str(), now_str()))
         last_id = cur.lastrowid
         log_history(db, last_id, "item", last_id, "import", None, None,
@@ -573,7 +795,10 @@ def api_import():
         seq += 1
         n_item += 1
     db.commit()
-    return jsonify({"ok": True, "items": n_item, "responses": n_resp})
+    note = ""
+    if "attach" in cmap:
+        note = "엑셀에는 사진 파일명만 들어있다. 사진 자체는 복원되지 않으니 웹에서 다시 등록해라."
+    return jsonify({"ok": True, "items": n_item, "responses": n_resp, "note": note})
 
 
 # ----------------------------------------------------------------------------
@@ -649,6 +874,25 @@ button.sm{padding:3px 8px;font-size:12px}
 .row input,.row select,.row textarea{font-family:inherit;font-size:13px;padding:5px 7px;
   border:1px solid var(--line);border-radius:4px;background:#fff}
 .row textarea{flex:1;min-width:260px;min-height:34px;resize:vertical}
+.atts{display:flex;gap:7px;flex-wrap:wrap;margin-top:7px}
+.thumb{position:relative;width:104px;height:78px;border:1px solid var(--line);
+  border-radius:4px;overflow:hidden;background:#eef1f6;cursor:zoom-in}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.thumb .x{position:absolute;top:2px;right:2px;background:rgba(20,26,38,.72);color:#fff;
+  border:0;border-radius:3px;padding:0 5px;font-size:12px;line-height:17px;cursor:pointer;
+  display:none}
+.thumb:hover .x{display:block}
+.thumb .fn{position:absolute;left:0;right:0;bottom:0;background:rgba(20,26,38,.62);
+  color:#fff;font-size:10.5px;padding:1px 4px;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.attbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:7px;
+  font-size:12px;color:var(--muted)}
+.drop{outline:2px dashed var(--accent2);outline-offset:-4px}
+.lightbox{position:fixed;inset:0;background:rgba(12,16,24,.88);z-index:80;display:flex;
+  flex-direction:column;align-items:center;justify-content:center;padding:20px}
+.lightbox img{max-width:96vw;max-height:86vh;object-fit:contain;
+  background:#fff;border-radius:4px}
+.lightbox .cap{color:#e6ebf5;font-size:12.5px;margin-top:9px}
 .hist{margin-top:10px;border-top:1px dashed var(--line);padding-top:8px;
   font-size:12px;color:var(--muted)}
 .hist div{padding:1px 0}
@@ -754,16 +998,25 @@ function card(it){
        '<div class="ctext">'+esc(it.content)+'</div>'+
        '<div class="meta">'+esc(it.requester||'-')+' · '+esc(it.request_date||'-')+
          ' · 응답 '+it.responses.length+'건'+
+         (it.att_total?' · 사진 '+it.att_total+'장':'')+
          (it.applied_date?' · 적용 '+esc(it.applied_date):'')+'</div>'+
      '</div></div>';
   if(op){
-    s+='<div class="body">';
+    s+='<div class="body" id="body'+it.id+'" ondragover="dragOn(event,this)"'+
+       ' ondragleave="dragOff(this)" ondrop="dropFiles(event,this,'+it.id+',0)">';
+    s+=attBlock(it.attachments);
+    s+='<div class="attbar">'+
+       '<button class="sm" onclick="pick('+it.id+',0)">사진 추가</button>'+
+       '<span>이 영역에 캡처 <b>Ctrl+V</b> 하거나 파일을 끌어다 놓아도 등록된다. '+
+       '(엑셀에는 파일명만 나간다)</span></div>';
     s+=it.responses.map(function(r){
       return '<div class="resp"><div class="who">'+esc(r.responder||'-')+
         ' <span style="color:var(--muted);font-weight:400">'+esc(r.response_date||'')+
         '</span></div><div class="rtext">'+esc(r.content)+'</div>'+
+        attBlock(r.attachments)+
         '<div style="margin-top:3px"><button class="sm" onclick="editResp('+r.id+
-        ')">수정</button> <button class="sm d" onclick="delResp('+r.id+
+        ')">수정</button> <button class="sm" onclick="pick('+it.id+','+r.id+
+        ')">사진 추가</button> <button class="sm d" onclick="delResp('+r.id+
         ')">삭제</button></div></div>'}).join('');
     s+='<div class="row"><textarea id="rc'+it.id+'" placeholder="응답 / 확인 내용 입력"></textarea>'+
        '<input type="date" id="rd'+it.id+'" value="'+today()+'">'+
@@ -781,6 +1034,90 @@ function card(it){
     s+='<div class="hist" id="h'+it.id+'" style="display:none"></div>';
     s+='</div>'}
   return s+'</div>'}
+
+/* ---------- 첨부(사진) ---------- */
+function attBlock(list){
+  if(!list||!list.length)return '';
+  return '<div class="atts">'+list.map(function(a){
+    var src='/api/attachments/'+a.id+(a.has_thumb?'/thumb':'');
+    return '<div class="thumb" onclick="viewAtt('+a.id+',this)">'+
+      '<img src="'+src+'" alt="'+esc(a.filename)+'" loading="lazy">'+
+      '<button class="x" title="삭제" onclick="event.stopPropagation();delAtt('+a.id+')">x</button>'+
+      '<div class="fn" title="'+esc(a.filename)+'">'+esc(a.filename)+'</div></div>'
+  }).join('')+'</div>'}
+
+function viewAtt(id,el){
+  var name=el.querySelector('.fn').textContent;
+  var d=document.createElement('div');d.className='lightbox';
+  d.innerHTML='<img src="/api/attachments/'+id+'" alt=""><div class="cap">'+esc(name)+
+    ' — 클릭하면 닫는다</div>';
+  d.onclick=function(){d.remove()};document.body.appendChild(d)}
+
+function delAtt(id){if(!confirm('이 사진 삭제할까?'))return;
+  api('/api/attachments/'+id,{method:'DELETE'}).then(function(){toast('사진 삭제');
+    return load()})}
+
+function makeThumb(file){return new Promise(function(res){
+  var url=URL.createObjectURL(file),img=new Image();
+  img.onload=function(){
+    var mx=360,s=Math.min(1,mx/Math.max(img.width,img.height));
+    var c=document.createElement('canvas');
+    c.width=Math.max(1,Math.round(img.width*s));c.height=Math.max(1,Math.round(img.height*s));
+    c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+    URL.revokeObjectURL(url);
+    if(c.toBlob){c.toBlob(function(b){res(b)},'image/jpeg',0.8)}else{res(null)}};
+  img.onerror=function(){URL.revokeObjectURL(url);res(null)};
+  img.src=url})}
+
+function upOne(itemId,respId,file,name){
+  return makeThumb(file).then(function(tb){
+    var fd=new FormData();
+    fd.append('file',file,name||file.name||'capture.png');
+    if(tb)fd.append('thumb',tb,'t.jpg');
+    if(respId)fd.append('response_id',respId);
+    return fetch('/api/items/'+itemId+'/attachments',
+      {method:'POST',body:fd,headers:{'X-Actor':encodeHeader(actor())}})
+      .then(function(r){return r.json()})})}
+
+function upload(itemId,respId,files){
+  if(!files||!files.length)return;
+  if(!actor()){toast('상단에 작성자 이름부터 입력해라');return}
+  var arr=[],i;
+  for(i=0;i<files.length;i++)arr.push(files[i]);
+  toast('사진 '+arr.length+'장 올리는 중...');
+  var chain=Promise.resolve(),bad=0;
+  arr.forEach(function(f){chain=chain.then(function(){
+    return upOne(itemId,respId,f).then(function(d){if(!d||!d.ok)bad++})})});
+  chain.then(function(){
+    toast(bad?('일부 실패 '+bad+'장 (사진 파일만 된다)'):'사진 등록 완료');
+    return load()})}
+
+function pick(itemId,respId){
+  var el=document.createElement('input');el.type='file';el.accept='image/*';el.multiple=true;
+  el.onchange=function(){upload(itemId,respId,el.files)};el.click()}
+
+function dragOn(e,el){e.preventDefault();el.classList.add('drop')}
+function dragOff(el){el.classList.remove('drop')}
+function dropFiles(e,el,itemId,respId){e.preventDefault();el.classList.remove('drop');
+  upload(itemId,respId,e.dataTransfer.files)}
+
+/* 캡처 붙여넣기: 펼쳐진 카드가 하나일 때 그 카드에 붙는다 */
+document.addEventListener('paste',function(e){
+  var ids=Object.keys(OPEN).filter(function(k){return OPEN[k]});
+  if(ids.length!==1)return;
+  var items=(e.clipboardData||{}).items||[],fs=[],i;
+  for(i=0;i<items.length;i++){
+    if(items[i].type&&items[i].type.indexOf('image')===0){
+      var f=items[i].getAsFile();if(f)fs.push(f)}}
+  if(!fs.length)return;
+  e.preventDefault();
+  var stamp=new Date().toISOString().slice(0,19).replace(/[:T]/g,'');
+  if(!actor()){toast('상단에 작성자 이름부터 입력해라');return}
+  toast('붙여넣은 캡처 등록 중...');
+  var chain=Promise.resolve();
+  fs.forEach(function(f,n){chain=chain.then(function(){
+    return upOne(ids[0],0,f,'capture_'+stamp+(n?'_'+n:'')+'.png')})});
+  chain.then(function(){toast('캡처 등록 완료');return load()})});
 
 function today(){var d=new Date();return d.getFullYear()+'-'+
   ('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2)}
@@ -864,12 +1201,17 @@ function doImport(el){
      el.value='';
      if(!d.ok){toast('실패: '+d.error);return}
      toast('가져오기 완료 — 요청 '+d.items+'건 / 응답 '+d.responses+'건');
+     if(d.note)setTimeout(function(){toast(d.note)},2300);
      return Promise.all([meta(),load()])})}
 
 $('actor').value=localStorage.getItem('reqlog_actor')||'';
 $('actor').addEventListener('change',function(){
   localStorage.setItem('reqlog_actor',$('actor').value.trim())});
-document.addEventListener('keydown',function(e){if(e.key==='Escape')closeM()});
+document.addEventListener('keydown',function(e){
+  if(e.key!=='Escape')return;
+  var lb=document.querySelector('.lightbox');
+  if(lb){lb.remove();return}
+  closeM()});
 meta().then(load);
 </script>
 </body>
