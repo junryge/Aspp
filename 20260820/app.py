@@ -38,13 +38,39 @@ UPLOAD_DIR = os.environ.get("REQLOG_UPLOAD", os.path.join(BASE_DIR, "uploads"))
 CATEGORIES = ["요청", "제안", "확인", "이슈"]
 STATUSES = ["대기", "검토중", "적용완료", "보류", "반려"]
 
-# 사진만 허용 (엑셀에는 이미지가 아니라 파일명만 들어간다)
-ALLOWED_EXT = {"png", "jpg", "jpeg", "gif", "bmp", "webp"}
-MIME_BY_EXT = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
-               "gif": "image/gif", "bmp": "image/bmp", "webp": "image/webp"}
+# 첨부 — 사진은 썸네일로 보이고, 문서는 파일칩으로 보인다.
+# 어느 쪽이든 엑셀에는 파일 자체가 아니라 '건수 + 파일명'만 들어간다.
+ALLOWED_IMG = {"png", "jpg", "jpeg", "gif", "bmp", "webp"}
+ALLOWED_DOC = {
+    "xlsx", "xls", "xlsm", "xlsb", "csv", "tsv",           # 엑셀/표
+    "doc", "docx", "ppt", "pptx", "pdf",                    # 문서
+    "hwp", "hwpx",                                          # 한글
+    "txt", "log", "md", "json", "xml", "yaml", "yml", "sql", "ini", "conf",
+    "zip", "7z", "tar", "gz", "tgz",                        # 압축
+    "eml", "msg",                                           # 메일
+}
+ALLOWED_EXT = ALLOWED_IMG | ALLOWED_DOC
+
+# 실행 가능한 확장자는 받지 않는다 (사내 배포물에 악성파일 얹히는 경로 차단)
+BLOCKED_EXT = {"exe", "bat", "cmd", "com", "scr", "msi", "dll", "sh", "ps1",
+               "vbs", "js", "jse", "wsf", "hta", "cpl", "reg", "jar", "lnk",
+               "svg", "html", "htm"}
+
+MIME_BY_EXT = {
+    "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+    "gif": "image/gif", "bmp": "image/bmp", "webp": "image/webp",
+    "pdf": "application/pdf",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "csv": "text/csv", "txt": "text/plain", "log": "text/plain",
+    "zip": "application/zip",
+}
+
+MAX_MB = int(os.environ.get("REQLOG_MAXMB", "32"))
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024  # 업로드 32MB 제한
+app.config["MAX_CONTENT_LENGTH"] = MAX_MB * 1024 * 1024  # 파일당 업로드 상한
 
 
 # ----------------------------------------------------------------------------
@@ -273,6 +299,7 @@ def fetch_items(db, args):
     resp_att = {}
     for a in atts:
         d = dict(a)
+        d["is_image"] = ext_of(d["filename"]) in ALLOWED_IMG
         if d["response_id"]:
             resp_att.setdefault(d["response_id"], []).append(d)
         else:
@@ -490,10 +517,13 @@ def api_att_upload(iid):
         return jsonify({"ok": False, "error": "파일이 없다"}), 400
     fs = request.files["file"]
     ext = ext_of(fs.filename)
+    if ext in BLOCKED_EXT:
+        return jsonify({"ok": False,
+                        "error": "실행/스크립트 파일(.%s)은 등록할 수 없다" % ext}), 400
     if ext not in ALLOWED_EXT:
         return jsonify({"ok": False,
-                        "error": "사진 파일만 등록된다 (%s)"
-                                 % ", ".join(sorted(ALLOWED_EXT))}), 400
+                        "error": "허용되지 않는 형식(.%s)이다. 사진 또는 문서/압축 파일만 된다"
+                                 % (ext or "확장자없음")}), 400
 
     rid = request.form.get("response_id") or None
     if rid:
@@ -540,8 +570,14 @@ def api_att_get(aid, mode=None):
     path = os.path.join(UPLOAD_DIR, os.path.basename(fname))
     if not os.path.isfile(path):
         return jsonify({"ok": False, "error": "파일이 없다"}), 404
-    resp = send_file(path, mimetype="image/jpeg" if use_thumb else row["mime"],
-                     download_name=row["filename"])
+
+    is_img = ext_of(row["filename"]) in ALLOWED_IMG
+    # 사진만 브라우저에서 바로 열고, 그 외 문서는 무조건 다운로드시킨다.
+    resp = send_file(path,
+                     mimetype="image/jpeg" if use_thumb else (
+                         row["mime"] if is_img else "application/octet-stream"),
+                     download_name=row["filename"],
+                     as_attachment=(not is_img))
     resp.headers["X-Content-Type-Options"] = "nosniff"
     resp.headers["Cache-Control"] = "private, max-age=86400"
     return resp
@@ -581,16 +617,16 @@ def api_history(iid):
 # 엑셀 내보내기
 # ----------------------------------------------------------------------------
 EXPORT_HEADERS = ["No.", "해당", "작성자/응답자", "작성날짜", "내용",
-                  "대상(시스템/FAB)", "첨부(사진)", "적용여부", "적용날짜"]
+                  "대상(시스템/FAB)", "첨부파일", "적용여부", "적용날짜"]
 
 
 def att_label(atts):
-    """엑셀에는 사진 자체가 아니라 '장수 + 파일명'만 찍는다.
-    표만 봐도 뭐가 등록돼 있는지 알 수 있게 하는 용도."""
+    """엑셀에는 파일 자체가 아니라 '건수 + 파일명'만 찍는다.
+    표만 받아본 사람도 뭐가 등록돼 있는지는 알 수 있게 하는 용도."""
     if not atts:
         return ""
     names = [a["filename"] for a in atts]
-    return "%d장: %s" % (len(names), ", ".join(names))
+    return "%d건: %s" % (len(names), ", ".join(names))
 
 
 @app.route("/api/export.xlsx")
@@ -645,7 +681,7 @@ def api_export():
     # 요약 시트
     ws2 = wb.create_sheet("요약")
     ws2.append(["No.", "구분", "요청자", "요청일", "내용", "대상", "상태",
-                "적용일", "응답수", "사진수", "최근응답"])
+                "적용일", "응답수", "첨부수", "최근응답"])
     for c in ws2[1]:
         c.fill, c.font, c.alignment, c.border = head_fill, head_font, center, border
     for it in items:
@@ -685,7 +721,7 @@ HEADER_MAP = [
     ("date", ("작성날짜", "요청일", "작성일", "날짜")),
     ("content", ("내용",)),
     ("target", ("대상",)),
-    ("attach", ("첨부", "사진")),
+    ("attach", ("첨부", "사진", "첨부파일")),
     ("applied", ("적용여부", "상태")),
     ("applied_date", ("적용날짜", "적용일")),
 ]
@@ -797,7 +833,7 @@ def api_import():
     db.commit()
     note = ""
     if "attach" in cmap:
-        note = "엑셀에는 사진 파일명만 들어있다. 사진 자체는 복원되지 않으니 웹에서 다시 등록해라."
+        note = "엑셀에는 첨부 파일명만 들어있다. 파일 자체는 복원되지 않으니 웹에서 다시 등록해라."
     return jsonify({"ok": True, "items": n_item, "responses": n_resp, "note": note})
 
 
@@ -885,6 +921,18 @@ button.sm{padding:3px 8px;font-size:12px}
 .thumb .fn{position:absolute;left:0;right:0;bottom:0;background:rgba(20,26,38,.62);
   color:#fff;font-size:10.5px;padding:1px 4px;white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis}
+.files{display:flex;flex-direction:column;gap:4px;margin-top:7px}
+.file{display:flex;align-items:center;gap:8px;border:1px solid var(--line);
+  border-radius:4px;padding:4px 8px;background:#fff;max-width:560px}
+.file .ic{font-size:10.5px;font-weight:700;color:#fff;background:#5a6577;border-radius:3px;
+  padding:1px 5px;min-width:42px;text-align:center;letter-spacing:.2px}
+.file .ic.xls{background:#1e7a45}.file .ic.doc{background:#2f6fd0}
+.file .ic.ppt{background:#c0562b}.file .ic.pdf{background:#b03a2e}
+.file .ic.hwp{background:#1f6f9e}.file .ic.zip{background:#7a6a3a}
+.file a{color:var(--accent2);text-decoration:none;flex:1;min-width:0;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.file a:hover{text-decoration:underline}
+.file .sz{color:var(--muted);font-size:11.5px;white-space:nowrap}
 .attbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:7px;
   font-size:12px;color:var(--muted)}
 .drop{outline:2px dashed var(--accent2);outline-offset:-4px}
@@ -998,7 +1046,7 @@ function card(it){
        '<div class="ctext">'+esc(it.content)+'</div>'+
        '<div class="meta">'+esc(it.requester||'-')+' · '+esc(it.request_date||'-')+
          ' · 응답 '+it.responses.length+'건'+
-         (it.att_total?' · 사진 '+it.att_total+'장':'')+
+         (it.att_total?' · 첨부 '+it.att_total+'건':'')+
          (it.applied_date?' · 적용 '+esc(it.applied_date):'')+'</div>'+
      '</div></div>';
   if(op){
@@ -1006,9 +1054,9 @@ function card(it){
        ' ondragleave="dragOff(this)" ondrop="dropFiles(event,this,'+it.id+',0)">';
     s+=attBlock(it.attachments);
     s+='<div class="attbar">'+
-       '<button class="sm" onclick="pick('+it.id+',0)">사진 추가</button>'+
-       '<span>이 영역에 캡처 <b>Ctrl+V</b> 하거나 파일을 끌어다 놓아도 등록된다. '+
-       '(엑셀에는 파일명만 나간다)</span></div>';
+       '<button class="sm" onclick="pick('+it.id+',0)">파일 추가</button>'+
+       '<span>사진·엑셀·PDF·한글 등. 이 영역에 <b>끌어다 놓거나</b> 캡처를 '+
+       '<b>Ctrl+V</b> 해도 등록된다. (엑셀 다운로드에는 파일명만 나간다)</span></div>';
     s+=it.responses.map(function(r){
       return '<div class="resp"><div class="who">'+esc(r.responder||'-')+
         ' <span style="color:var(--muted);font-weight:400">'+esc(r.response_date||'')+
@@ -1016,7 +1064,7 @@ function card(it){
         attBlock(r.attachments)+
         '<div style="margin-top:3px"><button class="sm" onclick="editResp('+r.id+
         ')">수정</button> <button class="sm" onclick="pick('+it.id+','+r.id+
-        ')">사진 추가</button> <button class="sm d" onclick="delResp('+r.id+
+        ')">파일 추가</button> <button class="sm d" onclick="delResp('+r.id+
         ')">삭제</button></div></div>'}).join('');
     s+='<div class="row"><textarea id="rc'+it.id+'" placeholder="응답 / 확인 내용 입력"></textarea>'+
        '<input type="date" id="rd'+it.id+'" value="'+today()+'">'+
@@ -1035,16 +1083,45 @@ function card(it){
     s+='</div>'}
   return s+'</div>'}
 
-/* ---------- 첨부(사진) ---------- */
+/* ---------- 첨부 (사진 = 썸네일 / 문서 = 파일칩) ---------- */
+function fsize(n){
+  if(n<1024)return n+'B';
+  if(n<1024*1024)return (n/1024).toFixed(0)+'KB';
+  return (n/1024/1024).toFixed(1)+'MB'}
+function fext(name){var i=(name||'').lastIndexOf('.');
+  return i<0?'FILE':name.slice(i+1).toUpperCase()}
+function icls(e){e=e.toLowerCase();
+  if(e.indexOf('xls')===0||e==='csv'||e==='tsv')return 'xls';
+  if(e.indexOf('doc')===0)return 'doc';
+  if(e.indexOf('ppt')===0)return 'ppt';
+  if(e==='pdf')return 'pdf';
+  if(e.indexOf('hwp')===0)return 'hwp';
+  if(['zip','7z','tar','gz','tgz'].indexOf(e)>=0)return 'zip';
+  return ''}
+
 function attBlock(list){
   if(!list||!list.length)return '';
-  return '<div class="atts">'+list.map(function(a){
-    var src='/api/attachments/'+a.id+(a.has_thumb?'/thumb':'');
-    return '<div class="thumb" onclick="viewAtt('+a.id+',this)">'+
-      '<img src="'+src+'" alt="'+esc(a.filename)+'" loading="lazy">'+
-      '<button class="x" title="삭제" onclick="event.stopPropagation();delAtt('+a.id+')">x</button>'+
-      '<div class="fn" title="'+esc(a.filename)+'">'+esc(a.filename)+'</div></div>'
-  }).join('')+'</div>'}
+  var imgs=list.filter(function(a){return a.is_image});
+  var docs=list.filter(function(a){return !a.is_image});
+  var s='';
+  if(imgs.length){
+    s+='<div class="atts">'+imgs.map(function(a){
+      var src='/api/attachments/'+a.id+(a.has_thumb?'/thumb':'');
+      return '<div class="thumb" onclick="viewAtt('+a.id+',this)">'+
+        '<img src="'+src+'" alt="'+esc(a.filename)+'" loading="lazy">'+
+        '<button class="x" title="삭제" onclick="event.stopPropagation();delAtt('+a.id+')">x</button>'+
+        '<div class="fn" title="'+esc(a.filename)+'">'+esc(a.filename)+'</div></div>'
+    }).join('')+'</div>'}
+  if(docs.length){
+    s+='<div class="files">'+docs.map(function(a){
+      var e=fext(a.filename);
+      return '<div class="file"><span class="ic '+icls(e)+'">'+esc(e.slice(0,4))+'</span>'+
+        '<a href="/api/attachments/'+a.id+'" title="'+esc(a.filename)+
+        '" download>'+esc(a.filename)+'</a>'+
+        '<span class="sz">'+fsize(a.size)+'</span>'+
+        '<button class="sm d" onclick="delAtt('+a.id+')">삭제</button></div>'
+    }).join('')+'</div>'}
+  return s}
 
 function viewAtt(id,el){
   var name=el.querySelector('.fn').textContent;
@@ -1053,11 +1130,13 @@ function viewAtt(id,el){
     ' — 클릭하면 닫는다</div>';
   d.onclick=function(){d.remove()};document.body.appendChild(d)}
 
-function delAtt(id){if(!confirm('이 사진 삭제할까?'))return;
-  api('/api/attachments/'+id,{method:'DELETE'}).then(function(){toast('사진 삭제');
+function delAtt(id){if(!confirm('이 첨부 삭제할까?'))return;
+  api('/api/attachments/'+id,{method:'DELETE'}).then(function(){toast('첨부 삭제');
     return load()})}
 
+/* 썸네일은 사진일 때만 만든다 (문서는 그대로 올린다) */
 function makeThumb(file){return new Promise(function(res){
+  if(!file.type||file.type.indexOf('image/')!==0){res(null);return}
   var url=URL.createObjectURL(file),img=new Image();
   img.onload=function(){
     var mx=360,s=Math.min(1,mx/Math.max(img.width,img.height));
@@ -1084,16 +1163,18 @@ function upload(itemId,respId,files){
   if(!actor()){toast('상단에 작성자 이름부터 입력해라');return}
   var arr=[],i;
   for(i=0;i<files.length;i++)arr.push(files[i]);
-  toast('사진 '+arr.length+'장 올리는 중...');
-  var chain=Promise.resolve(),bad=0;
+  toast('첨부 '+arr.length+'개 올리는 중...');
+  var chain=Promise.resolve(),bad=[];
   arr.forEach(function(f){chain=chain.then(function(){
-    return upOne(itemId,respId,f).then(function(d){if(!d||!d.ok)bad++})})});
+    return upOne(itemId,respId,f).then(function(d){
+      if(!d||!d.ok)bad.push((f.name||'?')+' — '+((d&&d.error)||'실패'))})})});
   chain.then(function(){
-    toast(bad?('일부 실패 '+bad+'장 (사진 파일만 된다)'):'사진 등록 완료');
+    if(bad.length)alert('아래 파일은 등록 안 됐다:\n\n'+bad.join('\n'));
+    else toast('첨부 등록 완료');
     return load()})}
 
 function pick(itemId,respId){
-  var el=document.createElement('input');el.type='file';el.accept='image/*';el.multiple=true;
+  var el=document.createElement('input');el.type='file';el.multiple=true;
   el.onchange=function(){upload(itemId,respId,el.files)};el.click()}
 
 function dragOn(e,el){e.preventDefault();el.classList.add('drop')}
