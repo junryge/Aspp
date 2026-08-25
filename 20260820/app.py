@@ -1,0 +1,888 @@
+# -*- coding: utf-8 -*-
+"""
+요청/응답 관리 시스템 (FAB 개선요청 이력 관리)
+--------------------------------------------------
+- 단일 파일 Flask 앱 (폐쇄망 / pip-only 전제, Docker·Node 불필요)
+- DB: SQLite 파일 하나 (reqlog.db)
+- 외부 CDN 리소스 전혀 사용 안 함 (HTML/CSS/JS 내장)
+
+실행:
+    pip install flask openpyxl
+    python app.py
+    -> http://<서버IP>:10500
+
+의존성: flask, openpyxl  (그 외 표준 라이브러리만 사용)
+"""
+
+import csv
+import io
+import json
+import os
+import re
+import sqlite3
+import sys
+from datetime import datetime, date, timedelta
+
+from flask import Flask, g, jsonify, request, send_file, Response
+
+# ----------------------------------------------------------------------------
+# 설정
+# ----------------------------------------------------------------------------
+HOST = os.environ.get("REQLOG_HOST", "0.0.0.0")
+PORT = int(os.environ.get("REQLOG_PORT", "10500"))
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.environ.get("REQLOG_DB", os.path.join(BASE_DIR, "reqlog.db"))
+
+CATEGORIES = ["요청", "제안", "확인", "이슈"]
+STATUSES = ["대기", "검토중", "적용완료", "보류", "반려"]
+
+app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024  # 업로드 32MB 제한
+
+
+# ----------------------------------------------------------------------------
+# DB
+# ----------------------------------------------------------------------------
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS items (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    seq          INTEGER,                    -- 화면에 보이는 No.
+    category     TEXT NOT NULL DEFAULT '요청',
+    requester    TEXT NOT NULL DEFAULT '',
+    request_date TEXT,                       -- YYYY-MM-DD
+    content      TEXT NOT NULL DEFAULT '',
+    target       TEXT NOT NULL DEFAULT '',   -- 대상 시스템/FAB 태그 (콤마 구분)
+    status       TEXT NOT NULL DEFAULT '대기',
+    applied_date TEXT,
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS responses (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id       INTEGER NOT NULL,
+    responder     TEXT NOT NULL DEFAULT '',
+    response_date TEXT,
+    content       TEXT NOT NULL DEFAULT '',
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL,
+    FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS history (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id   INTEGER,
+    target_kind TEXT NOT NULL,   -- item | response
+    target_id INTEGER,
+    action    TEXT NOT NULL,     -- create | update | delete | import
+    field     TEXT,
+    old_value TEXT,
+    new_value TEXT,
+    actor     TEXT NOT NULL DEFAULT '',
+    ts        TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_resp_item ON responses(item_id);
+CREATE INDEX IF NOT EXISTS idx_hist_item ON history(item_id, id);
+"""
+
+
+def get_db():
+    if "db" not in g:
+        g.db = sqlite3.connect(DB_PATH)
+        g.db.row_factory = sqlite3.Row
+        g.db.execute("PRAGMA foreign_keys = ON")
+    return g.db
+
+
+@app.teardown_appcontext
+def close_db(exc):
+    db = g.pop("db", None)
+    if db is not None:
+        db.close()
+
+
+def init_db():
+    con = sqlite3.connect(DB_PATH)
+    con.executescript(SCHEMA)
+    con.commit()
+    con.close()
+
+
+def now_str():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def actor_of(req):
+    """작성자 이름은 헤더(X-Actor)로 받는다. 폐쇄망 내부용이라 별도 인증 없음."""
+    name = req.headers.get("X-Actor", "") or ""
+    try:
+        name = name.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        pass
+    return name.strip()[:50]
+
+
+def log_history(db, item_id, kind, target_id, action, field, old, new, actor):
+    db.execute(
+        "INSERT INTO history(item_id,target_kind,target_id,action,field,old_value,new_value,actor,ts)"
+        " VALUES(?,?,?,?,?,?,?,?,?)",
+        (item_id, kind, target_id, action, field,
+         None if old is None else str(old), None if new is None else str(new),
+         actor, now_str()),
+    )
+
+
+# ----------------------------------------------------------------------------
+# 날짜 정규화 (엑셀 시리얼 / 2026.08.25 / 2026-08-25 / 20260825 전부 처리)
+# ----------------------------------------------------------------------------
+EXCEL_EPOCH = date(1899, 12, 30)
+
+
+def norm_date(v):
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v.strftime("%Y-%m-%d")
+    if isinstance(v, date):
+        return v.strftime("%Y-%m-%d")
+    s = str(v).strip()
+    if not s:
+        return None
+    # 엑셀 시리얼 날짜 (예: 46258 -> 2026-08-25)
+    if re.fullmatch(r"\d{5}(\.\d+)?", s):
+        try:
+            n = int(float(s))
+            if 20000 <= n <= 80000:
+                return (EXCEL_EPOCH + timedelta(days=n)).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    m = re.search(r"(\d{4})[.\-/년]\s*(\d{1,2})[.\-/월]\s*(\d{1,2})", s)
+    if m:
+        y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        try:
+            return date(y, mo, d).strftime("%Y-%m-%d")
+        except ValueError:
+            return None
+    if re.fullmatch(r"\d{8}", s):
+        try:
+            return datetime.strptime(s, "%Y%m%d").strftime("%Y-%m-%d")
+        except ValueError:
+            return None
+    return None
+
+
+def clean(v):
+    if v is None:
+        return ""
+    return str(v).strip()
+
+
+def norm_tags(v):
+    parts = [p.strip() for p in re.split(r"[,;/|]", clean(v)) if p.strip()]
+    seen, out = set(), []
+    for p in parts:
+        if p.upper() not in seen:
+            seen.add(p.upper())
+            out.append(p)
+    return ", ".join(out)
+
+
+def next_seq(db):
+    row = db.execute("SELECT COALESCE(MAX(seq),0) AS m FROM items").fetchone()
+    return int(row["m"]) + 1
+
+
+# ----------------------------------------------------------------------------
+# 조회
+# ----------------------------------------------------------------------------
+def fetch_items(db, args):
+    where, params = [], []
+    q = clean(args.get("q"))
+    if q:
+        where.append("(i.content LIKE ? OR i.requester LIKE ? OR i.target LIKE ? OR"
+                     " EXISTS(SELECT 1 FROM responses r WHERE r.item_id=i.id AND"
+                     " (r.content LIKE ? OR r.responder LIKE ?)))")
+        like = "%" + q + "%"
+        params += [like] * 5
+    for col, key in (("category", "category"), ("status", "status")):
+        vals = [v for v in args.getlist(key) if clean(v)]
+        if vals:
+            where.append("i.%s IN (%s)" % (col, ",".join("?" * len(vals))))
+            params += vals
+    tag = clean(args.get("target"))
+    if tag:
+        where.append("i.target LIKE ?")
+        params.append("%" + tag + "%")
+    requester = clean(args.get("requester"))
+    if requester:
+        where.append("i.requester LIKE ?")
+        params.append("%" + requester + "%")
+    d_from, d_to = norm_date(args.get("from")), norm_date(args.get("to"))
+    if d_from:
+        where.append("IFNULL(i.request_date,'') >= ?")
+        params.append(d_from)
+    if d_to:
+        where.append("IFNULL(i.request_date,'9999-12-31') <= ?")
+        params.append(d_to)
+
+    sql = "SELECT i.* FROM items i"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY i.seq DESC, i.id DESC"
+    items = [dict(r) for r in db.execute(sql, params).fetchall()]
+    if not items:
+        return []
+    ids = [it["id"] for it in items]
+    rows = db.execute(
+        "SELECT * FROM responses WHERE item_id IN (%s) ORDER BY id ASC"
+        % ",".join("?" * len(ids)), ids).fetchall()
+    bucket = {i: [] for i in ids}
+    for r in rows:
+        bucket[r["item_id"]].append(dict(r))
+    for it in items:
+        it["responses"] = bucket.get(it["id"], [])
+        it["tags"] = [t.strip() for t in it["target"].split(",") if t.strip()]
+    return items
+
+
+# ----------------------------------------------------------------------------
+# API
+# ----------------------------------------------------------------------------
+@app.route("/api/meta")
+def api_meta():
+    db = get_db()
+    tags = set()
+    for r in db.execute("SELECT target FROM items WHERE target<>''"):
+        for t in r["target"].split(","):
+            if t.strip():
+                tags.add(t.strip())
+    people = set()
+    for r in db.execute("SELECT requester AS n FROM items WHERE requester<>''"):
+        people.add(r["n"])
+    for r in db.execute("SELECT responder AS n FROM responses WHERE responder<>''"):
+        people.add(r["n"])
+    counts = {row["status"]: row["c"] for row in
+              db.execute("SELECT status, COUNT(*) c FROM items GROUP BY status")}
+    total = db.execute("SELECT COUNT(*) c FROM items").fetchone()["c"]
+    return jsonify({"categories": CATEGORIES, "statuses": STATUSES,
+                    "tags": sorted(tags), "people": sorted(people),
+                    "counts": counts, "total": total})
+
+
+@app.route("/api/items")
+def api_items():
+    return jsonify({"items": fetch_items(get_db(), request.args)})
+
+
+@app.route("/api/items", methods=["POST"])
+def api_item_create():
+    db, d = get_db(), request.get_json(force=True, silent=True) or {}
+    actor = actor_of(request) or clean(d.get("requester"))
+    seq = next_seq(db)
+    cur = db.execute(
+        "INSERT INTO items(seq,category,requester,request_date,content,target,status,"
+        "applied_date,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+        (seq,
+         clean(d.get("category")) or "요청",
+         clean(d.get("requester")),
+         norm_date(d.get("request_date")) or date.today().strftime("%Y-%m-%d"),
+         clean(d.get("content")),
+         norm_tags(d.get("target")),
+         clean(d.get("status")) or "대기",
+         norm_date(d.get("applied_date")),
+         now_str(), now_str()))
+    iid = cur.lastrowid
+    log_history(db, iid, "item", iid, "create", None, None,
+                clean(d.get("content"))[:200], actor)
+    db.commit()
+    return jsonify({"ok": True, "id": iid, "seq": seq})
+
+
+ITEM_FIELDS = {"category": "구분", "requester": "요청자", "request_date": "요청일",
+               "content": "내용", "target": "대상", "status": "상태",
+               "applied_date": "적용일"}
+
+
+@app.route("/api/items/<int:iid>", methods=["PUT"])
+def api_item_update(iid):
+    db, d = get_db(), request.get_json(force=True, silent=True) or {}
+    actor = actor_of(request)
+    old = db.execute("SELECT * FROM items WHERE id=?", (iid,)).fetchone()
+    if old is None:
+        return jsonify({"ok": False, "error": "not found"}), 404
+    sets, params = [], []
+    for f in ITEM_FIELDS:
+        if f not in d:
+            continue
+        if f in ("request_date", "applied_date"):
+            nv = norm_date(d[f])
+        elif f == "target":
+            nv = norm_tags(d[f])
+        else:
+            nv = clean(d[f])
+        ov = old[f]
+        if (ov or "") != (nv or ""):
+            sets.append("%s=?" % f)
+            params.append(nv)
+            log_history(db, iid, "item", iid, "update", ITEM_FIELDS[f], ov, nv, actor)
+    changed = len(sets)
+    if sets:
+        sets.append("updated_at=?")
+        params.append(now_str())
+        params.append(iid)
+        db.execute("UPDATE items SET %s WHERE id=?" % ",".join(sets), params)
+        db.commit()
+    return jsonify({"ok": True, "changed": changed})
+
+
+@app.route("/api/items/<int:iid>", methods=["DELETE"])
+def api_item_delete(iid):
+    db = get_db()
+    row = db.execute("SELECT * FROM items WHERE id=?", (iid,)).fetchone()
+    if row is None:
+        return jsonify({"ok": False, "error": "not found"}), 404
+    log_history(db, iid, "item", iid, "delete", None, row["content"][:200], None,
+                actor_of(request))
+    db.execute("DELETE FROM responses WHERE item_id=?", (iid,))
+    db.execute("DELETE FROM items WHERE id=?", (iid,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/items/<int:iid>/responses", methods=["POST"])
+def api_resp_create(iid):
+    db, d = get_db(), request.get_json(force=True, silent=True) or {}
+    if db.execute("SELECT 1 FROM items WHERE id=?", (iid,)).fetchone() is None:
+        return jsonify({"ok": False, "error": "not found"}), 404
+    actor = actor_of(request) or clean(d.get("responder"))
+    cur = db.execute(
+        "INSERT INTO responses(item_id,responder,response_date,content,created_at,updated_at)"
+        " VALUES(?,?,?,?,?,?)",
+        (iid, clean(d.get("responder")) or actor,
+         norm_date(d.get("response_date")) or date.today().strftime("%Y-%m-%d"),
+         clean(d.get("content")), now_str(), now_str()))
+    log_history(db, iid, "response", cur.lastrowid, "create", "응답", None,
+                clean(d.get("content"))[:200], actor)
+    db.execute("UPDATE items SET updated_at=? WHERE id=?", (now_str(), iid))
+    db.commit()
+    return jsonify({"ok": True, "id": cur.lastrowid})
+
+
+@app.route("/api/responses/<int:rid>", methods=["PUT", "DELETE"])
+def api_resp_edit(rid):
+    db = get_db()
+    old = db.execute("SELECT * FROM responses WHERE id=?", (rid,)).fetchone()
+    if old is None:
+        return jsonify({"ok": False, "error": "not found"}), 404
+    actor = actor_of(request)
+    if request.method == "DELETE":
+        log_history(db, old["item_id"], "response", rid, "delete", "응답",
+                    old["content"][:200], None, actor)
+        db.execute("DELETE FROM responses WHERE id=?", (rid,))
+        db.commit()
+        return jsonify({"ok": True})
+    d = request.get_json(force=True, silent=True) or {}
+    labels = {"responder": "응답자", "response_date": "응답일", "content": "응답내용"}
+    sets, params = [], []
+    for f, label in labels.items():
+        if f not in d:
+            continue
+        nv = norm_date(d[f]) if f == "response_date" else clean(d[f])
+        if (old[f] or "") != (nv or ""):
+            sets.append("%s=?" % f)
+            params.append(nv)
+            log_history(db, old["item_id"], "response", rid, "update", label,
+                        old[f], nv, actor)
+    changed = len(sets)
+    if sets:
+        sets.append("updated_at=?")
+        params += [now_str(), rid]
+        db.execute("UPDATE responses SET %s WHERE id=?" % ",".join(sets), params)
+        db.commit()
+    return jsonify({"ok": True, "changed": changed})
+
+
+@app.route("/api/items/<int:iid>/history")
+def api_history(iid):
+    rows = get_db().execute(
+        "SELECT * FROM history WHERE item_id=? ORDER BY id DESC LIMIT 300", (iid,)
+    ).fetchall()
+    return jsonify({"history": [dict(r) for r in rows]})
+
+
+# ----------------------------------------------------------------------------
+# 엑셀 내보내기
+# ----------------------------------------------------------------------------
+EXPORT_HEADERS = ["No.", "해당", "작성자/응답자", "작성날짜", "내용",
+                  "대상(시스템/FAB)", "적용여부", "적용날짜"]
+
+
+@app.route("/api/export.xlsx")
+def api_export():
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    items = fetch_items(get_db(), request.args)
+    items = sorted(items, key=lambda x: (x["seq"] or 0, x["id"]))
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "요청이력"
+
+    head_fill = PatternFill("solid", fgColor="1F3864")
+    head_font = Font(color="FFFFFF", bold=True, size=10)
+    req_fill = PatternFill("solid", fgColor="EDF2FA")
+    thin = Side(style="thin", color="BFBFBF")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    wrap = Alignment(wrap_text=True, vertical="top")
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    ws.append(EXPORT_HEADERS)
+    for c in ws[1]:
+        c.fill, c.font, c.alignment, c.border = head_fill, head_font, center, border
+
+    for it in items:
+        ws.append([it["seq"], it["category"], it["requester"], it["request_date"],
+                   it["content"], it["target"], it["status"], it["applied_date"] or ""])
+        r = ws.max_row
+        for c in ws[r]:
+            c.fill, c.border, c.alignment = req_fill, border, wrap
+        ws.cell(row=r, column=1).alignment = center
+        ws.cell(row=r, column=2).alignment = center
+        ws.cell(row=r, column=7).alignment = center
+        for rp in it["responses"]:
+            ws.append(["", "확인", rp["responder"], rp["response_date"],
+                       rp["content"], "", "", ""])
+            rr = ws.max_row
+            for c in ws[rr]:
+                c.border, c.alignment = border, wrap
+            ws.cell(row=rr, column=2).alignment = center
+
+    widths = [6, 8, 16, 13, 70, 22, 11, 13]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = "A1:H%d" % max(ws.max_row, 1)
+
+    # 요약 시트
+    ws2 = wb.create_sheet("요약")
+    ws2.append(["No.", "구분", "요청자", "요청일", "내용", "대상", "상태",
+                "적용일", "응답수", "최근응답"])
+    for c in ws2[1]:
+        c.fill, c.font, c.alignment, c.border = head_fill, head_font, center, border
+    for it in items:
+        last = it["responses"][-1]["content"] if it["responses"] else ""
+        ws2.append([it["seq"], it["category"], it["requester"], it["request_date"],
+                    it["content"], it["target"], it["status"],
+                    it["applied_date"] or "", len(it["responses"]), last])
+    for i, w in enumerate([6, 8, 14, 13, 50, 20, 10, 13, 8, 50], start=1):
+        ws2.column_dimensions[get_column_letter(i)].width = w
+    for row in ws2.iter_rows(min_row=2):
+        for c in row:
+            c.border, c.alignment = border, wrap
+    ws2.freeze_panes = "A2"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = "요청이력_%s.xlsx" % datetime.now().strftime("%Y%m%d_%H%M")
+    return send_file(buf, as_attachment=True, download_name=fname,
+                     mimetype="application/vnd.openxmlformats-officedocument."
+                              "spreadsheetml.sheet")
+
+
+# ----------------------------------------------------------------------------
+# 엑셀/CSV 가져오기
+#   기존 표 형식: No. | 해당 | 작성자/응답자 | 작성날짜 | 내용 | 적용여부 | 적용날짜
+#   No.가 있으면 새 요청, 비어있고 '확인/응답'이면 직전 요청의 응답으로 붙인다.
+# ----------------------------------------------------------------------------
+RESP_KINDS = {"확인", "응답", "답변", "회신", "코멘트", "댓글"}
+
+
+def read_rows(fs):
+    name = (fs.filename or "").lower()
+    raw = fs.read()
+    if name.endswith((".xlsx", ".xlsm")):
+        from openpyxl import load_workbook
+        wb = load_workbook(io.BytesIO(raw), data_only=True)
+        ws = wb.active
+        return [list(r) for r in ws.iter_rows(values_only=True)]
+    text = None
+    for enc in ("utf-8-sig", "cp949", "euc-kr", "utf-8"):
+        try:
+            text = raw.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    if text is None:
+        text = raw.decode("utf-8", errors="replace")
+    delim = "\t" if text.count("\t") > text.count(",") else ","
+    return [row for row in csv.reader(io.StringIO(text), delimiter=delim)]
+
+
+def cell(row, i):
+    return row[i] if i < len(row) and row[i] is not None else ""
+
+
+@app.route("/api/import", methods=["POST"])
+def api_import():
+    if "file" not in request.files:
+        return jsonify({"ok": False, "error": "파일이 없다"}), 400
+    db, actor = get_db(), actor_of(request)
+    try:
+        rows = read_rows(request.files["file"])
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"ok": False, "error": "파일 파싱 실패: %s" % e}), 400
+
+    n_item = n_resp = 0
+    last_id = None
+    seq = next_seq(db)
+    for row in rows:
+        vals = [clean(cell(row, i)) for i in range(8)]
+        if not any(vals):
+            continue
+        no, kind, who, d1, content, applied, applied_d = (
+            vals[0], vals[1], vals[2], vals[3], vals[4], vals[5], vals[6])
+        if no.lower().startswith("no") or content in ("내용",):
+            continue  # 헤더 행
+        is_resp = (not no) and (kind in RESP_KINDS or bool(who))
+        the_date = norm_date(d1) or norm_date(applied) or norm_date(applied_d)
+        if is_resp and last_id:
+            db.execute(
+                "INSERT INTO responses(item_id,responder,response_date,content,"
+                "created_at,updated_at) VALUES(?,?,?,?,?,?)",
+                (last_id, who, the_date, content, now_str(), now_str()))
+            n_resp += 1
+            continue
+        if not (content or who):
+            continue
+        cat = kind if kind in CATEGORIES else "요청"
+        st = "적용완료" if (applied and applied not in STATUSES and
+                        norm_date(applied)) else (
+            applied if applied in STATUSES else "대기")
+        cur = db.execute(
+            "INSERT INTO items(seq,category,requester,request_date,content,target,"
+            "status,applied_date,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (seq, cat, who, the_date, content, "", st,
+             norm_date(applied_d) or norm_date(applied), now_str(), now_str()))
+        last_id = cur.lastrowid
+        log_history(db, last_id, "item", last_id, "import", None, None,
+                    content[:200], actor)
+        seq += 1
+        n_item += 1
+    db.commit()
+    return jsonify({"ok": True, "items": n_item, "responses": n_resp})
+
+
+# ----------------------------------------------------------------------------
+# 화면
+# ----------------------------------------------------------------------------
+@app.route("/")
+def index():
+    return Response(INDEX_HTML, mimetype="text/html; charset=utf-8")
+
+
+INDEX_HTML = r"""<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>요청/응답 관리</title>
+<style>
+*{box-sizing:border-box}
+:root{
+  --bg:#f4f6fa; --panel:#fff; --line:#dde3ec; --text:#1a2233; --muted:#6b7688;
+  --accent:#1f3864; --accent2:#2f6fd0; --warn:#c0392b; --ok:#1e8449;
+}
+body{margin:0;background:var(--bg);color:var(--text);
+  font-family:"Malgun Gothic","맑은 고딕",AppleSDGothicNeo-Regular,"Apple SD Gothic Neo",
+  "Noto Sans KR",Dotum,sans-serif;font-size:13.5px;line-height:1.55}
+header{background:var(--accent);color:#fff;padding:10px 16px;display:flex;
+  align-items:center;gap:12px;flex-wrap:wrap;position:sticky;top:0;z-index:20}
+header h1{font-size:16px;margin:0;font-weight:700;letter-spacing:-.3px}
+header .sp{flex:1}
+header input{border:0;border-radius:4px;padding:5px 8px;font-size:13px;width:130px}
+button{font-family:inherit;font-size:13px;border:1px solid var(--line);
+  background:#fff;color:var(--text);border-radius:4px;padding:5px 11px;cursor:pointer}
+button:hover{background:#eef2f8}
+button.p{background:var(--accent2);border-color:var(--accent2);color:#fff}
+button.p:hover{filter:brightness(1.08)}
+button.d{color:var(--warn);border-color:#eccfcb}
+button.sm{padding:3px 8px;font-size:12px}
+.wrap{max-width:1240px;margin:0 auto;padding:14px 16px 60px}
+.bar{background:var(--panel);border:1px solid var(--line);border-radius:6px;
+  padding:10px 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.bar input,.bar select{font-family:inherit;font-size:13px;padding:5px 7px;
+  border:1px solid var(--line);border-radius:4px;background:#fff}
+.bar input[type=text]{min-width:190px}
+.stats{color:var(--muted);font-size:12.5px;margin:0 0 8px 2px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;
+  margin-bottom:10px;overflow:hidden}
+.card.on{border-color:var(--accent2);box-shadow:0 1px 6px rgba(47,111,208,.13)}
+.chead{display:flex;gap:10px;padding:11px 13px;cursor:pointer;align-items:flex-start}
+.chead:hover{background:#fafbfe}
+.no{font-weight:700;color:var(--muted);min-width:34px;font-size:13px;padding-top:1px}
+.main{flex:1;min-width:0}
+.titleline{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:3px}
+.ctext{white-space:pre-wrap;word-break:break-all}
+.meta{color:var(--muted);font-size:12px;margin-top:4px}
+.badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:11.5px;
+  border:1px solid var(--line);background:#f2f5fa;color:#42506b;white-space:nowrap}
+.b-요청{background:#e8f0fd;border-color:#c5d9f7;color:#1c4f9c}
+.b-제안{background:#eaf7ee;border-color:#c6e6d1;color:#1e7a45}
+.b-확인{background:#f3eefc;border-color:#ddd0f2;color:#5b3a9e}
+.b-이슈{background:#fdecea;border-color:#f5cbc6;color:#b03a2e}
+.s-대기{background:#f2f4f7;color:#5a6577}
+.s-검토중{background:#fff6e0;border-color:#f2dfae;color:#96690b}
+.s-적용완료{background:#e7f6ec;border-color:#bfe4cb;color:#166b38}
+.s-보류{background:#eef0f4;border-color:#d7dbe3;color:#5a6577}
+.s-반려{background:#fdecea;border-color:#f5cbc6;color:#b03a2e}
+.tag{background:#eef2f7;border:1px solid #dbe3ee;color:#3d4a5f;border-radius:3px;
+  padding:1px 6px;font-size:11.5px}
+.body{border-top:1px solid var(--line);padding:11px 13px;background:#fbfcfe}
+.resp{border-left:3px solid #cbd7ea;padding:6px 0 6px 10px;margin:8px 0}
+.resp .who{font-weight:600;font-size:12.5px}
+.resp .rtext{white-space:pre-wrap;word-break:break-all;margin-top:2px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+.row input,.row select,.row textarea{font-family:inherit;font-size:13px;padding:5px 7px;
+  border:1px solid var(--line);border-radius:4px;background:#fff}
+.row textarea{flex:1;min-width:260px;min-height:34px;resize:vertical}
+.hist{margin-top:10px;border-top:1px dashed var(--line);padding-top:8px;
+  font-size:12px;color:var(--muted)}
+.hist div{padding:1px 0}
+.modal{position:fixed;inset:0;background:rgba(20,26,38,.45);display:flex;
+  align-items:flex-start;justify-content:center;padding:40px 14px;z-index:50}
+.modal .box{background:#fff;border-radius:8px;width:min(680px,100%);padding:18px 20px;
+  max-height:86vh;overflow:auto}
+.modal h2{margin:0 0 12px;font-size:16px}
+.f{margin-bottom:10px}
+.f label{display:block;font-size:12.5px;color:var(--muted);margin-bottom:3px}
+.f input,.f select,.f textarea{width:100%;font-family:inherit;font-size:13.5px;
+  padding:7px 8px;border:1px solid var(--line);border-radius:4px;background:#fff}
+.f textarea{min-height:100px;resize:vertical}
+.g2{display:flex;gap:10px}.g2>*{flex:1}
+.empty{text-align:center;color:var(--muted);padding:44px 10px}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:24px;background:#1a2233;
+  color:#fff;padding:9px 16px;border-radius:5px;z-index:99;font-size:13px}
+</style>
+</head>
+<body>
+<header>
+  <h1>요청 / 응답 관리 시스템</h1>
+  <span class="sp"></span>
+  <label style="font-size:12.5px">작성자
+    <input id="actor" placeholder="이름 입력" title="기록에 남을 내 이름">
+  </label>
+  <button class="p" onclick="openItem()">+ 새 요청</button>
+  <button onclick="doExport()">엑셀 다운로드</button>
+  <button onclick="document.getElementById('fileup').click()">엑셀 업로드</button>
+  <input type="file" id="fileup" accept=".xlsx,.xlsm,.csv,.tsv" style="display:none"
+         onchange="doImport(this)">
+</header>
+
+<div class="wrap">
+  <div class="bar">
+    <input type="text" id="q" placeholder="내용·작성자·태그 검색" oninput="deb()">
+    <select id="fcat" onchange="load()"><option value="">구분 전체</option></select>
+    <select id="fst" onchange="load()"><option value="">상태 전체</option></select>
+    <select id="ftag" onchange="load()"><option value="">대상 전체</option></select>
+    <input type="date" id="fd1" onchange="load()" title="요청일 시작">
+    <span style="color:var(--muted)">~</span>
+    <input type="date" id="fd2" onchange="load()" title="요청일 종료">
+    <button class="sm" onclick="resetF()">초기화</button>
+  </div>
+  <div class="stats" id="stats"></div>
+  <div id="list"></div>
+</div>
+
+<div id="modal"></div>
+<script>
+var CATS=[],STS=[],TAGS=[],ITEMS=[],OPEN={};
+function $(id){return document.getElementById(id)}
+function esc(s){return (s==null?'':String(s)).replace(/[&<>"']/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function actor(){return $('actor').value.trim()}
+function toast(m){var d=document.createElement('div');d.className='toast';d.textContent=m;
+  document.body.appendChild(d);setTimeout(function(){d.remove()},2200)}
+function api(url,opt){opt=opt||{};opt.headers=opt.headers||{};
+  opt.headers['X-Actor']=encodeHeader(actor());
+  if(opt.body&&typeof opt.body!=='string'){opt.headers['Content-Type']='application/json';
+    opt.body=JSON.stringify(opt.body)}
+  return fetch(url,opt).then(function(r){return r.json()})}
+function encodeHeader(s){try{return unescape(encodeURIComponent(s))}catch(e){return ''}}
+function qs(){
+  var p=new URLSearchParams();
+  if($('q').value.trim())p.set('q',$('q').value.trim());
+  if($('fcat').value)p.set('category',$('fcat').value);
+  if($('fst').value)p.set('status',$('fst').value);
+  if($('ftag').value)p.set('target',$('ftag').value);
+  if($('fd1').value)p.set('from',$('fd1').value);
+  if($('fd2').value)p.set('to',$('fd2').value);
+  return p.toString()}
+var t=null;function deb(){clearTimeout(t);t=setTimeout(load,250)}
+function resetF(){$('q').value='';$('fcat').value='';$('fst').value='';$('ftag').value='';
+  $('fd1').value='';$('fd2').value='';load()}
+
+function meta(){return api('/api/meta').then(function(m){
+  CATS=m.categories;STS=m.statuses;TAGS=m.tags;
+  fill('fcat','구분 전체',CATS);fill('fst','상태 전체',STS);fill('ftag','대상 전체',TAGS);
+  var s=[];for(var i=0;i<STS.length;i++){var c=m.counts[STS[i]]||0;if(c)s.push(STS[i]+' '+c)}
+  $('stats').textContent='전체 '+m.total+'건'+(s.length?'  ·  '+s.join('  ·  '):'')})}
+function fill(id,all,arr){var el=$(id),cur=el.value;
+  el.innerHTML='<option value="">'+all+'</option>'+arr.map(function(v){
+    return '<option>'+esc(v)+'</option>'}).join('');el.value=cur}
+
+function load(){return api('/api/items?'+qs()).then(function(d){ITEMS=d.items;render()})}
+
+function render(){
+  var h=$('list');
+  if(!ITEMS.length){h.innerHTML='<div class="empty">기록이 없다. [+ 새 요청] 또는 [엑셀 업로드]로 시작해라.</div>';return}
+  h.innerHTML=ITEMS.map(card).join('')}
+
+function card(it){
+  var op=!!OPEN[it.id];
+  var tags=it.tags.map(function(t){return '<span class="tag">'+esc(t)+'</span>'}).join(' ');
+  var s='<div class="card'+(op?' on':'')+'" id="c'+it.id+'">'+
+   '<div class="chead" onclick="tog('+it.id+')">'+
+     '<div class="no">'+esc(it.seq)+'</div><div class="main">'+
+       '<div class="titleline">'+
+         '<span class="badge b-'+esc(it.category)+'">'+esc(it.category)+'</span>'+
+         '<span class="badge s-'+esc(it.status)+'">'+esc(it.status)+'</span>'+tags+
+       '</div>'+
+       '<div class="ctext">'+esc(it.content)+'</div>'+
+       '<div class="meta">'+esc(it.requester||'-')+' · '+esc(it.request_date||'-')+
+         ' · 응답 '+it.responses.length+'건'+
+         (it.applied_date?' · 적용 '+esc(it.applied_date):'')+'</div>'+
+     '</div></div>';
+  if(op){
+    s+='<div class="body">';
+    s+=it.responses.map(function(r){
+      return '<div class="resp"><div class="who">'+esc(r.responder||'-')+
+        ' <span style="color:var(--muted);font-weight:400">'+esc(r.response_date||'')+
+        '</span></div><div class="rtext">'+esc(r.content)+'</div>'+
+        '<div style="margin-top:3px"><button class="sm" onclick="editResp('+r.id+
+        ')">수정</button> <button class="sm d" onclick="delResp('+r.id+
+        ')">삭제</button></div></div>'}).join('');
+    s+='<div class="row"><textarea id="rc'+it.id+'" placeholder="응답 / 확인 내용 입력"></textarea>'+
+       '<input type="date" id="rd'+it.id+'" value="'+today()+'">'+
+       '<button class="p" onclick="addResp('+it.id+')">응답 등록</button></div>';
+    s+='<div class="row" style="border-top:1px solid var(--line);padding-top:9px">'+
+       '상태 <select onchange="quick('+it.id+',\'status\',this.value)">'+
+       STS.map(function(v){return '<option'+(v===it.status?' selected':'')+'>'+esc(v)+'</option>'}).join('')+
+       '</select>'+
+       '적용일 <input type="date" value="'+esc(it.applied_date||'')+
+       '" onchange="quick('+it.id+',\'applied_date\',this.value)">'+
+       '<span class="sp" style="flex:1"></span>'+
+       '<button class="sm" onclick="openItem('+it.id+')">수정</button>'+
+       '<button class="sm" onclick="showHist('+it.id+')">이력</button>'+
+       '<button class="sm d" onclick="delItem('+it.id+')">삭제</button></div>';
+    s+='<div class="hist" id="h'+it.id+'" style="display:none"></div>';
+    s+='</div>'}
+  return s+'</div>'}
+
+function today(){var d=new Date();return d.getFullYear()+'-'+
+  ('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2)}
+function tog(id){OPEN[id]=!OPEN[id];render()}
+
+function quick(id,f,v){var b={};b[f]=v;
+  api('/api/items/'+id,{method:'PUT',body:b}).then(function(){toast('저장했다');
+    return Promise.all([meta(),load()])})}
+function addResp(id){
+  var c=$('rc'+id).value.trim();if(!c){toast('내용을 입력해라');return}
+  if(!actor()){toast('상단에 작성자 이름부터 입력해라');return}
+  api('/api/items/'+id+'/responses',{method:'POST',
+    body:{responder:actor(),response_date:$('rd'+id).value,content:c}})
+   .then(function(){toast('응답 등록');return load()})}
+function editResp(rid){
+  var cur='';for(var i=0;i<ITEMS.length;i++)for(var j=0;j<ITEMS[i].responses.length;j++)
+    if(ITEMS[i].responses[j].id===rid)cur=ITEMS[i].responses[j].content;
+  var v=prompt('응답 내용 수정',cur);if(v===null)return;
+  api('/api/responses/'+rid,{method:'PUT',body:{content:v}}).then(function(){
+    toast('수정했다');return load()})}
+function delResp(rid){if(!confirm('이 응답 삭제할까?'))return;
+  api('/api/responses/'+rid,{method:'DELETE'}).then(function(){return load()})}
+function delItem(id){if(!confirm('요청 1건과 그 응답 전부 삭제된다. 진행할까?'))return;
+  api('/api/items/'+id,{method:'DELETE'}).then(function(){toast('삭제했다');
+    return Promise.all([meta(),load()])})}
+function showHist(id){
+  var el=$('h'+id);
+  if(el.style.display!=='none'){el.style.display='none';return}
+  el.style.display='block';el.innerHTML='불러오는 중...';
+  api('/api/items/'+id+'/history').then(function(d){
+    if(!d.history.length){el.innerHTML='이력 없음';return}
+    el.innerHTML='<b>수정 이력</b>'+d.history.map(function(h){
+      var txt=h.ts+' · '+(h.actor||'-')+' · '+h.action+
+        (h.field?' ['+esc(h.field)+']':'')+
+        (h.old_value?' : '+esc(h.old_value)+' → '+esc(h.new_value||''):
+         (h.new_value?' : '+esc(h.new_value):''));
+      return '<div>'+txt+'</div>'}).join('')})}
+
+function openItem(id){
+  var it=null;for(var i=0;i<ITEMS.length;i++)if(ITEMS[i].id===id)it=ITEMS[i];
+  var v=it||{category:'요청',requester:actor(),request_date:today(),content:'',
+             target:'',status:'대기',applied_date:''};
+  $('modal').innerHTML='<div class="modal" onclick="if(event.target===this)closeM()">'+
+   '<div class="box"><h2>'+(it?'요청 수정 (No.'+it.seq+')':'새 요청 등록')+'</h2>'+
+   '<div class="g2"><div class="f"><label>구분</label><select id="m_cat">'+
+     CATS.map(function(c){return '<option'+(c===v.category?' selected':'')+'>'+esc(c)+'</option>'}).join('')+
+   '</select></div><div class="f"><label>상태</label><select id="m_st">'+
+     STS.map(function(c){return '<option'+(c===v.status?' selected':'')+'>'+esc(c)+'</option>'}).join('')+
+   '</select></div></div>'+
+   '<div class="g2"><div class="f"><label>요청자</label>'+
+     '<input id="m_req" value="'+esc(v.requester)+'" placeholder="예: 김윤환TL님"></div>'+
+   '<div class="f"><label>요청일</label><input type="date" id="m_date" value="'+
+     esc(v.request_date||today())+'"></div></div>'+
+   '<div class="f"><label>대상 시스템 / FAB 태그 (콤마 구분)</label>'+
+     '<input id="m_tag" list="taglist" value="'+esc(v.target)+
+     '" placeholder="예: M16HUB, R-A룰, FAB위험도"></div>'+
+   '<datalist id="taglist">'+TAGS.map(function(t){return '<option value="'+esc(t)+'">'}).join('')+'</datalist>'+
+   '<div class="f"><label>내용</label><textarea id="m_ct">'+esc(v.content)+'</textarea></div>'+
+   '<div class="f" style="width:50%"><label>적용일</label><input type="date" id="m_ad" value="'+
+     esc(v.applied_date||'')+'"></div>'+
+   '<div style="text-align:right;margin-top:6px"><button onclick="closeM()">취소</button> '+
+   '<button class="p" onclick="saveItem('+(it?it.id:0)+')">저장</button></div>'+
+   '</div></div>'}
+function closeM(){$('modal').innerHTML=''}
+function saveItem(id){
+  var b={category:$('m_cat').value,status:$('m_st').value,requester:$('m_req').value,
+         request_date:$('m_date').value,target:$('m_tag').value,content:$('m_ct').value,
+         applied_date:$('m_ad').value};
+  if(!b.content.trim()){toast('내용을 입력해라');return}
+  var p=id?api('/api/items/'+id,{method:'PUT',body:b})
+          :api('/api/items',{method:'POST',body:b});
+  p.then(function(){closeM();toast('저장했다');return Promise.all([meta(),load()])})}
+
+function doExport(){window.location='/api/export.xlsx?'+qs()}
+function doImport(el){
+  if(!el.files.length)return;
+  if(!confirm('['+el.files[0].name+'] 를 가져온다.\n기존 데이터에 "추가"되고, 덮어쓰지 않는다.\n같은 파일을 두 번 올리면 중복 등록되니 주의해라.\n\n진행할까?')){el.value='';return}
+  var fd=new FormData();fd.append('file',el.files[0]);
+  fetch('/api/import',{method:'POST',body:fd,headers:{'X-Actor':encodeHeader(actor())}})
+   .then(function(r){return r.json()}).then(function(d){
+     el.value='';
+     if(!d.ok){toast('실패: '+d.error);return}
+     toast('가져오기 완료 — 요청 '+d.items+'건 / 응답 '+d.responses+'건');
+     return Promise.all([meta(),load()])})}
+
+$('actor').value=localStorage.getItem('reqlog_actor')||'';
+$('actor').addEventListener('change',function(){
+  localStorage.setItem('reqlog_actor',$('actor').value.trim())});
+document.addEventListener('keydown',function(e){if(e.key==='Escape')closeM()});
+meta().then(load);
+</script>
+</body>
+</html>
+"""
+
+
+if __name__ == "__main__":
+    init_db()
+    print("=" * 58)
+    print(" 요청/응답 관리 시스템")
+    print(" DB   : %s" % DB_PATH)
+    print(" URL  : http://%s:%d  (내부망 접속용)" % (HOST, PORT))
+    print("=" * 58)
+    sys.stdout.flush()
+    app.run(host=HOST, port=PORT, debug=False, threaded=True)
