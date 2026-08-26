@@ -1,0 +1,338 @@
+﻿<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>룰베이스 변경 내역 2026-08</title>
+<style>
+:root{
+  --paper:#F5F7FA; --surface:#FFFFFF; --surface2:#EDF1F6;
+  --ink:#10161F; --muted:#5A6675; --faint:#7C8899;
+  --line:#D5DCE5; --line2:#C2CCD8;
+  --accent:#1E5FA8; --accent-soft:#E4EDF8; --accent-line:#A9C6E6;
+  --g1:#B7791F; --g1bg:#FBF1DE; --g2:#C2410C; --g2bg:#FCEBE2; --g3:#A31621; --g3bg:#F9E4E6;
+  --ok:#1F6F4A; --okbg:#E2F1EA;
+  --del:#A31621; --delbg:#FBE9EB; --ins:#1F6F4A; --insbg:#E4F2EB;
+  --shadow:0 1px 2px rgba(16,22,31,.05), 0 4px 14px rgba(16,22,31,.05);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0E1319; --surface:#161D26; --surface2:#1C2530;
+    --ink:#E6EBF2; --muted:#94A3B4; --faint:#7A8798;
+    --line:#2A3441; --line2:#384554;
+    --accent:#6BA5E7; --accent-soft:#16273A; --accent-line:#2C4A6B;
+    --g1:#E0A94A; --g1bg:#2E2413; --g2:#F07A45; --g2bg:#331B11; --g3:#E8636F; --g3bg:#331419;
+    --ok:#5FBD8E; --okbg:#13291F;
+    --del:#E8636F; --delbg:#33141A; --ins:#5FBD8E; --insbg:#132A1E;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 4px 14px rgba(0,0,0,.25);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0E1319; --surface:#161D26; --surface2:#1C2530;
+  --ink:#E6EBF2; --muted:#94A3B4; --faint:#7A8798;
+  --line:#2A3441; --line2:#384554;
+  --accent:#6BA5E7; --accent-soft:#16273A; --accent-line:#2C4A6B;
+  --g1:#E0A94A; --g1bg:#2E2413; --g2:#F07A45; --g2bg:#331B11; --g3:#E8636F; --g3bg:#331419;
+  --ok:#5FBD8E; --okbg:#13291F;
+  --del:#E8636F; --delbg:#33141A; --ins:#5FBD8E; --insbg:#132A1E;
+  --shadow:0 1px 2px rgba(0,0,0,.3), 0 4px 14px rgba(0,0,0,.25);
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard",
+    "Malgun Gothic","맑은 고딕","Noto Sans KR",sans-serif;
+  font-size:15px; line-height:1.65; -webkit-font-smoothing:antialiased;
+}
+.mono,code,th.n,td.n{
+  font-family:ui-monospace,"SF Mono","Cascadia Mono","JetBrains Mono",Consolas,"D2Coding",monospace;
+  font-variant-numeric:tabular-nums;
+}
+.wrap{max-width:1020px; margin:0 auto; padding:0 24px 96px}
+
+header{border-bottom:1px solid var(--line); background:var(--surface); margin-bottom:40px}
+.hin{max-width:1020px; margin:0 auto; padding:44px 24px 36px}
+.eyebrow{font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--accent); font-weight:700; margin:0 0 14px}
+h1{font-size:clamp(26px,4vw,38px); line-height:1.15; margin:0 0 14px; letter-spacing:-.02em; text-wrap:balance}
+.lede{font-size:16.5px; color:var(--muted); margin:0; max-width:64ch}
+.chips{display:flex; gap:10px; flex-wrap:wrap; margin-top:22px}
+.chip{
+  padding:10px 16px; background:var(--accent-soft); border:1px solid var(--accent-line);
+  border-radius:6px; font-size:13.5px;
+}
+.chip b{color:var(--accent)}
+.chip .mono{font-size:12.5px}
+
+section{margin:0 0 56px; scroll-margin-top:20px}
+.sechead{display:flex; align-items:baseline; gap:12px; margin:0 0 6px; flex-wrap:wrap}
+.sechead .step{
+  font-size:11px; font-weight:700; letter-spacing:.14em; color:var(--accent);
+  border:1px solid var(--accent-line); background:var(--accent-soft);
+  padding:3px 9px; border-radius:3px; white-space:nowrap;
+}
+h2{font-size:22px; margin:0; letter-spacing:-.02em; text-wrap:balance}
+h2 code{font-size:19px}
+.subtitle{color:var(--muted); margin:8px 0 22px; max-width:72ch}
+.sub-h{font-size:15.5px; margin:30px 0 10px; letter-spacing:-.01em}
+
+.tw{overflow-x:auto; border:1px solid var(--line); border-radius:6px; background:var(--surface); box-shadow:var(--shadow)}
+table{border-collapse:collapse; width:100%; font-size:13.5px; min-width:640px}
+th,td{padding:10px 13px; text-align:left; border-bottom:1px solid var(--line); vertical-align:top}
+thead th{
+  background:var(--surface2); font-size:11px; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--muted); font-weight:700; white-space:nowrap; border-bottom:1px solid var(--line2);
+}
+tbody tr:last-child td{border-bottom:0}
+td.n,th.n{text-align:right; white-space:nowrap}
+.where{font-family:ui-monospace,"SF Mono",Consolas,monospace; font-size:12px; color:var(--muted); white-space:nowrap}
+.th{color:var(--faint); font-weight:400; font-size:11.5px}
+
+.pill{display:inline-block; padding:2px 10px; border-radius:3px; font-size:12px; font-weight:700; white-space:nowrap}
+.pdel{background:var(--delbg); color:var(--del); border:1px solid var(--del)}
+.pins{background:var(--insbg); color:var(--ins); border:1px solid var(--ins)}
+.pkeep{background:var(--surface2); color:var(--muted); border:1px solid var(--line2)}
+
+.diff{
+  background:var(--surface); border:1px solid var(--line); border-radius:6px;
+  box-shadow:var(--shadow); overflow-x:auto; margin:14px 0 6px;
+  font-family:ui-monospace,"SF Mono","Cascadia Mono",Consolas,"D2Coding",monospace;
+  font-size:12.5px; line-height:1.7;
+}
+.diff .fn{
+  padding:8px 16px; background:var(--surface2); border-bottom:1px solid var(--line);
+  color:var(--muted); font-size:11.5px; letter-spacing:.02em;
+}
+.diff pre{margin:0; padding:12px 0; white-space:pre}
+.diff .l{display:block; padding:0 16px; white-space:pre}
+.diff .d{background:var(--delbg); color:var(--del)}
+.diff .i{background:var(--insbg); color:var(--ins)}
+.diff .c{color:var(--faint)}
+
+.note{
+  border:1px solid var(--line); border-left:3px solid var(--accent);
+  background:var(--surface); padding:16px 20px; border-radius:0 6px 6px 0; margin:22px 0;
+}
+.note.warn{border-left-color:var(--g2)}
+.note.key{border-left-color:var(--g3)}
+.note.ok{border-left-color:var(--ok)}
+.note h4{margin:0 0 7px; font-size:14.5px}
+.note p{margin:0; color:var(--muted); font-size:14px}
+.note p+p{margin-top:9px}
+
+footer{border-top:1px solid var(--line); margin-top:20px; padding-top:22px; font-size:12.5px; color:var(--faint)}
+footer code{font-size:12px}
+</style>
+</head>
+<body>
+
+
+<header>
+  <div class="hin">
+    <p class="eyebrow">M16 ↔ M14 Bridge · 룰베이스 운영 배포</p>
+    <h1>2026-08 변경 내역 — 파일 3개</h1>
+    <p class="lede">
+      고객 요청 두 건(R-D 는 FABSTORAGERATIO 만 판정 · M16_PKT 전면 제외)과
+      사건 기준 상향(50 → 60)을 반영했습니다. 바뀐 파일은
+      <b>hubroom_predictor.py · thresholds.json · 발동이벤트_영역분리.py</b>
+      세 개뿐이고, 나머지(run_ml.py · 수집기 · ML 러너)는 손대지 않았습니다.
+    </p>
+    <div class="chips">
+      <div class="chip"><b>①</b> R-D 판정 = <span class="mono">FABSTORAGERATIO</span> 만<br><span class="th">STB 는 값만 기록, 판정 제외</span></div>
+      <div class="chip"><b>②</b> M16_PKT 전면 제거<br><span class="th">8영역 → 7영역 · 컬럼 135 → 134</span></div>
+      <div class="chip"><b>③</b> 사건 시작 기준 50 → <b>60</b><br><span class="th">경계 등급 하한과 일치</span></div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- 요약 -->
+  <section>
+    <div class="sechead"><span class="step">한눈에</span><h2>무엇이 어디서 바뀌었나</h2></div>
+    <div class="tw"><table>
+      <thead><tr><th>파일</th><th>변경</th><th>결과</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="where">hubroom_predictor.py</td>
+          <td>R-D 판정에서 STB 항 제거(값 기록은 유지) · M16_PKT 영역 코드 전부 삭제 · 사건 기준 60 상수화</td>
+          <td>판정 로직 변경 — 발동이벤트 <b>134컬럼</b> (M16_PKT_score 만 사라짐)</td>
+        </tr>
+        <tr>
+          <td class="where">thresholds.json</td>
+          <td><span class="mono">TH_RD_HUB_STB_UTIL</span> · <span class="mono">TH_RA.M16_PKT</span> 삭제 · <span class="mono">MIN_INCIDENT_SCORE: 60</span> 추가</td>
+          <td>지운 자리마다 사유 주석을 남겨 되돌릴 때 헤매지 않게 함</td>
+        </tr>
+        <tr>
+          <td class="where">발동이벤트_영역분리.py</td>
+          <td><span class="mono">EXTRA_AREAS</span> 에서 M16_PKT 제거</td>
+          <td><span class="mono">--all-areas</span> 로 돌려도 이제 <b>7개 파일</b> (기본 5개는 그대로)</td>
+        </tr>
+      </tbody>
+    </table></div>
+    <div class="note ok">
+      <h4>점수는 하나도 안 변합니다 — 8/12 실데이터로 확인했습니다</h4>
+      <p>변경 전후 코드로 같은 8/12 입력(180분)을 돌려 비교한 결과,
+        <b>unified_risk_score · 등급 · hot_area 가 전 분 동일</b>했습니다.
+        M16_PKT 는 그날 한 번도 점수를 낸 적이 없고, STB 도 임계(99.3%)를
+        넘은 적이 없어서 실운영 점수에는 영향이 없습니다.
+        바뀌는 것은 "STB 혼자 임계를 넘는 순간 R-D 가 켜지던 경로"가 닫히는 것뿐입니다.</p>
+    </div>
+  </section>
+
+  <!-- 1. hubroom_predictor.py -->
+  <section>
+    <div class="sechead"><span class="step">파일 1</span><h2><code>hubroom_predictor.py</code></h2></div>
+
+    <h3 class="sub-h">① R-D 판정 — STB 항 제거 (값 기록은 유지)</h3>
+    <p class="subtitle">
+      R-D 통합 트리거에서 <span class="mono">STB ≥ 99.3%</span> 조건이 빠졌습니다.
+      이제 M16HUB 의 R-D 는 <b>FAB 저장율 · MLUD · 수동대기 · CNV 점유율</b> 네 항만 봅니다.
+      단, STB <b>값 자체는 계속 수집·기록</b>됩니다 — 발동이벤트의
+      <span class="mono">M16HUB_stb_util</span> 컬럼은 그대로 남습니다.
+    </p>
+    <div class="diff"><div class="fn">eval_area_rules() — R-D 통합 트리거</div><pre><span class="l d">- out['rd_trig'] = ((out['rd_fab'] &gt;= TH_RD_FABSTORAGE)</span><span class="l d">-                   or (stb &gt;= TH_RD_HUB_STB_UTIL)     # ← STB 항</span><span class="l d">-                   or out['mlud_trig']</span><span class="l d">-                   or out['cnv_full_trig'])</span><span class="l i">+ # R-D 통합 트리거 — FAB저장률 + 신규 MLUD/CNV</span><span class="l i">+ #   ※ STB(3F_STORAGE_UTIL) 항은 제거됨 (2026-08 고객 요청)</span><span class="l i">+ out['rd_trig'] = ((out['rd_fab'] &gt;= TH_RD_FABSTORAGE)</span><span class="l i">+                   or out['mlud_trig']</span><span class="l i">+                   or out['cnv_full_trig'])</span></pre></div>
+    <div class="diff"><div class="fn">임계 상수 — TH_RD_HUB_STB_UTIL 삭제</div><pre><span class="l">  TH_RD_FABSTORAGE = _T('TH_RD_FABSTORAGE', 25.0)</span><span class="l d">- TH_RD_HUB_STB_UTIL = _T('TH_RD_HUB_STB_UTIL', 99.0)</span><span class="l i">+ # TH_RD_HUB_STB_UTIL 제거 (2026-08 고객 요청) — R-D 는 FABSTORAGERATIO 만 사용</span><span class="l">  TH_RD_OHT_UTIL = _T('TH_RD_OHT_UTIL', 95.0)</span></pre></div>
+    <p class="subtitle" style="margin-top:14px">STB 를 참조하던 판정·표기도 함께 정리했습니다.</p>
+    <div class="tw"><table>
+      <thead><tr><th>위치</th><th>전</th><th>후</th><th class="n">구분</th></tr></thead>
+      <tbody>
+        <tr><td class="where">_predict_fault_type()<br>_predict_fault_type_from_incident()</td><td>STB ≥ 99.3% 이면 <span class="mono">'HUB-STB정체'</span> 유형 반환 (2곳)</td><td>유형 자체 삭제 — FAB 저장율만 <span class="mono">'HUB-FAB정체'</span></td><td class="n"><span class="pill pdel">삭제</span></td></tr>
+        <tr><td class="where">_build_reason()</td><td><span class="mono">R-D(FAB저장=..%,STB=..%)</span></td><td><span class="mono">R-D(FAB저장=..%)</span></td><td class="n"><span class="pill pdel">삭제</span></td></tr>
+        <tr><td class="where">incident_to_row() 위험요인</td><td><span class="mono">STB_STORAGE_UTIL=..%(&gt;=99.3%)</span> 근거 줄</td><td>근거 줄 삭제 (판정을 안 하니 근거도 없음)</td><td class="n"><span class="pill pdel">삭제</span></td></tr>
+        <tr><td class="where">iter_unified_rows() 로딩</td><td><span class="mono">hub_stb_util</span> 수집</td><td><b>그대로 수집</b> — "기록용, 판정 미사용" 주석만 추가</td><td class="n"><span class="pill pkeep">유지</span></td></tr>
+        <tr><td class="where">EVENT_FIELDS / event_to_row()</td><td><span class="mono">M16HUB_stb_util</span> 컬럼 출력</td><td><b>그대로 출력</b> — 매분 값 기록</td><td class="n"><span class="pill pkeep">유지</span></td></tr>
+        <tr><td class="where">_merge_area_stats() 사건 max</td><td>사건 중 STB 최대값 추적</td><td><b>그대로 추적</b> — 사건단위 분석용 데이터 보존</td><td class="n"><span class="pill pkeep">유지</span></td></tr>
+      </tbody>
+    </table></div>
+
+    <h3 class="sub-h">② M16_PKT — 영역 코드 전부 삭제</h3>
+    <p class="subtitle">
+      대상 영역이 8개에서 <b>7개</b>(M16HUB · M14 · M14B · M16A · M16B · M16 · M16_WT)가
+      됐습니다. M16_PKT 는 어디에도 남아 있지 않습니다.
+    </p>
+    <div class="diff"><div class="fn">영역 정의 3곳</div><pre><span class="l c">  # TH_RA (R-A 임계)</span><span class="l d">- 'M16A': 3.2, 'M16B': 3.5, 'M16_PKT': 7.5, 'M16_WT': 2.8,</span><span class="l i">+ 'M16A': 3.2, 'M16B': 3.5, 'M16_WT': 2.8,</span><span class="l c">  # RA_COL (R-A 컬럼)</span><span class="l d">- 'M16_PKT': 'M16_PKT.QUE.TIME.AVGTOTALTIME1MIN',</span><span class="l c">  # AREAS_ALL (전체 영역 목록)</span><span class="l d">- AREAS_ALL = ['M16HUB','M14','M14B','M16A','M16B','M16','M16_PKT','M16_WT']</span><span class="l i">+ AREAS_ALL = ['M16HUB','M14','M14B','M16A','M16B','M16','M16_WT']</span></pre></div>
+    <div class="diff"><div class="fn">iter_unified_rows() — 입력 로딩 블록 삭제</div><pre><span class="l d">- d['M16_PKT'] = {</span><span class="l d">-     'ra': safe_float(g(RA_COL['M16_PKT'])),</span><span class="l d">-     'rd_oht': safe_float(g('M16_PKT.QUE.OHT.OHTUTIL')),</span><span class="l d">-     'aotransdelay': safe_int(g('M16_PKT.QUE.ABN.AOTRANSDELAY')),</span><span class="l d">- }</span><span class="l i">+ # M16_PKT 는 로딩하지 않음 (2026-08 고객 요청 — 영역 전체 제외)</span></pre></div>
+    <div class="tw"><table>
+      <thead><tr><th>위치</th><th>변경</th><th class="n">구분</th></tr></thead>
+      <tbody>
+        <tr><td class="where">EVENT_FIELDS / event_to_row()</td><td><span class="mono">M16_PKT_score</span> 컬럼 삭제 → 발동이벤트 <b>135 → 134 컬럼</b></td><td class="n"><span class="pill pdel">삭제</span></td></tr>
+        <tr><td class="where">incident_to_row() 루프 2곳</td><td>사건단위 발동룰·위험요인 집계 영역 목록에서 M16_PKT 제거</td><td class="n"><span class="pill pdel">삭제</span></td></tr>
+        <tr><td class="where">파일 머리 문서주석</td><td>"8영역" → "7영역", 제외 사유 명기</td><td class="n"><span class="pill pins">갱신</span></td></tr>
+      </tbody>
+    </table></div>
+    <div class="note">
+      <h4>수집(입력 CSV)은 그대로입니다</h4>
+      <p>수집기(<span class="mono">aws_idc_realtime_collector</span>)는 M16_PKT 를
+        따로 참조하지 않으므로 손대지 않았습니다. 입력 CSV 에 M16_PKT 원본 컬럼이
+        계속 실려 와도 <b>예측기가 읽지 않을 뿐</b>이라 문제 없습니다.</p>
+    </div>
+
+    <h3 class="sub-h">③ 사건 시작 기준 50 → 60</h3>
+    <p class="subtitle">
+      경계 구간을 60~70 으로 올리면서, 사건(발동이벤트 사건단위)의 시작·기록
+      기준도 같이 올렸습니다. 등급 하한에 하드코딩돼 있던 50 도 상수 참조로
+      바꿔 <b>두 값이 다시는 어긋나지 않게</b> 했습니다.
+    </p>
+    <div class="diff"><div class="fn">사건 기준 상수 + 등급 하한</div><pre><span class="l d">- MIN_INCIDENT_SCORE = _T('MIN_INCIDENT_SCORE', 50)</span><span class="l i">+ #   등급 하한(경계)과 같은 값이어야 한다 — unified_risk_level 의 60 과 짝</span><span class="l i">+ MIN_INCIDENT_SCORE = _T('MIN_INCIDENT_SCORE', 60)</span><span class="l c">  ...</span><span class="l d">- elif unified_risk_score &gt;= 50:</span><span class="l i">+ elif unified_risk_score &gt;= MIN_INCIDENT_SCORE:   # 60 — 경계 시작</span><span class="l">      unified_risk_level = '경계'</span></pre></div>
+    <div class="note warn">
+      <h4>59점 이하는 이제 등급 공란 · 사건 미기록입니다</h4>
+      <p>검증에서 59점 → 공란, 60점 → 경계로 정확히 갈리는 것을 확인했습니다.
+        참고로 8/12 데이터는 정체 구간 외 최고점이 57점이라, 예전 기준(50)이었다면
+        잡혔을 시각들이 새 기준에서는 사건으로 기록되지 않습니다 —
+        의도된 변화입니다 (경계 남발 축소).</p>
+    </div>
+  </section>
+
+  <!-- 2. thresholds.json -->
+  <section>
+    <div class="sechead"><span class="step">파일 2</span><h2><code>thresholds.json</code></h2></div>
+    <p class="subtitle">
+      코드 기본값과 짝을 맞춰 세 군데를 고쳤습니다. 지운 키 자리에는
+      <span class="mono">_comment_*</span> 주석을 남겨, 나중에 누가 봐도
+      "빠진 게 아니라 뺀 것"임을 알 수 있게 했습니다.
+    </p>
+    <div class="diff"><div class="fn">thresholds.json</div><pre><span class="l">  "TH_RA": {</span><span class="l">      "M16HUB": 9.0, "M14": 3.3, "M14B": 5.0,</span><span class="l d">-     "M16A": 3.2, "M16B": 3.5, "M16_PKT": 7.5, "M16_WT": 2.8</span><span class="l i">+     "M16A": 3.2, "M16B": 3.5, "M16_WT": 2.8</span><span class="l">  },</span><span class="l i">+ "_comment_m16pkt": "M16_PKT 는 제외됨 (2026-08 고객 요청) — 코드에서 영역 자체가</span><span class="l i">+                     빠져 여기 값을 넣어도 무시된다",</span><span class="l">  "TH_RD_FABSTORAGE": 25.75,</span><span class="l d">- "TH_RD_HUB_STB_UTIL": 99.3,</span><span class="l i">+ "_comment_stb": "TH_RD_HUB_STB_UTIL 제거됨 (2026-08 고객 요청) — R-D 는</span><span class="l i">+                  FABSTORAGERATIO 만 사용, STB.3F_STORAGE_UTIL 미사용",</span><span class="l">  "TH_RD_OHT_UTIL": 95.0,</span><span class="l c">  ...</span><span class="l i">+ "_comment_min_incident": "사건 시작/종료 기준 점수. 등급 하한(경계)과 같은 값. 50→60 (2026-08)",</span><span class="l i">+ "MIN_INCIDENT_SCORE": 60,</span></pre></div>
+    <div class="note key">
+      <h4>MIN_INCIDENT_SCORE 를 json 에도 명시한 이유</h4>
+      <p>코드 기본값도 60 이지만, 만에 하나 <b>예전 코드(기본 50)가 도는 서버</b>에
+        이 json 만 배포돼도 60 이 확실히 적용되도록 이중으로 박았습니다.
+        (json 값이 코드 기본값을 덮어쓰는 <span class="mono">_T</span> 로더 구조 —
+        M16B 가중치 1.0 을 명시해 둔 것과 같은 이유입니다.)</p>
+    </div>
+  </section>
+
+  <!-- 3. 발동이벤트_영역분리.py -->
+  <section>
+    <div class="sechead"><span class="step">파일 3</span><h2><code>발동이벤트_영역분리.py</code></h2></div>
+    <p class="subtitle">
+      예측기에서 M16_PKT 컬럼이 사라졌으므로 분리 대상에서도 뺐습니다.
+      기본 분리 5개(M16HUB · M14 · M14B · M16A · M16B)는 그대로이고,
+      <span class="mono">--all-areas</span> 를 붙였을 때의 추가 영역만 줄어듭니다.
+    </p>
+    <div class="diff"><div class="fn">발동이벤트_영역분리.py</div><pre><span class="l">  DEFAULT_AREAS = ['M16HUB', 'M14', 'M14B', 'M16A', 'M16B']</span><span class="l d">- EXTRA_AREAS = ['M16', 'M16_PKT', 'M16_WT']</span><span class="l i">+ # M16_PKT 제외 (2026-08 고객 요청) — 예측기에서 영역 자체가 빠져 컬럼도 더는 없다</span><span class="l i">+ EXTRA_AREAS = ['M16', 'M16_WT']</span></pre></div>
+    <div class="tw"><table>
+      <thead><tr><th>실행</th><th>전</th><th>후</th></tr></thead>
+      <tbody>
+        <tr><td class="where">기본 (run_ml 연동 · 운영)</td><td>5개 파일</td><td><b>5개 파일 — 변화 없음</b></td></tr>
+        <tr><td class="where">--all-areas</td><td>8개 파일 (…_M16_PKT.csv 포함)</td><td><b>7개 파일</b> — M16_PKT 파일이 안 생김</td></tr>
+        <tr><td class="where">--score 점수·등급</td><td colspan="2">변화 없음 — 분모 70 · 조정 % · 등급기준 60/71/85 는 영역등급.json 그대로</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- 검증 -->
+  <section>
+    <div class="sechead"><span class="step">검증</span><h2>배포 전에 확인한 것</h2></div>
+    <div class="tw"><table>
+      <thead><tr><th>확인 항목</th><th>방법</th><th>결과</th></tr></thead>
+      <tbody>
+        <tr><td><b>점수 동일성</b></td><td>변경 전·후 코드로 8/12 실데이터 180분 각각 실행 후 전 행 비교</td><td>점수·등급·hot_area <b>150/150 분 동일</b></td></tr>
+        <tr><td><b>컬럼 변화</b></td><td>발동이벤트 헤더 비교</td><td>135 → <b>134</b> — 빠진 것은 <span class="mono">M16_PKT_score</span> 하나뿐, <span class="mono">M16HUB_stb_util</span> 은 유지</td></tr>
+        <tr><td><b>STB 판정 차단</b></td><td>STB=99.9% · FAB저장율=20% 합성 입력으로 전·후 비교</td><td>구코드 R-D <b>150분 발동</b> / HUB-STB정체 90분 → 신코드 <b>0분 · 0분</b>, 값은 99.90 으로 기록됨</td></tr>
+        <tr><td><b>사건 기준 60</b></td><td>59점·60점 경계 입력 생성</td><td>59점 → 등급 공란·사건 없음 / 60점 → 경계·사건 시작</td></tr>
+        <tr><td><b>영역분리 동작</b></td><td>새 134컬럼 출력으로 <span class="mono">--score --all-areas</span> 실행</td><td>7개 파일 정상 생성, M16_PKT 파일 없음, 오류 없음</td></tr>
+        <tr><td><b>점수 재현</b></td><td>출력의 룰별 배점·융합 항을 손으로 합산해 저장값과 대조</td><td>150/150 행 일치 — 문서(스코어 산출·FAB 비교)와 코드가 같은 답</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- 배포 -->
+  <section>
+    <div class="sechead"><span class="step">배포</span><h2>운영 반영 방법과 주의 한 가지</h2></div>
+    <div class="tw"><table>
+      <thead><tr><th class="n">순서</th><th>할 일</th></tr></thead>
+      <tbody>
+        <tr><td class="n">1</td><td>세 파일을 운영 폴더에 덮어쓰기 — <span class="mono">hubroom_predictor.py</span> · <span class="mono">thresholds.json</span> (예측기 폴더), <span class="mono">발동이벤트_영역분리.py</span> (ml 폴더)</td></tr>
+        <tr><td class="n">2</td><td><span class="mono">python run_ml.py</span> 재시작 — ML(<span class="mono">ml_predict_runner_v41.py</span>)은 별도 프로세스라 재시작 불필요, 영향 없음</td></tr>
+        <tr><td class="n">3</td><td>기동 로그에서 "대상 영역" 에 M16_PKT 가 없는지, 새 발동이벤트 행이 134컬럼인지 확인</td></tr>
+      </tbody>
+    </table></div>
+    <div class="note warn">
+      <h4>당일 발동이벤트.csv 가 이미 있으면 열이 어긋납니다</h4>
+      <p>컬럼이 1개 줄었기 때문에, 그날 파일이 이미 쌓인 상태에서 교체하면
+        기존 헤더(135컬럼) 뒤에 134컬럼 행이 붙어 열이 밀립니다.
+        <b>자정 이후 교체</b>하거나, 교체 시점에 당일
+        <span class="mono">YYYYMMDD_발동이벤트.csv</span> 를 백업 후 지워서
+        새 헤더로 다시 쓰게 하십시오. 다음날부터는 자동으로 깨끗합니다.</p>
+    </div>
+    <div class="note">
+      <h4>되돌리려면</h4>
+      <p>STB 판정 복원 — <span class="mono">rd_trig</span> 에 STB 조건 한 줄과
+        <span class="mono">TH_RD_HUB_STB_UTIL</span> 상수를 되살리면 됩니다
+        (값은 계속 기록 중이라 데이터 공백이 없습니다).
+        M16_PKT 는 코드에서 영역째 빠졌으므로 되살리려면 이 커밋을 revert 해야
+        합니다 — json 에 임계만 다시 넣는 것으로는 살아나지 않습니다.</p>
+    </div>
+  </section>
+
+  <footer>
+    <p>변경 커밋 — <code class="mono">52c5aff</code> (STB·M16_PKT 제거 + 사건 기준 60) ·
+      <code class="mono">17c2d55</code> (STB 기록 복원 — 판정은 제외 유지),
+      브랜치 <code class="mono">claude/session-not-opening-xaypzk</code>.</p>
+    <p>관련 문서 — <b>스코어 산출</b>(R-D 4항 · 7영역 · 등급 60/71/85 반영) ·
+      <b>FAB 별 스코어 비교</b>(같은 변경 반영판). 두 문서의 임계·컬럼 표는
+      이 변경 내역과 같은 코드에서 나온 값입니다.</p>
+  </footer>
+</div>
+
+</body>
+</html>
