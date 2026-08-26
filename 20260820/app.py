@@ -87,6 +87,8 @@ CREATE TABLE IF NOT EXISTS items (
     target       TEXT NOT NULL DEFAULT '',   -- 대상 시스템/FAB 태그 (콤마 구분)
     status       TEXT NOT NULL DEFAULT '대기',
     applied_date TEXT,
+    confirmed_at TEXT,                      -- 고객 최종완료 확정 시각 (NULL이면 미확정)
+    confirmed_by TEXT,                      -- 확정한 사람
     created_at   TEXT NOT NULL,
     updated_at   TEXT NOT NULL
 );
@@ -149,9 +151,21 @@ def close_db(exc):
         db.close()
 
 
+# 구버전 DB에 나중에 추가된 컬럼 (기존 reqlog.db 그대로 써도 자동 반영된다)
+MIGRATIONS = [
+    ("items", "confirmed_at", "TEXT"),
+    ("items", "confirmed_by", "TEXT"),
+]
+
+
 def init_db():
     con = sqlite3.connect(DB_PATH)
     con.executescript(SCHEMA)
+    for table, col, coltype in MIGRATIONS:
+        cols = [r[1] for r in con.execute("PRAGMA table_info(%s)" % table)]
+        if col not in cols:
+            con.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, col, coltype))
+            print(" [migrate] %s.%s 추가" % (table, col))
     con.commit()
     con.close()
     if not os.path.isdir(UPLOAD_DIR):
@@ -170,6 +184,18 @@ def actor_of(req):
     except (UnicodeEncodeError, UnicodeDecodeError):
         pass
     return name.strip()[:50]
+
+
+def missing_resp(row):
+    """없는 건이면 404. 최종완료로 확정돼도 수정은 막지 않는다 —
+    '고객이 확인했다'는 표시일 뿐, 잠금이 아니다."""
+    if row is None:
+        return jsonify({"ok": False, "error": "not found"}), 404
+    return None
+
+
+def item_row(db, iid):
+    return db.execute("SELECT * FROM items WHERE id=?", (iid,)).fetchone()
 
 
 def log_history(db, item_id, kind, target_id, action, field, old, new, actor):
@@ -263,6 +289,11 @@ def fetch_items(db, args):
     if tag:
         where.append("i.target LIKE ?")
         params.append("%" + tag + "%")
+    conf = clean(args.get("confirmed"))
+    if conf == "Y":
+        where.append("i.confirmed_at IS NOT NULL")
+    elif conf == "N":
+        where.append("i.confirmed_at IS NULL")
     requester = clean(args.get("requester"))
     if requester:
         where.append("i.requester LIKE ?")
@@ -335,9 +366,12 @@ def api_meta():
     counts = {row["status"]: row["c"] for row in
               db.execute("SELECT status, COUNT(*) c FROM items GROUP BY status")}
     total = db.execute("SELECT COUNT(*) c FROM items").fetchone()["c"]
+    done = db.execute("SELECT COUNT(*) c FROM items"
+                      " WHERE confirmed_at IS NOT NULL").fetchone()["c"]
     return jsonify({"categories": CATEGORIES, "statuses": STATUSES,
                     "tags": sorted(tags), "people": sorted(people),
-                    "counts": counts, "total": total})
+                    "counts": counts, "total": total,
+                    "confirmed": done, "open": total - done})
 
 
 @app.route("/api/items")
@@ -378,9 +412,10 @@ ITEM_FIELDS = {"category": "구분", "requester": "요청자", "request_date": "
 def api_item_update(iid):
     db, d = get_db(), request.get_json(force=True, silent=True) or {}
     actor = actor_of(request)
-    old = db.execute("SELECT * FROM items WHERE id=?", (iid,)).fetchone()
-    if old is None:
-        return jsonify({"ok": False, "error": "not found"}), 404
+    old = item_row(db, iid)
+    missing = missing_resp(old)
+    if missing:
+        return missing
     sets, params = [], []
     for f in ITEM_FIELDS:
         if f not in d:
@@ -409,9 +444,10 @@ def api_item_update(iid):
 @app.route("/api/items/<int:iid>", methods=["DELETE"])
 def api_item_delete(iid):
     db = get_db()
-    row = db.execute("SELECT * FROM items WHERE id=?", (iid,)).fetchone()
-    if row is None:
-        return jsonify({"ok": False, "error": "not found"}), 404
+    row = item_row(db, iid)
+    missing = missing_resp(row)
+    if missing:
+        return missing
     log_history(db, iid, "item", iid, "delete", None, row["content"][:200], None,
                 actor_of(request))
     purge_files(db, "SELECT stored,thumb FROM attachments WHERE item_id=?", (iid,))
@@ -436,11 +472,60 @@ def purge_files(db, sql, params):
                     pass
 
 
+# ----------------------------------------------------------------------------
+# 최종완료 확인 도장
+#   고객(요청자)이 "확인했다"고 찍는 표시. 잠그지 않는다 —
+#   찍힌 뒤에도 수정·응답·첨부 전부 그대로 되고, 취소도 된다.
+#   누가 언제 찍고 취소했는지는 이력에 남는다.
+# ----------------------------------------------------------------------------
+@app.route("/api/items/<int:iid>/confirm", methods=["POST"])
+def api_item_confirm(iid):
+    db, d = get_db(), request.get_json(force=True, silent=True) or {}
+    row = item_row(db, iid)
+    if row is None:
+        return jsonify({"ok": False, "error": "not found"}), 404
+    if row["confirmed_at"]:
+        return jsonify({"ok": False, "error": "이미 확인된 건이다"}), 400
+    who = clean(d.get("by")) or actor_of(request)
+    if not who:
+        return jsonify({"ok": False, "error": "확인자 이름이 필요하다"}), 400
+    ts = now_str()
+    # 아직 진행중인 건이면 상태도 같이 적용완료로 올려준다 (반려·보류는 건드리지 않음)
+    if row["status"] in ("대기", "검토중"):
+        db.execute("UPDATE items SET status='적용완료',"
+                   "applied_date=COALESCE(applied_date,?) WHERE id=?",
+                   (date.today().strftime("%Y-%m-%d"), iid))
+    db.execute("UPDATE items SET confirmed_at=?,confirmed_by=?,updated_at=? WHERE id=?",
+               (ts, who, ts, iid))
+    log_history(db, iid, "item", iid, "confirm", "최종완료", None,
+                "%s 확인" % who, who)
+    db.commit()
+    return jsonify({"ok": True, "confirmed_at": ts, "confirmed_by": who})
+
+
+@app.route("/api/items/<int:iid>/unconfirm", methods=["POST"])
+def api_item_unconfirm(iid):
+    db = get_db()
+    row = item_row(db, iid)
+    if row is None:
+        return jsonify({"ok": False, "error": "not found"}), 404
+    if not row["confirmed_at"]:
+        return jsonify({"ok": False, "error": "확인 상태가 아니다"}), 400
+    actor = actor_of(request)
+    log_history(db, iid, "item", iid, "unconfirm", "최종완료 취소",
+                "%s 확인(%s)" % (row["confirmed_by"], row["confirmed_at"]), None, actor)
+    db.execute("UPDATE items SET confirmed_at=NULL,confirmed_by=NULL,updated_at=?"
+               " WHERE id=?", (now_str(), iid))
+    db.commit()
+    return jsonify({"ok": True})
+
+
 @app.route("/api/items/<int:iid>/responses", methods=["POST"])
 def api_resp_create(iid):
     db, d = get_db(), request.get_json(force=True, silent=True) or {}
-    if db.execute("SELECT 1 FROM items WHERE id=?", (iid,)).fetchone() is None:
-        return jsonify({"ok": False, "error": "not found"}), 404
+    missing = missing_resp(item_row(db, iid))
+    if missing:
+        return missing
     actor = actor_of(request) or clean(d.get("responder"))
     cur = db.execute(
         "INSERT INTO responses(item_id,responder,response_date,content,created_at,updated_at)"
@@ -461,6 +546,9 @@ def api_resp_edit(rid):
     old = db.execute("SELECT * FROM responses WHERE id=?", (rid,)).fetchone()
     if old is None:
         return jsonify({"ok": False, "error": "not found"}), 404
+    missing = missing_resp(item_row(db, old["item_id"]))
+    if missing:
+        return missing
     actor = actor_of(request)
     if request.method == "DELETE":
         log_history(db, old["item_id"], "response", rid, "delete", "응답",
@@ -511,8 +599,9 @@ def save_blob(fs, ext):
 @app.route("/api/items/<int:iid>/attachments", methods=["POST"])
 def api_att_upload(iid):
     db = get_db()
-    if db.execute("SELECT 1 FROM items WHERE id=?", (iid,)).fetchone() is None:
-        return jsonify({"ok": False, "error": "요청을 찾을 수 없다"}), 404
+    missing = missing_resp(item_row(db, iid))
+    if missing:
+        return missing
     if "file" not in request.files:
         return jsonify({"ok": False, "error": "파일이 없다"}), 400
     fs = request.files["file"]
@@ -589,6 +678,9 @@ def api_att_delete(aid):
     row = db.execute("SELECT * FROM attachments WHERE id=?", (aid,)).fetchone()
     if row is None:
         return jsonify({"ok": False, "error": "not found"}), 404
+    missing = missing_resp(item_row(db, row["item_id"]))
+    if missing:
+        return missing
     for f in (row["stored"], row["thumb"]):
         if not f:
             continue
@@ -617,7 +709,14 @@ def api_history(iid):
 # 엑셀 내보내기
 # ----------------------------------------------------------------------------
 EXPORT_HEADERS = ["No.", "해당", "작성자/응답자", "작성날짜", "내용",
-                  "대상(시스템/FAB)", "첨부파일", "적용여부", "적용날짜"]
+                  "대상(시스템/FAB)", "첨부파일", "적용여부", "적용날짜", "최종완료"]
+
+
+def conf_label(it):
+    """'2026-08-26 김윤환TL님' 형태. 비어 있으면 아직 고객 확인 전이다."""
+    if not it["confirmed_at"]:
+        return ""
+    return "%s %s" % (it["confirmed_at"][:10], it["confirmed_by"] or "")
 
 
 def att_label(atts):
@@ -645,6 +744,8 @@ def api_export():
     head_fill = PatternFill("solid", fgColor="1F3864")
     head_font = Font(color="FFFFFF", bold=True, size=10)
     req_fill = PatternFill("solid", fgColor="EDF2FA")
+    done_fill = PatternFill("solid", fgColor="E7F6EC")   # 고객 확인 끝난 건
+    done_font = Font(bold=True, color="166B38")
     thin = Side(style="thin", color="BFBFBF")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     wrap = Alignment(wrap_text=True, vertical="top")
@@ -657,40 +758,46 @@ def api_export():
     for it in items:
         ws.append([it["seq"], it["category"], it["requester"], it["request_date"],
                    it["content"], it["target"], att_label(it["attachments"]),
-                   it["status"], it["applied_date"] or ""])
+                   it["status"], it["applied_date"] or "", conf_label(it)])
         r = ws.max_row
+        done = bool(it["confirmed_at"])
         for c in ws[r]:
-            c.fill, c.border, c.alignment = req_fill, border, wrap
+            c.fill, c.border, c.alignment = (done_fill if done else req_fill), border, wrap
         ws.cell(row=r, column=1).alignment = center
         ws.cell(row=r, column=2).alignment = center
         ws.cell(row=r, column=8).alignment = center
+        ws.cell(row=r, column=10).alignment = center
+        if done:
+            ws.cell(row=r, column=10).font = done_font
         for rp in it["responses"]:
             ws.append(["", "확인", rp["responder"], rp["response_date"],
-                       rp["content"], "", att_label(rp["attachments"]), "", ""])
+                       rp["content"], "", att_label(rp["attachments"]), "", "", ""])
             rr = ws.max_row
             for c in ws[rr]:
                 c.border, c.alignment = border, wrap
             ws.cell(row=rr, column=2).alignment = center
 
-    widths = [6, 8, 16, 13, 62, 20, 30, 11, 13]
+    widths = [6, 8, 16, 13, 58, 18, 28, 11, 13, 22]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = "A1:I%d" % max(ws.max_row, 1)
+    ws.auto_filter.ref = "A1:J%d" % max(ws.max_row, 1)
 
     # 요약 시트
     ws2 = wb.create_sheet("요약")
     ws2.append(["No.", "구분", "요청자", "요청일", "내용", "대상", "상태",
-                "적용일", "응답수", "첨부수", "최근응답"])
+                "적용일", "최종완료", "응답수", "첨부수", "최근응답"])
     for c in ws2[1]:
         c.fill, c.font, c.alignment, c.border = head_fill, head_font, center, border
     for it in items:
         last = it["responses"][-1]["content"] if it["responses"] else ""
         ws2.append([it["seq"], it["category"], it["requester"], it["request_date"],
                     it["content"], it["target"], it["status"],
-                    it["applied_date"] or "", len(it["responses"]),
+                    it["applied_date"] or "", conf_label(it), len(it["responses"]),
                     it["att_total"], last])
-    for i, w in enumerate([6, 8, 14, 13, 50, 20, 10, 13, 8, 8, 50], start=1):
+        if it["confirmed_at"]:
+            ws2.cell(row=ws2.max_row, column=9).font = done_font
+    for i, w in enumerate([6, 8, 14, 13, 46, 18, 10, 13, 22, 8, 8, 46], start=1):
         ws2.column_dimensions[get_column_letter(i)].width = w
     for row in ws2.iter_rows(min_row=2):
         for c in row:
@@ -724,6 +831,7 @@ HEADER_MAP = [
     ("attach", ("첨부", "사진", "첨부파일")),
     ("applied", ("적용여부", "상태")),
     ("applied_date", ("적용날짜", "적용일")),
+    ("confirmed", ("최종완료", "고객확인", "확인완료")),
 ]
 LEGACY_COLS = ["no", "kind", "who", "date", "content", "applied", "applied_date"]
 
@@ -803,6 +911,7 @@ def api_import():
         no, kind, who = col("no"), col("kind"), col("who")
         d1, content = col("date"), col("content")
         target, applied, applied_d = col("target"), col("applied"), col("applied_date")
+        conf_raw = col("confirmed")
         if no.lower().startswith("no") or content == "내용":
             continue  # 헤더 행
         is_resp = (not no) and (kind in RESP_KINDS or bool(who))
@@ -820,11 +929,22 @@ def api_import():
         st = "적용완료" if (applied and applied not in STATUSES and
                         norm_date(applied)) else (
             applied if applied in STATUSES else "대기")
+        # '최종완료' 컬럼: "2026-08-26 김윤환TL님" 형태에서 날짜와 확인자를 뽑는다
+        c_at = c_by = None
+        if conf_raw:
+            c_date = norm_date(conf_raw[:12]) or norm_date(conf_raw)
+            if c_date:
+                c_at = c_date + " 00:00:00"
+                c_by = re.sub(r"[\d.\-/:]+", " ", conf_raw).strip() or None
+            elif conf_raw.upper() in ("O", "Y", "YES", "완료", "확인"):
+                c_at = (the_date or date.today().strftime("%Y-%m-%d")) + " 00:00:00"
         cur = db.execute(
             "INSERT INTO items(seq,category,requester,request_date,content,target,"
-            "status,applied_date,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            "status,applied_date,confirmed_at,confirmed_by,created_at,updated_at)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
             (seq, cat, who, the_date, content, norm_tags(target), st,
-             norm_date(applied_d) or norm_date(applied), now_str(), now_str()))
+             norm_date(applied_d) or norm_date(applied), c_at, c_by,
+             now_str(), now_str()))
         last_id = cur.lastrowid
         log_history(db, last_id, "item", last_id, "import", None, None,
                     content[:200], actor)
@@ -882,6 +1002,15 @@ button.sm{padding:3px 8px;font-size:12px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:6px;
   margin-bottom:10px;overflow:hidden}
 .card.on{border-color:var(--accent2);box-shadow:0 1px 6px rgba(47,111,208,.13)}
+.card.done{border-left:4px solid var(--ok)}
+.stamp{display:inline-flex;align-items:center;gap:5px;border:1.5px solid var(--ok);
+  color:var(--ok);background:#eaf7ee;border-radius:4px;padding:1px 8px;font-size:11.5px;
+  font-weight:700;white-space:nowrap}
+.confbar{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-top:9px;
+  border-top:1px solid var(--line);padding-top:9px}
+.confbar .msg{color:var(--ok);font-size:12.5px;font-weight:600}
+button.ok{background:var(--ok);border-color:var(--ok);color:#fff;font-weight:600}
+button.ok:hover{filter:brightness(1.08)}
 .chead{display:flex;gap:10px;padding:11px 13px;cursor:pointer;align-items:flex-start}
 .chead:hover{background:#fafbfe}
 .no{font-weight:700;color:var(--muted);min-width:34px;font-size:13px;padding-top:1px}
@@ -979,6 +1108,11 @@ button.sm{padding:3px 8px;font-size:12px}
     <input type="text" id="q" placeholder="내용·작성자·태그 검색" oninput="deb()">
     <select id="fcat" onchange="load()"><option value="">구분 전체</option></select>
     <select id="fst" onchange="load()"><option value="">상태 전체</option></select>
+    <select id="fconf" onchange="load()">
+      <option value="">최종완료 전체</option>
+      <option value="N">미확인 (진행중)</option>
+      <option value="Y">최종완료</option>
+    </select>
     <select id="ftag" onchange="load()"><option value="">대상 전체</option></select>
     <input type="date" id="fd1" onchange="load()" title="요청일 시작">
     <span style="color:var(--muted)">~</span>
@@ -1009,19 +1143,22 @@ function qs(){
   if($('q').value.trim())p.set('q',$('q').value.trim());
   if($('fcat').value)p.set('category',$('fcat').value);
   if($('fst').value)p.set('status',$('fst').value);
+  if($('fconf').value)p.set('confirmed',$('fconf').value);
   if($('ftag').value)p.set('target',$('ftag').value);
   if($('fd1').value)p.set('from',$('fd1').value);
   if($('fd2').value)p.set('to',$('fd2').value);
   return p.toString()}
 var t=null;function deb(){clearTimeout(t);t=setTimeout(load,250)}
 function resetF(){$('q').value='';$('fcat').value='';$('fst').value='';$('ftag').value='';
-  $('fd1').value='';$('fd2').value='';load()}
+  $('fconf').value='';$('fd1').value='';$('fd2').value='';load()}
 
 function meta(){return api('/api/meta').then(function(m){
   CATS=m.categories;STS=m.statuses;TAGS=m.tags;
   fill('fcat','구분 전체',CATS);fill('fst','상태 전체',STS);fill('ftag','대상 전체',TAGS);
   var s=[];for(var i=0;i<STS.length;i++){var c=m.counts[STS[i]]||0;if(c)s.push(STS[i]+' '+c)}
-  $('stats').textContent='전체 '+m.total+'건'+(s.length?'  ·  '+s.join('  ·  '):'')})}
+  $('stats').innerHTML='전체 '+m.total+'건  ·  <b style="color:var(--ok)">최종완료 '+
+    m.confirmed+'</b>  ·  미확인 '+m.open+
+    (s.length?'  ·  '+esc(s.join('  ·  ')):'')})}
 function fill(id,all,arr){var el=$(id),cur=el.value;
   el.innerHTML='<option value="">'+all+'</option>'+arr.map(function(v){
     return '<option>'+esc(v)+'</option>'}).join('');el.value=cur}
@@ -1035,13 +1172,16 @@ function render(){
 
 function card(it){
   var op=!!OPEN[it.id];
+  var done=!!it.confirmed_at;
   var tags=it.tags.map(function(t){return '<span class="tag">'+esc(t)+'</span>'}).join(' ');
-  var s='<div class="card'+(op?' on':'')+'" id="c'+it.id+'">'+
+  var s='<div class="card'+(op?' on':'')+(done?' done':'')+'" id="c'+it.id+'">'+
    '<div class="chead" onclick="tog('+it.id+')">'+
      '<div class="no">'+esc(it.seq)+'</div><div class="main">'+
        '<div class="titleline">'+
          '<span class="badge b-'+esc(it.category)+'">'+esc(it.category)+'</span>'+
-         '<span class="badge s-'+esc(it.status)+'">'+esc(it.status)+'</span>'+tags+
+         '<span class="badge s-'+esc(it.status)+'">'+esc(it.status)+'</span>'+
+         (done?'<span class="stamp">최종완료 '+esc((it.confirmed_at||'').slice(0,10))+
+               ' · '+esc(it.confirmed_by||'')+'</span>':'')+tags+
        '</div>'+
        '<div class="ctext">'+esc(it.content)+'</div>'+
        '<div class="meta">'+esc(it.requester||'-')+' · '+esc(it.request_date||'-')+
@@ -1079,9 +1219,36 @@ function card(it){
        '<button class="sm" onclick="openItem('+it.id+')">수정</button>'+
        '<button class="sm" onclick="showHist('+it.id+')">이력</button>'+
        '<button class="sm d" onclick="delItem('+it.id+')">삭제</button></div>';
+    s+='<div class="confbar">'+(done
+      ? '<span class="msg">고객 확인 완료 — '+esc(it.confirmed_by||'')+' · '+
+        esc(it.confirmed_at||'')+'</span>'+
+        '<span style="flex:1"></span>'+
+        '<button class="sm" onclick="unconfirm('+it.id+')">최종완료 취소</button>'
+      : '<span style="color:var(--muted);font-size:12.5px">처리 끝났으면 요청자가 여기서 '+
+        '확인 도장을 찍는다. (찍어도 계속 수정·응답 가능하다)</span>'+
+        '<span style="flex:1"></span>'+
+        '<button class="ok" onclick="confirmItem('+it.id+')">최종완료 확인</button>')+
+      '</div>';
     s+='<div class="hist" id="h'+it.id+'" style="display:none"></div>';
     s+='</div>'}
   return s+'</div>'}
+
+function confirmItem(id){
+  var who=actor();
+  if(!who){toast('상단에 이름부터 입력해라 — 누가 확인했는지 남아야 한다');return}
+  if(!confirm('["'+who+'" 이름으로 최종완료 확인을 찍는다]\n\n'+
+              '잠기는 건 아니다. 이후에도 수정·응답·첨부 다 되고, 취소도 된다.\n\n'+
+              '진행할까?'))return;
+  api('/api/items/'+id+'/confirm',{method:'POST',body:{by:who}}).then(function(d){
+    if(!d.ok){toast(d.error||'실패');return}
+    toast('최종완료 확인됨');return Promise.all([meta(),load()])})}
+
+function unconfirm(id){
+  if(!actor()){toast('상단에 이름부터 입력해라');return}
+  if(!confirm('최종완료 확인을 취소한다. 이력에 남는다. 진행할까?'))return;
+  api('/api/items/'+id+'/unconfirm',{method:'POST',body:{}}).then(function(d){
+    if(!d.ok){toast(d.error||'실패');return}
+    toast('확인 취소됨');return Promise.all([meta(),load()])})}
 
 /* ---------- 첨부 (사진 = 썸네일 / 문서 = 파일칩) ---------- */
 function fsize(n){
