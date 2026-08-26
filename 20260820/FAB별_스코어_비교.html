@@ -1,0 +1,520 @@
+﻿<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>FAB 별 스코어 비교</title>
+<style>
+:root{
+  --paper:#F5F7FA; --surface:#FFFFFF; --surface2:#EDF1F6;
+  --ink:#10161F; --muted:#5A6675; --faint:#7C8899;
+  --line:#D5DCE5; --line2:#C2CCD8;
+  --accent:#1E5FA8; --accent-soft:#E4EDF8; --accent-line:#A9C6E6;
+  --g1:#B7791F; --g1bg:#FBF1DE; --g2:#C2410C; --g2bg:#FCEBE2; --g3:#A31621; --g3bg:#F9E4E6;
+  --ok:#1F6F4A; --okbg:#E2F1EA;
+  --shadow:0 1px 2px rgba(16,22,31,.05), 0 4px 14px rgba(16,22,31,.05);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0E1319; --surface:#161D26; --surface2:#1C2530;
+    --ink:#E6EBF2; --muted:#94A3B4; --faint:#7A8798;
+    --line:#2A3441; --line2:#384554;
+    --accent:#6BA5E7; --accent-soft:#16273A; --accent-line:#2C4A6B;
+    --g1:#E0A94A; --g1bg:#2E2413; --g2:#F07A45; --g2bg:#331B11; --g3:#E8636F; --g3bg:#331419;
+    --ok:#5FBD8E; --okbg:#13291F;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 4px 14px rgba(0,0,0,.25);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0E1319; --surface:#161D26; --surface2:#1C2530;
+  --ink:#E6EBF2; --muted:#94A3B4; --faint:#7A8798;
+  --line:#2A3441; --line2:#384554;
+  --accent:#6BA5E7; --accent-soft:#16273A; --accent-line:#2C4A6B;
+  --g1:#E0A94A; --g1bg:#2E2413; --g2:#F07A45; --g2bg:#331B11; --g3:#E8636F; --g3bg:#331419;
+  --ok:#5FBD8E; --okbg:#13291F;
+  --shadow:0 1px 2px rgba(0,0,0,.3), 0 4px 14px rgba(0,0,0,.25);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard",
+    "Malgun Gothic","맑은 고딕","Noto Sans KR",sans-serif;
+  font-size:15px; line-height:1.65; -webkit-font-smoothing:antialiased;
+}
+.mono,code,.num,th.n,td.n{
+  font-family:ui-monospace,"SF Mono","Cascadia Mono","JetBrains Mono",Consolas,"D2Coding",monospace;
+  font-variant-numeric:tabular-nums;
+}
+.wrap{max-width:1120px; margin:0 auto; padding:0 24px 96px}
+
+/* ── header ── */
+header{border-bottom:1px solid var(--line); background:var(--surface); margin-bottom:40px}
+.hin{max-width:1120px; margin:0 auto; padding:44px 24px 36px}
+.eyebrow{
+  font-size:11px; letter-spacing:.16em; text-transform:uppercase;
+  color:var(--accent); font-weight:700; margin:0 0 14px;
+}
+h1{font-size:clamp(28px,4.4vw,42px); line-height:1.15; margin:0 0 14px; letter-spacing:-.02em; text-wrap:balance}
+.lede{font-size:17px; color:var(--muted); margin:0; max-width:62ch}
+.formula-strip{
+  margin-top:26px; padding:16px 20px; background:var(--accent-soft);
+  border:1px solid var(--accent-line); border-radius:6px;
+  font-size:15px; overflow-x:auto; white-space:nowrap;
+}
+.formula-strip b{color:var(--accent)}
+
+/* ── sections ── */
+section{margin:0 0 56px; scroll-margin-top:20px}
+.sechead{display:flex; align-items:baseline; gap:12px; margin:0 0 6px; flex-wrap:wrap}
+.sechead .step{
+  font-size:11px; font-weight:700; letter-spacing:.14em; color:var(--accent);
+  border:1px solid var(--accent-line); background:var(--accent-soft);
+  padding:3px 9px; border-radius:3px; white-space:nowrap;
+}
+h2{font-size:23px; margin:0; letter-spacing:-.02em; text-wrap:balance}
+.subtitle{color:var(--muted); margin:8px 0 22px; max-width:70ch}
+.sub-h{font-size:16px; margin:34px 0 0; letter-spacing:-.01em}
+.sub-h+.subtitle{margin-top:6px}
+.pipe-note{font-size:12.5px; color:var(--faint); margin:0 0 52px}
+
+/* ── tables ── */
+.tw{overflow-x:auto; border:1px solid var(--line); border-radius:6px; background:var(--surface); box-shadow:var(--shadow)}
+table{border-collapse:collapse; width:100%; font-size:13.5px; min-width:660px}
+th,td{padding:10px 13px; text-align:left; border-bottom:1px solid var(--line); vertical-align:top}
+thead th{
+  background:var(--surface2); font-size:11px; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--muted); font-weight:700; white-space:nowrap; border-bottom:1px solid var(--line2);
+}
+tbody tr:last-child td{border-bottom:0}
+td.n,th.n{text-align:right; white-space:nowrap}
+.rule{font-weight:700; color:var(--accent); white-space:nowrap}
+.col{font-size:12px; color:var(--muted); word-break:break-all}
+.pts{
+  display:inline-block; min-width:30px; text-align:center; padding:2px 7px; border-radius:3px;
+  background:var(--accent-soft); color:var(--accent); font-weight:700; font-size:12.5px;
+  border:1px solid var(--accent-line);
+}
+
+/* ── grade pills ── */
+.pill{display:inline-block; padding:2px 10px; border-radius:3px; font-size:12.5px; font-weight:700; white-space:nowrap}
+.p1{background:var(--g1bg); color:var(--g1); border:1px solid var(--g1)}
+.p2{background:var(--g2bg); color:var(--g2); border:1px solid var(--g2)}
+.p3{background:var(--g3bg); color:var(--g3); border:1px solid var(--g3)}
+.p0{background:var(--surface2); color:var(--faint); border:1px solid var(--line2)}
+
+/* ── callouts ── */
+.note{
+  border:1px solid var(--line); border-left:3px solid var(--accent);
+  background:var(--surface); padding:16px 20px; border-radius:0 6px 6px 0; margin:22px 0;
+}
+.note.warn{border-left-color:var(--g2)}
+.note.key{border-left-color:var(--g3)}
+.note h4{margin:0 0 7px; font-size:14.5px}
+.note p{margin:0; color:var(--muted); font-size:14px}
+.note p+p{margin-top:9px}
+
+/* ── worked example ── */
+.calc{
+  background:var(--surface); border:1px solid var(--line); border-radius:6px;
+  padding:22px 24px; box-shadow:var(--shadow); overflow-x:auto;
+}
+.calc-row{display:flex; align-items:baseline; gap:14px; padding:7px 0; border-bottom:1px dashed var(--line); font-size:13.5px; white-space:nowrap}
+.calc-row:last-of-type{border-bottom:0}
+.calc-row .lbl{width:230px; flex:0 0 230px; color:var(--muted); white-space:normal}
+.calc-row .exp{flex:1; min-width:210px}
+.calc-row .val{font-weight:700; text-align:right; width:74px; flex:0 0 74px}
+.calc-total{
+  display:flex; align-items:baseline; gap:14px; margin-top:14px; padding-top:14px;
+  border-top:2px solid var(--ink); font-size:15px; font-weight:700; white-space:nowrap;
+}
+.calc-total .lbl{width:230px; flex:0 0 230px}
+.calc-total .exp{flex:1; min-width:210px; color:var(--accent)}
+.calc-total .val{width:74px; flex:0 0 74px; text-align:right}
+
+.props{display:grid; grid-template-columns:repeat(auto-fit,minmax(290px,1fr)); gap:16px; margin-top:8px}
+.prop{background:var(--surface); border:1px solid var(--line); border-radius:6px; padding:20px; box-shadow:var(--shadow)}
+.prop .tag{font-size:11px; letter-spacing:.1em; font-weight:700; color:var(--g2); text-transform:uppercase}
+.prop h4{margin:9px 0 8px; font-size:15.5px; letter-spacing:-.01em}
+.prop p{margin:0; font-size:13.5px; color:var(--muted)}
+
+footer{border-top:1px solid var(--line); margin-top:20px; padding-top:22px; font-size:12.5px; color:var(--faint)}
+footer code{font-size:12px}
+
+@media (max-width:860px){
+  .calc-row,.calc-total{flex-wrap:wrap; white-space:normal}
+  .calc-row .lbl,.calc-total .lbl{width:100%; flex:1 0 100%}
+  .calc-row .val,.calc-total .val{width:auto; flex:0 0 auto}
+}
+
+/* FAB 비교 문서 전용 */
+.grid th,.grid td{vertical-align:top}
+.grid td.rule{background:var(--surface2);border-right:1px solid var(--line2);white-space:nowrap}
+.grid tbody td.n{font-family:ui-monospace,"SF Mono",Consolas,monospace;font-size:12.5px;line-height:1.5}
+.grid.cols td{font-size:11.5px}
+.rdesc{display:block;margin-top:4px;font-size:11.5px;font-weight:400;color:var(--muted);line-height:1.45}
+.none{color:var(--faint)}
+.undef{color:var(--g2);font-weight:700}
+.nocsv{color:var(--faint);font-style:italic;font-size:11.5px}
+.amos{font-family:ui-monospace,"SF Mono",Consolas,monospace;font-size:11.5px;
+      color:var(--ink);word-break:break-all}
+.th{color:var(--faint);font-weight:400;font-size:11.5px}
+.colstack+.colstack{margin-top:7px;padding-top:7px;border-top:1px dashed var(--line)}
+.card{margin:0 0 28px}
+.cardhead{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin:0 0 10px}
+.cardhead h3{margin:0;font-size:19px;color:var(--accent);letter-spacing:-.01em}
+.cardmeta{margin:0;font-size:12.5px;color:var(--muted)}
+.fabtbl td.rule{background:var(--surface2);border-right:1px solid var(--line2);white-space:nowrap}
+.fabtbl tr.off td{color:var(--faint);background:var(--surface2)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:860px){.two{grid-template-columns:1fr}}
+.grid td.allcol{background:var(--accent-soft);border-right:1px solid var(--accent-line)}
+.grid tr.allonly td{background:var(--surface2)}
+.grid tr.allonly td.allcol{background:var(--accent-soft)}
+tr.off td{color:var(--faint)}
+tr.miss td{background:var(--g2bg)}
+</style>
+</head>
+<body>
+
+
+<header>
+  <div class="hin">
+    <p class="eyebrow">M16 ↔ M14 Bridge · FAB 비교</p>
+    <h1>FAB 별로는 어떻게 다른가</h1>
+    <p class="lede">
+      기존 <b>스코어 산출</b> 문서는 전체 점수 하나가 만들어지는 과정을 폈습니다.
+      이 문서는 같은 재료를 <b>FAB 다섯 개로 갈라 나란히</b> 놓습니다 —
+      어느 FAB 이 어떤 컬럼을 보고, 임계가 얼마나 다르고,
+      그래서 <b>혼자서는 몇 점까지밖에 못 가는지</b>.
+      2026-08 변경(STB 판정 제외 · M16_PKT 영역 제거 · M16B 가중 1.0 복원 · 경계 60)이
+      전부 반영된 판입니다.
+    </p>
+    <div class="formula-strip mono">
+      <b>ALL</b> = min(100, round(raw &times; 100 &divide; 220)) &nbsp;·&nbsp;
+      <b>FAB 위험도</b> = 영역점수 &times; 2 &nbsp;·&nbsp;
+      <b>영역점수</b> = min(50, &Sigma; 켜진 룰 배점)
+    </div>
+    <div class="formula-strip mono" style="margin-top:10px;
+         background:var(--g1bg);border-color:var(--g1)">
+      <b style="color:var(--g1)">등급 컷</b> &nbsp; 경계 <b>60</b> &nbsp;·&nbsp;
+      위험 <b>71</b> &nbsp;·&nbsp; 초위험 <b>85</b>
+      &nbsp;&nbsp;&nbsp;<span style="color:var(--muted)">
+      ★위 식의 50 은 <b>영역점수 상한</b>이지 등급 컷이 아닙니다.</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="note key">
+    <h4>이 문서를 만든 이유 한 줄</h4>
+    <p>한 FAB 에서 룰이 <b>전부</b> 켜지고 흐름까지 한 노드 심각해도, 전체 점수는
+      <b>M14B 38점 ~ 45점</b>에 그칩니다.
+      경계 컷 <b>60점</b>에 다섯 FAB 중 <b>하나도 닿지 못합니다.</b>
+      즉 <b>전체 점수 화면만 보면 한 FAB 에 국한된 정체는 보이지 않습니다.</b>
+      FAB 을 따로 세워 비교해야 하는 이유가 이것입니다.</p>
+    <p>이 계산은 남의 말이 아닙니다. 스코어 산출 문서가 <b>예측기를 직접 호출해</b>
+      낸 검증표에 "허브 룰 전부 + 흐름 2노드 심각 = <b>67점</b>" 이라는 줄이 있고,
+      같은 조건을 이 문서 '비교 4' 의 최대 상한 계산으로 넣어도 <b>67점</b>이 나옵니다.
+      서로 다른 경로로 같은 답이 나왔습니다.</p>
+    <p>경계 하한은 2026-08 에 50 → <b>60</b> 으로 올라갔습니다.
+      경계가 올라간 만큼 <b>단독 FAB 사각지대는 더 넓어졌습니다.</b>
+      (컷과 상한을 구분하는 이야기는 바로 아래 절에 따로 적었습니다.)</p>
+  </div>
+
+  <!-- 0. ALL 포함 여섯 시스템 -->
+  <section>
+    <div class="sechead"><span class="step">먼저</span><h2>관제 화면의 여섯 시스템 — 같은 자, 다른 대상</h2></div>
+    <p class="subtitle">
+      관제 화면은 <b>ALL + FAB 다섯</b> 을 고르게 되어 있습니다. 여섯 줄 모두
+      0~100 점이고 등급 컷도 같은 60 / 71 / 85 입니다.
+      <b>그런데 잰 대상이 다릅니다.</b> 이걸 모르고 나란히 읽으면
+      "M16HUB 는 24점인데 왜 ALL 은 19점이냐" 같은 질문에서 막힙니다.
+    </p>
+    <div class="tw"><table><thead><tr><th>시스템</th><th>무엇을 보나</th><th class="n">어떻게 점수가 되나</th><th class="n">나올 수 있는 범위</th><th>이 점수의 뜻</th><th class="n">단독 상한</th></tr></thead><tbody><tr><td class="area mono">ALL</td><td>7개 영역 융합 <span class="th">(영역합 + 흐름 + SLA + Sorter + MAXCAPA)</span></td><td class="n">raw &divide; 220 &times; 100</td><td class="n">0~100</td><td><b>실제로 경보가 나는 값</b> — 60점부터 사건이 열립니다</td><td class="n"><span class="none">없음</span></td></tr><tr><td class="area mono">M14</td><td>그 영역의 9개 룰 <span class="th">(임계와 대조해 켜짐/꺼짐)</span></td><td class="n">영역점수 &times; 2</td><td class="n">0~100</td><td>그 FAB <b>자체</b> 등급 — 전체 경보와는 별개</td><td class="n">45점</td></tr><tr><td class="area mono">M14B</td><td>그 영역의 9개 룰 <span class="th">(임계와 대조해 켜짐/꺼짐)</span></td><td class="n">영역점수 &times; 2</td><td class="n">0~80</td><td>그 FAB <b>자체</b> 등급 — 전체 경보와는 별개</td><td class="n">38점</td></tr><tr><td class="area mono">M16A</td><td>그 영역의 9개 룰 <span class="th">(임계와 대조해 켜짐/꺼짐)</span></td><td class="n">영역점수 &times; 2</td><td class="n">0~100</td><td>그 FAB <b>자체</b> 등급 — 전체 경보와는 별개</td><td class="n">45점</td></tr><tr><td class="area mono">M16B</td><td>그 영역의 9개 룰 <span class="th">(임계와 대조해 켜짐/꺼짐)</span></td><td class="n">영역점수 &times; 2</td><td class="n">0~90</td><td>그 FAB <b>자체</b> 등급 — 전체 경보와는 별개</td><td class="n">40점</td></tr><tr><td class="area mono">M16HUB</td><td>그 영역의 9개 룰 <span class="th">(임계와 대조해 켜짐/꺼짐)</span></td><td class="n">영역점수 &times; 2</td><td class="n">0~100</td><td>그 FAB <b>자체</b> 등급 — 전체 경보와는 별개</td><td class="n">45점</td></tr></tbody></table></div>
+    <div class="note key">
+      <h4>50 은 등급 컷이 아닙니다 — 영역점수 상한입니다</h4>
+      <p>숫자 두 개가 붙어 다녀서 헷갈리기 쉽습니다. 갈라 두겠습니다.</p>
+      <p><b>50</b> — 한 영역에서 아홉 룰이 다 켜지면 합이 63 인데,
+        거기서 자르는 <b>상한</b>입니다. 한 곳이 전체를 밀어올리지 못하게
+        막는 장치입니다. 등급과 아무 상관이 없습니다.</p>
+      <p><b>60 / 71 / 85</b> — 경계 · 위험 · 초위험이 시작되는
+        <b>등급 컷</b>입니다. 2026-08 에 경계가 50 → <b>60</b> 으로
+        올라갔고, 사건 시작 기준(<span class="mono">MIN_INCIDENT_SCORE</span>)도
+        같이 60 이 됐습니다. 스코어 산출 문서도 같은 값으로 갱신되어 있습니다.</p>
+    </div>
+  </section>
+
+  <!-- 0-2. ALL 은 어떻게 만들어지나 -->
+  <section>
+    <div class="sechead"><span class="step">ALL</span><h2>ALL 은 영역이 아니다 — 그래서 임계도 단독 상한도 없다</h2></div>
+    <p class="subtitle">
+      뒤이어 나오는 임계값 격자·컬럼 격자에 <b>ALL 칸이 없는 이유</b>입니다.
+      ALL 은 자기 컬럼을 보고 룰을 켜는 영역이 아니라, 일곱 영역의 점수에
+      네 개 항을 더해 만든 <b>합</b>입니다. 그래서 자기 임계값이 없고,
+      '이 시스템만 걸리면 몇 점' 이라는 단독 상한도 없습니다 —
+      자기가 전체이기 때문입니다.
+    </p>
+    <p class="subtitle">대신 ALL 만 가진 것이 있습니다. 융합 다섯 항과,
+      <b>룰마다 몇 개 영역에서 켜졌는가</b> 입니다.</p>
+    <div class="calc"><div style="font-size:12.5px;color:var(--muted);margin-bottom:10px">실측 한 줄 — <span class="mono">2026-08-12 10:00</span> (실제 발동이벤트에서 그대로 옮김)</div><div class="calc-row"><div class="lbl">영역점수합</div><div class="exp th">7개 영역 점수 × 가중치 — M16HUB 50 · M14 50 · M14B 35 · M16A 50 · M16B 40</div><div class="val">225</div></div><div class="calc-row"><div class="lbl">흐름</div><div class="exp th">10개 흐름 노드가 30분 평균의 몇 배인가 — 5개 노드 심각(12~17배)</div><div class="val">150</div></div><div class="calc-row"><div class="lbl">SLA</div><div class="exp th">SLA 가 걸린 영역 수 × 5 — 4개 영역</div><div class="val">20</div></div><div class="calc-row"><div class="lbl">Sorter</div><div class="exp th">소터가 걸린 영역 수 × 3 — 5개 영역</div><div class="val">15</div></div><div class="calc-row"><div class="lbl">MAXCAPA</div><div class="exp th">상한이 내려간 컬럼 수 × 10 × 영역수 — 3개 영역</div><div class="val">60</div></div><div class="calc-total"><div class="lbl">raw 합계</div><div class="exp mono">min(100, round(470 &times; 100 &divide; 220))</div><div class="val">100</div></div></div><h3 class="sub-h">룰마다 몇 개 영역에서 켜졌나</h3><p class="subtitle">ALL 점수가 왜 그 숫자인지는 여기서 읽힙니다. 한 영역에서 아홉 룰이 다 켜지는 것보다, 여러 영역에서 한두 룰씩 켜지는 쪽이 점수를 더 올립니다.</p><div class="tw"><table class="grid"><thead><tr><th>룰</th><th class="n">배점</th><th class="n">걸린 영역</th><th>어디에서</th></tr></thead><tbody><tr><td class="rule">R-A<span class="rdesc">반송·적재 시간 초과</span></td><td class="n">10</td><td class="n"><b>5</b> / 5</td><td class="th">M16HUB·M14·M14B·M16A·M16B</td></tr><tr><td class="rule">R-A′<span class="rdesc">그 상태가 이어짐</span></td><td class="n">5</td><td class="n"><b>0</b> / 5</td><td class="th">—</td></tr><tr><td class="rule">R-B<span class="rdesc">대기 물량 30분 증가</span></td><td class="n">10</td><td class="n"><b>5</b> / 5</td><td class="th">M16HUB·M14·M14B·M16A·M16B</td></tr><tr><td class="rule">R-B fast<span class="rdesc">10분새 급증</span></td><td class="n">5</td><td class="n"><b>5</b> / 5</td><td class="th">M16HUB·M14·M14B·M16A·M16B</td></tr><tr><td class="rule">R-C<span class="rdesc">리프터 역증가 · 컨베이어 쏠림</span></td><td class="n">8</td><td class="n"><b>0</b> / 5</td><td class="th">—</td></tr><tr><td class="rule">R-D<span class="rdesc">저장·설비 포화</span></td><td class="n">7</td><td class="n"><b>5</b> / 5</td><td class="th">M16HUB·M14·M14B·M16A·M16B</td></tr><tr><td class="rule">SLA<span class="rdesc">4분 초과 반송 비율</span></td><td class="n">5</td><td class="n"><b>4</b> / 5</td><td class="th">M16HUB·M14·M16A·M16B</td></tr><tr><td class="rule">SORT<span class="rdesc">소터 대기 · 이재 실패</span></td><td class="n">3</td><td class="n"><b>5</b> / 5</td><td class="th">M16HUB·M14·M14B·M16A·M16B</td></tr><tr><td class="rule">MAXCAPA<span class="rdesc">설비 상한 하락</span></td><td class="n">10</td><td class="n"><b>3</b> / 5</td><td class="th">M16HUB·M14·M16A</td></tr></tbody></table></div><p class="pipe-note" style="margin-top:10px">이 한 줄에서 다섯 FAB 이 전부 걸렸고, 최고구역은 <span class="mono">M16HUB</span>, 단계는 3단계 ⭐확정, 등급은 초위험(100점)입니다. 8/12 실제 정체 구간입니다.</p>
+  </section>
+
+  <!-- 1. 임계값 격자 -->
+  <section>
+    <div class="sechead"><span class="step">비교 1</span><h2>같은 룰, 다른 임계값</h2></div>
+    <p class="subtitle">
+      배점은 다섯 FAB 이 <b>완전히 같습니다</b>(10·5·10·5·8·7·5·3·10×n, 상한 50).
+      다른 것은 임계값뿐입니다 — FAB 마다 평소 수준이 다르니 당연히 달라야 합니다.
+      배점이 같기 때문에 <b>영역점수는 그대로 FAB 간 비교가 됩니다.</b>
+    </p>
+    <div class="tw"><table class="grid"><thead><tr><th>룰</th><th class="n">배점</th><th class="n">M14</th><th class="n">M14B</th><th class="n">M16A</th><th class="n">M16B</th><th class="n">M16HUB</th></tr></thead><tbody><tr><td class="rule">R-A<span class="rdesc">반송·적재 시간 초과</span></td><td class="n"><span class="pts">10</span></td><td class="n">≥ 3.3분</td><td class="n">≥ 5분</td><td class="n">≥ 3.2분</td><td class="n">≥ 3.5분</td><td class="n">≥ 9분</td></tr><tr><td class="rule">R-A′<span class="rdesc">그 상태가 이어짐</span><span class="rdesc">임계 = R-A × 0.7</span></td><td class="n"><span class="pts">5</span></td><td class="n">≥ 2.31분</td><td class="n">≥ 3.5분</td><td class="n">≥ 2.24분</td><td class="n">≥ 2.45분</td><td class="n">≥ 6.3분</td></tr><tr><td class="rule">R-B<span class="rdesc">대기 물량 30분 증가</span></td><td class="n"><span class="pts">10</span></td><td class="n">≥ 80건</td><td class="n">≥ 150건</td><td class="n">≥ 84건</td><td class="n">≥ 32건</td><td class="n">≥ 100건</td></tr><tr><td class="rule">R-B fast<span class="rdesc">10분새 급증</span><span class="rdesc">임계 = R-B × 0.3</span></td><td class="n"><span class="pts">5</span></td><td class="n">≥ 24건</td><td class="n">≥ 45건</td><td class="n">≥ 25건</td><td class="n">≥ 10건</td><td class="n">≥ 30건</td></tr><tr><td class="rule">R-C<span class="rdesc">리프터 역증가 · 컨베이어 쏠림</span></td><td class="n"><span class="pts">8</span></td><td class="n">≥ 0.7</td><td class="n"><span class="none">—</span></td><td class="n"><span class="none">—</span></td><td class="n"><span class="none">—</span></td><td class="n">≥ 4대</td></tr><tr><td class="rule">R-D<span class="rdesc">저장·설비 포화</span></td><td class="n"><span class="pts">7</span></td><td class="n">≥ 95%</td><td class="n">≥ 95%</td><td class="n">≥ 95%</td><td class="n">≥ 95%</td><td class="n">≥ 25.75%<br>≥ 50건<br>≥ 30건<br>≥ 0.85</td></tr><tr><td class="rule">SLA<span class="rdesc">4분 초과 반송 비율</span></td><td class="n"><span class="pts">5</span></td><td class="n">≥ 25.45%<br>10분 + 20건</td><td class="n"><span class="undef">임계 미정의</span></td><td class="n">≥ 14.05%<br>10분 + 20건</td><td class="n">≥ 22.05%<br>10분 + 20건</td><td class="n">≥ 5%<br>10분 + 20건</td></tr><tr><td class="rule">SORT<span class="rdesc">소터 대기 · 이재 실패</span></td><td class="n"><span class="pts">3</span></td><td class="n">≥ 148건</td><td class="n">≥ 109건</td><td class="n">≥ 180건<br>≥ 1건</td><td class="n">≥ 90건<br>≥ 1건</td><td class="n">≥ 30건</td></tr><tr><td class="rule">MAXCAPA<span class="rdesc">설비 상한 하락</span></td><td class="n"><span class="pts">10×n</span></td><td class="n">≤ 150 <span class="th">(평상 244)</span></td><td class="n"><span class="none">—</span></td><td class="n">≤ 40 <span class="th">(평상 54)</span><br>≤ 100 <span class="th">(평상 149)</span></td><td class="n"><span class="none">—</span></td><td class="n">≤ 100 <span class="th">(평상 165)</span><br>≤ 50 <span class="th">(평상 66)</span><br>≤ 80 <span class="th">(평상 129)</span></td></tr></tbody></table></div>
+    <div class="note warn">
+      <h4>M16HUB R-D 에서 STB 항이 빠졌습니다 (2026-08)</h4>
+      <p>예전 R-D 에는 STB 저장율(<span class="mono">M16HUB.STRATE.STB.3F_STORAGE_UTIL</span> ≥ 99.3%)
+        항이 있었습니다. 고객 요청으로 <b>판정에서 제외</b>되어, 지금 R-D 는
+        FAB 저장율 · MLUD · 수동대기 · 컨베이어 점유율 <b>네 항</b>만 봅니다.
+        STB 값 자체는 발동이벤트 <span class="mono">M16HUB_stb_util</span> 컬럼에
+        계속 기록됩니다 — 참고용입니다.</p>
+    </div>
+    <div class="note">
+      <h4>여기서 바로 읽히는 것</h4>
+      <p>반송시간 임계가 M16HUB 9.0분 · M16A 3.2분으로 <b>세 배 가까이</b> 벌어집니다.
+        허브룸은 원래 오래 걸리는 구간이라 그렇습니다. 그래서 M16A 3.4분과
+        M16HUB 3.4분은 전혀 다른 상태이고, <b>원본 값을 나란히 놓고 비교하면 안 됩니다.</b>
+        비교해야 하는 것은 값이 아니라 <b>임계를 넘었느냐(=점수)</b> 입니다.</p>
+    </div>
+  </section>
+
+  <!-- 2. 컬럼 격자 -->
+  <section>
+    <div class="sechead"><span class="step">비교 2</span><h2>FAB 별로 실제 보고 있는 컬럼</h2></div>
+    <p class="subtitle">
+      같은 룰이라도 FAB 마다 다른 컬럼을 봅니다.
+      위가 AMOS 실제 컬럼명, 아래가 그 값이 실려 오는 발동이벤트 CSV 컬럼입니다.
+      <b>CSV 에 값이 없는 컬럼</b>은 관제 화면에 숫자가 안 뜬다는 뜻입니다 —
+      룰은 켜지는데 근거 값을 볼 수 없는 구간입니다.
+    </p>
+    <div class="tw"><table class="grid cols"><thead><tr><th>룰</th><th>M14</th><th>M14B</th><th>M16A</th><th>M16B</th><th>M16HUB</th></tr></thead><tbody><tr><td class="rule">R-A / R-A′<span class="rdesc">반송·적재 시간</span></td><td class="col"><div class="colstack"><span class="amos">M14.QUE.LOAD.AVGLOADTIME1MIN</span><br><span class="th">CSV M14_ra</span></div></td><td class="col"><div class="colstack"><span class="amos">M14B.QUE.TIME.AVGTOTALTIME1MIN</span><br><span class="th">CSV M14B_ra</span></div></td><td class="col"><div class="colstack"><span class="amos">M16A.QUE.LOAD.AVGLOADTIME1MIN</span><br><span class="th">CSV M16A_ra</span></div></td><td class="col"><div class="colstack"><span class="amos">M16B.QUE.LOAD.AVGLOADTIME1MIN</span><br><span class="th">CSV M16B_ra</span></div></td><td class="col"><div class="colstack"><span class="amos">M16HUB.QUE.TIME.AVGTOTALTIME1MIN</span><br><span class="th">CSV M16HUB_ra</span></div></td></tr><tr><td class="rule">R-B / R-B fast<span class="rdesc">대기 물량 증가</span></td><td class="col"><div class="colstack"><span class="amos">M14.QUE.ALL.3F_TO_HUB_JOB</span><br><span class="th">CSV M14_rb_diff30 / diff10</span></div></td><td class="col"><div class="colstack"><span class="amos">M14B.QUE.ALL.7F_TO_HUB_JOB</span><br><span class="th">CSV M14B_rb_diff30 / diff10</span></div></td><td class="col"><div class="colstack"><span class="amos">M16A.QUE.ALL.6F_TO_HUB_JOB</span><br><span class="th">CSV M16A_rb_diff30 / diff10</span></div></td><td class="col"><div class="colstack"><span class="amos">M16B.QUE.ALL.10F_TO_HUB_JOB</span><br><span class="th">CSV M16B_rb_diff30 / diff10</span></div></td><td class="col"><div class="colstack"><span class="amos">M16HUB.QUE.M14TOM16.MESCURRENTQCNT</span><br><span class="th">CSV M16HUB_rb_diff30 / diff10</span></div></td></tr><tr><td class="rule">R-C<span class="rdesc">역증가 · 쏠림</span></td><td class="col"><div class="colstack"><span class="amos">M14.QUE.CNV.M14ATONORTHCURRENTQCNT / …SOUTH…</span><br><span class="th">CSV M14_cnv_skew</span></div></td><td class="col"><span class="none">—</span></td><td class="col"><span class="none">—</span></td><td class="col"><span class="none">—</span></td><td class="col"><div class="colstack"><span class="amos">M16HUB.LFT.{6ABL6011…6ABL0122}.TOTAL_CURRENTQCNT</span><br><span class="th">CSV M16HUB_rev_count</span></div></td></tr><tr><td class="rule">R-D<span class="rdesc">저장·설비 포화</span></td><td class="col"><div class="colstack"><span class="amos">M14.QUE.OHT.OHTUTIL</span><br><span class="th">CSV M14_rd_oht</span></div></td><td class="col"><div class="colstack"><span class="amos">M14B.QUE.OHT.OHTUTIL</span><br><span class="th">CSV M14B_rd_oht</span></div></td><td class="col"><div class="colstack"><span class="amos">M16A.QUE.OHT.OHTUTIL</span><br><span class="th">CSV M16A_rd_oht</span></div></td><td class="col"><div class="colstack"><span class="amos">M16B.QUE.OHT.OHTUTIL</span><br><span class="th">CSV M16B_rd_oht</span></div></td><td class="col"><div class="colstack"><span class="amos">M16HUB.STRATE.ALL.FABSTORAGERATIO</span><br><span class="th">CSV M16HUB_rd_fab</span></div><div class='colstack'><span class="amos">M16HUB.QUE.ALL.3F_TO_3F_MLUD_JOB</span><br><span class="nocsv">CSV 에 값 없음</span></div><div class='colstack'><span class="amos">M16HUB.QUE.ALL.M16HUBTOM14MANUAL_CURRENTQCNT</span><br><span class="nocsv">CSV 에 값 없음</span></div><div class='colstack'><span class="amos">M16HUB.CNV.SENDFAB.TO_M14A_CURRENTQCNT ÷ M16HUB.QUE.CNV.3F_CNV_MAXCAPA</span><br><span class="nocsv">CSV 에 값 없음</span></div><div class='colstack'><span class="amos" style="text-decoration:line-through;opacity:.55">M16HUB.STRATE.STB.3F_STORAGE_UTIL</span><br><span class="th">2026-08 판정 제외 — 값만 CSV M16HUB_stb_util 에 기록</span></div></td></tr><tr><td class="rule">SLA<span class="rdesc">4분 초과 반송</span></td><td class="col"><div class="colstack"><span class="amos">M14.QUE.ALL.TRANSPORT4MINOVERRATIO</span><br><span class="th">CSV sla_M14</span></div><div class='colstack'><span class="amos">M14.QUE.ALL.TRANSPORT4MINOVERCNT</span><br><span class="th">CSV M14_sla_cnt</span></div></td><td class="col"><div class="colstack"><span class="amos">M14B.QUE.ALL.TRANSPORT4MINOVERRATIO</span><br><span class="th">CSV sla_M14B</span></div></td><td class="col"><div class="colstack"><span class="amos">M16A.QUE.ALL.TRANSPORT4MINOVERRATIO</span><br><span class="th">CSV sla_M16A</span></div><div class='colstack'><span class="amos">M16A.QUE.ALL.TRANSPORT4MINOVERCNT</span><br><span class="th">CSV M16A_sla_cnt</span></div></td><td class="col"><div class="colstack"><span class="amos">M16B.QUE.ALL.TRANSPORT4MINOVERRATIO</span><br><span class="th">CSV sla_M16B</span></div><div class='colstack'><span class="amos">M16B.QUE.ALL.TRANSPORT4MINOVERCNT</span><br><span class="th">CSV M16B_sla_cnt</span></div></td><td class="col"><div class="colstack"><span class="amos">M16HUB.QUE.ALL.TRANSPORT4MINOVERRATIO</span><br><span class="th">CSV sla_M16HUB</span></div><div class='colstack'><span class="amos">M16HUB.QUE.ALL.TRANSPORT4MINOVERCNT</span><br><span class="th">CSV M16HUB_sla_cnt</span></div></td></tr><tr><td class="rule">SORT<span class="rdesc">소터 대기 · 이재 실패</span></td><td class="col"><div class="colstack"><span class="amos">M14.SORTER.ABN.SORTERWAITCOUNTOVER</span><br><span class="th">CSV sorter_M14</span></div></td><td class="col"><div class="colstack"><span class="amos">M14B.SORTER.ABN.SORTERWAITCOUNTOVER</span><br><span class="th">CSV sorter_M14B</span></div></td><td class="col"><div class="colstack"><span class="amos">M16A.SORTER.ABN.SORTERWAITCOUNTOVER</span><br><span class="th">CSV sorter_M16A</span></div><div class='colstack'><span class="amos">M16A.SORTER.ABN.SORTERTRANSFERFAIL</span><br><span class="th">CSV M16A_sorter_fail</span></div></td><td class="col"><div class="colstack"><span class="amos">M16B.SORTER.ABN.SORTERWAITCOUNTOVER</span><br><span class="th">CSV sorter_M16B</span></div><div class='colstack'><span class="amos">M16B.SORTER.ABN.SORTERTRANSFERFAIL</span><br><span class="th">CSV M16B_sorter_fail</span></div></td><td class="col"><div class="colstack"><span class="amos">M16HUB.SORTER.ABN.SORTERWAITCOUNTOVER</span><br><span class="th">CSV sorter_M16HUB</span></div></td></tr><tr><td class="rule">MAXCAPA<span class="rdesc">설비 상한 하락</span></td><td class="col"><div class="colstack"><span class="amos">M14.QUE.CNV.3F_CNV_MAXCAPA</span><br><span class="nocsv">CSV 에 값 없음</span></div></td><td class="col"><span class="none">—</span></td><td class="col"><div class="colstack"><span class="amos">M16A.QUE.LFT.2F_LFT_MAXCAPA</span><br><span class="nocsv">CSV 에 값 없음</span></div><div class='colstack'><span class="amos">M16A.QUE.LFT.6F_LFT_MAXCAPA</span><br><span class="nocsv">CSV 에 값 없음</span></div></td><td class="col"><span class="none">—</span></td><td class="col"><div class="colstack"><span class="amos">M16HUB.QUE.LFT.3F_LFT_MAXCAPA</span><br><span class="nocsv">CSV 에 값 없음</span></div><div class='colstack'><span class="amos">M16HUB.QUE.LFT.3F_M14BLFT_MAXCAPA</span><br><span class="nocsv">CSV 에 값 없음</span></div><div class='colstack'><span class="amos">M16HUB.QUE.CNV.3F_CNV_MAXCAPA</span><br><span class="nocsv">CSV 에 값 없음</span></div></td></tr></tbody></table></div>
+    <div class="note warn">
+      <h4>반송시간만 QUE.TIME 과 QUE.LOAD 로 갈립니다</h4>
+      <p>M16HUB · M14B 는 <span class="mono">QUE.TIME.AVGTOTALTIME1MIN</span>(총 반송시간),
+        M14 · M16A · M16B 는 <span class="mono">QUE.LOAD.AVGLOADTIME1MIN</span>(적재시간)입니다.
+        같은 'R-A' 이지만 재는 것이 다릅니다. 임계가 다른 이유의 절반이 여기 있습니다.</p>
+    </div>
+  </section>
+
+  <!-- 2-2. 화면 지표 ⇄ 룰 -->
+  <section>
+    <div class="sechead"><span class="step">비교 2-2</span><h2>화면이 그리는 지표와, 룰이 실제로 쓰는 컬럼</h2></div>
+    <p class="subtitle">
+      관제 화면의 추이 그래프 목록은 이미 정해져 있습니다. 이 문서는 그 목록을
+      <b>새로 만들지 않고 그대로 가져와서</b>, 각 지표가 어느 룰의 어느 임계에
+      걸리는지를 붙였습니다. 두 곳에 적으면 반드시 갈라지기 때문입니다.
+    </p>
+    <p class="subtitle">그러자 <b>화면에 있는데 점수에는 안 쓰이는 지표</b>와,
+      반대로 <b>점수는 쓰는데 화면에 없는 컬럼</b>이 드러났습니다.</p>
+
+    <div class="note key">
+      <h4>ALL 화면은 점수를 만드는 값을 거의 안 보여 줍니다</h4>
+      <p>ALL 화면이 그리는 지표 <b>20개</b>
+        중, ALL 점수 계산에 실제로 들어가는 것은
+        <b>1개</b>(스코어 자신)뿐입니다.
+        나머지는 FAB 별 지표를 참고로 늘어놓은 것입니다.</p>
+      <p>정작 ALL 점수를 만드는 네 항 —
+        <span class="mono">flow_score</span> ·
+        <span class="mono">sla_score_total</span> ·
+        <span class="mono">sorter_score_total</span> ·
+        <span class="mono">mc_score_total</span> — 은
+        <b>ALL 화면 지표 목록에 없습니다.</b> CSV 에는 실려 옵니다.
+        "왜 60점인가" 를 화면에서 짚으려면 이 넷이 있어야 합니다.
+        화면 지표 목록에 추가하면 바로 그려집니다.</p>
+    </div>
+
+    <h3 class="sub-h">ALL</h3>
+    <div class="tw"><table><thead><tr><th>CSV 컬럼</th><th>이름</th><th>AMOS 컬럼</th><th>쓰는 룰</th><th class="n">임계</th></tr></thead><tbody><tr><td class="mono" style="font-size:11.5px">unified_risk_score</td><td>스코어</td><td class="col"><span class="amos">unified_risk_score</span></td><td>SCORE</td><td class="n">판정 결과</td></tr><tr class="off"><td class="mono" style="font-size:11.5px">M16HUB_ra</td><td>M16HUB 반송시간</td><td class="col"><span class="amos">M16HUB.QUE.TIME.AVGTOTALTIME1MIN</span></td><td><span class="none">쓰지 않음</span></td><td class="n"><span class="th">참고 표시용</span></td></tr><tr class="off"><td class="mono" style="font-size:11.5px">M14_ra</td><td>M14 반송시간</td><td class="col"><span class="amos">M14.QUE.LOAD.AVGLOADTIME1MIN</span></td><td><span class="none">쓰지 않음</span></td><td class="n"><span class="th">참고 표시용</span></td></tr><tr class="off"><td class="mono" style="font-size:11.5px">M14B_ra</td><td>M14B 반송시간</td><td class="col"><span class="amos">M14B.QUE.TIME.AVGTOTALTIME1MIN</span></td><td><span class="none">쓰지 않음</span></td><td class="n"><span class="th">참고 표시용</span></td></tr><tr class="off"><td class="mono" style="font-size:11.5px">M16A_ra</td><td>M16A 반송시간</td><td class="col"><span class="amos">M16A.QUE.LOAD.AVGLOADTIME1MIN</span></td><td><span class="none">쓰지 않음</span></td><td class="n"><span class="th">참고 표시용</span></td></tr><tr class="off"><td class="mono" style="font-size:11.5px">M16B_ra</td><td>M16B 반송시간</td><td class="col"><span class="amos">M16B.QUE.LOAD.AVGLOADTIME1MIN</span></td><td><span class="none">쓰지 않음</span></td><td class="n"><span class="th">참고 표시용</span></td></tr><tr class="off"><td class="mono" style="font-size:11.5px">M16HUB_rd_fab</td><td>M16HUB FAB저장율</td><td class="col"><span class="amos">M16HUB.STRATE.ALL.FABSTORAGERATIO</span></td><td><span class="none">쓰지 않음</span></td><td class="n"><span class="th">참고 표시용</span></td></tr><tr class="off"><td class="mono" style="font-size:11.5px">M16HUB_stb_util</td><td>M16HUB STB저장율</td><td class="col"><span class="amos">M16HUB.STRATE.STB.3F_STORAGE_UTIL</span></td><td><span class="none">쓰지 않음</span></td><td class="n"><span class="th">기록만 — 2026-08 판정 제외</span></td></tr><tr class="off"><td class="mono" style="font-size:11.5px">M16HUB_rev_count</td><td>M16HUB 리프터 정체</td><td class="col"><span class="amos">M16HUB.LFT.* 리프터 큐 (역증가 대수)</span></td><td><span class="none">쓰지 않음</span></td><td class="n"><span class="th">참고 표시용</span></td></tr><tr class="off"><td class="mono" style="font-size:11.5px">M14_rd_oht</td><td>M14 OHT가동률</td><td class="col"><span class="amos">M14.QUE.OHT.OHTUTIL</span></td><td><span class="none">쓰지 않음</span></td><td class="n"><span class="th">참고 표시용</span></td></tr><tr class="off"><td class="mono" style="font-size:11.5px">M14B_rd_oht</td><td>M14B OHT가동률</td><td class="col"><span class="amos">M14B.QUE.OHT.OHTUTIL</span></td><td><span class="none">쓰지 않음</span></td><td class="n"><span class="th">참고 표시용</span></td></tr><tr class="off"><td class="mono" style="font-size:11.5px">M16A_rd_oht</td><td>M16A OHT가동률</td><td class="col"><span class="amos">M16A.QUE.OHT.OHTUTIL</span></td><td><span class="none">쓰지 않음</span></td><td class="n"><span class="th">참고 표시용</span></td></tr><tr class="off"><td class="mono" style="font-size:11.5px">M16B_rd_oht</td><td>M16B OHT가동률</td><td class="col"><span class="amos">M16B.QUE.OHT.OHTUTIL</span></td><td><span class="none">쓰지 않음</span></td><td class="n"><span class="th">참고 표시용</span></td></tr><tr class="off"><td class="mono" style="font-size:11.5px">sla_M14</td><td>M14 4분초과율</td><td class="col"><span class="amos">M14.QUE.ALL.TRANSPORT4MINOVERRATIO</span></td><td><span class="none">쓰지 않음</span></td><td class="n"><span class="th">참고 표시용</span></td></tr><tr class="off"><td class="mono" style="font-size:11.5px">sla_M16A</td><td>M16A 4분초과율</td><td class="col"><span class="amos">M16A.QUE.ALL.TRANSPORT4MINOVERRATIO</span></td><td><span class="none">쓰지 않음</span></td><td class="n"><span class="th">참고 표시용</span></td></tr><tr class="off"><td class="mono" style="font-size:11.5px">sla_M16B</td><td>M16B 4분초과율</td><td class="col"><span class="amos">M16B.QUE.ALL.TRANSPORT4MINOVERRATIO</span></td><td><span class="none">쓰지 않음</span></td><td class="n"><span class="th">참고 표시용</span></td></tr><tr class="off"><td class="mono" style="font-size:11.5px">sorter_M14</td><td>M14 분류기 대기</td><td class="col"><span class="amos">M14.SORTER.ABN.SORTERWAITCOUNTOVER</span></td><td><span class="none">쓰지 않음</span></td><td class="n"><span class="th">참고 표시용</span></td></tr><tr class="off"><td class="mono" style="font-size:11.5px">sorter_M14B</td><td>M14B 분류기 대기</td><td class="col"><span class="amos">M14B.SORTER.ABN.SORTERWAITCOUNTOVER</span></td><td><span class="none">쓰지 않음</span></td><td class="n"><span class="th">참고 표시용</span></td></tr><tr class="off"><td class="mono" style="font-size:11.5px">sorter_M16A</td><td>M16A 분류기 대기</td><td class="col"><span class="amos">M16A.SORTER.ABN.SORTERWAITCOUNTOVER</span></td><td><span class="none">쓰지 않음</span></td><td class="n"><span class="th">참고 표시용</span></td></tr><tr class="off"><td class="mono" style="font-size:11.5px">sorter_M16B</td><td>M16B 분류기 대기</td><td class="col"><span class="amos">M16B.SORTER.ABN.SORTERWAITCOUNTOVER</span></td><td><span class="none">쓰지 않음</span></td><td class="n"><span class="th">참고 표시용</span></td></tr><tr class="miss"><td class="mono" style="font-size:11.5px">sla_score_total</td><td>SLA 합계 — 걸린 영역 수 × 5</td><td class="col"><span class="amos">(집계)</span></td><td>SLA</td><td class="n"><span class="undef">화면에 없음</span></td></tr><tr class="miss"><td class="mono" style="font-size:11.5px">sorter_score_total</td><td>Sorter 합계 — 걸린 영역 수 × 3</td><td class="col"><span class="amos">(집계)</span></td><td>SORT</td><td class="n"><span class="undef">화면에 없음</span></td></tr><tr class="miss"><td class="mono" style="font-size:11.5px">mc_score_total</td><td>MAXCAPA 합계 — 내려간 컬럼 수 × 10 × 영역수</td><td class="col"><span class="amos">(집계)</span></td><td>MAXCAPA</td><td class="n"><span class="undef">화면에 없음</span></td></tr><tr class="miss"><td class="mono" style="font-size:11.5px">maxcapa_signals</td><td>어느 컬럼이 내려갔나</td><td class="col"><span class="amos">(집계)</span></td><td>MAXCAPA</td><td class="n"><span class="undef">화면에 없음</span></td></tr><tr class="miss"><td class="mono" style="font-size:11.5px">flow_score</td><td>흐름 항 점수</td><td class="col"><span class="amos">(집계)</span></td><td>FUSE</td><td class="n"><span class="undef">화면에 없음</span></td></tr><tr class="miss"><td class="mono" style="font-size:11.5px">layer1_total</td><td>1층 합계</td><td class="col"><span class="amos">(집계)</span></td><td>FUSE</td><td class="n"><span class="undef">화면에 없음</span></td></tr><tr class="miss"><td class="mono" style="font-size:11.5px">hot_area</td><td>최고 위험 구역</td><td class="col"><span class="amos">hot_area</span></td><td>SCORE</td><td class="n"><span class="undef">화면에 없음</span></td></tr><tr class="miss"><td class="mono" style="font-size:11.5px">stage</td><td>단계</td><td class="col"><span class="amos">stage</span></td><td>SCORE</td><td class="n"><span class="undef">화면에 없음</span></td></tr></tbody></table></div><p class="pipe-note" style="margin-top:8px">화면 지표 <b>20개</b> 중 룰이 실제로 쓰는 것 <b>1개</b> · 룰은 보는데 화면 목록에 없는 컬럼 <b style="color:var(--g2)">8개</b></p>
+    <h3 class="sub-h">M16HUB</h3>
+    <div class="tw"><table><thead><tr><th>CSV 컬럼</th><th>이름</th><th>AMOS 컬럼</th><th>쓰는 룰</th><th class="n">임계</th></tr></thead><tbody><tr class="off"><td class="mono" style="font-size:11.5px">unified_risk_score</td><td>스코어</td><td class="col"><span class="amos">area_score</span></td><td><span class="none">쓰지 않음</span></td><td class="n"><span class="th">참고 표시용</span></td></tr><tr class="off"><td class="mono" style="font-size:11.5px">M16HUB_score_raw</td><td>구역점수(raw)</td><td class="col"><span class="amos">M16HUB_score_raw</span></td><td><span class="none">쓰지 않음</span></td><td class="n"><span class="th">참고 표시용</span></td></tr><tr><td class="mono" style="font-size:11.5px">M16HUB_ra</td><td>M16HUB 반송시간</td><td class="col"><span class="amos">M16HUB.QUE.TIME.AVGTOTALTIME1MIN</span></td><td>R-A · R-A′</td><td class="n">9 / 6.3</td></tr><tr class="off"><td class="mono" style="font-size:11.5px">M16HUB_ra_count</td><td>반송지연 건수</td><td class="col"><span class="amos">M16HUB_ra_count</span></td><td><span class="none">쓰지 않음</span></td><td class="n"><span class="th">참고 표시용</span></td></tr><tr><td class="mono" style="font-size:11.5px">M16HUB_rb_diff30</td><td>Queue 증감(30분)</td><td class="col"><span class="amos">M16HUB_rb_diff30</span></td><td>R-B</td><td class="n">100</td></tr><tr><td class="mono" style="font-size:11.5px">M16HUB_rb_diff10</td><td>Queue 증감(10분)</td><td class="col"><span class="amos">M16HUB_rb_diff10</span></td><td>R-B fast</td><td class="n">30</td></tr><tr><td class="mono" style="font-size:11.5px">sla_M16HUB</td><td>4분초과율</td><td class="col"><span class="amos">M16HUB.QUE.ALL.TRANSPORT4MINOVERRATIO</span></td><td>SLA</td><td class="n">5</td></tr><tr><td class="mono" style="font-size:11.5px">M16HUB_sla_cnt</td><td>4분초과 건수</td><td class="col"><span class="amos">M16HUB_sla_cnt</span></td><td>SLA</td><td class="n">20</td></tr><tr><td class="mono" style="font-size:11.5px">sorter_M16HUB</td><td>분류기 대기</td><td class="col"><span class="amos">M16HUB.SORTER.ABN.SORTERWAITCOUNTOVER</span></td><td>SORT</td><td class="n">30</td></tr><tr class="off"><td class="mono" style="font-size:11.5px">M16HUB_sorter_fail</td><td>소터 실패</td><td class="col"><span class="amos">M16HUB_sorter_fail</span></td><td><span class="none">쓰지 않음</span></td><td class="n"><span class="th">참고 표시용</span></td></tr><tr><td class="mono" style="font-size:11.5px">M16HUB_rd_fab</td><td>FAB저장율</td><td class="col"><span class="amos">M16HUB.STRATE.ALL.FABSTORAGERATIO</span></td><td>R-D</td><td class="n">25.75</td></tr><tr class="off"><td class="mono" style="font-size:11.5px">M16HUB_stb_util</td><td>STB저장율</td><td class="col"><span class="amos">M16HUB.STRATE.STB.3F_STORAGE_UTIL</span></td><td><span class="none">쓰지 않음</span></td><td class="n"><span class="th">기록만 — 2026-08 판정 제외</span></td></tr><tr><td class="mono" style="font-size:11.5px">M16HUB_rev_count</td><td>리프터 정체</td><td class="col"><span class="amos">M16HUB.LFT.* 리프터 큐 (역증가 대수)</span></td><td>R-C</td><td class="n">4</td></tr><tr class="off"><td class="mono" style="font-size:11.5px">M16HUB_rc_trend</td><td>리프터 정체 추세</td><td class="col"><span class="amos">M16HUB_rc_trend</span></td><td><span class="none">쓰지 않음</span></td><td class="n"><span class="th">참고 표시용</span></td></tr></tbody></table></div><p class="pipe-note" style="margin-top:8px">화면 지표 <b>14개</b> 중 룰이 실제로 쓰는 것 <b>8개</b> — STB저장율은 2026-08 부터 판정에서 빠져 참고 표시용이 됐습니다. M14 · M14B · M16A · M16B 화면 목록은 예전 그대로이고 (각 8 · 6 · 8 · 8개 사용), 이번 변경의 영향이 없습니다.</p>
+  </section>
+
+  <!-- 2-3. 점수 컬럼 이름 -->
+  <section>
+    <div class="sechead"><span class="step">이름</span><h2>그 FAB 의 점수는 어느 컬럼인가 — area_score</h2></div>
+    <p class="subtitle">
+      같은 값이 파일에 따라 다른 이름으로 실려 옵니다. 이 시스템은 이미
+      <span class="mono">area_score</span> 라는 이름을 쓰고 있고,
+      이 문서와 계산도 <b>그 이름을 그대로 따라갑니다.</b>
+    </p>
+    <div class="tw"><table><thead><tr>
+      <th>어디서 온 행</th><th>그 FAB 점수 컬럼</th><th>전체 점수 컬럼</th>
+      <th>비고</th></tr></thead><tbody>
+      <tr><td>통합 파일 <span class="mono">{day}_발동이벤트.csv</span></td>
+        <td class="mono">{FAB}_score</td>
+        <td class="mono">unified_risk_score</td>
+        <td class="th">둘 다 그대로 들어 있습니다</td></tr>
+      <tr><td>FAB 분리 파일 <span class="mono">fab분리/…_{FAB}.csv</span></td>
+        <td class="mono"><b>area_score</b></td>
+        <td class="mono">unified_risk_score</td>
+        <td class="th">전체 점수도 같이 들어 있습니다 — 그 FAB 점수가 아닙니다</td></tr>
+    </tbody></table></div>
+    <div class="note warn">
+      <h4>FAB 분리 파일의 unified_risk_score 를 그 FAB 점수로 읽으면 안 됩니다</h4>
+      <p>분리 파일에도 전체 점수(<span class="mono">unified_risk_score</span>)가
+        같이 실려 옵니다. 그 FAB 자체의 점수·등급은
+        <span class="mono">area_score</span> · <span class="mono">area_level</span>
+        입니다 (<span class="mono">--score</span> 옵션이 붙인 0~100 환산값 —
+        등급 컷은 같은 60 / 71 / 85). 두 컬럼을 바꿔 읽으면 한 FAB 점수를
+        전체라고 띄우게 됩니다.</p>
+    </div>
+  </section>
+
+  <!-- 3. 비는 칸 -->
+  <section>
+    <div class="sechead"><span class="step">비교 3</span><h2>어떤 FAB 은 아예 받을 수 없는 점수가 있다</h2></div>
+    <p class="subtitle">
+      룰 자체가 없는 칸입니다. 그 FAB 은 그 배점을 받을 <b>길이 없습니다</b> —
+      상태가 나빠서 0점인 것과 다릅니다.
+    </p>
+    <div class="tw"><table><thead><tr>
+      <th>FAB</th><th>룰이 없는 항목</th><th>임계가 안 적힌 항목</th>
+      <th class="n">못 받는 배점</th><th class="n">받을 수 있는 합</th>
+      <th class="n">영역점수 천장</th><th class="n">위험도 천장</th>
+      <th>상한 50점</th></tr></thead>
+      <tbody><tr><td class="mono"><b>M14</b></td><td><span class="none">—</span></td><td><span class="none">—</span></td><td class="n"><span class="none">0</span></td><td class="n">63</td><td class="n"><b>50</b> / 50</td><td class="n">100</td><td><span class="pill p0">상한 도달</span></td></tr><tr><td class="mono"><b>M14B</b></td><td>R-C, MAXCAPA</td><td>SLA</td><td class="n">23</td><td class="n">40</td><td class="n"><b>40</b> / 50</td><td class="n">80</td><td><span class="pill p2">40점이 천장</span></td></tr><tr><td class="mono"><b>M16A</b></td><td>R-C</td><td><span class="none">—</span></td><td class="n">8</td><td class="n">65</td><td class="n"><b>50</b> / 50</td><td class="n">100</td><td><span class="pill p0">상한 도달</span></td></tr><tr><td class="mono"><b>M16B</b></td><td>R-C, MAXCAPA</td><td><span class="none">—</span></td><td class="n">18</td><td class="n">45</td><td class="n"><b>45</b> / 50</td><td class="n">90</td><td><span class="pill p2">45점이 천장</span></td></tr><tr><td class="mono"><b>M16HUB</b></td><td><span class="none">—</span></td><td><span class="none">—</span></td><td class="n"><span class="none">0</span></td><td class="n">83</td><td class="n"><b>50</b> / 50</td><td class="n">100</td><td><span class="pill p0">상한 도달</span></td></tr></tbody></table></div>
+    <div class="note key">
+      <h4>천장이 낮은 FAB 은 등급도 못 올라갑니다</h4>
+      <p>상한 50점은 다섯 FAB 이 같지만, 룰이 없는 FAB 은 <b>거기까지 갈
+        수가 없습니다.</b> M14B 는 R-C·MAXCAPA 가 없고 SLA 임계도 안 적혀 있어
+        받을 수 있는 합이 40점입니다 —
+        위험도로 80점, 즉
+        <b>초위험(85점) 등급에 영원히 못 갑니다.</b>
+        FAB 을 나란히 놓고 등급을 비교할 때 반드시 같이 봐야 하는 숫자입니다.</p>
+    </div>
+    <div class="note warn">
+      <h4>M14B 의 SLA 는 컬럼은 있는데 임계가 없습니다</h4>
+      <p><span class="mono">sla_M14B</span> 는 CSV 에 실려 옵니다. 그런데
+        <code class="mono">thresholds.json</code> 의 <span class="mono">TH_SLA_RATIO</span> 에
+        M14B 항목이 없어 이 FAB 의 SLA 룰은 켜질 수 없습니다. 값을 지어내지 않고
+        <b>임계 미정의</b>로 두었습니다. 임계를 정해 넣으면 그때부터 판정됩니다.</p>
+    </div>
+  </section>
+
+  <!-- 4. 단독 상한 -->
+  <section>
+    <div class="sechead"><span class="step">비교 4</span><h2>이 FAB 하나만 걸리면 전체 몇 점까지 가나</h2></div>
+    <p class="subtitle">
+      영역점수는 50에서 잘리고, 융합에서 raw 220 을 100점으로 놓습니다.
+      그래서 한 FAB 이 최대로 나빠져도 전체 점수는 아래 값을 넘지 못합니다.
+      가중치는 지금 <b>전 영역 1.0</b> 입니다 (M16B 0.5 는 취소됨).
+    </p>
+    <div class="tw"><table><thead><tr><th>FAB</th><th class="n">가중치</th><th class="n">흐름 노드</th><th class="n">MAXCAPA 컬럼</th><th class="n">통상 raw 내역</th><th class="n">통상 상한</th><th class="n">최대 상한</th><th>경계 60점</th></tr></thead><tbody><tr><td class="mono"><b>M14</b></td><td class="n">1.0</td><td class="n">2</td><td class="n">1</td><td class="n th">50 + 30 + 5 + 3 + 10 = 98</td><td class="n"><b>45</b></td><td class="n">58</td><td><span class="pill p3">최대로도 못 감</span></td></tr><tr><td class="mono"><b>M14B</b></td><td class="n">1.0</td><td class="n">3</td><td class="n">0</td><td class="n th">50 + 30 + 0 + 3 + 0 = 83</td><td class="n"><b>38</b></td><td class="n">65</td><td><span class="pill p1">최대 조건에서만</span></td></tr><tr><td class="mono"><b>M16A</b></td><td class="n">1.0</td><td class="n">2</td><td class="n">2</td><td class="n th">50 + 30 + 5 + 3 + 10 = 98</td><td class="n"><b>45</b></td><td class="n">63</td><td><span class="pill p1">최대 조건에서만</span></td></tr><tr><td class="mono"><b>M16B</b></td><td class="n">1.0</td><td class="n">1</td><td class="n">0</td><td class="n th">50 + 30 + 5 + 3 + 0 = 88</td><td class="n"><b>40</b></td><td class="n">40</td><td><span class="pill p3">최대로도 못 감</span></td></tr><tr><td class="mono"><b>M16HUB</b></td><td class="n">1.0</td><td class="n">2</td><td class="n">3</td><td class="n th">50 + 30 + 5 + 3 + 10 = 98</td><td class="n"><b>45</b></td><td class="n">67</td><td><span class="pill p1">최대 조건에서만</span></td></tr></tbody></table></div>
+    <p class="pipe-note" style="margin-top:10px">
+      두 시나리오를 같이 놓았습니다. <b>통상</b> — 영역점수 상한 50 도달 ·
+      흐름 노드 1개 심각(30점) · MAXCAPA 1컬럼 하락.
+      <b>최대</b> — 그 FAB 의 흐름 노드가 전부 심각하고 MAXCAPA 컬럼도 전부 내려간,
+      현실에서 거의 안 나오는 상한. 둘 다 SLA·Sorter·MAXCAPA 융합 재가산을 포함하고
+      나머지 여섯 영역은 0 으로 두었습니다.
+    </p>
+    <div class="note key">
+      <h4>통상 조건에서 경계에 못 가는 FAB — <b>다섯 FAB 전부</b></h4>
+      <p>한 곳이 크게 망가지는 흔한 모습으로는
+        전체 점수 화면에 등급조차 뜨지 않습니다.</p>
+      <p>최대 조건까지 끌어올려도 못 가는 곳은
+        <b>M14(58점), M16B(40점)</b> 입니다.
+        M16B 는 흐름 노드가 1개뿐이고 R-C·MAXCAPA 룰이 없어 어떤 조건에서도
+        40점이 천장입니다 — 가중치는 1.0 으로 복원됐지만 그래도 60 에는 닿지 못합니다.</p>
+      <p><b>이들의 정체는 FAB 화면에서만 보입니다.</b> 그래서 관제 화면은
+        전체 점수와 FAB 위험도를 <b>같이</b> 띄워야 합니다.</p>
+    </div>
+  </section>
+
+  <!-- 5. 눈금 -->
+  <section>
+    <div class="sechead"><span class="step">비교 5</span><h2>눈금 맞추기 — 영역점수 0~50 을 100점으로</h2></div>
+    <p class="subtitle">
+      영역점수는 0~50 이고 전체 점수는 0~100 입니다. 눈금이 달라 나란히 못 놓습니다.
+      그래서 영역점수에 2를 곱해 <b>위험도</b>로 폈습니다. 값을 바꾸는 게 아니라
+      자를 바꾸는 것이라, FAB 간 순위는 그대로입니다.
+    </p>
+    <div class="tw"><table><thead><tr><th class="n">영역점수 (0~50 · 상한)</th><th class="n">위험도 (0~100)</th><th>FAB 자체 등급</th><th>대략 이런 상태</th></tr></thead><tbody><tr><td class="n">0</td><td class="n"><b>0</b></td><td><span class="pill p0">🟢 정상</span></td><td class="th">켜진 룰 없음</td></tr><tr><td class="n">5</td><td class="n"><b>10</b></td><td><span class="pill p0">🟢 정상</span></td><td class="th">R-A′ 하나</td></tr><tr><td class="n">10</td><td class="n"><b>20</b></td><td><span class="pill p0">🟢 정상</span></td><td class="th">R-A 하나 또는 R-A′+SORT</td></tr><tr><td class="n">15</td><td class="n"><b>30</b></td><td><span class="pill p0">🟢 정상</span></td><td class="th">R-A + R-A′</td></tr><tr><td class="n">20</td><td class="n"><b>40</b></td><td><span class="pill p0">🟢 정상</span></td><td class="th">R-A + R-A′ + 소터·SLA</td></tr><tr><td class="n">25</td><td class="n"><b>50</b></td><td><span class="pill p0">🟢 정상</span></td><td class="th">R-A + R-C + R-D</td></tr><tr style="border-top:2px solid var(--g1)"><td class="n">30</td><td class="n"><b>60</b> <span class="th">← 컷 60</span></td><td><span class="pill p1">🟠 경계</span></td><td class="th">R-A + R-A′ + R-C + R-D</td></tr><tr><td class="n">35</td><td class="n"><b>70</b></td><td><span class="pill p1">🟠 경계</span></td><td class="th">여기에 SLA 까지</td></tr><tr style="border-top:2px solid var(--g1)"><td class="n">40</td><td class="n"><b>80</b> <span class="th">← 컷 80</span></td><td><span class="pill p2">🔴 위험</span></td><td class="th">R-B 계열까지 합류</td></tr><tr style="border-top:2px solid var(--g1)"><td class="n">45</td><td class="n"><b>90</b> <span class="th">← 컷 90</span></td><td><span class="pill p3">⛔ 초위험</span></td><td class="th">여덟 룰 언저리</td></tr><tr><td class="n">50</td><td class="n"><b>100</b></td><td><span class="pill p3">⛔ 초위험</span></td><td class="th">상한 — 더 나빠져도 50</td></tr></tbody></table></div>
+    <div class="note key">
+      <h4>이 등급은 그 FAB 자체 등급입니다 — 전체 등급과 같은 뜻이 아닙니다</h4>
+      <p>FAB 위험도가 <b>초위험</b>인데 전체 점수는 <b>등급 없음</b>일 수 있습니다.
+        모순이 아니라 위 '비교 4' 에서 본 구조 그대로입니다.
+        화면에서도 두 숫자를 반드시 같이 띄우고, 어느 쪽 자로 잰 값인지 적어야 합니다.</p>
+    </div>
+  </section>
+
+  <!-- 6. 왜 평소 대비로는 비교가 안 되나 -->
+  <section>
+    <div class="sechead"><span class="step">비교 6</span><h2>왜 '평소 대비 얼마나 튀었나' 로는 비교가 안 되나</h2></div>
+    <p class="subtitle">
+      기여도 추정은 그 FAB 의 조용한 구간을 기준선으로 잡고 거기서 몇 배
+      벗어났는지를 잽니다. 한 FAB 안에서 '무엇이 이 점수를 올렸나' 를 볼 때는
+      맞는 방법입니다. 그런데 FAB 끼리 비교할 때 쓰면 정반대로 갑니다.
+    </p>
+    <div class="two">
+      <div class="prop"><div class="tag">상대 편차 (쓰면 안 됨)</div>
+        <h4>늘 나쁜 FAB 이 '정상'으로 보인다</h4>
+        <p>아침부터 저녁까지 반송시간이 높은 FAB 은 <b>기준선도 같이 높습니다.</b>
+          그래서 '평소와 같음' 이 되어 편차가 0 에 가깝습니다.
+          반대로 평소가 아주 조용한 FAB 은 조금만 올라도 크게 튀어 보입니다.
+          <b>순위가 뒤집힙니다.</b></p></div>
+      <div class="prop"><div class="tag">절대 임계 (이 문서가 쓰는 것)</div>
+        <h4>임계를 넘었느냐만 본다</h4>
+        <p>배점이 다섯 FAB 에서 같으므로, 영역점수 25점은 어느 FAB 에서든
+          <b>같은 무게의 25점</b>입니다. 기준선을 안 쓰니 늘 나쁜 FAB 도
+          늘 나쁘게 나옵니다. 이 문서의 모든 숫자가 그렇게 만들어졌습니다.</p></div>
+    </div>
+  </section>
+
+  <!-- 7. FAB 카드 -->
+  <section>
+    <div class="sechead"><span class="step">FAB 별</span><h2>FAB 하나씩 — 보고 있는 컬럼 전부</h2></div>
+    <p class="subtitle">
+      위 격자를 FAB 기준으로 다시 편 것입니다. 관제 담당이 자기 FAB 한 장만
+      떼어 볼 수 있게 나눴습니다.
+    </p>
+    <section class="card"><div class="cardhead"><h3 class="mono">M14</h3><p class="cardmeta">감시 컬럼 10개 (CSV 에 값이 실려오는 것 9개) · 가중치 1.0 · 흐름 노드 2개 · 단독 전체점수 상한 <b>45점</b> (통상)</p></div><div class="tw"><table class="fabtbl"><thead><tr><th>룰</th><th>실제 지표 컬럼</th><th class="n">임계값</th><th class="n">CSV 컬럼</th></tr></thead><tbody><tr><td class="rule">R-A<span class="rdesc">10점</span></td><td class="col"><span class="amos">M14.QUE.LOAD.AVGLOADTIME1MIN</span><br><span class="th">적재시간</span></td><td class="n">≥ 3.3분</td><td class="n"><span class="mono">M14_ra</span></td></tr><tr><td class="rule">R-A′<span class="rdesc">5점</span></td><td class="col"><span class="amos">M14.QUE.LOAD.AVGLOADTIME1MIN</span><br><span class="th">적재시간 지속</span></td><td class="n">≥ 2.31분</td><td class="n"><span class="mono">M14_ra</span></td></tr><tr><td class="rule">R-B<span class="rdesc">10점</span></td><td class="col"><span class="amos">M14.QUE.ALL.3F_TO_HUB_JOB</span><br><span class="th">3F→HUB 대기 30분 증가</span></td><td class="n">≥ 80건</td><td class="n"><span class="mono">M14_rb_diff30</span></td></tr><tr><td class="rule">R-B fast<span class="rdesc">5점</span></td><td class="col"><span class="amos">M14.QUE.ALL.3F_TO_HUB_JOB</span><br><span class="th">같은 대기 10분 증가</span></td><td class="n">≥ 24건</td><td class="n"><span class="mono">M14_rb_diff10</span></td></tr><tr><td class="rule">R-C<span class="rdesc">8점</span></td><td class="col"><span class="amos">M14.QUE.CNV.M14ATONORTHCURRENTQCNT / …SOUTH…</span><br><span class="th">컨베이어 편중</span></td><td class="n">≥ 0.7</td><td class="n"><span class="mono">M14_cnv_skew</span></td></tr><tr><td class="rule">R-D<span class="rdesc">7점</span></td><td class="col"><span class="amos">M14.QUE.OHT.OHTUTIL</span><br><span class="th">OHT 가동률</span></td><td class="n">≥ 95%</td><td class="n"><span class="mono">M14_rd_oht</span></td></tr><tr><td class="rule" rowspan="2">SLA<span class="rdesc">5점</span></td><td class="col"><span class="amos">M14.QUE.ALL.TRANSPORT4MINOVERRATIO</span><br><span class="th">4분 초과율</span></td><td class="n">≥ 25.45%</td><td class="n"><span class="mono">sla_M14</span></td></tr><tr><td class="col"><span class="amos">M14.QUE.ALL.TRANSPORT4MINOVERCNT</span><br><span class="th">4분 초과 건수</span></td><td class="n">10분 + 20건</td><td class="n"><span class="mono">M14_sla_cnt</span></td></tr><tr><td class="rule">SORT<span class="rdesc">3점</span></td><td class="col"><span class="amos">M14.SORTER.ABN.SORTERWAITCOUNTOVER</span><br><span class="th">소터 대기</span></td><td class="n">≥ 148건</td><td class="n"><span class="mono">sorter_M14</span></td></tr><tr><td class="rule">MAXCAPA<span class="rdesc">10점</span></td><td class="col"><span class="amos">M14.QUE.CNV.3F_CNV_MAXCAPA</span><br><span class="th">3F 컨베이어 상한</span></td><td class="n">≤ 150</td><td class="n"><span class="nocsv">CSV 에 값 없음</span></td></tr></tbody></table></div></section>
+    <section class="card"><div class="cardhead"><h3 class="mono">M14B</h3><p class="cardmeta">감시 컬럼 7개 (CSV 에 값이 실려오는 것 7개) · 가중치 1.0 · 흐름 노드 3개 · 단독 전체점수 상한 <b>38점</b> (통상)</p></div><div class="tw"><table class="fabtbl"><thead><tr><th>룰</th><th>실제 지표 컬럼</th><th class="n">임계값</th><th class="n">CSV 컬럼</th></tr></thead><tbody><tr><td class="rule">R-A<span class="rdesc">10점</span></td><td class="col"><span class="amos">M14B.QUE.TIME.AVGTOTALTIME1MIN</span><br><span class="th">반송시간</span></td><td class="n">≥ 5분</td><td class="n"><span class="mono">M14B_ra</span></td></tr><tr><td class="rule">R-A′<span class="rdesc">5점</span></td><td class="col"><span class="amos">M14B.QUE.TIME.AVGTOTALTIME1MIN</span><br><span class="th">반송시간 지속</span></td><td class="n">≥ 3.5분</td><td class="n"><span class="mono">M14B_ra</span></td></tr><tr><td class="rule">R-B<span class="rdesc">10점</span></td><td class="col"><span class="amos">M14B.QUE.ALL.7F_TO_HUB_JOB</span><br><span class="th">7F→HUB 대기 30분 증가</span></td><td class="n">≥ 150건</td><td class="n"><span class="mono">M14B_rb_diff30</span></td></tr><tr><td class="rule">R-B fast<span class="rdesc">5점</span></td><td class="col"><span class="amos">M14B.QUE.ALL.7F_TO_HUB_JOB</span><br><span class="th">같은 대기 10분 증가</span></td><td class="n">≥ 45건</td><td class="n"><span class="mono">M14B_rb_diff10</span></td></tr><tr class="off"><td class="rule">R-C</td><td colspan="3" class="th">이 FAB 에는 이 룰이 없습니다 — 배점 8점을 받을 길이 없다는 뜻입니다</td></tr><tr><td class="rule">R-D<span class="rdesc">7점</span></td><td class="col"><span class="amos">M14B.QUE.OHT.OHTUTIL</span><br><span class="th">OHT 가동률</span></td><td class="n">≥ 95%</td><td class="n"><span class="mono">M14B_rd_oht</span></td></tr><tr><td class="rule">SLA<span class="rdesc">5점</span></td><td class="col"><span class="amos">M14B.QUE.ALL.TRANSPORT4MINOVERRATIO</span><br><span class="th">4분 초과율</span></td><td class="n"><span class="undef">임계 미정의</span></td><td class="n"><span class="mono">sla_M14B</span></td></tr><tr><td class="rule">SORT<span class="rdesc">3점</span></td><td class="col"><span class="amos">M14B.SORTER.ABN.SORTERWAITCOUNTOVER</span><br><span class="th">소터 대기</span></td><td class="n">≥ 109건</td><td class="n"><span class="mono">sorter_M14B</span></td></tr><tr class="off"><td class="rule">MAXCAPA</td><td colspan="3" class="th">이 FAB 에는 이 룰이 없습니다 — 배점 10점을 받을 길이 없다는 뜻입니다</td></tr></tbody></table></div></section>
+    <section class="card"><div class="cardhead"><h3 class="mono">M16A</h3><p class="cardmeta">감시 컬럼 11개 (CSV 에 값이 실려오는 것 9개) · 가중치 1.0 · 흐름 노드 2개 · 단독 전체점수 상한 <b>45점</b> (통상)</p></div><div class="tw"><table class="fabtbl"><thead><tr><th>룰</th><th>실제 지표 컬럼</th><th class="n">임계값</th><th class="n">CSV 컬럼</th></tr></thead><tbody><tr><td class="rule">R-A<span class="rdesc">10점</span></td><td class="col"><span class="amos">M16A.QUE.LOAD.AVGLOADTIME1MIN</span><br><span class="th">적재시간</span></td><td class="n">≥ 3.2분</td><td class="n"><span class="mono">M16A_ra</span></td></tr><tr><td class="rule">R-A′<span class="rdesc">5점</span></td><td class="col"><span class="amos">M16A.QUE.LOAD.AVGLOADTIME1MIN</span><br><span class="th">적재시간 지속</span></td><td class="n">≥ 2.24분</td><td class="n"><span class="mono">M16A_ra</span></td></tr><tr><td class="rule">R-B<span class="rdesc">10점</span></td><td class="col"><span class="amos">M16A.QUE.ALL.6F_TO_HUB_JOB</span><br><span class="th">6F→HUB 대기 30분 증가</span></td><td class="n">≥ 84건</td><td class="n"><span class="mono">M16A_rb_diff30</span></td></tr><tr><td class="rule">R-B fast<span class="rdesc">5점</span></td><td class="col"><span class="amos">M16A.QUE.ALL.6F_TO_HUB_JOB</span><br><span class="th">같은 대기 10분 증가</span></td><td class="n">≥ 25건</td><td class="n"><span class="mono">M16A_rb_diff10</span></td></tr><tr class="off"><td class="rule">R-C</td><td colspan="3" class="th">이 FAB 에는 이 룰이 없습니다 — 배점 8점을 받을 길이 없다는 뜻입니다</td></tr><tr><td class="rule">R-D<span class="rdesc">7점</span></td><td class="col"><span class="amos">M16A.QUE.OHT.OHTUTIL</span><br><span class="th">OHT 가동률</span></td><td class="n">≥ 95%</td><td class="n"><span class="mono">M16A_rd_oht</span></td></tr><tr><td class="rule" rowspan="2">SLA<span class="rdesc">5점</span></td><td class="col"><span class="amos">M16A.QUE.ALL.TRANSPORT4MINOVERRATIO</span><br><span class="th">4분 초과율</span></td><td class="n">≥ 14.05%</td><td class="n"><span class="mono">sla_M16A</span></td></tr><tr><td class="col"><span class="amos">M16A.QUE.ALL.TRANSPORT4MINOVERCNT</span><br><span class="th">4분 초과 건수</span></td><td class="n">10분 + 20건</td><td class="n"><span class="mono">M16A_sla_cnt</span></td></tr><tr><td class="rule" rowspan="2">SORT<span class="rdesc">3점</span></td><td class="col"><span class="amos">M16A.SORTER.ABN.SORTERWAITCOUNTOVER</span><br><span class="th">소터 대기</span></td><td class="n">≥ 180건</td><td class="n"><span class="mono">sorter_M16A</span></td></tr><tr><td class="col"><span class="amos">M16A.SORTER.ABN.SORTERTRANSFERFAIL</span><br><span class="th">이재 실패</span></td><td class="n">≥ 1건</td><td class="n"><span class="mono">M16A_sorter_fail</span></td></tr><tr><td class="rule" rowspan="2">MAXCAPA<span class="rdesc">10점</span></td><td class="col"><span class="amos">M16A.QUE.LFT.2F_LFT_MAXCAPA</span><br><span class="th">2F 리프터 상한</span></td><td class="n">≤ 40</td><td class="n"><span class="nocsv">CSV 에 값 없음</span></td></tr><tr><td class="col"><span class="amos">M16A.QUE.LFT.6F_LFT_MAXCAPA</span><br><span class="th">6F 리프터 상한</span></td><td class="n">≤ 100</td><td class="n"><span class="nocsv">CSV 에 값 없음</span></td></tr></tbody></table></div></section>
+    <section class="card"><div class="cardhead"><h3 class="mono">M16B</h3><p class="cardmeta">감시 컬럼 9개 (CSV 에 값이 실려오는 것 9개) · 가중치 1.0 <span class="th">(0.5 는 취소됨)</span> · 흐름 노드 1개 · 단독 전체점수 상한 <b>40점</b> (통상)</p></div><div class="tw"><table class="fabtbl"><thead><tr><th>룰</th><th>실제 지표 컬럼</th><th class="n">임계값</th><th class="n">CSV 컬럼</th></tr></thead><tbody><tr><td class="rule">R-A<span class="rdesc">10점</span></td><td class="col"><span class="amos">M16B.QUE.LOAD.AVGLOADTIME1MIN</span><br><span class="th">적재시간</span></td><td class="n">≥ 3.5분</td><td class="n"><span class="mono">M16B_ra</span></td></tr><tr><td class="rule">R-A′<span class="rdesc">5점</span></td><td class="col"><span class="amos">M16B.QUE.LOAD.AVGLOADTIME1MIN</span><br><span class="th">적재시간 지속</span></td><td class="n">≥ 2.45분</td><td class="n"><span class="mono">M16B_ra</span></td></tr><tr><td class="rule">R-B<span class="rdesc">10점</span></td><td class="col"><span class="amos">M16B.QUE.ALL.10F_TO_HUB_JOB</span><br><span class="th">10F→HUB 대기 30분 증가</span></td><td class="n">≥ 32건</td><td class="n"><span class="mono">M16B_rb_diff30</span></td></tr><tr><td class="rule">R-B fast<span class="rdesc">5점</span></td><td class="col"><span class="amos">M16B.QUE.ALL.10F_TO_HUB_JOB</span><br><span class="th">같은 대기 10분 증가</span></td><td class="n">≥ 10건</td><td class="n"><span class="mono">M16B_rb_diff10</span></td></tr><tr class="off"><td class="rule">R-C</td><td colspan="3" class="th">이 FAB 에는 이 룰이 없습니다 — 배점 8점을 받을 길이 없다는 뜻입니다</td></tr><tr><td class="rule">R-D<span class="rdesc">7점</span></td><td class="col"><span class="amos">M16B.QUE.OHT.OHTUTIL</span><br><span class="th">OHT 가동률</span></td><td class="n">≥ 95%</td><td class="n"><span class="mono">M16B_rd_oht</span></td></tr><tr><td class="rule" rowspan="2">SLA<span class="rdesc">5점</span></td><td class="col"><span class="amos">M16B.QUE.ALL.TRANSPORT4MINOVERRATIO</span><br><span class="th">4분 초과율</span></td><td class="n">≥ 22.05%</td><td class="n"><span class="mono">sla_M16B</span></td></tr><tr><td class="col"><span class="amos">M16B.QUE.ALL.TRANSPORT4MINOVERCNT</span><br><span class="th">4분 초과 건수</span></td><td class="n">10분 + 20건</td><td class="n"><span class="mono">M16B_sla_cnt</span></td></tr><tr><td class="rule" rowspan="2">SORT<span class="rdesc">3점</span></td><td class="col"><span class="amos">M16B.SORTER.ABN.SORTERWAITCOUNTOVER</span><br><span class="th">소터 대기</span></td><td class="n">≥ 90건</td><td class="n"><span class="mono">sorter_M16B</span></td></tr><tr><td class="col"><span class="amos">M16B.SORTER.ABN.SORTERTRANSFERFAIL</span><br><span class="th">이재 실패</span></td><td class="n">≥ 1건</td><td class="n"><span class="mono">M16B_sorter_fail</span></td></tr><tr class="off"><td class="rule">MAXCAPA</td><td colspan="3" class="th">이 FAB 에는 이 룰이 없습니다 — 배점 10점을 받을 길이 없다는 뜻입니다</td></tr></tbody></table></div></section>
+    <section class="card"><div class="cardhead"><h3 class="mono">M16HUB</h3><p class="cardmeta">감시 컬럼 15개 (CSV 에 값이 실려오는 것 9개) · 가중치 1.0 · 흐름 노드 2개 · 단독 전체점수 상한 <b>45점</b> (통상)</p></div><div class="tw"><table class="fabtbl"><thead><tr><th>룰</th><th>실제 지표 컬럼</th><th class="n">임계값</th><th class="n">CSV 컬럼</th></tr></thead><tbody><tr><td class="rule">R-A<span class="rdesc">10점</span></td><td class="col"><span class="amos">M16HUB.QUE.TIME.AVGTOTALTIME1MIN</span><br><span class="th">반송시간</span></td><td class="n">≥ 9분</td><td class="n"><span class="mono">M16HUB_ra</span></td></tr><tr><td class="rule">R-A′<span class="rdesc">5점</span></td><td class="col"><span class="amos">M16HUB.QUE.TIME.AVGTOTALTIME1MIN</span><br><span class="th">반송시간 지속</span></td><td class="n">≥ 6.3분</td><td class="n"><span class="mono">M16HUB_ra</span></td></tr><tr><td class="rule">R-B<span class="rdesc">10점</span></td><td class="col"><span class="amos">M16HUB.QUE.M14TOM16.MESCURRENTQCNT</span><br><span class="th">M14→M16 대기 30분 증가</span></td><td class="n">≥ 100건</td><td class="n"><span class="mono">M16HUB_rb_diff30</span></td></tr><tr><td class="rule">R-B fast<span class="rdesc">5점</span></td><td class="col"><span class="amos">M16HUB.QUE.M14TOM16.MESCURRENTQCNT</span><br><span class="th">같은 대기 10분 증가</span></td><td class="n">≥ 30건</td><td class="n"><span class="mono">M16HUB_rb_diff10</span></td></tr><tr><td class="rule">R-C<span class="rdesc">8점</span></td><td class="col"><span class="amos">M16HUB.LFT.{6ABL6011…6ABL0122}.TOTAL_CURRENTQCNT</span><br><span class="th">역증가 리프터</span></td><td class="n">≥ 4대</td><td class="n"><span class="mono">M16HUB_rev_count</span></td></tr><tr><td class="rule" rowspan="4">R-D<span class="rdesc">7점</span></td><td class="col"><span class="amos">M16HUB.STRATE.ALL.FABSTORAGERATIO</span><br><span class="th">FAB 저장율</span></td><td class="n">≥ 25.75%</td><td class="n"><span class="mono">M16HUB_rd_fab</span></td></tr><tr><td class="col"><span class="amos">M16HUB.QUE.ALL.3F_TO_3F_MLUD_JOB</span><br><span class="th">3F→3F MLUD</span></td><td class="n">≥ 50건</td><td class="n"><span class="nocsv">CSV 에 값 없음</span></td></tr><tr><td class="col"><span class="amos">M16HUB.QUE.ALL.M16HUBTOM14MANUAL_CURRENTQCNT</span><br><span class="th">M14 수동 대기</span></td><td class="n">≥ 30건</td><td class="n"><span class="nocsv">CSV 에 값 없음</span></td></tr><tr><td class="col"><span class="amos">M16HUB.CNV.SENDFAB.TO_M14A_CURRENTQCNT ÷ M16HUB.QUE.CNV.3F_CNV_MAXCAPA</span><br><span class="th">컨베이어 점유율</span></td><td class="n">≥ 0.85</td><td class="n"><span class="nocsv">CSV 에 값 없음</span></td></tr><tr class="off"><td class="rule">STB</td><td colspan="3" class="th">STB 저장율(M16HUB.STRATE.STB.3F_STORAGE_UTIL ≥ 99.3%)은 2026-08 부터 <b>판정 제외</b> — 값만 CSV M16HUB_stb_util 에 기록됩니다</td></tr><tr><td class="rule" rowspan="2">SLA<span class="rdesc">5점</span></td><td class="col"><span class="amos">M16HUB.QUE.ALL.TRANSPORT4MINOVERRATIO</span><br><span class="th">4분 초과율</span></td><td class="n">≥ 5%</td><td class="n"><span class="mono">sla_M16HUB</span></td></tr><tr><td class="col"><span class="amos">M16HUB.QUE.ALL.TRANSPORT4MINOVERCNT</span><br><span class="th">4분 초과 건수</span></td><td class="n">10분 + 20건</td><td class="n"><span class="mono">M16HUB_sla_cnt</span></td></tr><tr><td class="rule">SORT<span class="rdesc">3점</span></td><td class="col"><span class="amos">M16HUB.SORTER.ABN.SORTERWAITCOUNTOVER</span><br><span class="th">소터 대기</span></td><td class="n">≥ 30건</td><td class="n"><span class="mono">sorter_M16HUB</span></td></tr><tr><td class="rule" rowspan="3">MAXCAPA<span class="rdesc">10점</span></td><td class="col"><span class="amos">M16HUB.QUE.LFT.3F_LFT_MAXCAPA</span><br><span class="th">3F 리프터 상한</span></td><td class="n">≤ 100</td><td class="n"><span class="nocsv">CSV 에 값 없음</span></td></tr><tr><td class="col"><span class="amos">M16HUB.QUE.LFT.3F_M14BLFT_MAXCAPA</span><br><span class="th">3F M14B 리프터 상한</span></td><td class="n">≤ 50</td><td class="n"><span class="nocsv">CSV 에 값 없음</span></td></tr><tr><td class="col"><span class="amos">M16HUB.QUE.CNV.3F_CNV_MAXCAPA</span><br><span class="th">3F 컨베이어 상한</span></td><td class="n">≤ 80</td><td class="n"><span class="nocsv">CSV 에 값 없음</span></td></tr></tbody></table></div></section>
+  </section>
+
+  <!-- 8. 검증 -->
+  <section>
+    <div class="sechead"><span class="step">검증</span><h2>문서의 숫자가 실제 데이터와 맞는가</h2></div>
+    <p class="subtitle">
+      134컬럼 실운영 형식의 8/12 발동이벤트(3시간 · 150분)에서, 각 행의
+      영역점수(<span class="mono">{FAB}_score</span>)와 융합 다섯 항
+      (<span class="mono">layer1_total · flow_score · sla_score_total ·
+      sorter_score_total · mc_score_total</span>)을 더해 전체 점수를 다시
+      계산하고, 저장된 <span class="mono">unified_risk_score</span> 와 비교했습니다.
+    </p>
+    <div class="tw"><table><thead><tr><th>시각</th><th>영역점수</th><th class="n">영역합</th><th class="n">흐름</th><th class="n">SLA</th><th class="n">소터</th><th class="n">MC</th><th class="n">raw</th><th class="n">재현</th><th class="n">저장값</th><th>판정</th></tr></thead><tbody><tr><td class="mono">2026-08-12 08:30</td><td class="th">M16HUB 20 · M16A 10</td><td class="n">30</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">30</td><td class="n">60</td><td class="n"><b>27</b></td><td class="n">27</td><td><span class="pill p0" style="color:var(--ok);border-color:var(--ok);background:var(--okbg)">일치</span></td></tr><tr><td class="mono">2026-08-12 10:00</td><td class="th">M16HUB 50 · M14 50 · M14B 35 · M16A 50 · M16B 40</td><td class="n">225</td><td class="n">150</td><td class="n">20</td><td class="n">15</td><td class="n">60</td><td class="n">470</td><td class="n"><b>100</b></td><td class="n">100</td><td><span class="pill p0" style="color:var(--ok);border-color:var(--ok);background:var(--okbg)">일치</span></td></tr><tr><td class="mono">2026-08-12 10:59</td><td class="th">M16HUB 50 · M14 40 · M14B 25 · M16A 50 · M16B 30</td><td class="n">195</td><td class="n">0</td><td class="n">20</td><td class="n">15</td><td class="n">60</td><td class="n">290</td><td class="n"><b>100</b></td><td class="n">100</td><td><span class="pill p0" style="color:var(--ok);border-color:var(--ok);background:var(--okbg)">일치</span></td></tr></tbody></table></div><p class="pipe-note" style="margin-top:10px">표본 구간의 점수가 붙은 <b>150분 전 행</b>이 정확히 재현되었습니다 — 불일치 0. M16B 가중 1.0 이라 M16B_score 40 이 그대로 40 으로 합산에 들어간 것도 위 10:00 행에서 확인됩니다 (0.5 였다면 영역합이 205 가 됐을 것).</p>
+    <div class="note">
+      <h4>이 숫자들은 추정이 아니라 재현입니다</h4>
+      <p>예측기가 룰별 배점을 <span class="mono">{FAB}_pts_*</span> 컬럼으로,
+        융합 항을 <span class="mono">*_total</span> 컬럼으로 그대로 떨궈 주기 때문에,
+        더하기만 하면 전체 점수가 나옵니다. 저장값과 어긋나는 행이 있다면
+        그 행이 실제 관측이 아니거나 코드가 문서와 다르다는 뜻인데,
+        이번 표본에서는 한 행도 없었습니다.</p>
+    </div>
+  </section>
+
+  <footer>
+    <p>출처 — 임계값·배점·컬럼명은 <code class="mono">hubroom_predictor.py</code> 의
+      <code class="mono">eval_area_rules</code> ·
+      <code class="mono">evaluate_unified</code> 와
+      <code class="mono">thresholds.json</code> 현재 값입니다.
+      등급 컷은 경계 <b>60</b> / 위험 71 / 초위험 85.</p>
+    <p>2026-08 반영 사항 — ① R-D 는 <span class="mono">M16HUB.STRATE.ALL.FABSTORAGERATIO</span>
+      만 판정 (STB 는 기록만) · ② M16_PKT 영역 전면 제거 (8영역 → 7영역, 발동이벤트 134컬럼)
+      · ③ M16B 가중 0.5 취소 → 전 영역 1.0 · ④ 경계·사건 시작 기준 50 → 60.
+      검증 표는 2026-08-12 실데이터를 현행 코드로 재실행한 결과입니다.</p>
+  </footer>
+</div>
+
+</body>
+</html>
