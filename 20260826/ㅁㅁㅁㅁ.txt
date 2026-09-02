@@ -728,12 +728,40 @@ def backfill_alldays(a):
     print(f'🎉 백필 완료 — 성공 {ok} / 실패 {fail}')
 
 
-def _pick_files(a, need_dir_msg):
-    """--event 가 파일이면 그 하나, 폴더면 발동이벤트 전부 (+ --since/--until/--days 필터)."""
-    if not os.path.isdir(a.event):
-        return [a.event] if os.path.exists(a.event) else []
-    files = sorted(f for f in os.listdir(a.event)
+def _pick_files(a, need_dir_msg=''):
+    """--event 가 파일이면 그 하나, 폴더면 발동이벤트 전부 (+ --since/--until/--days 필터).
+
+    파일을 못 찾으면 어디를 봤는지·비슷한 후보가 뭔지 찍는다 (경로 오타 잡기용).
+    """
+    ev = (a.event or '').strip().strip('"').strip("'")     # 따옴표·공백이 붙어 오는 경우
+    if not os.path.isdir(ev):
+        if os.path.exists(ev):
+            return [ev]
+        print(f'  ❌ 파일을 못 찾음: {os.path.abspath(ev)}')
+        # 같은 폴더에서 비슷한 이름 찾아 보여 준다
+        d = os.path.dirname(os.path.abspath(ev)) or '.'
+        base = os.path.basename(ev)
+        if os.path.isdir(d):
+            cand = [f for f in sorted(os.listdir(d))
+                    if f.lower().endswith('.csv') and '발동이벤트' in f and '_M1' not in f]
+            if cand:
+                print(f'     그 폴더({d})에 있는 발동이벤트 파일:')
+                for f in cand[-10:]:
+                    print(f'       {f}')
+                print('     ↑ 이름을 그대로 복사해 쓰거나, 폴더만 주고 --days 1 로 지정하세요.')
+            else:
+                print(f'     그 폴더({d})에는 발동이벤트 CSV 가 없습니다 — 경로를 확인하세요.')
+        else:
+            print(f'     상위 폴더도 없습니다: {d}')
+        if base and '발동이벤트' not in base:
+            print('     ※ 파일명에 "발동이벤트" 가 없습니다 — 다른 파일을 지정한 것 아닌가요?')
+        return []
+    files = sorted(f for f in os.listdir(ev)
                    if f.lower().endswith('.csv') and '발동이벤트' in f and '_M1' not in f)
+    if not files:
+        print(f'  ❌ {os.path.abspath(ev)} 안에 *발동이벤트*.csv 가 없습니다')
+        return []
+    a.event = ev
     since, until = getattr(a, 'since', None), getattr(a, 'until', None)
     if getattr(a, 'days', None):
         since = max(since or '', (datetime.now() - timedelta(days=a.days - 1)).strftime('%Y%m%d'))
@@ -745,14 +773,18 @@ def _pick_files(a, need_dir_msg):
         if (since and m.group(1) < since) or (until and m.group(1) > until):
             continue
         out.append(os.path.join(a.event, f))
+    if not out:
+        got = ', '.join(sorted({re.search(r'(\d{8})', f).group(1)
+                                for f in files if re.search(r'(\d{8})', f)})) or '(날짜 없는 파일들)'
+        print(f'  ❌ 범위에 맞는 파일 없음 — since={since or "-"} until={until or "-"} / 폴더에 있는 날짜: {got}')
     return out
 
 
 def show_gaps(a):
     """--gaps : 빈 PIO 구간이 어디인지 보기만 한다 (기입·조회 없음)."""
-    files = _pick_files(a, '폴더')
+    files = _pick_files(a)
     if not files:
-        print('❌ 대상 파일 없음'); sys.exit(2)
+        sys.exit(2)
     now = datetime.now()
     total_files = total_min = 0
     for fp in files:
@@ -774,9 +806,9 @@ def show_gaps(a):
 
 def heal_files(a):
     """--heal : 빈 PIO 구간만 그 시간대를 다시 조회해 채운다."""
-    files = _pick_files(a, '폴더')
+    files = _pick_files(a)
     if not files:
-        print('❌ 대상 파일 없음'); sys.exit(2)
+        sys.exit(2)
     now = datetime.now()
     print(f'[빈 구간 메우기] 대상 {len(files)}개 파일')
     ok = skip = 0
