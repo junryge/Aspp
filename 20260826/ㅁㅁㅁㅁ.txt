@@ -61,8 +61,18 @@
 #   import PIO_DATA_MAKE
 #   threading.Thread(target=PIO_DATA_MAKE.run_watch,
 #                    kwargs={'event': str(predictor.DEFAULT_OUTPUT_DIR)}, daemon=True).start()
-import argparse, csv, os, re, sys, time
+import argparse, csv, os, re, sys, time, unicodedata
 from datetime import datetime, timedelta
+
+EVENT_KEY = '발동이벤트'
+
+
+def _is_event_csv(name):
+    """발동이벤트 CSV 인지. 리눅스/맥에서 한글이 자소분리(NFD)로 저장돼도 잡히게 정규화 후 비교."""
+    if not name.lower().endswith('.csv'):
+        return False
+    n = unicodedata.normalize('NFC', name)
+    return EVENT_KEY in n and '_M1' not in n
 
 # ────────────────────────────────────────────────────────────
 # 접속 정보 — USER / PASSWORD 는 운영에서 기입 (여기 비워 둔다)
@@ -398,7 +408,7 @@ def resolve_event(path):
     """폴더면 파일명 날짜(YYYYMMDD)가 가장 큰 *발동이벤트*.csv 자동 선택."""
     if os.path.isdir(path):
         cands = [f for f in os.listdir(path)
-                 if f.lower().endswith('.csv') and '발동이벤트' in f]
+                 if _is_event_csv(f)]
         if not cands:
             return None
         dated = [(m.group(1), f) for f in cands for m in [re.search(r'(\d{8})', f)] if m]
@@ -664,7 +674,7 @@ def backfill_alldays(a):
     if not os.path.isdir(a.event):
         print(f'❌ 백필은 폴더를 주세요: {a.event}'); sys.exit(2)
     files = sorted(f for f in os.listdir(a.event)
-                   if f.lower().endswith('.csv') and '발동이벤트' in f and '_M1' not in f)
+                   if _is_event_csv(f))
     if not files:
         print(f'❌ {os.path.abspath(a.event)} 안에 *발동이벤트*.csv 없음'); sys.exit(2)
 
@@ -743,7 +753,7 @@ def _pick_files(a, need_dir_msg=''):
         base = os.path.basename(ev)
         if os.path.isdir(d):
             cand = [f for f in sorted(os.listdir(d))
-                    if f.lower().endswith('.csv') and '발동이벤트' in f and '_M1' not in f]
+                    if _is_event_csv(f)]
             if cand:
                 print(f'     그 폴더({d})에 있는 발동이벤트 파일:')
                 for f in cand[-10:]:
@@ -757,7 +767,7 @@ def _pick_files(a, need_dir_msg=''):
             print('     ※ 파일명에 "발동이벤트" 가 없습니다 — 다른 파일을 지정한 것 아닌가요?')
         return []
     files = sorted(f for f in os.listdir(ev)
-                   if f.lower().endswith('.csv') and '발동이벤트' in f and '_M1' not in f)
+                   if _is_event_csv(f))
     if not files:
         print(f'  ❌ {os.path.abspath(ev)} 안에 *발동이벤트*.csv 가 없습니다')
         return []
