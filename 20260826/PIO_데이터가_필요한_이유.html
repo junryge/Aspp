@@ -1,0 +1,434 @@
+﻿<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>PIO 데이터가 필요한 이유</title>
+<style>
+:root{
+  --paper:#F5F7FA; --surface:#FFFFFF; --surface2:#EDF1F6;
+  --ink:#10161F; --muted:#5A6675; --faint:#7C8899;
+  --line:#D5DCE5; --line2:#C2CCD8;
+  --accent:#1E5FA8; --accent-soft:#E4EDF8; --accent-line:#A9C6E6;
+  --g1:#B7791F; --g1bg:#FBF1DE; --g2:#C2410C; --g2bg:#FCEBE2; --g3:#A31621; --g3bg:#F9E4E6;
+  --ok:#1F6F4A; --okbg:#E2F1EA;
+  --shadow:0 1px 2px rgba(16,22,31,.05), 0 4px 14px rgba(16,22,31,.05);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0E1319; --surface:#161D26; --surface2:#1C2530;
+    --ink:#E6EBF2; --muted:#94A3B4; --faint:#7A8798;
+    --line:#2A3441; --line2:#384554;
+    --accent:#6BA5E7; --accent-soft:#16273A; --accent-line:#2C4A6B;
+    --g1:#E0A94A; --g1bg:#2E2413; --g2:#F07A45; --g2bg:#331B11; --g3:#E8636F; --g3bg:#331419;
+    --ok:#5FBD8E; --okbg:#13291F;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 4px 14px rgba(0,0,0,.25);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0E1319; --surface:#161D26; --surface2:#1C2530;
+  --ink:#E6EBF2; --muted:#94A3B4; --faint:#7A8798;
+  --line:#2A3441; --line2:#384554;
+  --accent:#6BA5E7; --accent-soft:#16273A; --accent-line:#2C4A6B;
+  --g1:#E0A94A; --g1bg:#2E2413; --g2:#F07A45; --g2bg:#331B11; --g3:#E8636F; --g3bg:#331419;
+  --ok:#5FBD8E; --okbg:#13291F;
+  --shadow:0 1px 2px rgba(0,0,0,.3), 0 4px 14px rgba(0,0,0,.25);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard",
+    "Malgun Gothic","맑은 고딕","Noto Sans KR",sans-serif;
+  font-size:15px; line-height:1.65; -webkit-font-smoothing:antialiased;
+}
+.mono,code,.num,th.n,td.n{
+  font-family:ui-monospace,"SF Mono","Cascadia Mono","JetBrains Mono",Consolas,"D2Coding",monospace;
+  font-variant-numeric:tabular-nums;
+}
+.wrap{max-width:1120px; margin:0 auto; padding:0 24px 96px}
+
+/* ── header ── */
+header{border-bottom:1px solid var(--line); background:var(--surface); margin-bottom:40px}
+.hin{max-width:1120px; margin:0 auto; padding:44px 24px 36px}
+.eyebrow{
+  font-size:11px; letter-spacing:.16em; text-transform:uppercase;
+  color:var(--accent); font-weight:700; margin:0 0 14px;
+}
+h1{font-size:clamp(28px,4.4vw,42px); line-height:1.15; margin:0 0 14px; letter-spacing:-.02em; text-wrap:balance}
+.lede{font-size:17px; color:var(--muted); margin:0; max-width:62ch}
+.formula-strip{
+  margin-top:26px; padding:16px 20px; background:var(--accent-soft);
+  border:1px solid var(--accent-line); border-radius:6px;
+  font-size:15px; overflow-x:auto; white-space:nowrap;
+}
+.formula-strip b{color:var(--accent)}
+
+/* ── sections ── */
+section{margin:0 0 56px; scroll-margin-top:20px}
+.sechead{display:flex; align-items:baseline; gap:12px; margin:0 0 6px; flex-wrap:wrap}
+.sechead .step{
+  font-size:11px; font-weight:700; letter-spacing:.14em; color:var(--accent);
+  border:1px solid var(--accent-line); background:var(--accent-soft);
+  padding:3px 9px; border-radius:3px; white-space:nowrap;
+}
+h2{font-size:23px; margin:0; letter-spacing:-.02em; text-wrap:balance}
+.subtitle{color:var(--muted); margin:8px 0 22px; max-width:70ch}
+.sub-h{font-size:16px; margin:34px 0 0; letter-spacing:-.01em}
+.sub-h+.subtitle{margin-top:6px}
+.pipe-note{font-size:12.5px; color:var(--faint); margin:0 0 52px}
+
+/* ── tables ── */
+.tw{overflow-x:auto; border:1px solid var(--line); border-radius:6px; background:var(--surface); box-shadow:var(--shadow)}
+table{border-collapse:collapse; width:100%; font-size:13.5px; min-width:660px}
+th,td{padding:10px 13px; text-align:left; border-bottom:1px solid var(--line); vertical-align:top}
+thead th{
+  background:var(--surface2); font-size:11px; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--muted); font-weight:700; white-space:nowrap; border-bottom:1px solid var(--line2);
+}
+tbody tr:last-child td{border-bottom:0}
+td.n,th.n{text-align:right; white-space:nowrap}
+.rule{font-weight:700; color:var(--accent); white-space:nowrap}
+.col{font-size:12px; color:var(--muted); word-break:break-all}
+.pts{
+  display:inline-block; min-width:30px; text-align:center; padding:2px 7px; border-radius:3px;
+  background:var(--accent-soft); color:var(--accent); font-weight:700; font-size:12.5px;
+  border:1px solid var(--accent-line);
+}
+
+/* ── grade pills ── */
+.pill{display:inline-block; padding:2px 10px; border-radius:3px; font-size:12.5px; font-weight:700; white-space:nowrap}
+.p1{background:var(--g1bg); color:var(--g1); border:1px solid var(--g1)}
+.p2{background:var(--g2bg); color:var(--g2); border:1px solid var(--g2)}
+.p3{background:var(--g3bg); color:var(--g3); border:1px solid var(--g3)}
+.p0{background:var(--surface2); color:var(--faint); border:1px solid var(--line2)}
+
+/* ── callouts ── */
+.note{
+  border:1px solid var(--line); border-left:3px solid var(--accent);
+  background:var(--surface); padding:16px 20px; border-radius:0 6px 6px 0; margin:22px 0;
+}
+.note.warn{border-left-color:var(--g2)}
+.note.key{border-left-color:var(--g3)}
+.note h4{margin:0 0 7px; font-size:14.5px}
+.note p{margin:0; color:var(--muted); font-size:14px}
+.note p+p{margin-top:9px}
+
+/* ── worked example ── */
+.calc{
+  background:var(--surface); border:1px solid var(--line); border-radius:6px;
+  padding:22px 24px; box-shadow:var(--shadow); overflow-x:auto;
+}
+.calc-row{display:flex; align-items:baseline; gap:14px; padding:7px 0; border-bottom:1px dashed var(--line); font-size:13.5px; white-space:nowrap}
+.calc-row:last-of-type{border-bottom:0}
+.calc-row .lbl{width:230px; flex:0 0 230px; color:var(--muted); white-space:normal}
+.calc-row .exp{flex:1; min-width:210px}
+.calc-row .val{font-weight:700; text-align:right; width:74px; flex:0 0 74px}
+.calc-total{
+  display:flex; align-items:baseline; gap:14px; margin-top:14px; padding-top:14px;
+  border-top:2px solid var(--ink); font-size:15px; font-weight:700; white-space:nowrap;
+}
+.calc-total .lbl{width:230px; flex:0 0 230px}
+.calc-total .exp{flex:1; min-width:210px; color:var(--accent)}
+.calc-total .val{width:74px; flex:0 0 74px; text-align:right}
+
+.props{display:grid; grid-template-columns:repeat(auto-fit,minmax(290px,1fr)); gap:16px; margin-top:8px}
+.prop{background:var(--surface); border:1px solid var(--line); border-radius:6px; padding:20px; box-shadow:var(--shadow)}
+.prop .tag{font-size:11px; letter-spacing:.1em; font-weight:700; color:var(--g2); text-transform:uppercase}
+.prop h4{margin:9px 0 8px; font-size:15.5px; letter-spacing:-.01em}
+.prop p{margin:0; font-size:13.5px; color:var(--muted)}
+
+footer{border-top:1px solid var(--line); margin-top:20px; padding-top:22px; font-size:12.5px; color:var(--faint)}
+footer code{font-size:12px}
+
+@media (max-width:860px){
+  .calc-row,.calc-total{flex-wrap:wrap; white-space:normal}
+  .calc-row .lbl,.calc-total .lbl{width:100%; flex:1 0 100%}
+  .calc-row .val,.calc-total .val{width:auto; flex:0 0 auto}
+}
+
+/* FAB 비교 문서 전용 */
+.grid th,.grid td{vertical-align:top}
+.grid td.rule{background:var(--surface2);border-right:1px solid var(--line2);white-space:nowrap}
+.grid tbody td.n{font-family:ui-monospace,"SF Mono",Consolas,monospace;font-size:12.5px;line-height:1.5}
+.grid.cols td{font-size:11.5px}
+.rdesc{display:block;margin-top:4px;font-size:11.5px;font-weight:400;color:var(--muted);line-height:1.45}
+.none{color:var(--faint)}
+.undef{color:var(--g2);font-weight:700}
+.nocsv{color:var(--faint);font-style:italic;font-size:11.5px}
+.amos{font-family:ui-monospace,"SF Mono",Consolas,monospace;font-size:11.5px;
+      color:var(--ink);word-break:break-all}
+.th{color:var(--faint);font-weight:400;font-size:11.5px}
+.colstack+.colstack{margin-top:7px;padding-top:7px;border-top:1px dashed var(--line)}
+.card{margin:0 0 28px}
+.cardhead{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin:0 0 10px}
+.cardhead h3{margin:0;font-size:19px;color:var(--accent);letter-spacing:-.01em}
+.cardmeta{margin:0;font-size:12.5px;color:var(--muted)}
+.fabtbl td.rule{background:var(--surface2);border-right:1px solid var(--line2);white-space:nowrap}
+.fabtbl tr.off td{color:var(--faint);background:var(--surface2)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:860px){.two{grid-template-columns:1fr}}
+.grid td.allcol{background:var(--accent-soft);border-right:1px solid var(--accent-line)}
+.grid tr.allonly td{background:var(--surface2)}
+.grid tr.allonly td.allcol{background:var(--accent-soft)}
+tr.off td{color:var(--faint)}
+tr.miss td{background:var(--g2bg)}
+
+.chartbox{background:var(--surface);border:1px solid var(--line);border-radius:6px;
+  box-shadow:var(--shadow);padding:18px 20px 12px;margin:16px 0 8px}
+.legend{display:flex;gap:20px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);margin:0 0 12px}
+.legend b{font-weight:700}
+.sw{display:inline-block;width:22px;height:3px;vertical-align:middle;margin-right:6px;border-radius:2px}
+.big{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin:18px 0}
+.bigcard{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:18px 20px;box-shadow:var(--shadow)}
+.bignum{font-size:34px;font-weight:800;letter-spacing:-.03em;line-height:1.1}
+.biglbl{font-size:12.5px;color:var(--muted);margin-top:6px;line-height:1.5}
+.qa{border-left:3px solid var(--accent);background:var(--accent-soft);padding:16px 20px;
+  border-radius:0 6px 6px 0;margin:20px 0}
+.qa .q{font-weight:700;font-size:15px;margin:0 0 8px}
+.qa .a{margin:0;font-size:14.5px;color:var(--ink);line-height:1.7}
+</style>
+</head>
+<body>
+
+
+<header>
+  <div class="hin">
+    <p class="eyebrow">M16 ↔ M14 Bridge · PIO 반송실패 데이터</p>
+    <h1>지금도 잘 맞는데,<br>PIO 데이터를 왜 넣습니까</h1>
+    <p class="lede">
+      맞는 질문입니다. 룰베이스 스코어는 이미 정체를 잡고 있고, PIO 를 넣어도
+      점수는 <b>최대 5점</b>밖에 안 올라갑니다. 그런데도 넣으려는 이유는
+      점수를 더 잘 맞히기 위해서가 아니라, <b>그 점수가 왜 나왔는지 답하기 위해서</b>입니다.
+      아래는 2026-09-01 ~ 09-03 실제 운영 데이터 <span class="mono">3,375분</span> 으로 확인한 내용입니다.
+    </p>
+    <div class="formula-strip mono">
+      <b>룰베이스</b> = 밀리는 중인가 (큐·반송시간·가동률) &nbsp;&nbsp;·&nbsp;&nbsp;
+      <b>PIO</b> = 실제로 실패했는가 (넣으려다 못 넣은 건수)
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="big">
+    <div class="bigcard"><div class="bignum" style="color:var(--accent)">+0.22</div>
+      <div class="biglbl">두 지표의 상관계수.<br><b>거의 안 겹칩니다</b> — 서로 다른 것을 봅니다</div></div>
+    <div class="bigcard"><div class="bignum" style="color:var(--g2)">16분</div>
+      <div class="biglbl">3,375분 중 등급이 바뀌는 시간<br><b>0.5%</b> — 기존 판단을 뒤집지 않습니다</div></div>
+    <div class="bigcard"><div class="bignum" style="color:var(--g1)">최대 +5점</div>
+      <div class="biglbl">PIO 가 올릴 수 있는 점수의 상한<br>위험·초위험 건수는 <b>변화 없음</b></div></div>
+  </div>
+
+  <div class="qa">
+    <p class="q">Q. 그러면 넣는 의미가 뭡니까?</p>
+    <p class="a">점수 <b>44점</b>만 보면 "어디를 봐야 하는지" 를 모릅니다.
+      PIO 를 같이 보면 <span class="mono">M14A←M14B 10분에 81건 실패</span> 라고 나옵니다.
+      숫자 하나가 <b>조치할 위치</b>로 바뀝니다. 그리고 두 지표가 같은 곳을 가리키면
+      "진짜 막혔다" 는 확증이 됩니다.</p>
+  </div>
+
+  <!-- 1 -->
+  <section>
+    <div class="sechead"><span class="step">근거 1</span><h2>두 지표는 다른 것을 본다</h2></div>
+    <p class="subtitle">
+      2026-09-02 오전, 룰베이스 점수(파랑)와 PIO 10분 실패건수(주황)를 같은 시간축에 놓았습니다.
+      <b>10:46~11:06</b>(음영)은 M14 정체가 있던 구간입니다.
+    </p>
+    <div class="chartbox">
+      <p class="legend">
+        <span><span class="sw" style="background:var(--accent)"></span><b>룰베이스 점수</b> (왼쪽 축 0~60)</span>
+        <span><span class="sw" style="background:var(--g2)"></span><b>PIO 10분 실패건수</b> (오른쪽 축 0~100)</span>
+        <span><span class="sw" style="background:var(--g1)"></span>경계 컷 38</span>
+      </p>
+      <svg viewBox="0 0 880 300" width="100%" role="img" aria-label="9월 2일 10시~11시 30분 룰베이스 점수와 PIO 10분 건수 추이">
+<style>
+ .ax{font-size:10px;fill:var(--faint);font-family:ui-monospace,monospace}
+ .pio{fill:var(--g2)}
+</style>
+<rect x="448.6" y="22" width="172.4" height="244" fill="var(--accent-soft)" opacity=".55"/><line x1="52" y1="266.0" x2="828" y2="266.0" stroke="var(--line)" stroke-dasharray="2 3"/><text x="44" y="270.0" text-anchor="end" class="ax">0</text><line x1="52" y1="184.7" x2="828" y2="184.7" stroke="var(--line)" stroke-dasharray="2 3"/><text x="44" y="188.7" text-anchor="end" class="ax">20</text><line x1="52" y1="103.3" x2="828" y2="103.3" stroke="var(--line)" stroke-dasharray="2 3"/><text x="44" y="107.3" text-anchor="end" class="ax">40</text><line x1="52" y1="22.0" x2="828" y2="22.0" stroke="var(--line)" stroke-dasharray="2 3"/><text x="44" y="26.0" text-anchor="end" class="ax">60</text><text x="836" y="270.0" class="ax pio">0</text><text x="836" y="148.0" class="ax pio">50</text><text x="836" y="26.0" class="ax pio">100</text><line x1="52" y1="111.5" x2="828" y2="111.5" stroke="var(--g1)" stroke-width="1.5" stroke-dasharray="5 3"/><text x="58" y="105.5" class="ax" fill="var(--g1)">경계 컷 38</text>
+<polygon points="52,266 52.0,219.6 60.6,224.5 69.2,227.0 77.9,227.0 86.5,229.4 95.1,234.3 103.7,229.4 112.4,236.7 121.0,234.3 129.6,229.4 138.2,229.4 146.8,227.0 155.5,229.4 164.1,229.4 172.7,229.4 181.3,231.8 190.0,239.2 198.6,234.3 207.2,239.2 215.8,246.5 224.4,244.0 233.1,239.2 241.7,236.7 250.3,236.7 258.9,234.3 267.6,224.5 276.2,224.5 284.8,229.4 293.4,229.4 302.0,229.4 310.7,231.8 319.3,236.7 327.9,239.2 336.5,236.7 345.2,239.2 353.8,241.6 362.4,236.7 371.0,236.7 379.6,231.8 388.3,227.0 396.9,227.0 405.5,219.6 414.1,217.2 422.8,209.9 431.4,200.1 440.0,195.2 448.6,187.9 457.2,170.8 465.9,153.8 474.5,136.7 483.1,114.7 491.7,102.5 500.4,73.2 509.0,61.0 517.6,63.5 526.2,58.6 534.8,53.7 543.5,48.8 552.1,63.5 560.7,70.8 569.3,85.4 578.0,102.5 586.6,129.4 595.2,146.4 603.8,151.3 612.4,163.5 621.1,178.2 629.7,200.1 638.3,205.0 646.9,217.2 655.6,224.5 664.2,229.4 672.8,231.8 681.4,234.3 690.0,241.6 698.7,246.5 707.3,241.6 715.9,236.7 724.5,231.8 733.2,229.4 741.8,229.4 750.4,229.4 759.0,229.4 767.6,231.8 776.3,229.4 784.9,217.2 793.5,222.1 802.1,229.4 810.8,236.7 819.4,236.7 828.0,234.3 828,266" fill="var(--g2)" opacity=".13"/>
+<polyline points="52.0,219.6 60.6,224.5 69.2,227.0 77.9,227.0 86.5,229.4 95.1,234.3 103.7,229.4 112.4,236.7 121.0,234.3 129.6,229.4 138.2,229.4 146.8,227.0 155.5,229.4 164.1,229.4 172.7,229.4 181.3,231.8 190.0,239.2 198.6,234.3 207.2,239.2 215.8,246.5 224.4,244.0 233.1,239.2 241.7,236.7 250.3,236.7 258.9,234.3 267.6,224.5 276.2,224.5 284.8,229.4 293.4,229.4 302.0,229.4 310.7,231.8 319.3,236.7 327.9,239.2 336.5,236.7 345.2,239.2 353.8,241.6 362.4,236.7 371.0,236.7 379.6,231.8 388.3,227.0 396.9,227.0 405.5,219.6 414.1,217.2 422.8,209.9 431.4,200.1 440.0,195.2 448.6,187.9 457.2,170.8 465.9,153.8 474.5,136.7 483.1,114.7 491.7,102.5 500.4,73.2 509.0,61.0 517.6,63.5 526.2,58.6 534.8,53.7 543.5,48.8 552.1,63.5 560.7,70.8 569.3,85.4 578.0,102.5 586.6,129.4 595.2,146.4 603.8,151.3 612.4,163.5 621.1,178.2 629.7,200.1 638.3,205.0 646.9,217.2 655.6,224.5 664.2,229.4 672.8,231.8 681.4,234.3 690.0,241.6 698.7,246.5 707.3,241.6 715.9,236.7 724.5,231.8 733.2,229.4 741.8,229.4 750.4,229.4 759.0,229.4 767.6,231.8 776.3,229.4 784.9,217.2 793.5,222.1 802.1,229.4 810.8,236.7 819.4,236.7 828.0,234.3" fill="none" stroke="var(--g2)" stroke-width="2"/>
+<polyline points="52.0,156.2 60.6,168.4 69.2,180.6 77.9,144.0 86.5,135.9 95.1,127.7 103.7,144.0 112.4,152.1 121.0,152.1 129.6,139.9 138.2,123.7 146.8,148.1 155.5,148.1 164.1,119.6 172.7,139.9 181.3,83.0 190.0,115.5 198.6,87.1 207.2,95.2 215.8,123.7 224.4,123.7 233.1,123.7 241.7,103.3 250.3,107.4 258.9,144.0 267.6,99.3 276.2,119.6 284.8,144.0 293.4,160.3 302.0,144.0 310.7,144.0 319.3,131.8 327.9,168.4 336.5,184.7 345.2,156.2 353.8,188.7 362.4,180.6 371.0,180.6 379.6,205.0 388.3,164.3 396.9,156.2 405.5,119.6 414.1,119.6 422.8,119.6 431.4,103.3 440.0,83.0 448.6,87.1 457.2,91.1 465.9,119.6 474.5,91.1 483.1,139.9 491.7,87.1 500.4,119.6 509.0,111.5 517.6,139.9 526.2,148.1 534.8,148.1 543.5,148.1 552.1,148.1 560.7,152.1 569.3,152.1 578.0,152.1 586.6,144.0 595.2,160.3 603.8,152.1 612.4,135.9 621.1,107.4 629.7,127.7 638.3,131.8 646.9,115.5 655.6,115.5 664.2,95.2 672.8,91.1 681.4,115.5 690.0,119.6 698.7,127.7 707.3,115.5 715.9,62.7 724.5,95.2 733.2,95.2 741.8,115.5 750.4,123.7 759.0,123.7 767.6,123.7 776.3,144.0 784.9,123.7 793.5,115.5 802.1,103.3 810.8,131.8 819.4,131.8 828.0,131.8" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+<line x1="52.0" y1="266" x2="52.0" y2="270" stroke="var(--line2)"/><text x="52.0" y="284" text-anchor="middle" class="ax">10:00</text><line x1="181.3" y1="266" x2="181.3" y2="270" stroke="var(--line2)"/><text x="181.3" y="284" text-anchor="middle" class="ax">10:15</text><line x1="310.7" y1="266" x2="310.7" y2="270" stroke="var(--line2)"/><text x="310.7" y="284" text-anchor="middle" class="ax">10:30</text><line x1="440.0" y1="266" x2="440.0" y2="270" stroke="var(--line2)"/><text x="440.0" y="284" text-anchor="middle" class="ax">10:45</text><line x1="569.3" y1="266" x2="569.3" y2="270" stroke="var(--line2)"/><text x="569.3" y="284" text-anchor="middle" class="ax">11:00</text><line x1="698.7" y1="266" x2="698.7" y2="270" stroke="var(--line2)"/><text x="698.7" y="284" text-anchor="middle" class="ax">11:15</text><line x1="828.0" y1="266" x2="828.0" y2="270" stroke="var(--line2)"/><text x="828.0" y="284" text-anchor="middle" class="ax">11:30</text>
+<line x1="52" y1="22" x2="52" y2="266" stroke="var(--line2)"/>
+<line x1="52" y1="266" x2="828" y2="266" stroke="var(--line2)"/>
+</svg>
+      <p class="pipe-note" style="margin:8px 0 0">2026-09-02 10:00 ~ 11:30 · 1분 간격 실측</p>
+    </div>
+    <div class="note key">
+      <h4>이 그림이 말하는 것</h4>
+      <p>10:46 부터 PIO 가 <b>89건</b>까지 치솟는 동안, 룰베이스 점수는 <b>44점</b>에서 멈춰
+        경계 컷 38 을 겨우 넘는 수준이었습니다. 룰베이스는 "M14 SLA 초과 · OHT 가동률 99%" 로
+        같은 정체를 <b>3단계 확정</b>까지 올렸지만, 점수 자체는 크게 오르지 않았습니다.</p>
+      <p>반대로 이 3일 중 점수가 가장 높았던 시각(9/2 19:40, 53점 · M14-Sorter대기)에는
+        PIO 가 <b>6건</b>뿐이었습니다. <b>정체 유형이 다르면 PIO 는 안 움직입니다</b> —
+        소터 대기나 MLUD 정체는 반송 실패를 만들지 않기 때문입니다.</p>
+      <p>두 지표의 상관계수가 <b>+0.22</b> 인 이유가 이것입니다. 겹치는 지표를 더하면
+        의미가 없지만, 이건 <b>서로 못 보는 것을 채워 줍니다</b>.</p>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section>
+    <div class="sechead"><span class="step">근거 2</span><h2>어디를 조치해야 하는지가 나온다</h2></div>
+    <p class="subtitle">
+      PIO 는 12개 경로별로 따로 집계됩니다. 3일간 실패가 어디에 몰렸는지 보면
+      <b>두 경로가 전부</b>입니다.
+    </p>
+    <div class="chartbox"><svg viewBox="0 0 820 328" width="100%" role="img" aria-label="경로별 3일 PIO 실패 합계">
+<style>.lb{font-size:11px;fill:var(--muted);font-family:ui-monospace,monospace}
+.vl{font-size:11px;fill:var(--ink);font-family:ui-monospace,monospace;font-variant-numeric:tabular-nums}</style>
+<text x="140" y="24" text-anchor="end" class="lb">M14A<-M14B</text><rect x="150" y="13" width="600.0" height="14" fill="var(--g2)" rx="2"/><text x="758.0" y="24" class="vl">1483</text><text x="140" y="50" text-anchor="end" class="lb">M16HUB<-M16A</text><rect x="150" y="39" width="418.3" height="14" fill="var(--g2)" rx="2"/><text x="576.3" y="50" class="vl">1034</text><text x="140" y="76" text-anchor="end" class="lb">M16A->M16B</text><rect x="150" y="65" width="135.9" height="14" fill="var(--g2)" rx="2"/><text x="293.9" y="76" class="vl">336</text><text x="140" y="102" text-anchor="end" class="lb">M16HUB->MLUD</text><rect x="150" y="91" width="14.6" height="14" fill="var(--accent)" rx="2"/><text x="172.6" y="102" class="vl">36</text><text x="140" y="128" text-anchor="end" class="lb">M16B->M16A</text><rect x="150" y="117" width="5.3" height="14" fill="var(--accent)" rx="2"/><text x="163.3" y="128" class="vl">13</text><text x="140" y="154" text-anchor="end" class="lb">M16HUB<-M14B</text><rect x="150" y="143" width="3.2" height="14" fill="var(--accent)" rx="2"/><text x="161.2" y="154" class="vl">8</text><text x="140" y="180" text-anchor="end" class="lb">M16HUB->M14B</text><rect x="150" y="169" width="2.8" height="14" fill="var(--accent)" rx="2"/><text x="160.8" y="180" class="vl">7</text><text x="140" y="206" text-anchor="end" class="lb">M16HUB->M14A</text><rect x="150" y="195" width="1.0" height="14" fill="var(--line2)" rx="2"/><text x="159.0" y="206" class="vl">0</text><text x="140" y="232" text-anchor="end" class="lb">M16HUB<-M14A</text><rect x="150" y="221" width="1.0" height="14" fill="var(--line2)" rx="2"/><text x="159.0" y="232" class="vl">0</text><text x="140" y="258" text-anchor="end" class="lb">M16HUB->M16A</text><rect x="150" y="247" width="1.0" height="14" fill="var(--line2)" rx="2"/><text x="159.0" y="258" class="vl">0</text><text x="140" y="284" text-anchor="end" class="lb">M14A->M14B</text><rect x="150" y="273" width="1.0" height="14" fill="var(--line2)" rx="2"/><text x="159.0" y="284" class="vl">0</text><text x="140" y="310" text-anchor="end" class="lb">M14A->M10A</text><rect x="150" y="299" width="1.0" height="14" fill="var(--line2)" rx="2"/><text x="159.0" y="310" class="vl">0</text></svg>
+      <p class="pipe-note" style="margin:8px 0 0">2026-09-01 ~ 09-03 · 경로별 실패 합계 (건)</p>
+    </div>
+    <div class="tw"><table>
+      <thead><tr><th>경로</th><th class="n">3일 합계</th><th class="n">10분 평균</th><th class="n">10분 최대</th><th>무엇을 뜻하나</th></tr></thead>
+      <tbody>
+        <tr><td class="mono"><b>M14A←M14B</b></td><td class="n">1,483</td><td class="n">4.4</td><td class="n">81</td>
+          <td>M14B(7F) → 허브(3F) 리프터 구간. <b>전체의 절반</b></td></tr>
+        <tr><td class="mono"><b>M16HUB←M16A</b></td><td class="n">1,034</td><td class="n">3.0</td><td class="n">33</td>
+          <td>M16A → 허브 리프터 구간. 두 번째로 많음</td></tr>
+        <tr><td class="mono">M16A→M16B</td><td class="n">336</td><td class="n">1.0</td><td class="n">6</td><td>상시 소량</td></tr>
+        <tr><td class="mono">M16HUB→MLUD</td><td class="n">36</td><td class="n">0.1</td><td class="n">8</td><td>거의 없음</td></tr>
+        <tr class="off"><td class="mono">나머지 8개 경로</td><td class="n">28</td><td class="n">0.0</td><td class="n">≤2</td>
+          <td>3일간 사실상 0 — 이 구간은 정상</td></tr>
+      </tbody>
+    </table></div>
+    <div class="note">
+      <h4>점수가 근거를 갖게 됩니다</h4>
+      <p>"9월 2일 10시 50분에 44점" 이라는 기록은 나중에 다시 봐도 무슨 일이었는지 모릅니다.
+        여기에 "그 시각 M14A←M14B 에서 10분간 81건 실패" 가 붙으면
+        <b>M14B 리프터 구간을 확인하라</b> 는 지시가 됩니다. 점수가 판단이 아니라
+        <b>조치 지점</b>이 되는 것입니다.</p>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section>
+    <div class="sechead"><span class="step">근거 3</span><h2>설비 상태가 나빠지는 것이 보인다</h2></div>
+    <p class="subtitle">
+      같은 3일인데 PIO 실패가 계속 늘었습니다. 정상 수준(9/1 기준)을 넘긴 초과 건수의
+      하루 평균입니다.
+    </p>
+    <div class="two">
+      <div class="chartbox" style="margin:0"><svg viewBox="0 0 420 200" width="100%" role="img" aria-label="날짜별 PIO 초과 건수 평균">
+<style>.lb2{font-size:10.5px;fill:var(--faint);font-family:ui-monospace,monospace}
+.vl2{font-size:11.5px;fill:var(--g2);font-weight:700;font-family:ui-monospace,monospace}</style>
+<line x1="44" y1="170.0" x2="396" y2="170.0" stroke="var(--line)" stroke-dasharray="2 3"/><text x="36" y="174.0" text-anchor="end" class="lb2">0</text><line x1="44" y1="131.0" x2="396" y2="131.0" stroke="var(--line)" stroke-dasharray="2 3"/><text x="36" y="135.0" text-anchor="end" class="lb2">1</text><line x1="44" y1="92.0" x2="396" y2="92.0" stroke="var(--line)" stroke-dasharray="2 3"/><text x="36" y="96.0" text-anchor="end" class="lb2">2</text><line x1="44" y1="53.0" x2="396" y2="53.0" stroke="var(--line)" stroke-dasharray="2 3"/><text x="36" y="57.0" text-anchor="end" class="lb2">3</text><line x1="44" y1="14.0" x2="396" y2="14.0" stroke="var(--line)" stroke-dasharray="2 3"/><text x="36" y="18.0" text-anchor="end" class="lb2">4</text><rect x="78.0" y="146.6" width="49.3" height="23.4" fill="var(--g2)" rx="3"/><text x="102.7" y="139.6" text-anchor="middle" class="vl2">0.6건</text><text x="102.7" y="188.0" text-anchor="middle" class="lb2">9/1</text><rect x="195.4" y="103.7" width="49.3" height="66.3" fill="var(--g2)" rx="3"/><text x="220.0" y="96.7" text-anchor="middle" class="vl2">1.7건</text><text x="220.0" y="188.0" text-anchor="middle" class="lb2">9/2</text><rect x="312.7" y="33.5" width="49.3" height="136.5" fill="var(--g2)" rx="3"/><text x="337.3" y="26.5" text-anchor="middle" class="vl2">3.5건</text><text x="337.3" y="188.0" text-anchor="middle" class="lb2">9/3</text>
+<line x1="44" y1="170" x2="396" y2="170" stroke="var(--line2)"/></svg>
+        <p class="pipe-note" style="margin:8px 0 0">하루 평균 초과 건수 (10분 기준)</p></div>
+      <div>
+        <div class="tw"><table style="min-width:0">
+          <thead><tr><th>날짜</th><th class="n">평균 초과</th><th class="n">10분 최대</th><th class="n">일 합계</th></tr></thead>
+          <tbody>
+            <tr><td>9/1</td><td class="n">0.6건</td><td class="n">33</td><td class="n">998</td></tr>
+            <tr><td>9/2</td><td class="n">1.7건</td><td class="n">89</td><td class="n">1,303</td></tr>
+            <tr><td>9/3 <span class="th">(08시까지)</span></td><td class="n"><b>3.5건</b></td><td class="n">59</td><td class="n">616</td></tr>
+          </tbody>
+        </table></div>
+        <p class="subtitle" style="margin-top:14px">
+          물량 증가와 설비 정비가 겹친 기간입니다. <b>사흘 만에 6배</b>가 됐습니다.
+          룰베이스는 그 순간 밀리는 정도만 보기 때문에 이런 <b>누적 악화 추세</b>는
+          드러나지 않습니다.
+        </p>
+      </div>
+    </div>
+    <div class="note warn">
+      <h4>그래서 기준선은 고정해야 합니다</h4>
+      <p>"평소 수준" 을 최근 데이터로 계속 다시 계산하면, 설비가 나빠져 실패가 늘어난 만큼
+        기준선도 같이 올라가 <b>악화를 영영 못 잡습니다</b>. 정상이던 시기의 값으로
+        고정해 두어야 위 그림처럼 나빠지는 것이 보입니다.</p>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section>
+    <div class="sechead"><span class="step">얼마나</span><h2>점수에는 이만큼만 반영합니다</h2></div>
+    <p class="subtitle">
+      12개 경로의 <b>최근 10분 합계</b>가 몇 건인지에 따라 구간별로 더합니다.
+      구간은 실제 3일 분포에서 잘랐습니다 — 15건까지가 전체의 89% 로 <b>평소</b>입니다.
+    </p>
+    <div class="tw"><table>
+      <thead><tr><th>최근 10분 PIO 실패</th><th class="n">raw 가산</th><th class="n">점수 증가</th><th class="n">3일 중 해당</th><th>구간의 뜻</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">0 ~ 15</td><td class="n">0</td><td class="n">—</td><td class="n">3,002분 (88.9%)</td><td>평소 수준</td></tr>
+        <tr><td class="mono">16 ~ 25</td><td class="n">+2</td><td class="n"><b>+1점</b></td><td class="n">274분 (8.1%)</td><td>조금 많음</td></tr>
+        <tr><td class="mono">26 ~ 40</td><td class="n">+4</td><td class="n"><b>+2점</b></td><td class="n">65분 (1.9%)</td><td>확실히 많음</td></tr>
+        <tr><td class="mono">41 ~ 60</td><td class="n">+7</td><td class="n"><b>+3점</b></td><td class="n">22분 (0.7%)</td><td>이상</td></tr>
+        <tr><td class="mono">61 ~ 80</td><td class="n">+9</td><td class="n"><b>+4점</b></td><td class="n">6분 (0.2%)</td><td>심각</td></tr>
+        <tr class="grpend"><td class="mono">81 이상</td><td class="n">+11</td><td class="n"><b>+5점</b></td><td class="n">6분 (0.2%)</td><td>최고 — 3일 중 6분뿐</td></tr>
+      </tbody>
+    </table></div>
+    <p class="pipe-note" style="margin-top:10px">
+      기존 스코어 식은 그대로입니다 — <span class="mono">raw = 영역합 + 흐름 + SLA + Sorter + MAXCAPA</span>
+      에 <span class="mono">+ PIO</span> 한 항이 붙고, 정규화(÷220)·등급 컷은 전혀 바뀌지 않습니다.
+      PIO 가 평소 수준이면 <b>점수는 1점도 안 움직입니다</b>.
+    </p>
+
+    <h3 class="sub-h">실제로 적용하면 — 3일 전체</h3>
+    <div class="tw"><table>
+      <thead><tr><th></th><th class="n">9/1</th><th class="n">9/2</th><th class="n">9/3</th><th class="n">위험(53↑)</th><th class="n">초위험(73↑)</th></tr></thead>
+      <tbody>
+        <tr><td>지금 (경계 이상 분)</td><td class="n">12분</td><td class="n">63분</td><td class="n">39분</td><td class="n">1분</td><td class="n">0</td></tr>
+        <tr><td><b>PIO 반영 후</b></td><td class="n">13분</td><td class="n">71분</td><td class="n">46분</td><td class="n">1분</td><td class="n">0</td></tr>
+      </tbody>
+    </table></div>
+    <p class="pipe-note" style="margin-top:10px">
+      정상이던 9/1 은 <b>1분</b> 늘었고, 상태가 나빴던 이틀만 늘었습니다.
+      위험·초위험 건수는 <b>전혀 변하지 않습니다</b>.
+    </p>
+
+    <h3 class="sub-h">PIO 가 크게 오른 6개 구간</h3>
+    <div class="tw"><table>
+      <thead><tr><th>구간</th><th class="n">길이</th><th class="n">PIO 최고</th><th class="n">지금</th><th class="n">반영 후</th><th>주 경로 / 룰베이스 판단</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">09-01 22:53</td><td class="n">1분</td><td class="n">31</td><td class="n">12</td><td class="n">14</td><td class="th">M16HUB←M16A / M16A-신호</td></tr>
+        <tr><td class="mono">09-01 23:06~23:07</td><td class="n">2분</td><td class="n">33</td><td class="n">18</td><td class="n">20</td><td class="th">M16HUB←M16A / HUB-MLUD</td></tr>
+        <tr><td class="mono"><b>09-02 10:46~11:06</b></td><td class="n">21분</td><td class="n"><b>89</b></td><td class="n">44</td><td class="n"><b>48</b></td><td class="th">M14A←M14B / M14-SLA초과 <b>(3단계 14분)</b></td></tr>
+        <tr><td class="mono"><b>09-03 00:56~01:07</b></td><td class="n">12분</td><td class="n">59</td><td class="n">50</td><td class="n">51</td><td class="th">M14A←M14B / M14-SLA초과 <b>(3단계 10분)</b></td></tr>
+        <tr><td class="mono">09-03 06:35~06:36</td><td class="n">2분</td><td class="n">32</td><td class="n">33</td><td class="n">35</td><td class="th">M14A←M14B / M14-Sorter대기</td></tr>
+        <tr class="grpend"><td class="mono"><b>09-03 07:28~07:48</b></td><td class="n">21분</td><td class="n">45</td><td class="n">38</td><td class="n"><b>41</b></td><td class="th">M16HUB←M16A / M16A-큐누적 <b>(3단계 21분)</b></td></tr>
+      </tbody>
+    </table></div>
+    <p class="pipe-note" style="margin-top:10px">
+      길게 이어진 3개 구간은 <b>룰베이스도 3단계 확정으로 같이 잡았습니다</b>.
+      PIO 가 엉뚱한 곳에서 튀는 것이 아니라, 같은 정체를 다른 방향에서 확인한다는 뜻입니다.
+    </p>
+  </section>
+
+  <!-- 5 -->
+  <section>
+    <div class="sechead"><span class="step">한계</span><h2>이 데이터로 말할 수 없는 것</h2></div>
+    <div class="two">
+      <div class="prop"><div class="tag">아직 확인 안 됨</div>
+        <h4>"조기 경보" 라고는 말할 수 없습니다</h4>
+        <p>3일 데이터에서 <b>PIO 가 룰베이스보다 먼저 오른 사건은 없었습니다</b>.
+          거의 같은 시각에 함께 올랐습니다. 그러므로 지금은 <b>확증과 근거</b>이지
+          조기 신호가 아닙니다. 사건이 더 쌓여 선행성이 확인되면 그때 다시 말씀드리겠습니다.</p></div>
+      <div class="prop"><div class="tag">표본</div>
+        <h4>3일 · 3,375분입니다</h4>
+        <p>구간 경계(16/26/41/61/81건)와 배점은 이 3일 분포로 정한 <b>초기값</b>입니다.
+          설정 파일에서 바꿀 수 있게 되어 있고, 데이터가 쌓이면 조정합니다.
+          기존 룰·임계·정규화(220)·등급 컷은 <b>하나도 건드리지 않습니다</b>.</p></div>
+    </div>
+  </section>
+
+  <div class="qa">
+    <p class="q">한 문장으로</p>
+    <p class="a">점수를 바꾸려는 것이 아니라, <b>그 점수가 왜 나왔는지 답할 수 있게</b> 하려는 것입니다.
+      룰베이스는 밀리는 조짐을 보고 PIO 는 실제 실패를 봅니다.
+      둘이 같이 오르면 확실한 정체이고, <b>어느 경로에서 실패했는지까지 나오니 조치 지점이 바로 잡힙니다</b>.</p>
+  </div>
+
+  <footer>
+    <p>데이터 — 2026-09-01 00:00 ~ 09-03 08:14 운영 발동이벤트
+      (<span class="mono">{날짜}_발동이벤트.csv</span>, 중복 제거 후 3,375분).
+      PIO 12컬럼은 <code class="mono">STA_TRANS_TIMEOUT_FAIL_HIS</code> 의
+      <span class="mono">FAIL_TYP='DEPOSIT'</span> 건수를 경로별·1분 단위로 집계한 값입니다.</p>
+    <p>이 문서의 모든 수치는 그 원본에서 직접 계산했습니다 — 상관계수, 구간별 빈도,
+      적용 전후 등급 분수, 6개 급증 구간 모두 재현 가능합니다.</p>
+  </footer>
+</div>
+
+</body>
+</html>
