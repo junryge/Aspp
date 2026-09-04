@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zvec-grep 해부와 파이썬 이식</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&display=swap">
+<style>
+:root{
+  --bg:#F4F6F5; --surface:#FFFFFF; --surface2:#EAEFEC; --line:#D3DBD7; --line2:#BFC9C4;
+  --ink:#17211F; --ink2:#46524E; --muted:#6F7B76;
+  --accent:#0E7C6B; --accent-ink:#0A5E51; --accent-soft:#D9EFEA;
+  --match:#B8741A; --match-soft:#F6E7CF;
+  --code-bg:#1B2624; --code-ink:#DDE6E2; --code-kw:#7FD6C3; --code-str:#F0C98A; --code-cm:#8A9993; --code-fn:#BFD6FF;
+  --shadow:0 1px 2px rgba(23,33,31,.06),0 8px 24px -12px rgba(23,33,31,.18);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F1514; --surface:#151D1B; --surface2:#1C2624; --line:#2A3634; --line2:#38453F;
+    --ink:#E4EAE7; --ink2:#B9C4BF; --muted:#8A9791;
+    --accent:#3FBFA8; --accent-ink:#6ED4C1; --accent-soft:#163430;
+    --match:#E0A65A; --match-soft:#3A2C16;
+    --code-bg:#0B100F; --code-ink:#D9E2DE; --code-kw:#7FD6C3; --code-str:#F0C98A; --code-cm:#77867F; --code-fn:#A9C8FF;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.6);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F1514; --surface:#151D1B; --surface2:#1C2624; --line:#2A3634; --line2:#38453F;
+  --ink:#E4EAE7; --ink2:#B9C4BF; --muted:#8A9791;
+  --accent:#3FBFA8; --accent-ink:#6ED4C1; --accent-soft:#163430;
+  --match:#E0A65A; --match-soft:#3A2C16;
+  --code-bg:#0B100F; --code-ink:#D9E2DE; --code-kw:#7FD6C3; --code-str:#F0C98A; --code-cm:#77867F; --code-fn:#A9C8FF;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.6);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans KR","Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;font-size:16px;line-height:1.72;-webkit-font-smoothing:antialiased}
+code,pre,kbd,.mono{font-family:"IBM Plex Mono","SFMono-Regular",Menlo,Consolas,monospace}
+a{color:var(--accent-ink);text-decoration:none;border-bottom:1px solid transparent}
+a:hover,a:focus-visible{border-bottom-color:currentColor}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.shell{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+header.masthead{padding:56px 0 32px;border-bottom:1px solid var(--line)}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent-ink);margin:0 0 14px}
+h1{font-size:clamp(30px,4.2vw,46px);line-height:1.15;margin:0 0 14px;font-weight:700;letter-spacing:-.01em;text-wrap:balance;max-width:20ch}
+.lede{font-size:18px;color:var(--ink2);max-width:62ch;margin:0}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0;margin:28px 0 0;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--surface)}
+.facts div{padding:12px 16px;border-right:1px solid var(--line)}
+.facts div:last-child{border-right:0}
+.facts dt{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:0 0 3px;font-family:"IBM Plex Mono",monospace}
+.facts dd{margin:0;font-weight:600;font-variant-numeric:tabular-nums;font-size:15px}
+
+.layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:56px;padding-top:40px}
+nav.toc{position:sticky;top:24px;align-self:start;font-size:13.5px}
+nav.toc p{margin:0 0 10px;font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+nav.toc ol{list-style:none;margin:0;padding:0;border-left:1px solid var(--line)}
+nav.toc li a{display:block;padding:5px 0 5px 14px;color:var(--ink2);border-bottom:0;border-left:2px solid transparent;margin-left:-1px}
+nav.toc li a:hover{color:var(--ink);border-left-color:var(--line2)}
+nav.toc li.py a{color:var(--accent-ink);font-weight:600}
+@media (max-width:860px){.layout{grid-template-columns:1fr;gap:24px}nav.toc{position:static}nav.toc ol{display:flex;flex-wrap:wrap;gap:4px 14px;border:0}nav.toc li a{padding:2px 0;border:0}}
+
+main{max-width:760px}
+section{margin:0 0 64px}
+h2{font-size:26px;line-height:1.25;margin:0 0 6px;letter-spacing:-.01em;text-wrap:balance;display:flex;gap:12px;align-items:baseline}
+h2 .num{font-family:"IBM Plex Mono",monospace;font-size:13px;color:var(--accent-ink);font-weight:500}
+h3{font-size:18px;margin:32px 0 8px;letter-spacing:-.005em}
+p{margin:0 0 16px;max-width:66ch}
+ul,ol{padding-left:22px;margin:0 0 16px;max-width:66ch}
+li{margin:4px 0}
+strong{font-weight:600}
+.sub{color:var(--ink2);margin-bottom:22px}
+code:not(pre code){background:var(--surface2);border:1px solid var(--line);border-radius:4px;padding:1px 6px;font-size:.88em;color:var(--ink)}
+
+pre{background:var(--code-bg);color:var(--code-ink);border-radius:8px;padding:16px 18px;overflow-x:auto;font-size:13.5px;line-height:1.6;margin:0 0 18px;box-shadow:var(--shadow)}
+pre code{background:none;border:0;padding:0;color:inherit;font-size:inherit}
+.k{color:var(--code-kw)} .s{color:var(--code-str)} .c{color:var(--code-cm);font-style:italic} .f{color:var(--code-fn)}
+.codehead{display:flex;justify-content:space-between;align-items:center;font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--muted);letter-spacing:.06em;margin:0 0 6px}
+.codehead .ok{color:var(--accent-ink)}
+
+.tablewrap{overflow-x:auto;margin:0 0 20px;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600;background:var(--surface2)}
+tr:last-child td{border-bottom:0}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+td code{white-space:nowrap}
+
+.callout{border-left:3px solid var(--accent);background:var(--accent-soft);padding:12px 16px;border-radius:0 6px 6px 0;margin:0 0 20px;max-width:66ch}
+.callout.warn{border-left-color:var(--match);background:var(--match-soft)}
+.callout p:last-child{margin-bottom:0}
+.callout .tag{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;display:block;margin-bottom:4px;color:var(--accent-ink)}
+.callout.warn .tag{color:var(--match)}
+
+.routes{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin:0 0 20px}
+.route{border:1px solid var(--line);border-radius:6px;padding:12px 14px;background:var(--surface)}
+.route .flag{font-family:"IBM Plex Mono",monospace;font-weight:500;color:var(--accent-ink);font-size:14px}
+.route .flag.rg{color:var(--match)}
+.route p{font-size:13.5px;color:var(--ink2);margin:6px 0 0}
+.route .cov{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-top:8px;display:block}
+
+figure{margin:0 0 22px}
+figure svg{width:100%;height:auto;display:block}
+figcaption{font-size:13px;color:var(--muted);margin-top:8px}
+.diagram text{font-family:"IBM Plex Sans KR",system-ui,sans-serif;font-size:12.5px;fill:var(--ink)}
+.diagram .mono{font-family:"IBM Plex Mono",monospace;font-size:11.5px}
+.diagram .box{fill:var(--surface);stroke:var(--line2);stroke-width:1}
+.diagram .box.acc{fill:var(--accent-soft);stroke:var(--accent)}
+.diagram .box.mt{fill:var(--match-soft);stroke:var(--match)}
+.diagram .db{fill:var(--surface2);stroke:var(--line2)}
+.diagram .arrow{stroke:var(--ink2);stroke-width:1.2;fill:none;marker-end:url(#ah)}
+.diagram .lbl{fill:var(--muted);font-size:11px}
+
+.mapgrid{display:grid;grid-template-columns:1fr auto 1fr;gap:6px 12px;align-items:center;font-size:14px;margin:0 0 20px;border:1px solid var(--line);border-radius:6px;padding:12px 16px;background:var(--surface)}
+.mapgrid .h{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.mapgrid .ar{color:var(--muted)}
+.mapgrid code{white-space:normal}
+
+footer{border-top:1px solid var(--line);margin-top:24px;padding-top:18px;font-size:13px;color:var(--muted)}
+footer p{max-width:none}
+</style>
+</head>
+<body>
+
+
+<div class="shell">
+<header class="masthead">
+  <p class="eyebrow">zvec-ai/zvec-grep · 조사 기준 2026-09-04 · 파이썬 이식 검증 포함</p>
+  <h1>zvec-grep(zg)이 무엇이고, 파이썬으로 어떻게 가져오나</h1>
+  <p class="lede">ripgrep · BM25 · 벡터 검색을 하나의 CLI와 하나의 MCP 툴로 묶은 로컬 우선 검색 레이어. 사람은 터미널에서, 코딩 에이전트(Claude Code, Codex, Qwen Code 등)는 MCP로 같은 엔진을 쓴다. 뒷부분은 Node 앱을 그대로 쓰지 않고 같은 엔진의 파이썬 SDK로 폐쇄망에서 재구성하는 방법이다.</p>
+  <dl class="facts">
+    <div><dt>패키지</dt><dd>@zvec/zvec-grep 0.2.1</dd></div>
+    <div><dt>런타임</dt><dd>Node.js ≥ 22</dd></div>
+    <div><dt>스토리지 엔진</dt><dd>@zvec/zvec 0.7.0</dd></div>
+    <div><dt>라이선스</dt><dd>Apache-2.0</dd></div>
+    <div><dt>스타 / 포크</dt><dd>1.3k / 64</dd></div>
+    <div><dt>마지막 커밋</dt><dd>2026-09-03</dd></div>
+  </dl>
+</header>
+
+<div class="layout">
+<nav class="toc" aria-label="목차">
+  <p>목차</p>
+  <ol>
+    <li><a href="#what">한 줄 정의</a></li>
+    <li><a href="#arch">구조</a></li>
+    <li><a href="#index">인덱싱 파이프라인</a></li>
+    <li><a href="#query">쿼리 라우트 4종</a></li>
+    <li><a href="#models">임베딩 모델과 Qwen</a></li>
+    <li><a href="#agents">에이전트 · MCP 통합</a></li>
+    <li><a href="#bench">벤치마크 주장</a></li>
+    <li class="py"><a href="#py">파이썬으로 쓰기</a></li>
+    <li><a href="#py-proto">· 검증된 프로토타입</a></li>
+    <li><a href="#py-map">· 모듈 대응표</a></li>
+    <li><a href="#py-caveat">· 반입 시 주의점</a></li>
+    <li><a href="#refs">출처</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<section id="what">
+  <h2><span class="num">01</span>한 줄 정의</h2>
+  <p class="sub">"Know the words—or don't. Just zg."</p>
+  <p>zg는 <strong>정확한 단어를 알면 rg처럼, 모르면 의미로</strong> 찾게 해주는 검색 도구다. 원래 세 도구로 나뉘어 있던 일, 즉 정규식 완전탐색(ripgrep), 키워드 랭킹(BM25 전문검색), 임베딩 의미검색(벡터)을 하나의 인덱스와 하나의 명령으로 합쳤다. 대상은 코드만이 아니라 Markdown, 텍스트, CSV/JSON/YAML 같은 비코드 파일까지다.</p>
+  <p>설계 원칙 두 가지가 문서 전체를 관통한다. 첫째 <strong>로컬 우선</strong>: 파일, 인덱스, 로컬 모델은 기계 밖으로 나가지 않고, 리모트 임베딩(Qwen API)만 명시 승인 후 데이터가 나간다. 둘째 <strong>에이전트 친화</strong>: 기본 출력이 미리보기 없는 압축 형식이라 LLM 컨텍스트에 넣는 토큰이 적고, MCP로 붙이면 에이전트가 프롬프트에 도구 이름을 안 써도 알아서 호출한다.</p>
+  <pre><code><span class="c"># 원본(Node) 기준 최소 사용법</span>
+npm install -g @zvec/zvec-grep
+zg index --embedding local/potion-retrieval-32m
+zg query --human <span class="s">"where theme preferences are restored"</span> --limit 3
+zg install --target qwen --yes   <span class="c"># Qwen Code에 MCP 자동 등록</span></code></pre>
+</section>
+
+<section id="arch">
+  <h2><span class="num">02</span>구조</h2>
+  <p class="sub">진입점은 둘, 엔진은 하나, 검색 경로는 둘.</p>
+  <figure>
+  <svg class="diagram" viewBox="0 0 810 290" role="img" aria-label="zg 아키텍처: CLI와 MCP가 같은 엔진을 호출하고, 엔진은 인덱스 검색과 managed ripgrep 두 경로를 가진다">
+    <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--ink2)"/></marker></defs>
+    <rect class="box" x="10" y="30" width="130" height="44" rx="5"/><text x="75" y="57" text-anchor="middle">사람 · 스크립트</text>
+    <rect class="box" x="10" y="200" width="130" height="44" rx="5"/><text x="75" y="227" text-anchor="middle">코딩 에이전트</text>
+    <rect class="box" x="190" y="30" width="110" height="44" rx="5"/><text x="245" y="57" text-anchor="middle" class="mono">zg CLI</text>
+    <rect class="box" x="190" y="200" width="110" height="44" rx="5"/><text x="245" y="227" text-anchor="middle" class="mono">MCP client</text>
+    <rect class="box" x="350" y="115" width="120" height="44" rx="5"/><text x="410" y="136" text-anchor="middle">Local Server</text><text x="410" y="151" text-anchor="middle" class="lbl">loopback · Bearer</text>
+    <rect class="box acc" x="520" y="115" width="100" height="44" rx="5"/><text x="570" y="142" text-anchor="middle">엔진</text>
+    <rect class="box acc" x="650" y="30" width="150" height="56" rx="5"/><text x="725" y="52" text-anchor="middle">인덱스 검색</text><text x="725" y="70" text-anchor="middle" class="lbl">BM25 + 벡터 → RRF</text>
+    <rect class="box mt" x="650" y="115" width="150" height="44" rx="5"/><text x="725" y="134" text-anchor="middle">managed rg</text><text x="725" y="150" text-anchor="middle" class="lbl">정규식 · 완전탐색</text>
+    <rect class="box acc" x="650" y="190" width="150" height="56" rx="5"/><text x="725" y="212" text-anchor="middle">인덱싱</text><text x="725" y="230" text-anchor="middle" class="lbl">scan → extract → embed</text>
+    <rect class="db" x="360" y="215" width="200" height="56" rx="5"/><text x="460" y="238" text-anchor="middle" class="mono">.zvec-grep/</text><text x="460" y="256" text-anchor="middle" class="lbl">manifest · files.zvec · index.zvec</text>
+    <path class="arrow" d="M140 52 H188"/><path class="arrow" d="M140 222 H188"/>
+    <path class="arrow" d="M300 52 C330 52 330 137 348 137"/><text x="312" y="100" class="lbl">auto/server/direct</text>
+    <path class="arrow" d="M300 222 C330 222 330 137 348 137"/>
+    <path class="arrow" d="M470 137 H518"/>
+    <path class="arrow" d="M620 137 C635 137 635 58 648 58"/>
+    <path class="arrow" d="M620 137 H648"/>
+    <path class="arrow" d="M620 137 C635 137 635 218 648 218"/>
+    <path class="arrow" d="M650 240 C620 262 590 262 562 250" />
+    <path class="arrow" d="M560 228 C610 228 600 95 648 78" stroke-dasharray="3 3"/>
+  </svg>
+  <figcaption>CLI는 auto / server / direct 모드로 엔진을 부르고, MCP 요청은 항상 로컬 서버를 거친다. 두 모드의 차이는 프로세스 수명과 조정 방식이지 검색 동작이 아니다. <code>zg query --rg</code>만 서버·인덱스 없이 직접 실행된다.</figcaption>
+  </figure>
+  <div class="tablewrap"><table>
+    <thead><tr><th>경로</th><th>잘 맞는 질문</th><th>데이터 소스</th></tr></thead>
+    <tbody>
+      <tr><td><strong>인덱스 검색</strong></td><td>의도, 관련 개념, 랭크된 키워드</td><td>워크스페이스 인덱스의 BM25/FTS + 벡터</td></tr>
+      <tr><td><strong>managed ripgrep</strong></td><td>알고 있는 문자열, 심볼, 경로, 정규식</td><td>파일을 직접 스캔(임베딩 모델 불필요)</td></tr>
+    </tbody>
+  </table></div>
+  <p>신뢰 경계도 명확하다. 리포지토리 인덱스는 <code>&lt;workspace&gt;/.zvec-grep/</code>, 전역 설정과 데몬 상태는 <code>~/.zvec-grep/</code>, 로컬 모델 캐시는 <code>~/.zvec-grep/models</code>. 서버는 loopback에만 리슨하고 MCP 엔드포인트는 Bearer 인증으로 막는다. 단 이 Bearer 인증은 로컬 엔드포인트 보호용이지 리모트 임베딩 데이터 전송을 허가하는 게 아니다. 그 허가는 별도 절차(<code>--allow-remote</code> 또는 <code>zg auth grant</code>)다.</p>
+</section>
+
+<section id="index">
+  <h2><span class="num">03</span>인덱싱 파이프라인</h2>
+  <p class="sub"><span class="mono">workspace → 파일 발견 → 로컬 인덱스 → 쿼리 라우트 → 압축 결과</span></p>
+  <p><code>zg index</code>는 리포지토리 루트에서 돌린다. <code>.git</code>과 <code>.zvec-grep</code>은 항상 제외되고, 의존성·빌드·캐시·로그 디렉터리와 ignore 파일에 걸리는 것들은 기본 제외다. 범위는 ripgrep과 같은 문법으로 좁힌다: <code>-g "src/**" -g "!dist/**" -t ts --max-filesize 500K --hidden --no-ignore</code>. 파일 타입 필터는 glob 뒤에 적용되므로 <code>-g "docs/**" -t ts</code>는 docs 안의 TypeScript만 고른다.</p>
+  <p>명시적 <code>--max-filesize</code>가 없으면 타입별 안전 한도가 적용된다: 코드 1 MiB, 텍스트·Markdown 256 MiB, 구조화 데이터 16 MiB, 이미지 10 MiB. 한도로 빠진 파일은 조용히 스킵되며 <code>zg index --debug</code>로만 개수와 샘플을 볼 수 있다.</p>
+  <h3>추출기(extractor)별 인덱스 표현</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>파일</th><th>포맷</th><th>추출기</th><th>인덱스에 들어가는 것</th></tr></thead>
+    <tbody>
+      <tr><td>구조 인식 코드</td><td>C/C++, Go, Java, JS/JSX, TS/TSX, Python, Rust</td><td><code>CodeExtractor</code> (tree-sitter)</td><td>심볼, 시그니처, breadcrumb, 주변 소스</td></tr>
+      <tr><td>컴포넌트 스크립트</td><td>.vue, .svelte</td><td><code>CodeExtractor</code></td><td>&lt;script&gt; 블록; 구조 없으면 plain text</td></tr>
+      <tr><td>기타 코드</td><td>Ruby, PHP, Swift, Kotlin, C#, Scala, shell, SQL, CSS, Dockerfile, Makefile</td><td><code>CodeExtractor</code></td><td>문법 미지원 → plain-text 청크</td></tr>
+      <tr><td>Markdown</td><td>.md, .mdx</td><td><code>MarkdownExtractor</code></td><td>헤딩 섹션 + breadcrumb</td></tr>
+      <tr><td>텍스트 문서</td><td>.txt, .rst, .html, .xml</td><td><code>TextExtractor</code></td><td>plain-text 청크</td></tr>
+      <tr><td>텍스트 데이터</td><td>.csv, .json, .toml, .yaml</td><td><code>TextExtractor</code></td><td>plain-text 청크</td></tr>
+      <tr><td>래스터 이미지</td><td>.png, .jpg, .gif, .webp</td><td><code>ImageExtractor</code></td><td>명시 포함 + 멀티모달 모델일 때만</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout warn"><span class="tag">현재 스킵되는 것</span><p>PDF, doc/docx, ppt/pptx, xls/xlsx, 압축 파일, 바이너리 실행 파일, 미디어, db/sqlite. 로드맵 1순위가 이 문서 포맷들의 네이티브 지원이다. 파이썬 이식에서는 pdfplumber / openpyxl로 바로 메울 수 있는 부분이다.</p></div>
+  <h3>인덱스 유지</h3>
+  <p>새 인덱스의 모델은 <code>--embedding</code> → 환경변수 <code>ZVEC_GREP_EMBEDDING</code> → 전역 기본값 순으로 결정된다. 기존 인덱스는 저장된 모델·파일 선택 설정을 재사용하므로 두 번째부터는 <code>zg index</code>만 치면 증분 갱신이다. 모델을 바꾸면 벡터 공간이 달라지므로 <code>--rebuild</code>가 강제되고, 삭제는 <code>zg index --drop --yes</code>로만 된다. 상태는 <code>zg status</code>(루트, 모델, 파일 수, 실패, truncation 수, 다음 권장 동작)로 본다. 검색 결과에는 <code>fresh</code> / <code>possibly_stale</code> 신선도가 붙는다.</p>
+</section>
+
+<section id="query">
+  <h2><span class="num">04</span>쿼리 라우트 4종</h2>
+  <p class="sub">위치 인자 하나만 주면 하이브리드. 나머지는 통제가 필요할 때만.</p>
+  <div class="routes">
+    <div class="route"><span class="flag">--hybrid</span><p>의도 + 렉시컬 앵커. BM25 후보와 벡터 후보를 RRF로 융합.</p><span class="cov">ranked sample</span></div>
+    <div class="route"><span class="flag">--fts</span><p>정확한 용어를 인덱스 안에서 BM25 랭킹.</p><span class="cov">ranked sample</span></div>
+    <div class="route"><span class="flag">--vector</span><p>렉시컬 없이 개념적 유사도만.</p><span class="cov">ranked sample</span></div>
+    <div class="route"><span class="flag rg">--rg</span><p>리터럴·정규식 완전탐색. 인덱스 불필요.</p><span class="cov">exhaustive</span></div>
+  </div>
+  <pre><code>zg query <span class="s">"where theme preferences are restored"</span>      <span class="c"># 기본 = hybrid</span>
+zg query --fts <span class="s">"AuthService"</span>
+zg query --vector <span class="s">"where credentials are validated"</span>
+zg query --hybrid <span class="s">"authentication flow"</span> --fts <span class="s">"ForbiddenError"</span> --fuse --limit 10
+zg query --rg -n -F <span class="s">"AuthService"</span> -g <span class="s">"*.ts"</span> src     <span class="c"># ripgrep 그대로</span>
+zg query <span class="s">"plugin lifecycle"</span> --preview short --limit 5  <span class="c"># 에이전트용 압축 출력</span></code></pre>
+  <p>여러 쿼리 그룹은 <code>--fuse</code>를 안 주면 그룹별로 따로 나온다. 융합은 소스 기준 <code>src/engine/pipeline/search/index.ts</code>의 <code>RRF_K = 60</code>, <code>score += 1 / (RRF_K + rank)</code>, 즉 표준 Reciprocal Rank Fusion이다. managed rg는 ripgrep의 매칭·컨텍스트(<code>-A/-B/-C</code>)·엔진·인코딩·glob·타입 옵션을 받지만, zg가 결과 형식을 소유하므로 <code>--json</code>, <code>--count</code>, <code>--files</code>, <code>-l</code>, <code>-o</code>, <code>--replace</code>, <code>--vimgrep</code> 같은 출력 변경 옵션은 거부된다.</p>
+</section>
+
+<section id="models">
+  <h2><span class="num">05</span>임베딩 모델과 Qwen</h2>
+  <p class="sub">로컬 11종 + 리모트 Qwen 3종. 전부 cosine.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>모델</th><th>런타임</th><th class="num">최대 입력 토큰</th><th class="num">차원</th><th>권장 용도</th></tr></thead>
+    <tbody>
+      <tr><td><code>local/potion-code-16m-v2</code></td><td>Model2Vec FP16</td><td class="num">1,024</td><td class="num">256</td><td>코드 리포 첫 인덱스, 가장 빠름</td></tr>
+      <tr><td><code>local/potion-retrieval-32m</code></td><td>Model2Vec FP32</td><td class="num">1,024</td><td class="num">512</td><td>영어 문서 검색</td></tr>
+      <tr><td><code>local/potion-multilingual-128m</code></td><td>Model2Vec FP32</td><td class="num">1,024</td><td class="num">256</td><td>101개 언어 문서</td></tr>
+      <tr><td><code>local/all-minilm-l6-v2</code></td><td>ONNX Q4</td><td class="num">256</td><td class="num">384</td><td>짧은 영어 텍스트</td></tr>
+      <tr><td><code>local/bge-small-en-v1.5</code></td><td>ONNX Q4</td><td class="num">512</td><td class="num">384</td><td>영어 소형</td></tr>
+      <tr><td><code>local/multilingual-e5-small</code></td><td>ONNX Q8</td><td class="num">512</td><td class="num">384</td><td>다국어 소형</td></tr>
+      <tr><td><code>local/jina-embeddings-v2-base-code</code></td><td>ONNX Q8</td><td class="num">8,192</td><td class="num">768</td><td>코드 특화 Transformer</td></tr>
+      <tr><td><code>local/gte-modernbert-base</code></td><td>ONNX Q4</td><td class="num">8,192</td><td class="num">768</td><td>긴 영어 문서</td></tr>
+      <tr><td><code>local/nomic-embed-text-v1.5</code></td><td>ONNX Q4</td><td class="num">8,192</td><td class="num">768</td><td>긴 영어 문서</td></tr>
+      <tr><td><code>local/embeddinggemma-300m</code></td><td>GGUF Q8_0</td><td class="num">2,048</td><td class="num">768</td><td>다국어 코드+문서</td></tr>
+      <tr><td><code>local/qwen3-embedding-0.6b</code></td><td>GGUF Q8_0</td><td class="num">8,192</td><td class="num">1,024</td><td><strong>로컬 Qwen — 폐쇄망 1순위 후보</strong></td></tr>
+      <tr><td><code>qwen/text-embedding-v4</code></td><td>Remote text</td><td class="num">8,192</td><td class="num">1,024</td><td>DashScope API</td></tr>
+      <tr><td><code>qwen/qwen3.7-text-embedding</code></td><td>Remote text</td><td class="num">128,000</td><td class="num">1,024</td><td>벤치마크 기준 모델</td></tr>
+      <tr><td><code>qwen/qwen3-vl-embedding</code></td><td>Remote multimodal</td><td class="num">32,000</td><td class="num">2,560</td><td>텍스트+이미지</td></tr>
+    </tbody>
+  </table></div>
+  <p>입력 한도는 파일 전체가 아니라 추출된 조각(fragment) 하나에 적용된다. 한도를 넘으면 잘리고 <code>zg status</code>의 <code>truncated_fragments</code>에 집계된다. 로컬 Transformer/GGUF 모델은 <code>--device auto|cpu|cuda|metal|vulkan</code>을 받지만 Model2Vec(potion)은 정적 벡터 조회라 GPU가 의미 없다.</p>
+  <h3>리모트 임베딩 승인 절차</h3>
+  <pre><code>zg config provider set qwen --api-key <span class="s">"$DASHSCOPE_API_KEY"</span>   <span class="c"># 자격증명 = 접근권한</span>
+zg index --embedding qwen/text-embedding-v4 --allow-remote      <span class="c"># 이 명령 한 번만 전송 허가</span>
+zg auth grant --capability embedding --scope workspace \
+  --embedding qwen/text-embedding-v4                            <span class="c"># CLI+MCP 공유 워크스페이스 grant</span>
+zg auth status / zg auth revoke</code></pre>
+  <p>자격증명과 데이터 전송 허가를 분리한 점이 핵심이다. MCP 경유 검색에서 리모트 모델이 걸리면 서버가 <code>elicitation/create</code>로 승인을 요청하고, 그게 안 되는 클라이언트(Qoder)는 <code>AskUserQuestion</code>/<code>ask_user_question</code> 툴로 "워크스페이스 승인 / 로컬 FTS만 / 취소" 세 가지를 묻는다. 헤드리스 세션은 절대 자동 승인되지 않는다.</p>
+</section>
+
+<section id="agents">
+  <h2><span class="num">06</span>에이전트 · MCP 통합</h2>
+  <p class="sub">기본 툴셋은 검색 하나만 노출한다.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>대상</th><th>target</th><th>수정하는 파일</th></tr></thead>
+    <tbody>
+      <tr><td>Qwen Code</td><td><code>qwen</code></td><td><code>~/.qwen/settings.json</code>, <code>~/.qwen/QWEN.md</code></td></tr>
+      <tr><td>Claude Code</td><td><code>claude</code></td><td><code>CLAUDE_CONFIG_DIR</code> 하위 설정</td></tr>
+      <tr><td>Codex</td><td><code>codex</code></td><td><code>CODEX_HOME</code> 하위 설정</td></tr>
+      <tr><td>Qoder CLI / IDE</td><td><code>qoder</code></td><td><code>QODER_CONFIG_DIR</code>, AGENTS.md 가이드</td></tr>
+      <tr><td>Cursor, OpenCode</td><td><code>cursor</code>, <code>opencode</code></td><td>각 도구의 MCP 설정</td></tr>
+    </tbody>
+  </table></div>
+  <p><code>zg install --target qwen --yes</code>가 MCP 서버 등록과 사용 가이드 문서를 함께 심는다. 기본 <code>agent</code> 툴셋은 <code>zvec_grep_search</code>(hybrid/fts/vector 쿼리 그룹, 절대경로 <code>root</code> 필수) 하나이고, Qwen Code에서 보이는 이름은 <code>mcp__zvec_grep__zvec_grep_search</code>다. <code>zg server on --mcp-toolset full</code>로 올리면 <code>zvec_grep_rg</code>를 포함해 6개 툴(관리용 포함)이 열린다. 전송은 로컬 Streamable HTTP, stdio 브리지도 있다. 제거는 <code>zg uninstall --target qwen --yes</code>.</p>
+</section>
+
+<section id="bench">
+  <h2><span class="num">07</span>벤치마크 주장</h2>
+  <p class="sub">A/B 페어: 과제·모델·프롬프트·환경·제한 동일, zg 접근 여부만 다름.</p>
+  <p>SWE-QA-Bench는 Claude Code + Claude Opus 5(high reasoning), BrowseComp-Plus는 Codex + gpt-5.6-sol(medium)로 돌렸고, zg 프로필은 둘 다 Qwen3.7 Text Embedding을 썼다. 주장은 입력 토큰, 툴 호출 수, 에이전트 소요시간 감소와 답변 품질 유지·향상이다. 실제 수치는 README에 SVG 그래프로만 들어 있어 이 문서에는 옮기지 못했다. 사례 연구는 Pylint(AST 노드 처리 분기), Matplotlib(<code>FontInfo</code>가 math-text 렌더링 단계를 지나는 흐름), Django(username 유일성 · ORM 트랜잭션 · formset bulk)의 리포지토리 이해 과제다.</p>
+  <p>주장의 논리는 단순하다. 의미검색이 탐색 공간을 좁히고, 랭크된 렉시컬 검색이 정확한 식별자를 고정하며, 압축된 증거가 넓은 스캔·반복 호출·컨텍스트 소모를 줄인다는 것. 코드는 심볼·시그니처·breadcrumb로, 산문은 섹션·청크로 인덱싱되므로 같은 루프가 도메인을 가리지 않는다는 게 "일반화" 근거다.</p>
+</section>
+
+<section id="py">
+  <h2><span class="num">08</span>파이썬으로 쓰기</h2>
+  <p class="sub">앱은 TypeScript 38k 라인이지만, 엔진은 파이썬 wheel로 이미 있다.</p>
+  <div class="callout"><span class="tag">결론</span><p>zvec-grep의 스토리지 엔진 <code>@zvec/zvec</code>와 같은 C++ 코어가 PyPI <code>zvec 0.7.0</code>으로 배포된다(manylinux_2_28 x86_64, Python ≥ 3.9, 의존성은 numpy 하나). FTS(BM25)와 벡터 인덱스, RRF 리랭커까지 파이썬 API로 노출돼 있어서 <strong>옮길 것은 엔진이 아니라 그 위의 청킹·라우팅·출력 로직</strong>이다. 아래 프로토타입은 이 세션에서 실제로 실행해 결과를 확인했다.</p></div>
+
+  <h3>반입 패키지</h3>
+  <pre><code><span class="c"># 인터넷 PC에서 받고 base64로 폐쇄망 반입</span>
+pip download zvec==0.7.0 numpy --only-binary=:all: \
+  --platform manylinux_2_28_x86_64 --python-version 3.11 -d wheels/
+<span class="c"># 선택: 청킹·임베딩·MCP용</span>
+pip download tree-sitter tree-sitter-languages llama-cpp-python mcp -d wheels/
+
+<span class="c"># 폐쇄망</span>
+pip install --no-index --find-links wheels/ zvec numpy</code></pre>
+  <p>zvec 파이썬 패키지에서 확인된 주요 심볼: <code>create_and_open</code>, <code>open</code>, <code>CollectionSchema</code>, <code>FieldSchema</code>, <code>VectorSchema</code>, <code>FtsIndexParam</code>(tokenizer: standard / ngram / jieba / whitespace, filter: lowercase / ascii_folding / stemmer), <code>HnswIndexParam</code>, <code>Query</code>, <code>Fts</code>, <code>RrfReRanker</code>(rank_constant 기본 60), <code>BM25EmbeddingFunction</code>, <code>QwenDenseEmbedding</code>, <code>SentenceTransformerFunctionBase</code>.</p>
+
+  <h3 id="py-proto">검증된 프로토타입</h3>
+  <p class="codehead"><span>zg_min.py</span><span class="ok">✓ zvec 0.7.0 / Python 3.11에서 실행 확인</span></p>
+  <pre><code><span class="k">import</span> zvec, numpy <span class="k">as</span> np, shutil
+
+DIM = <span class="s">1024</span>  <span class="c"># qwen3-embedding-0.6b 기준. 테스트는 8차원 랜덤 벡터로 돌림</span>
+
+<span class="c"># 1) 스키마: 스칼라 필드(path, line) + FTS 필드(content) + 벡터 필드(emb)</span>
+schema = zvec.<span class="f">CollectionSchema</span>(
+    name=<span class="s">"workspace_index"</span>,           <span class="c"># 영문/숫자/밑줄만 통과</span>
+    fields=[
+        zvec.<span class="f">FieldSchema</span>(<span class="s">"path"</span>, zvec.DataType.STRING),
+        zvec.<span class="f">FieldSchema</span>(<span class="s">"line"</span>, zvec.DataType.INT64),
+        zvec.<span class="f">FieldSchema</span>(<span class="s">"content"</span>, zvec.DataType.STRING,
+            index_param=zvec.<span class="f">FtsIndexParam</span>(tokenizer_name=<span class="s">"ngram"</span>,   <span class="c"># 한국어는 ngram 또는 jieba</span>
+                                          filters=[<span class="s">"lowercase"</span>])),
+    ],
+    vectors=[zvec.<span class="f">VectorSchema</span>(<span class="s">"emb"</span>, zvec.DataType.VECTOR_FP32, DIM,
+        index_param=zvec.<span class="f">HnswIndexParam</span>(metric_type=zvec.MetricType.COSINE))],
+)
+coll = zvec.<span class="f">create_and_open</span>(<span class="s">"./.zg-py"</span>, schema)   <span class="c"># 두 번째부터는 zvec.open()</span>
+
+<span class="c"># 2) 청크 적재 (id에 ':' '.' 불가 → 치환)</span>
+<span class="k">def</span> <span class="f">doc_id</span>(path, line): <span class="k">return</span> <span class="s">f"{path}_{line}"</span>.replace(<span class="s">"."</span>, <span class="s">"_"</span>).replace(<span class="s">"/"</span>, <span class="s">"__"</span>)
+coll.insert([
+    zvec.<span class="f">Doc</span>(id=doc_id(p, l), fields={<span class="s">"path"</span>: p, <span class="s">"line"</span>: l, <span class="s">"content"</span>: c},
+             vectors={<span class="s">"emb"</span>: embed(c)})
+    <span class="k">for</span> p, l, c <span class="k">in</span> chunks            <span class="c"># chunks = 청킹 단계 출력</span>
+])
+
+<span class="c"># 3) 두 경로 질의 → RRF 융합 (zg와 동일: k=60, 1/(k+rank))</span>
+<span class="k">def</span> <span class="f">hybrid</span>(q, topk=<span class="s">10</span>, k=<span class="s">60</span>):
+    fts = coll.query(zvec.<span class="f">Query</span>(field_name=<span class="s">"content"</span>, fts=zvec.<span class="f">Fts</span>(match_string=q)),
+                     topk=topk, output_fields=[<span class="s">"path"</span>, <span class="s">"line"</span>])
+    vec = coll.query(zvec.<span class="f">Query</span>(field_name=<span class="s">"emb"</span>, vector=embed(q)),
+                     topk=topk, output_fields=[<span class="s">"path"</span>, <span class="s">"line"</span>])
+    score, seen = {}, {}
+    <span class="k">for</span> hits <span class="k">in</span> (fts, vec):
+        <span class="k">for</span> rank, d <span class="k">in</span> enumerate(hits, <span class="s">1</span>):
+            score[d.id] = score.get(d.id, <span class="s">0</span>) + <span class="s">1</span> / (k + rank); seen[d.id] = d
+    <span class="k">return</span> [seen[i] <span class="k">for</span> i, _ <span class="k">in</span> sorted(score.items(), key=<span class="k">lambda</span> x: -x[<span class="s">1</span>])][:topk]</code></pre>
+  <p>테스트 결과: 한국어 쿼리 <code>"데드락"</code>에 대해 FTS 경로가 ngram 토크나이저로 <code>detect_oht_deadlock … 데드락 감지</code> 청크를 정확히 잡았고, 벡터 경로 3건과 RRF로 합쳐진 최종 순위에서 같은 청크가 1위(0.0328)로 올라왔다. 즉 zg의 hybrid 라우트가 파이썬 30줄로 재현된다.</p>
+
+  <h3>나머지 조각</h3>
+  <pre><code><span class="c"># embed(): 로컬 GGUF (zg의 local/qwen3-embedding-0.6b와 동일 모델)</span>
+<span class="k">from</span> llama_cpp <span class="k">import</span> Llama
+llm = <span class="f">Llama</span>(model_path=<span class="s">"Qwen3-Embedding-0.6B-Q8_0.gguf"</span>, embedding=<span class="k">True</span>, n_ctx=<span class="s">8192</span>)
+<span class="k">def</span> <span class="f">embed</span>(text):
+    v = np.asarray(llm.embed(text), dtype=<span class="s">"float32"</span>); <span class="k">return</span> v / np.linalg.norm(v)
+<span class="c"># 또는 DGX 쪽 vLLM/llama.cpp 서버에 requests.post(".../v1/embeddings")</span>
+
+<span class="c"># --rg 라우트: ripgrep 바이너리 그대로</span>
+<span class="k">import</span> subprocess, json
+<span class="k">def</span> <span class="f">rg</span>(pattern, root, *opts):
+    out = subprocess.run([<span class="s">"rg"</span>, <span class="s">"--json"</span>, *opts, pattern, root], capture_output=<span class="k">True</span>, text=<span class="k">True</span>).stdout
+    <span class="k">return</span> [json.loads(l)[<span class="s">"data"</span>] <span class="k">for</span> l <span class="k">in</span> out.splitlines() <span class="k">if</span> <span class="s">'"type":"match"'</span> <span class="k">in</span> l]
+
+<span class="c"># 코드 청킹: tree-sitter로 함수/클래스 단위 (zg CodeExtractor 대응)</span>
+<span class="k">from</span> tree_sitter_languages <span class="k">import</span> get_parser
+parser = <span class="f">get_parser</span>(<span class="s">"python"</span>)
+<span class="k">def</span> <span class="f">code_chunks</span>(path, src):
+    tree = parser.parse(src.encode())
+    <span class="k">for</span> n <span class="k">in</span> tree.root_node.children:
+        <span class="k">if</span> n.type <span class="k">in</span> (<span class="s">"function_definition"</span>, <span class="s">"class_definition"</span>):
+            <span class="k">yield</span> path, n.start_point[<span class="s">0</span>] + <span class="s">1</span>, src[n.start_byte:n.end_byte]
+
+<span class="c"># MCP 툴: zvec_grep_search 대응 (기존 Oracle MCS MCP 서버에 얹어도 됨)</span>
+<span class="k">from</span> mcp.server.fastmcp <span class="k">import</span> FastMCP
+mcp = <span class="f">FastMCP</span>(<span class="s">"zg-py"</span>)
+<span class="k">@mcp.tool</span>()
+<span class="k">def</span> <span class="f">zg_search</span>(query: str, limit: int = <span class="s">10</span>) -&gt; list[dict]:
+    <span class="k">return</span> [{<span class="s">"path"</span>: d.fields[<span class="s">"path"</span>], <span class="s">"line"</span>: d.fields[<span class="s">"line"</span>]} <span class="k">for</span> d <span class="k">in</span> hybrid(query, limit)]</code></pre>
+
+  <h3 id="py-map">모듈 대응표</h3>
+  <div class="mapgrid">
+    <span class="h">zvec-grep (TS)</span><span></span><span class="h">파이썬 대체</span>
+    <code>engine/storage/zvec.ts</code><span class="ar">→</span><code>zvec</code> (동일 C++ 코어, pip wheel)
+    <code>pipeline/indexing/scanner</code><span class="ar">→</span><code>pathspec</code> + <code>os.walk</code> (gitignore 규칙)
+    <code>extraction/code (tree-sitter)</code><span class="ar">→</span><code>tree-sitter</code>, <code>tree-sitter-languages</code>
+    <code>extraction/markdown</code><span class="ar">→</span>헤딩 기준 split, 순수 파이썬
+    <code>models/backends (ONNX·GGUF·Model2Vec)</code><span class="ar">→</span><code>llama-cpp-python</code> / <code>onnxruntime</code> / <code>model2vec</code>
+    <code>pipeline/search RRF_K=60</code><span class="ar">→</span>10줄 함수 또는 <code>zvec.RrfReRanker</code>
+    <code>@vscode/ripgrep</code><span class="ar">→</span><code>subprocess</code> + rg 바이너리
+    <code>mcp/tools.ts</code><span class="ar">→</span><code>mcp</code> FastMCP
+    <code>daemon (server/auto/direct)</code><span class="ar">→</span>FastAPI 상주 프로세스 (필요 시)
+  </div>
+  <p>원본에 없는데 파이썬에서 바로 되는 것: PDF/xlsx 추출(pdfplumber, openpyxl), Logpresso 쿼리·MCS 로그 패턴·알람 코드표 같은 도메인 청커, Oracle/MongoDB 레코드를 청크로 직접 적재하는 경로.</p>
+
+  <h3 id="py-caveat">반입 시 주의점</h3>
+  <ul>
+    <li><strong>wheel 호환</strong>: zvec는 manylinux_2_28 x86_64 빌드다. 대상 서버 glibc ≥ 2.28 확인, 파이썬 버전별(cp39–cp313) wheel을 맞춰 받을 것.</li>
+    <li><strong>이름 제약</strong>: 컬렉션 이름은 정규식 검사를 통과해야 한다(<code>ws</code>는 실패, <code>workspace_index</code>는 통과). 문서 id에 <code>:</code>와 <code>.</code>가 들어가면 "contains invalid characters"로 insert가 거부된다. 경로 기반 id는 치환해서 쓴다.</li>
+    <li><strong>한국어 FTS</strong>: 기본 <code>standard</code> 토크나이저 대신 <code>ngram</code> 또는 내장 <code>jieba</code>를 써야 한글 부분 일치가 된다. 프로토타입은 ngram으로 확인.</li>
+    <li><strong>인덱스 호환</strong>: 원본의 <code>files.zvec</code>/<code>index.zvec</code>를 파이썬에서 열려면 스키마를 맞춰야 하므로, 처음부터 파이썬 쪽 스키마로 새 인덱스를 만드는 게 깔끔하다.</li>
+    <li><strong>모델 교체 = 재빌드</strong>: 원본과 같은 이유로 임베딩 모델을 바꾸면 벡터 필드 전체를 다시 넣어야 한다. 차원이 같아도 공간이 다르다.</li>
+  </ul>
+</section>
+
+<section id="refs">
+  <h2><span class="num">09</span>출처</h2>
+  <ul>
+    <li><a href="https://github.com/zvec-ai/zvec-grep">github.com/zvec-ai/zvec-grep</a> — README, docs/01-agents ~ 08-roadmap, src/engine (RRF 상수, 스토리지 경로)</li>
+    <li>PyPI <code>zvec 0.7.0</code> wheel — <code>zvec/__init__.py</code>, <code>model/collection.py</code>, <code>model/param/query.py</code>, <code>extension/multi_vector_reranker.py</code> 직접 확인</li>
+    <li>프로토타입 실행 환경: Python 3.11, zvec 0.7.0, numpy (2026-09-04)</li>
+  </ul>
+</section>
+
+</main>
+</div>
+
+<footer>
+  <p>원본 저장소 스냅샷과 파이썬 SDK를 직접 열어 작성. 벤치마크 수치는 원본이 이미지로만 제공해 인용하지 않음.</p>
+</footer>
+</div>
+
+</body>
+</html>
