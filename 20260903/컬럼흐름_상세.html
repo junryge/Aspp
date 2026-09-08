@@ -1,0 +1,340 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>컬럼 → 점수 상세 — AMHS Sentinel</title>
+<style>
+:root{--ink:#111827;--dim:#6b7280;--line:#e5e7eb;--acc:#4f46e5;--bad:#b91c1c;
+ --bg:#f8fafc;--hi:#eef2ff}
+*{box-sizing:border-box}
+body{margin:0;background:#fff;color:var(--ink);line-height:1.7;
+ font-family:"Malgun Gothic","맑은 고딕",-apple-system,system-ui,sans-serif}
+.wrap{max-width:1100px;margin:0 auto;padding:36px 24px 90px}
+h1{font-size:25px;margin:0 0 6px}
+.sub{color:var(--dim);font-size:13px;margin:0 0 26px}
+h2{font-size:18px;margin:36px 0 10px;padding-top:16px;border-top:2px solid var(--ink)}
+h3{font-size:14.5px;margin:22px 0 8px;color:#374151}
+h4{font-size:13.5px;margin:16px 0 6px;color:#4b5563}
+p,li{font-size:13.5px}
+table{border-collapse:collapse;width:100%;margin:8px 0 4px;font-size:12.5px}
+th,td{border:1px solid var(--line);padding:6px 9px;text-align:left;vertical-align:top}
+th{background:var(--bg);font-weight:700;white-space:nowrap}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+code,.mono{font-family:Consolas,"D2Coding",monospace;font-size:12px;
+ background:var(--bg);padding:1px 5px;border-radius:4px;word-break:break-all}
+.note{background:var(--hi);border-left:4px solid var(--acc);padding:10px 14px;
+ margin:12px 0;font-size:13px}
+.miss{background:#fef2f2;border-left-color:var(--bad)}
+.flow{font-family:Consolas,"D2Coding",monospace;font-size:12.5px;background:var(--bg);
+ border:1px solid var(--line);border-radius:8px;padding:14px 16px;white-space:pre;
+ overflow-x:auto;line-height:1.65}
+.dim{color:var(--dim)}
+.tag{display:inline-block;font-size:11px;padding:1px 7px;border-radius:9px;
+ background:var(--bg);border:1px solid var(--line);color:var(--dim)}
+.big{font-size:19px;font-weight:800}
+ol.steps{padding-left:20px} ol.steps>li{margin:8px 0}
+@media print{.wrap{max-width:none;padding:0} h2{page-break-after:avoid}}
+</style></head><body><div class=wrap>
+<h1>어느 컬럼이 어떻게 점수가 되나 — 상세</h1>
+<p class="sub">M16 HUBROOM 통합 이벤트 예측기 v4.1 (룰베이스 8영역) · 출처 <code>/home/user/ASAS/scientific-assistant/rool_skill_test/hubroom_predictor.py</code></p>
+<div class="note">이 문서의 표는 <b>예측기 소스를 그대로 읽어</b> 만듭니다. 임계·배점이 바뀌면 문서도 같이 바뀝니다 — 손으로 고치지 마십시오. 임계 기본값은 코드 값이며, 운영에서는 <code>thresholds.json</code> 이 덮습니다.</div>
+<h2>0. 전체 흐름</h2>
+<div class="flow">M16A_HUBROOM_PR.CSV      수집기가 매분 덮어씀 · CRT_TM + 원시 265 컬럼
+        │
+        │  ① 읽기        iter_unified_rows()  — FAB 8영역이 각자 자기 컬럼만 뽑는다
+        │  ② 90분 창      WINDOW_MIN 만큼 쌓아 둔다 (차분·지속 판정에 필요)
+        ↓
+  ③ 영역 룰 평가   eval_area_rules(area, window)
+        │            R-A′ · R-B · R-C′ · R-D · SLA · 소터 · MAXCAPA
+        ↓            → area_score  (0~50)            ← FAB 판단 기준
+  ④ 흐름 룰 평가   eval_flow_rules(flow_history)   9~10개 노드, 30분 평균 대비 배수
+        ↓
+  ⑤ 통합 융합      evaluate_unified()
+        │            Σ area_score + 흐름 + SLA + 소터 + MAXCAPA
+        ↓            → unified_risk_score (0~500)     ← ALL 판단 기준
+  {날짜}_발동이벤트.csv   매분 1행 (이벤트 없는 분도 기록)
+        │
+        │  ⑥ 영역분리 — FAB 별 파일로 나눔. 그 FAB 의 점수를 area_score 로
+        ↓
+  real_time_amhs   ALL: unified_risk_score / FAB: area_score 로 등급 판정</div>
+<h2>1. FAB 별로 실제 읽는 컬럼</h2>
+<p><code>M16A_HUBROOM_PR.CSV</code> 에는 <b>CRT_TM + 원시 265 컬럼</b>이 있습니다. 예측기는 그중 <b>영역별로 정해진 컬럼만</b> 뽑아 씁니다. 아래가 그 전부입니다 — <code>iter_unified_rows()</code> 에서 읽었습니다.</p>
+<h3>1-1. 룰이 보는 대표 컬럼 (영역별로 다르다)</h3>
+<h4>R-A′ 반송/적재 시간 <span class=tag>RA_COL</span></h4>
+<p class="dim">★영역마다 컬럼이 다릅니다. HUB·M14B·PKT·WT 는 <code>QUE.TIME.AVGTOTALTIME1MIN</code>, M14·M16A·M16B 는 <code>QUE.LOAD.AVGLOADTIME1MIN</code> 입니다</p>
+<table><tr><th>영역</th><th>컬럼</th></tr>
+<tr><td><b>M16HUB</b></td><td><code>M16HUB.QUE.TIME.AVGTOTALTIME1MIN</code></td></tr>
+<tr><td><b>M14</b></td><td><code>M14.QUE.LOAD.AVGLOADTIME1MIN</code></td></tr>
+<tr><td><b>M14B</b></td><td><code>M14B.QUE.TIME.AVGTOTALTIME1MIN</code></td></tr>
+<tr><td><b>M16A</b></td><td><code>M16A.QUE.LOAD.AVGLOADTIME1MIN</code></td></tr>
+<tr><td><b>M16B</b></td><td><code>M16B.QUE.LOAD.AVGLOADTIME1MIN</code></td></tr>
+<tr><td><b>M16_PKT</b></td><td><code>M16_PKT.QUE.TIME.AVGTOTALTIME1MIN</code></td></tr>
+<tr><td><b>M16_WT</b></td><td><code>M16_WT.QUE.TIME.AVGTOTALTIME1MIN</code></td></tr>
+</table>
+<h4>R-B 허브행 대기 수 <span class=tag>RB_COL</span></h4>
+<table><tr><th>영역</th><th>컬럼</th></tr>
+<tr><td><b>M16HUB</b></td><td><code>M16HUB.QUE.M14TOM16.MESCURRENTQCNT</code></td></tr>
+<tr><td><b>M14</b></td><td><code>M14.QUE.ALL.3F_TO_HUB_JOB</code></td></tr>
+<tr><td><b>M14B</b></td><td><code>M14B.QUE.ALL.7F_TO_HUB_JOB</code></td></tr>
+<tr><td><b>M16A</b></td><td><code>M16A.QUE.ALL.6F_TO_HUB_JOB</code></td></tr>
+<tr><td><b>M16B</b></td><td><code>M16B.QUE.ALL.10F_TO_HUB_JOB</code></td></tr>
+<tr><td><b>M16</b></td><td><code>M16.QUE.SFAB.SENDQUEUETOTAL</code></td></tr>
+</table>
+<h4>R-D OHT 가동률 <span class=tag>RD_OHT_COL</span></h4>
+<table><tr><th>영역</th><th>컬럼</th></tr>
+<tr><td><b>M16HUB</b></td><td><code>M16HUB.QUE.OHT.OHTUTIL</code></td></tr>
+<tr><td><b>M14</b></td><td><code>M14.QUE.OHT.OHTUTIL</code></td></tr>
+<tr><td><b>M14B</b></td><td><code>M14B.QUE.OHT.OHTUTIL</code></td></tr>
+<tr><td><b>M16A</b></td><td><code>M16A.QUE.OHT.OHTUTIL</code></td></tr>
+<tr><td><b>M16B</b></td><td><code>M16B.QUE.OHT.OHTUTIL</code></td></tr>
+</table>
+<h4>SLA 4분 초과 비율 <span class=tag>SLA_COL</span></h4>
+<table><tr><th>영역</th><th>컬럼</th></tr>
+<tr><td><b>M16HUB</b></td><td><code>M16HUB.QUE.ALL.TRANSPORT4MINOVERRATIO</code></td></tr>
+<tr><td><b>M14</b></td><td><code>M14.QUE.ALL.TRANSPORT4MINOVERRATIO</code></td></tr>
+<tr><td><b>M16A</b></td><td><code>M16A.QUE.ALL.TRANSPORT4MINOVERRATIO</code></td></tr>
+<tr><td><b>M16B</b></td><td><code>M16B.QUE.ALL.TRANSPORT4MINOVERRATIO</code></td></tr>
+</table>
+<h4>소터 대기 초과 <span class=tag>SORTER_COL</span></h4>
+<table><tr><th>영역</th><th>컬럼</th></tr>
+<tr><td><b>M16HUB</b></td><td><code>M16HUB.SORTER.ABN.SORTERWAITCOUNTOVER</code></td></tr>
+<tr><td><b>M14</b></td><td><code>M14.SORTER.ABN.SORTERWAITCOUNTOVER</code></td></tr>
+<tr><td><b>M14B</b></td><td><code>M14B.SORTER.ABN.SORTERWAITCOUNTOVER</code></td></tr>
+<tr><td><b>M16A</b></td><td><code>M16A.SORTER.ABN.SORTERWAITCOUNTOVER</code></td></tr>
+<tr><td><b>M16B</b></td><td><code>M16B.SORTER.ABN.SORTERWAITCOUNTOVER</code></td></tr>
+</table>
+<h4>소터 반송 실패 <span class=tag>SORTER_FAIL_COL</span></h4>
+<table><tr><th>영역</th><th>컬럼</th></tr>
+<tr><td><b>M16A</b></td><td><code>M16A.SORTER.ABN.SORTERTRANSFERFAIL</code></td></tr>
+<tr><td><b>M16B</b></td><td><code>M16B.SORTER.ABN.SORTERTRANSFERFAIL</code></td></tr>
+</table>
+<h3>1-2. 영역별로 뽑는 항목 전부</h3>
+<h4>M16HUB <span class=tag>14개 항목</span></h4>
+<table><tr><th>항목</th><th>형</th><th>읽는 컬럼</th></tr>
+<tr><td><code>ra</code></td><td>실수</td><td><code>RA_COL 지도</code></td></tr>
+<tr><td><code>rb</code></td><td>정수</td><td><code>RB_COL 지도</code></td></tr>
+<tr><td><code>rd_fab</code></td><td>실수</td><td><code>M16HUB.STRATE.ALL.FABSTORAGERATIO</code></td></tr>
+<tr><td><code>rd_oht</code></td><td>실수</td><td><code>RD_OHT_COL 지도</code></td></tr>
+<tr><td><code>sla_ratio</code></td><td>실수</td><td><code>SLA_COL 지도</code></td></tr>
+<tr><td><code>sla_cnt</code></td><td>정수</td><td><code>M16HUB.QUE.ALL.TRANSPORT4MINOVERCNT</code></td></tr>
+<tr><td><code>sorter</code></td><td>정수</td><td><code>SORTER_COL 지도</code></td></tr>
+<tr><td><code>hub_stb_util</code></td><td>실수</td><td><code>M16HUB.STRATE.STB.3F_STORAGE_UTIL</code></td></tr>
+<tr><td><code>oht_qcnt</code></td><td>정수</td><td><code>M16HUB.QUE.OHT.CURRENTOHTQCNT</code></td></tr>
+<tr><td><code>oht_alarm</code></td><td>정수</td><td><code>M16HUB.OHT.ALERT.OHTMCPALARMCNT</code></td></tr>
+<tr><td><code>aotransdelay</code></td><td>정수</td><td><code>M16HUB.QUE.ABN.AOTRANSDELAY</code></td></tr>
+<tr><td><code>lifters</code></td><td>묶음</td><td><code>M16HUB.LFT.{lid}.TOTAL_CURRENTQCNT (패턴)</code></td></tr>
+<tr><td><code>hub_outs</code></td><td>묶음</td><td><code>HUB_OUT_COLS 전부</code></td></tr>
+<tr><td><code>maxcapa</code></td><td>묶음</td><td><code>M16HUB.QUE.LFT.3F_LFT_MAXCAPA</code><br><code>M16HUB.QUE.LFT.3F_M14BLFT_MAXCAPA</code><br><code>M16HUB.QUE.CNV.3F_CNV_MAXCAPA</code></td></tr>
+</table>
+<h4>M14 <span class=tag>15개 항목</span></h4>
+<table><tr><th>항목</th><th>형</th><th>읽는 컬럼</th></tr>
+<tr><td><code>ra</code></td><td>실수</td><td><code>RA_COL 지도</code></td></tr>
+<tr><td><code>rb</code></td><td>정수</td><td><code>RB_COL 지도</code></td></tr>
+<tr><td><code>rd_oht</code></td><td>실수</td><td><code>RD_OHT_COL 지도</code></td></tr>
+<tr><td><code>sla_ratio</code></td><td>실수</td><td><code>SLA_COL 지도</code></td></tr>
+<tr><td><code>sla_cnt</code></td><td>정수</td><td><code>M14.QUE.ALL.TRANSPORT4MINOVERCNT</code></td></tr>
+<tr><td><code>sorter</code></td><td>정수</td><td><code>SORTER_COL 지도</code></td></tr>
+<tr><td><code>cnv_north</code></td><td>정수</td><td><code>M14.QUE.CNV.M14ATONORTHCURRENTQCNT</code></td></tr>
+<tr><td><code>cnv_south</code></td><td>정수</td><td><code>M14.QUE.CNV.M14ATOSOUTHCURRENTQCNT</code></td></tr>
+<tr><td><code>cnv_m14a_m16a</code></td><td>정수</td><td><code>M14.QUE.CNV.M14ATOM16ACURRNETQCNT</code></td></tr>
+<tr><td><code>inflow_alt</code></td><td>정수</td><td><code>M14.QUE.ALL.3F_TO_HUB_JOB_ALT</code></td></tr>
+<tr><td><code>oht_cmd</code></td><td>정수</td><td><code>M14.QUE.OHT.3F_TO_HUB_CMD</code></td></tr>
+<tr><td><code>htstop</code></td><td>정수</td><td><code>M14.OHT.STATECNT.HTSTOP</code></td></tr>
+<tr><td><code>congested</code></td><td>정수</td><td><code>M14.OHT.STATECNT.CONGESTED</code></td></tr>
+<tr><td><code>abnormal</code></td><td>정수</td><td><code>M14.OHT.STATECNT.ABNORMAL</code></td></tr>
+<tr><td><code>maxcapa</code></td><td>묶음</td><td><code>M14.QUE.CNV.3F_CNV_MAXCAPA</code></td></tr>
+</table>
+<h4>M14B <span class=tag>10개 항목</span></h4>
+<table><tr><th>항목</th><th>형</th><th>읽는 컬럼</th></tr>
+<tr><td><code>ra</code></td><td>실수</td><td><code>RA_COL 지도</code></td></tr>
+<tr><td><code>rb</code></td><td>정수</td><td><code>RB_COL 지도</code></td></tr>
+<tr><td><code>rd_oht</code></td><td>실수</td><td><code>RD_OHT_COL 지도</code></td></tr>
+<tr><td><code>sorter</code></td><td>정수</td><td><code>SORTER_COL 지도</code></td></tr>
+<tr><td><code>lft_4abld_sum</code></td><td>합</td><td><code>M14B.LFT.4ABLD{lid}.TOTAL_CURRENTQCNT (패턴)</code></td></tr>
+<tr><td><code>lft_4abld_to_hub_sum</code></td><td>합</td><td><code>M14B.LFT.4ABLD{lid}.7F_TO_4F_CURRENTQCNT (패턴)</code></td></tr>
+<tr><td><code>lft_4abld122</code></td><td>정수</td><td><code>M14B.LFT.4ABLD122.TOTAL_CURRENTQCNT</code></td></tr>
+<tr><td><code>inflow_alt</code></td><td>정수</td><td><code>M14B.QUE.ALL.7F_TO_HUB_JOB_ALT</code></td></tr>
+<tr><td><code>oht_cmd</code></td><td>정수</td><td><code>M14B.QUE.OHT.7F_TO_HUB_CMD</code></td></tr>
+<tr><td><code>aotransdelay</code></td><td>정수</td><td><code>M14B.QUE.ABN.AOTRANSDELAY</code></td></tr>
+</table>
+<h4>M16A <span class=tag>11개 항목</span></h4>
+<table><tr><th>항목</th><th>형</th><th>읽는 컬럼</th></tr>
+<tr><td><code>ra</code></td><td>실수</td><td><code>RA_COL 지도</code></td></tr>
+<tr><td><code>rb</code></td><td>정수</td><td><code>RB_COL 지도</code></td></tr>
+<tr><td><code>inflow_2f</code></td><td>정수</td><td><code>M16A.QUE.ALL.2F_TO_HUB_JOB</code></td></tr>
+<tr><td><code>rd_oht</code></td><td>실수</td><td><code>RD_OHT_COL 지도</code></td></tr>
+<tr><td><code>sla_ratio</code></td><td>실수</td><td><code>SLA_COL 지도</code></td></tr>
+<tr><td><code>sla_cnt</code></td><td>정수</td><td><code>M16A.QUE.ALL.TRANSPORT4MINOVERCNT</code></td></tr>
+<tr><td><code>sorter</code></td><td>정수</td><td><code>SORTER_COL 지도</code></td></tr>
+<tr><td><code>sorter_fail</code></td><td>정수</td><td><code>SORTER_FAIL_COL 지도</code></td></tr>
+<tr><td><code>oht_cmd_2f</code></td><td>정수</td><td><code>M16A.QUE.OHT.2F_TO_HUB_CMD</code></td></tr>
+<tr><td><code>oht_cmd_6f</code></td><td>정수</td><td><code>M16A.QUE.OHT.6F_TO_HUB_CMD</code></td></tr>
+<tr><td><code>maxcapa</code></td><td>묶음</td><td><code>M16A.QUE.LFT.2F_LFT_MAXCAPA</code><br><code>M16A.QUE.LFT.6F_LFT_MAXCAPA</code></td></tr>
+</table>
+<h4>M16B <span class=tag>7개 항목</span></h4>
+<table><tr><th>항목</th><th>형</th><th>읽는 컬럼</th></tr>
+<tr><td><code>ra</code></td><td>실수</td><td><code>RA_COL 지도</code></td></tr>
+<tr><td><code>rb</code></td><td>정수</td><td><code>RB_COL 지도</code></td></tr>
+<tr><td><code>rd_oht</code></td><td>실수</td><td><code>RD_OHT_COL 지도</code></td></tr>
+<tr><td><code>sla_ratio</code></td><td>실수</td><td><code>SLA_COL 지도</code></td></tr>
+<tr><td><code>sla_cnt</code></td><td>정수</td><td><code>M16B.QUE.ALL.TRANSPORT4MINOVERCNT</code></td></tr>
+<tr><td><code>sorter</code></td><td>정수</td><td><code>SORTER_COL 지도</code></td></tr>
+<tr><td><code>sorter_fail</code></td><td>정수</td><td><code>SORTER_FAIL_COL 지도</code></td></tr>
+</table>
+<h4>M16 <span class=tag>4개 항목</span></h4>
+<table><tr><th>항목</th><th>형</th><th>읽는 컬럼</th></tr>
+<tr><td><code>rb</code></td><td>정수</td><td><code>RB_COL 지도</code></td></tr>
+<tr><td><code>sfab_send</code></td><td>정수</td><td><code>M16.QUE.SFAB.SENDQUEUETOTAL</code></td></tr>
+<tr><td><code>sfab_recv</code></td><td>정수</td><td><code>M16.QUE.SFAB.RECEIVEQUEUETOTAL</code></td></tr>
+<tr><td><code>sfab_ret</code></td><td>정수</td><td><code>M16.QUE.SFAB.RETURNQUEUETOTAL</code></td></tr>
+</table>
+<h4>M16_PKT <span class=tag>3개 항목</span></h4>
+<table><tr><th>항목</th><th>형</th><th>읽는 컬럼</th></tr>
+<tr><td><code>ra</code></td><td>실수</td><td><code>RA_COL 지도</code></td></tr>
+<tr><td><code>rd_oht</code></td><td>실수</td><td><code>M16_PKT.QUE.OHT.OHTUTIL</code></td></tr>
+<tr><td><code>aotransdelay</code></td><td>정수</td><td><code>M16_PKT.QUE.ABN.AOTRANSDELAY</code></td></tr>
+</table>
+<h4>M16_WT <span class=tag>3개 항목</span></h4>
+<table><tr><th>항목</th><th>형</th><th>읽는 컬럼</th></tr>
+<tr><td><code>ra</code></td><td>실수</td><td><code>RA_COL 지도</code></td></tr>
+<tr><td><code>rd_oht</code></td><td>실수</td><td><code>M16_WT.QUE.OHT.OHTUTIL</code></td></tr>
+<tr><td><code>aotransdelay</code></td><td>정수</td><td><code>M16_WT.QUE.ABN.AOTRANSDELAY</code></td></tr>
+</table>
+<p class="dim">리프터 <b>10</b>대: 6ABL6011 · 6ABL6012 · 6ABL6021 · 6ABL6022 · 6ABL6031 · 6ABL6032 · 6ABL0111 · 6ABL0112 · 6ABL0121 · 6ABL0122 — <code>M16HUB.LFT.{호기}.TOTAL_CURRENTQCNT</code> 를 각각 읽습니다.</p>
+<h4>HUB 출구 <span class=tag>HUB_OUT_COLS</span></h4><table><tr><th>컬럼</th></tr>
+<tr><td><code>M16HUB.QUE.ALL.3F_TO_M16A_6F_JOB</code></td></tr>
+<tr><td><code>M16HUB.QUE.ALL.3F_TO_M16A_2F_JOB</code></td></tr>
+<tr><td><code>M16HUB.QUE.ALL.3F_TO_M14A_3F_JOB</code></td></tr>
+<tr><td><code>M16HUB.QUE.ALL.3F_TO_M14B_7F_JOB</code></td></tr>
+<tr><td><code>M16HUB.QUE.ALL.3F_TO_3F_MLUD_JOB</code></td></tr>
+</table>
+<h2>2. 임계값 (코드 기본값)</h2>
+<p class="dim">운영에서는 <code>thresholds.json</code> 이 이 값을 덮습니다. 지금 돌고 있는 값은 그 파일을 보십시오.</p>
+<h4>R-A′ 반송/적재 시간 (분) <span class=tag>TH_RA</span></h4>
+<table><tr><th class=n>M16HUB</th><th class=n>M14</th><th class=n>M14B</th><th class=n>M16A</th><th class=n>M16B</th><th class=n>M16_PKT</th><th class=n>M16_WT</th></tr><tr><td class="n">9.0</td><td class="n">3.3</td><td class="n">5.0</td><td class="n">3.2</td><td class="n">3.5</td><td class="n">7.5</td><td class="n">2.8</td></tr></table>
+<h4>R-B 30분 증가량 <span class=tag>TH_RB_30</span></h4>
+<table><tr><th class=n>M16HUB</th><th class=n>M14</th><th class=n>M14B</th><th class=n>M16A</th><th class=n>M16B</th><th class=n>M16</th></tr><tr><td class="n">100</td><td class="n">80</td><td class="n">150</td><td class="n">80</td><td class="n">30</td><td class="n">20</td></tr></table>
+<h4>SLA 4분 초과 비율 (%) <span class=tag>TH_SLA_RATIO</span></h4>
+<table><tr><th class=n>M16HUB</th><th class=n>M14</th><th class=n>M16A</th><th class=n>M16B</th></tr><tr><td class="n">5.0</td><td class="n">25.0</td><td class="n">13.0</td><td class="n">18.0</td></tr></table>
+<h4>소터 대기 초과 수 <span class=tag>TH_SORTER_WAIT</span></h4>
+<table><tr><th class=n>M16HUB</th><th class=n>M14</th><th class=n>M14B</th><th class=n>M16A</th><th class=n>M16B</th></tr><tr><td class="n">30</td><td class="n">100</td><td class="n">75</td><td class="n">180</td><td class="n">90</td></tr></table>
+<h4>그 밖</h4><table><tr><th>이름</th><th class=n>값</th><th>뜻</th></tr>
+<tr><td><code>TH_RA_SUSTAINED_RATIO</code></td><td class=n>0.67</td><td>지속 판정에 쓰는 임계 비율</td></tr>
+<tr><td><code>TH_RA_SUSTAINED_COUNT</code></td><td class=n>3</td><td>최근 5분 중 몇 회 이상</td></tr>
+<tr><td><code>TH_RC_REVERSE</code></td><td class=n>2</td><td>리프터 역증가 호기 수</td></tr>
+<tr><td><code>TH_RD_FABSTORAGE</code></td><td class=n>25.0</td><td>FAB 저장율 (%)</td></tr>
+<tr><td><code>TH_RD_HUB_STB_UTIL</code></td><td class=n>99.0</td><td>HUB STB 3F 저장율 (%)</td></tr>
+<tr><td><code>TH_RD_OHT_UTIL</code></td><td class=n>95.0</td><td>OHT 가동률 (%)</td></tr>
+<tr><td><code>TH_SORTER_TRANSFER_FAIL</code></td><td class=n>1</td><td>소터 반송 실패 건수</td></tr>
+<tr><td><code>WINDOW_MIN</code></td><td class=n>90</td><td>창 길이 (분)</td></tr>
+<tr><td><code>PREDICT_LOOKBACK_MIN</code></td><td class=n>60</td><td>전파 사슬 되돌아보기 (분)</td></tr>
+</table>
+<h4>MAXCAPA 정상값 / 축소 판정선 <span class=tag>MAXCAPA_NORMAL</span></h4>
+<p class="dim">운영자가 용량을 줄이면 값이 판정선 이하로 떨어집니다 — 그 자체를 신호로 봅니다.</p>
+<table><tr><th>컬럼</th><th class=n>정상</th><th class=n>판정선(≤)</th></tr>
+<tr><td><code>M16HUB.QUE.LFT.3F_LFT_MAXCAPA</code></td><td class=n>165</td><td class=n>100</td></tr>
+<tr><td><code>M16HUB.QUE.LFT.3F_M14BLFT_MAXCAPA</code></td><td class=n>66</td><td class=n>50</td></tr>
+<tr><td><code>M16HUB.QUE.CNV.3F_CNV_MAXCAPA</code></td><td class=n>129</td><td class=n>80</td></tr>
+<tr><td><code>M14.QUE.CNV.3F_CNV_MAXCAPA</code></td><td class=n>244</td><td class=n>150</td></tr>
+<tr><td><code>M16A.QUE.LFT.2F_LFT_MAXCAPA</code></td><td class=n>54</td><td class=n>40</td></tr>
+<tr><td><code>M16A.QUE.LFT.6F_LFT_MAXCAPA</code></td><td class=n>149</td><td class=n>100</td></tr>
+</table>
+<h2>3. FAB 점수 <code>area_score</code> 가 만들어지는 과정</h2>
+<p>영역 하나에 대해 <code>eval_area_rules(area, window)</code> 가 룰 8종을 각각 판정하고, <b>켜진 룰의 배점을 더합니다.</b></p>
+<table><tr><th>룰</th><th>무엇을 보나</th><th class="n">배점</th><th>코드</th></tr><tr><td><b>R-A′ 반송지연</b></td><td>1분 평균 반송/적재 시간이 임계 이상인 분이 최근 10분에 1회 이상</td><td class="n">10</td><td><code>ra_pts</code></td></tr><tr><td><b>R-A′ 지속</b></td><td>최근 5분 중 정해진 횟수 이상이 임계×비율을 넘음 — 짧게 튄 것과 구분한다</td><td class="n">5</td><td><code>ra_sus_pts</code></td></tr><tr><td><b>R-B 반입 급증(30분)</b></td><td>허브로 보내는 대기 수가 30분 전보다 임계만큼 늘었다</td><td class="n">10</td><td><code>rb_pts</code></td></tr><tr><td><b>R-B 반입 급증(10분)</b></td><td>같은 것을 10분 창으로 — 빠르게 차오르는 경우</td><td class="n">5</td><td><code>rb_fast_pts</code></td></tr><tr><td><b>R-C′ 리프터 역증가 / CNV 쏠림</b></td><td>M16HUB: 리프터 합은 줄었는데 개별로 늘어난 호기가 임계 이상. M14: 북/남 CNV 한쪽 쏠림 비율</td><td class="n">8</td><td><code>rc_pts</code></td></tr><tr><td><b>R-D 저장 포화</b></td><td>M16HUB: FAB 저장율 또는 STB 3F 저장율. 그 밖: OHT 가동률</td><td class="n">7</td><td><code>rd_pts</code></td></tr><tr><td><b>SLA 4분 초과</b></td><td>4분 초과 비율이 임계 이상이거나, 초과 건수가 10분 만에 20건 이상 늘었다</td><td class="n">5</td><td><code>sla_pts</code></td></tr><tr><td><b>소터 대기/실패</b></td><td>소터 대기 초과 수가 임계 이상, 또는 반송 실패가 1건 이상</td><td class="n">3</td><td><code>sort_pts</code></td></tr><tr><td><b>MAXCAPA 축소</b></td><td>운영자가 용량을 줄였다 — 바뀐 컬럼 <b>1개마다</b> 가산</td><td class="n">10 × n</td><td><code>mc_pts</code></td></tr></table>
+<div class="flow">area_score = RA + RA_sus + RB + RB_fast + RC + RD + SLA + SORT + MAXCAPA×n
+area_score = min(50, 위 합)        ← 50 점에서 자른다
+
+· 자르기 전 원본은 area_score_raw 로 같이 남긴다
+· 룰별 분해 점수는 pts_RA · pts_RB … 로 각각 남긴다 (조합 분석용)</div>
+<div class="note"><b>왜 50점에서 자르나.</b> MAXCAPA 는 바뀐 컬럼 수만큼 곱해지므로 한 영역이 무한정 커질 수 있습니다. 한 영역이 전체를 삼키지 않게 상한을 둡니다.</div>
+<h3>3-1. 판정에 창(window)이 왜 필요한가</h3>
+<table><tr><th>룰</th><th>보는 구간</th><th>판정</th></tr><tr><td>R-A′</td><td>최근 10분</td><td>임계 이상인 분이 1회 이상</td></tr><tr><td>R-A′ 지속</td><td>최근 5분</td><td>임계×0.67 이상인 분이 3회 이상</td></tr><tr><td>R-B (30분)</td><td>현재 − 31행 전</td><td>증가량이 임계 이상</td></tr><tr><td>R-B (10분)</td><td>현재 − 11행 전</td><td>같음</td></tr><tr><td>R-C′</td><td>현재 − 21행 전</td><td>리프터 <b>합은 줄었는데</b> 개별로 늘어난 호기가 임계 이상</td></tr><tr><td>SLA</td><td>현재 − 11행 전</td><td>비율이 임계 이상 <b>또는</b> 초과 건수가 10분 만에 20건 이상 증가</td></tr><tr><td>R-D · 소터 · MAXCAPA</td><td>현재 1행</td><td>임계 비교</td></tr></table>
+<p class="dim">그래서 창(<code>WINDOW_MIN=90</code>분)이 채워지기 전에는 일부 룰이 판정되지 않습니다 — 재시작 직후 점수가 낮게 나오는 이유입니다.</p>
+<h2>4. ALL 점수 <code>unified_risk_score</code> 가 만들어지는 과정</h2>
+<p><code>evaluate_unified()</code> 가 <b>영역 점수 합에 전체 관점의 가산을 더합니다.</b> ALL 은 영역이 아니라 <b>전체를 본 값</b>이라, FAB 점수와 자·단위가 다릅니다.</p>
+<div class="flow">layer1_total = Σ area_score            (8영역 전부 더한다)
+flow_score   = 흐름 노드마다  심각 +30 / 위험 +15 / 주의 +5
+sla_score    = SLA 켜진 영역 수 × 5
+sorter_score = 소터 켜진 영역 수 × 3
+mc_score     = Σ (영역별 MAXCAPA 바뀐 컬럼 수 × 10)
+
+unified_risk_score = min(500, layer1_total + flow + sla + sorter + mc)</div>
+<div class="note"><b>SLA·소터·MAXCAPA 는 두 번 셉니다.</b> area_score 안에서 한 번(그 영역의 문제로), 융합에서 또 한 번(전체로 번질 신호로). 일부러 그렇게 둔 것이므로, ALL 점수를 FAB 점수 합으로 되계산하면 맞지 않습니다.</div>
+<h3>4-1. 흐름 룰 — 무엇을 보나</h3>
+<p>노드마다 <b>지금 값 ÷ 최근 30분 평균</b> 배수를 봅니다. 절대값이 아니라 <b>평소 대비</b>라, 노드마다 크기가 달라도 같은 자로 잽니다.</p>
+<table><tr><th class=n>배수</th><th>등급</th><th class=n>가산</th></tr>
+<tr><td class=n>≥ 3.0×</td><td>심각</td><td class=n>+30</td></tr>
+<tr><td class=n>≥ 2.0×</td><td>위험</td><td class=n>+15</td></tr>
+<tr><td class=n>≥ 1.5×</td><td>주의</td><td class=n>+5</td></tr>
+</table>
+<h4>흐름 노드 <span class=tag>10개</span></h4>
+<table><tr><th>노드</th><th>영역</th><th>컬럼</th></tr>
+<tr><td><code>M14_CNV_TO_HUB</code></td><td>M14</td><td><code>M14.QUE.CNV.M14ATOM16ACURRNETQCNT</code></td></tr>
+<tr><td><code>M14_TO_HUB_JOB</code></td><td>M14</td><td><code>M14.QUE.ALL.3F_TO_HUB_JOB</code></td></tr>
+<tr><td><code>M14B_7F_TO_HUB</code></td><td>M14B</td><td><code>M14B.QUE.ALL.7F_TO_HUB_JOB</code></td></tr>
+<tr><td><code>M14B_LFT_4ABLD_SUM</code></td><td>M14B</td><td><code>M14B.LFT.4ABLD_ALL.TOTAL_CURRENTQCNT_SUM</code></td></tr>
+<tr><td><code>M14B_LFT_4ABLD_TO_HUB_SUM</code></td><td>M14B</td><td><code>M14B.LFT.4ABLD_ALL.7F_TO_4F_CURRENTQCNT_SUM</code></td></tr>
+<tr><td><code>M16A_6F_TO_HUB</code></td><td>M16A</td><td><code>M16A.QUE.ALL.6F_TO_HUB_JOB</code></td></tr>
+<tr><td><code>M16A_2F_TO_HUB</code></td><td>M16A</td><td><code>M16A.QUE.ALL.2F_TO_HUB_JOB</code></td></tr>
+<tr><td><code>M16B_10F_TO_HUB</code></td><td>M16B</td><td><code>M16B.QUE.ALL.10F_TO_HUB_JOB</code></td></tr>
+<tr><td><code>HUB_OHT_QCNT</code></td><td>M16HUB</td><td><code>M16HUB.QUE.OHT.CURRENTOHTQCNT</code></td></tr>
+<tr><td><code>M14_TO_M16</code></td><td>M16HUB</td><td><code>M16HUB.QUE.M14TOM16.MESCURRENTQCNT</code></td></tr>
+</table>
+<h3>4-2. 위험도 등급 (예측기 자체 등급)</h3>
+<table><tr><th class=n>점수</th><th>등급</th></tr>
+<tr><td class=n>250 이상</td><td>매우위험</td></tr>
+<tr><td class=n>150 ~ 249</td><td>위험</td></tr>
+<tr><td class=n>80 ~ 149</td><td>주의</td></tr>
+<tr><td class=n>65 ~ 79</td><td>경계</td></tr>
+<tr><td class=n>30 ~ 64</td><td>관심</td></tr>
+<tr><td class=n>0 ~ 29</td><td>정상</td></tr>
+</table>
+<div class="note"><b>관제 화면의 등급과 다릅니다.</b> 위 표는 예측기가 0~500 자로 매긴 등급이고, 관제(real_time_amhs)는 받은 점수를 <b>0~100 자</b>로 다시 봅니다 (경계 60 / 위험 71 / 초위험 85). 두 등급 이름이 같아도 같은 값이 아닙니다.</div>
+<h3>4-3. 단계(S1/S2/S3)와 hot_area</h3>
+<div class="flow">S1 = 어느 영역이든 R-A′ 또는 R-A′지속
+S2 = 어느 영역이든 R-B 또는 R-B빠름
+S3 = (R-A′ 계열) AND (R-D 또는 SLA, 또는 M16HUB 의 R-C′)
+                AND (R-B 계열 또는 흐름 '위험'·'심각')
+
+stage      = 3 if S3 else 2 if S2 else 1 if S1 else 0
+hot_area   = area_score 가 가장 큰 영역
+전파 사슬  = area_score ≥ 15 인 영역을 시간 순으로 (최근 60분)</div>
+<h2>5. 예측기가 새로 만드는 컬럼</h2>
+<p><code>{날짜}_발동이벤트.csv</code> — 매분 1행, <b>이벤트가 없는 분도 기록</b>합니다 (없는 분을 빼면 나중에 분모를 못 셉니다). 전체 <b>131개</b> 컬럼.</p>
+<table><tr><th>묶음</th><th>컬럼</th></tr>
+<tr><td><b>식별</b></td><td><code>file</code> · <code>datetime</code> · <code>date</code> · <code>time</code></td></tr>
+<tr><td><b>단계</b></td><td><code>stage</code> · <code>stage_name</code> · <code>prev_stage</code> · <code>transition</code></td></tr>
+<tr><td><b>ALL 점수</b></td><td><code>unified_risk_score</code> · <code>unified_risk_level</code> · <code>hot_area</code> · <code>hot_score</code> · <code>affected_areas</code> · <code>propagation_chain</code> · <code>flow_signals</code> · <code>maxcapa_signals</code></td></tr>
+<tr><td><b>FAB 점수</b></td><td><code>M16HUB_score</code> · <code>M14_score</code> · <code>M14B_score</code> · <code>M16A_score</code> · <code>M16B_score</code> · <code>M16_score</code> · <code>M16_PKT_score</code> · <code>M16_WT_score</code> · <code>flow_score</code></td></tr>
+<tr><td><b>FAB 신호</b></td><td><code>M16HUB_signals</code> · <code>M14_signals</code> · <code>M14B_signals</code> · <code>M16A_signals</code> · <code>M16B_signals</code></td></tr>
+<tr><td><b>근거 값</b></td><td><code>M16HUB_ra</code> · <code>M14_ra</code> · <code>M14B_ra</code> · <code>M16A_ra</code> · <code>M16B_ra</code> · <code>M16HUB_rb_diff30</code> · <code>M14_rb_diff30</code> · <code>M14B_rb_diff30</code> · <code>M16A_rb_diff30</code> · <code>M16B_rb_diff30</code> · <code>M16HUB_rd_fab</code> · <code>M16HUB_stb_util</code> · <code>M16HUB_rev_count</code> · <code>M16HUB_rev_lids</code></td></tr>
+<tr><td><b>SLA·소터</b></td><td><code>sla_M14</code> · <code>sla_M14B</code> · <code>sla_M16A</code> · <code>sla_M16B</code> · <code>sla_M16HUB</code> · <code>sorter_M14</code> · <code>sorter_M14B</code> · <code>sorter_M16A</code> · <code>sorter_M16B</code> · <code>sorter_M16HUB</code> · <code>sla_score_total</code> · <code>sorter_score_total</code></td></tr>
+<tr><td><b>그 밖</b></td><td><code>reason</code> · <code>M16HUB_pts_RA</code> · <code>M16HUB_pts_RA_sus</code> · <code>M16HUB_pts_RB</code> · <code>M16HUB_pts_RB_fast</code> · <code>M16HUB_pts_RC</code> · <code>M16HUB_pts_RD</code> · <code>M16HUB_pts_SLA</code> · <code>M16HUB_pts_SORT</code> · <code>M16HUB_pts_MAXCAPA</code> · <code>M14_pts_RA</code> · <code>M14_pts_RA_sus</code> · <code>M14_pts_RB</code> · <code>M14_pts_RB_fast</code> · <code>M14_pts_RC</code> · <code>M14_pts_RD</code> · <code>M14_pts_SLA</code> · <code>M14_pts_SORT</code> · <code>M14_pts_MAXCAPA</code> · <code>M14B_pts_RA</code> · <code>M14B_pts_RA_sus</code> · <code>M14B_pts_RB</code> · <code>M14B_pts_RB_fast</code> · <code>M14B_pts_RC</code> · <code>M14B_pts_RD</code> · <code>M14B_pts_SLA</code> · <code>M14B_pts_SORT</code> · <code>M14B_pts_MAXCAPA</code> · <code>M16A_pts_RA</code> · <code>M16A_pts_RA_sus</code> · <code>M16A_pts_RB</code> · <code>M16A_pts_RB_fast</code> · <code>M16A_pts_RC</code> · <code>M16A_pts_RD</code> · <code>M16A_pts_SLA</code> · <code>M16A_pts_SORT</code> · <code>M16A_pts_MAXCAPA</code> · <code>M16B_pts_RA</code> · <code>M16B_pts_RA_sus</code> · <code>M16B_pts_RB</code> · <code>M16B_pts_RB_fast</code> · <code>M16B_pts_RC</code> · <code>M16B_pts_RD</code> · <code>M16B_pts_SLA</code> · <code>M16B_pts_SORT</code> · <code>M16B_pts_MAXCAPA</code> · <code>layer1_total</code> · <code>mc_score_total</code> · <code>M16HUB_ra_count</code> · <code>M14_ra_count</code> · <code>M14B_ra_count</code> · <code>M16A_ra_count</code> · <code>M16B_ra_count</code> · <code>M16HUB_rb_diff10</code> · <code>M14_rb_diff10</code> · <code>M14B_rb_diff10</code> · <code>M16A_rb_diff10</code> · <code>M16B_rb_diff10</code> · <code>M16HUB_rc_trend</code> · <code>M14_cnv_skew</code> · <code>M14_rd_oht</code> · <code>M14B_rd_oht</code> · <code>M16A_rd_oht</code> · <code>M16B_rd_oht</code> · <code>M16HUB_sla_cnt</code> · <code>M14_sla_cnt</code> · <code>M16A_sla_cnt</code> · <code>M16B_sla_cnt</code> · <code>M16A_sorter_fail</code> · <code>M16B_sorter_fail</code> · <code>M16HUB_score_raw</code> · <code>M14_score_raw</code> · <code>M14B_score_raw</code> · <code>M16A_score_raw</code> · <code>M16B_score_raw</code></td></tr>
+</table>
+<div class="note"><b>{FAB}_score 가 그 FAB 의 점수입니다.</b> 통합 파일에는 8영역 점수가 나란히 들어 있고, ALL 점수는 <code>unified_risk_score</code> 입니다.</div>
+<h2>6. 영역분리 — FAB 파일에서 <code>area_score</code> 가 되는 과정</h2>
+<p>영역분리는 통합 파일을 FAB 별 파일로 나눕니다. 그 파일에서 <b>그 FAB 의 점수가 <code>area_score</code> 라는 이름</b>으로 들어갑니다 (통합 파일의 <code>{FAB}_score</code> 와 같은 값입니다).</p>
+<div class="flow">통합 파일  {날짜}_발동이벤트.csv
+   unified_risk_score = 전체 점수
+   M14_score          = M14 영역 점수
+        │
+        │  영역분리
+        ↓
+FAB 파일  {날짜}_발동이벤트_M14.csv
+   unified_risk_score = 전체 점수 (그대로 실려 온다)
+   area_score         = M14 영역 점수     ← 이 FAB 의 값
+   area_level         = M14 영역 등급</div>
+<h3>6-1. 관제가 받는 순간 자리를 바꾼다</h3>
+<p>FAB 파일에는 <b>전체 점수와 그 FAB 점수가 같이</b> 들어 있습니다. 관제가 그대로 읽으면 M14 화면이 <b>전체 점수로</b> 등급을 매기고 케이스 영역이 M16HUB 로 찍힙니다. 그래서 <code>jupyter_csv._fab_rows()</code> 가 <b>받는 순간 한 번만</b> 자리를 바꿉니다.</p>
+<div class="flow">받은 그대로                     →  정규화 후
+  unified_risk_score = 전체       all_score          = 전체   (원본 보존)
+  area_score         = M14        unified_risk_score = M14    ← 자리 이동
+  unified_risk_level = 전체등급   all_level          = 전체등급
+  area_level         = M14등급    unified_risk_level = M14등급
+  hot_area           = 전체기준   all_hot_area       = 전체기준
+                                  hot_area           = M14</div>
+<div class="note"><b>왜 한 자리에서만 바꾸나.</b> 그래프·예보·기여도·리포트·정확도가 모두 <code>unified_risk_score</code> 와 <code>hot_area</code> 를 읽습니다. 받는 자리에서 한 번 바꿔 두면 <b>하위 모듈을 하나도 안 고치고</b> FAB 화면이 자기 데이터를 봅니다. 원본은 <code>all_*</code> 로 남겨 전체와 비교할 수 있게 둡니다.</div>
+<h3>6-2. 그래서 화면의 두 값은 이렇게 정리됩니다</h3>
+<table><tr><th>화면</th><th>보는 값</th><th>자</th><th>뜻</th></tr><tr><td><b>ALL</b></td><td><code>unified_risk_score</code></td><td>0~500</td><td>8영역 합 + 전체 관점 가산</td></tr><tr><td><b>FAB</b></td><td><code>area_score</code><br><span class=dim>(정규화 뒤 <code>unified_risk_score</code> 자리)</span></td><td>0~50</td><td>그 영역의 룰 배점 합</td></tr></table>
+<div class="note miss"><b>두 값을 같은 자로 비교하지 마십시오.</b> ALL 은 0~500, FAB 은 0~50 입니다. 관제 화면은 이 둘을 각각 0~100 으로 눈금을 맞춰 등급을 매깁니다 — 자세한 것은 <code>docs/FAB별_위험도_스코어.html</code> 를 보십시오.</div>
+<p class="sub">이 문서는 <code>python 컬럼흐름_문서.py</code> 로 다시 만듭니다. 예측기 소스가 바뀌면 표도 같이 바뀝니다.</p>
+</div></body></html>
