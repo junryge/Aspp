@@ -36,8 +36,11 @@
 #   {접두사}_분단위.csv  분마다 unified_risk_score · area_score · 등급 · 경보 · 실제정체 ← 검토용
 #
 # --split 을 같이 주면 대상별로 파일을 따로 낸다 (고객이 ALL·FAB 분리 요청 시)
-#   {접두사}_ALL.csv · {접두사}_M16HUB.csv · {접두사}_M14.csv · … 6개
-#   각 파일 = 날짜별 성능 + 그날 사건 시각 + 선행 중앙값, 맨 아래 '전체' 행
+#   {접두사}_{대상}.csv           날짜별 성능 + 그날 사건 시각 + 선행 중앙값, 맨 아래 '전체' 행
+#   {접두사}_{대상}_사건목록.csv   그 대상 사건만
+#   {접두사}_{대상}_분단위.csv     그 대상 점수·등급·경보·실제정체만
+#   {접두사}_{대상}_날짜별_가로.csv  날짜 × 시각 — 그 대상 정체분·경보분·점수최고
+#   대상 6개 × 4 = 24개
 #
 # 운영 등급 컷 (2026-09 확인)
 #   ALL 48/60/80 · M16HUB 40/55/75 · M14·M14B·M16A·M16B 36/52/72
@@ -602,7 +605,43 @@ def main():
                     w = csv.DictWriter(f, fieldnames=list(recs[0].keys()))
                     w.writeheader()
                     w.writerows(recs)
-                o(f'  📄 {os.path.abspath(fp2)}   ({len(recs)}행)')
+                made = [f'{t}.csv']
+
+                # 사건목록 — 그 대상만
+                ee = [x for x in events if x['대상'] == t]
+                if ee:
+                    fp3 = f'{a.csv}_{t}_사건목록.csv'
+                    with open(fp3, 'w', newline='', encoding='utf-8-sig') as f:
+                        w = csv.DictWriter(f, fieldnames=list(ee[0].keys()))
+                        w.writeheader()
+                        w.writerows(ee)
+                    made.append(f'사건목록({len(ee)})')
+
+                # 분단위 — 그 대상 칸만
+                keep = ['datetime', 'date', 'time', '시']
+                keep += ([c for c in ('unified_risk_score', 'ALL_level', 'ALL_경보', 'ALL_실제정체')]
+                         if t == 'ALL' else
+                         [f'{t}_area_score', f'{t}_level', f'{t}_경보', f'{t}_실제정체', f'{t}_ra'])
+                if detail:
+                    keep = [c for c in keep if c in detail[0]]
+                    fp4 = f'{a.csv}_{t}_분단위.csv'
+                    with open(fp4, 'w', newline='', encoding='utf-8-sig') as f:
+                        w = csv.DictWriter(f, fieldnames=keep, extrasaction='ignore')
+                        w.writeheader()
+                        w.writerows(detail)
+                    made.append(f'분단위({len(detail)})')
+                # 날짜별 가로 — 그 대상 칸만
+                if hourly:
+                    hk = ['날짜', '시', '시각', '데이터분',
+                          f'{t}_정체분', f'{t}_경보분', f'{t}_점수최고']
+                    hk = [c for c in hk if c in hourly[0]]
+                    fp5 = f'{a.csv}_{t}_날짜별_가로.csv'
+                    with open(fp5, 'w', newline='', encoding='utf-8-sig') as f:
+                        w = csv.DictWriter(f, fieldnames=hk, extrasaction='ignore')
+                        w.writeheader()
+                        w.writerows(hourly)
+                    made.append(f'날짜별_가로({len(hourly)})')
+                o(f'  📄 {a.csv}_{t}*.csv   — ' + ' · '.join(made))
         dp = a.csv + '_분단위.csv'
         with open(dp, 'w', newline='', encoding='utf-8-sig') as f:
             w = csv.DictWriter(f, fieldnames=list(detail[0].keys()))
