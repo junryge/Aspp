@@ -30,7 +30,7 @@
 #   python 성능평가.py --event .\predict_tobe --days 30 --out 결과.txt
 #
 # --csv 를 주면 파일 네 개가 나온다
-#   {접두사}_요약.csv    날짜 × 대상(ALL·FAB5) × 사건/경보/Precision/Recall/F1   ← PPT 용
+#   {접두사}_요약.csv    날짜 × 대상(ALL·FAB5) × 사건/경보/P/R/F1 + 그날 사건 시각 ← PPT 용
 #   {접두사}_사건목록.csv 사건 하나마다 시작·종료 시각, 지속, 첫 경보 시각, 선행시간 ← 시간 분석용
 #   {접두사}_날짜별_가로.csv  날짜 × 시각(0~23시) 가로형 — 대상마다 정체분·경보분·점수최고
 #   {접두사}_분단위.csv  분마다 unified_risk_score · area_score · 등급 · 경보 · 실제정체 ← 검토용
@@ -545,6 +545,18 @@ def main():
 
     # ── 4) CSV 저장
     if a.csv:
+        # 요약에도 그날 사건이 언제였는지 붙인다 — 날짜만으로는 시각을 못 본다
+        import statistics as _st
+        for r in summary:
+            ee = [x for x in events if x['대상'] == r['대상'] and x['날짜'] == r['날짜']]
+            if r['날짜'] == '전체':
+                ee = [x for x in events if x['대상'] == r['대상']]
+                r['사건시각'] = f'{len(ee)}건'
+            else:
+                r['사건시각'] = ' / '.join(f"{x['시작시각']}~{x['종료시각']}" for x in ee)
+            ld = [x['선행분'] for x in ee if x['경보'] == 1 and x['선행분'] != '']
+            r['선행_중앙분'] = round(_st.median(ld)) if ld else ''
+            r['최장지속_분'] = max((x['지속분'] for x in ee), default=0)
         sp = a.csv + '_요약.csv'
         with open(sp, 'w', newline='', encoding='utf-8-sig') as f:
             w = csv.DictWriter(f, fieldnames=list(summary[0].keys()))
