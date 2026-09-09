@@ -1,0 +1,447 @@
+<title>PIO 영역별 점수 설계</title>
+<style>
+:root{
+  color-scheme:dark;
+  --ink:#e3eaf2; --sub:#93a3b6; --line:#2a3441; --bg:#11161d; --soft:#181f28;
+  --navy:#8ec5f0; --accent:#4da3e8; --good:#4cc79a; --warn:#e8bb5c; --bad:#f0846a;
+  --chip:#1e2833; --panel:#161d25;
+}
+:root[data-theme="light"]{
+  color-scheme:light;
+  --ink:#16202e; --sub:#5b6b80; --line:#dfe5ec; --bg:#fff; --soft:#f5f7fa;
+  --navy:#1c3d6b; --accent:#0f6fc4; --good:#1a7f5a; --warn:#b8860b; --bad:#b4432c;
+  --chip:#eef3f9; --panel:#fff;
+}
+*{box-sizing:border-box}
+html{background:var(--bg)}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Malgun Gothic","맑은 고딕","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;
+  font-size:15px;line-height:1.75}
+.wrap{max-width:1020px;margin:0 auto;padding:0 24px 80px}
+
+.cover{padding:46px 0 26px;border-bottom:3px solid var(--accent);margin-bottom:32px}
+.eyebrow{font-size:12.5px;letter-spacing:.14em;color:var(--accent);font-weight:700;margin-bottom:12px}
+h1{font-size:30px;line-height:1.3;margin:0 0 10px;letter-spacing:-.02em;font-weight:800;color:var(--navy)}
+.lede{font-size:15.5px;color:var(--sub);margin:0 0 18px;max-width:76ch}
+.meta{display:flex;flex-wrap:wrap;gap:8px}
+.meta span{background:var(--chip);color:var(--navy);font-size:12.5px;font-weight:600;
+  padding:5px 12px;border-radius:20px}
+
+section{margin:0 0 44px}
+h2{font-size:20px;margin:0 0 4px;font-weight:800;padding-left:13px;
+  border-left:5px solid var(--accent);line-height:1.4}
+.h2sub{color:var(--sub);font-size:13.5px;margin:0 0 20px;padding-left:18px}
+h3{font-size:16px;margin:26px 0 9px;font-weight:700;color:var(--navy)}
+h4{font-size:14px;margin:18px 0 7px;font-weight:700}
+p{margin:0 0 12px}
+ul,ol{margin:0 0 13px;padding-left:22px}li{margin:5px 0}
+
+.tw{overflow-x:auto;margin:13px 0 16px;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:560px;background:var(--panel)}
+th,td{padding:8px 11px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:var(--soft);font-weight:700;font-size:12.5px;color:var(--navy);white-space:nowrap}
+tbody tr:last-child td{border-bottom:0}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td.c,th.c{text-align:center;white-space:nowrap}
+tr.hl td{background:color-mix(in srgb,var(--accent) 13%,var(--panel))}
+tr.dim td{color:var(--sub)}
+code{background:var(--soft);border:1px solid var(--line);border-radius:4px;padding:1px 5px;
+  font-family:Consolas,"D2Coding",Menlo,monospace;font-size:12.5px;color:var(--navy)}
+pre{background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:14px 16px;
+  overflow-x:auto;font-family:Consolas,"D2Coding",Menlo,monospace;font-size:13px;
+  line-height:1.7;margin:14px 0;color:var(--ink)}
+pre b{color:var(--accent)}
+
+.box{border-radius:8px;padding:14px 17px;margin:15px 0;font-size:14px;
+  border:1px solid var(--line);background:var(--soft)}
+.box b.lab{display:block;font-size:12.5px;letter-spacing:.06em;margin-bottom:5px}
+.box.ok{background:color-mix(in srgb,var(--good) 12%,var(--panel));
+  border-color:color-mix(in srgb,var(--good) 38%,var(--line))} .box.ok b.lab{color:var(--good)}
+.box.no{background:color-mix(in srgb,var(--bad) 12%,var(--panel));
+  border-color:color-mix(in srgb,var(--bad) 38%,var(--line))} .box.no b.lab{color:var(--bad)}
+.box.wa{background:color-mix(in srgb,var(--warn) 12%,var(--panel));
+  border-color:color-mix(in srgb,var(--warn) 38%,var(--line))} .box.wa b.lab{color:var(--warn)}
+.box p:last-child{margin-bottom:0}
+
+.tag{display:inline-block;font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:4px;
+  background:var(--chip);color:var(--navy)}
+.tag.g{background:color-mix(in srgb,var(--good) 18%,var(--panel));color:var(--good)}
+.tag.r{background:color-mix(in srgb,var(--bad) 18%,var(--panel));color:var(--bad)}
+.tag.y{background:color-mix(in srgb,var(--warn) 18%,var(--panel));color:var(--warn)}
+
+.flow{display:flex;flex-wrap:wrap;gap:9px;margin:16px 0}
+.step{flex:1 1 160px;border:1px solid var(--line);border-radius:8px;padding:12px 13px;background:var(--panel)}
+.step .s{font-size:11px;font-weight:800;color:var(--accent);letter-spacing:.08em}
+.step .b{font-weight:700;margin:3px 0 4px;font-size:13.5px}
+.step .c{font-size:12.5px;color:var(--sub);line-height:1.5}
+
+figure{margin:18px 0;border:1px solid var(--line);border-radius:8px;padding:16px 16px 10px;background:var(--panel)}
+figcaption{font-size:12.5px;color:var(--sub);margin-top:8px;text-align:center}
+svg{display:block;max-width:100%;height:auto;margin:0 auto}
+
+.foot{border-top:1px solid var(--line);margin-top:40px;padding-top:16px;font-size:12.5px;color:var(--sub)}
+@media (max-width:760px){h1{font-size:24px}}
+</style>
+
+<div class="wrap">
+
+<div class="cover">
+  <div class="eyebrow">M16A HUBROOM · 룰베이스</div>
+  <h1>PIO 영역별 점수 설계</h1>
+  <p class="lede">12개 PIO 경로를 다섯 영역으로 나눠 점수를 매기는 방식 —
+  <b>어떻게 배분하고, 구간을 어떻게 끊고, 어느 컬럼에 무엇이 들어가는지</b>를 한 장에 정리했습니다.
+  모든 수치는 2026-09-01 ~ 09-03 실측(3,375분)입니다.</p>
+  <div class="meta">
+    <span>구간표 <b>B안 확정</b> — 8 / 13 / 21 / 36</span>
+    <span>배분 양끝단</span>
+    <span>unified 최대 +5점 유지</span>
+    <span>2026-09-09</span>
+  </div>
+</div>
+
+
+<!-- ═══════════ 0 ═══════════ -->
+<section>
+<h2>0. 지금과 무엇이 달라지나</h2>
+<p class="h2sub">PIO 자체는 이미 운영 중입니다. 보는 단위만 바뀝니다.</p>
+
+<div class="tw">
+<table>
+<thead><tr><th style="width:16%"></th><th style="width:38%">지금 (운영 중)</th><th>바뀐 뒤</th></tr></thead>
+<tbody>
+<tr><td><b>집계 단위</b></td><td>12경로를 <b>통째로 합산</b></td>
+    <td><b>영역별로 나눠</b> 각각 점수 → 합쳐서 상한</td></tr>
+<tr><td><b>구간표</b></td><td><code>16/26/41/61/81 → 2/4/7/9/11</code></td>
+    <td><code>8/13/21/36 → 1/2/3/4</code> (영역마다 적용)</td></tr>
+<tr><td><b>컬럼</b></td><td>2칸 · 발동이벤트 136</td>
+    <td><b>12칸 · 발동이벤트 146</b></td></tr>
+<tr class="hl"><td><b>상한</b></td><td>raw 11 = <b>unified +5점</b></td>
+    <td>raw 11 = <b>unified +5점</b> — 그대로</td></tr>
+<tr><td>영역분리</td><td>—</td><td><b>코드 수정 없음</b> (접두사 자동 분배)</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="box ok">
+<b class="lab">왜 나누나</b>
+<p style="margin-bottom:0">지금은 “PIO 가 몇 건 터졌다”만 보입니다. <b>어느 영역이 아픈지는 안 보입니다.</b>
+고객이 ALL 과 FAB 을 나눠 보길 원하는데, PIO 만 통합값이라 FAB 파일에서 쓸 수가 없었습니다.</p>
+</div>
+</section>
+
+
+<!-- ═══════════ 1 ═══════════ -->
+<section>
+<h2>1. 전체 흐름</h2>
+<p class="h2sub">PIO 한 건이 점수가 되기까지</p>
+
+<div class="flow">
+  <div class="step"><div class="s">STEP 1</div><div class="b">수집</div>
+    <div class="c">PIO_DATA_MAKE 가 매분<br>12경로 실패 건수를<br><code>pio_state.json</code> 에 기록</div></div>
+  <div class="step"><div class="s">STEP 2</div><div class="b">10분 합</div>
+    <div class="c">그 분 포함 최근 10분을<br><b>경로별로</b> 합산</div></div>
+  <div class="step"><div class="s">STEP 3</div><div class="b">영역 배분</div>
+    <div class="c">경로마다 <b>출발 영역</b>과<br><b>도착 영역</b> 두 곳에 넣음</div></div>
+  <div class="step"><div class="s">STEP 4</div><div class="b">영역 점수</div>
+    <div class="c">영역별 10분합 →<br>구간표로 <b>0~4점</b></div></div>
+  <div class="step"><div class="s">STEP 5</div><div class="b">PIO 항</div>
+    <div class="c">5개 합 × 2.75<br>→ <b>최대 11</b> (=unified +5점)</div></div>
+</div>
+
+<pre>raw = 영역합 + 흐름 + SLA + Sorter + MAXCAPA + <b>PIO항</b>
+unified = min(100, round(raw × 100 / 220))
+
+<b>PIO항 11 = unified +5점</b>   ← 이 상한은 지금과 같습니다</pre>
+
+<div class="box wa">
+<b class="lab">안전장치 — 예전과 똑같이 도는 조건</b>
+<p style="margin-bottom:0"><code>pio_state.json</code> 이 없거나 <b>5분 넘게 안 바뀌면 PIO 항은 0</b> 입니다.
+수집이 멈춰도 점수가 옛 값으로 뜨지 않고, PIO 도입 전과 동일한 점수가 나옵니다.</p>
+</div>
+</section>
+
+
+<!-- ═══════════ 2 ═══════════ -->
+<section>
+<h2>2. 경로별 배분 — 출발·도착 양쪽</h2>
+<p class="h2sub">경로 하나의 건수가 <b>두 영역</b>에 들어갑니다</p>
+
+<div class="tw">
+<table>
+<thead><tr>
+  <th style="width:20%">경로</th><th class="n">3일 건수</th>
+  <th class="c" style="width:12%">출발 영역</th><th class="c" style="width:12%">도착 영역</th>
+  <th>비고</th>
+</tr></thead>
+<tbody>
+<tr class="hl"><td><b>M14A ← M14B</b></td><td class="n"><b>1,483</b></td>
+  <td class="c">M14B</td><td class="c">M14</td><td>최대 물량 경로</td></tr>
+<tr class="hl"><td><b>M16HUB ← M16A</b></td><td class="n"><b>1,034</b></td>
+  <td class="c">M16A</td><td class="c">M16HUB</td><td>2위</td></tr>
+<tr class="hl"><td><b>M16A → M16B</b></td><td class="n"><b>336</b></td>
+  <td class="c">M16A</td><td class="c">M16B</td><td>3위</td></tr>
+<tr><td>M16HUB → MLUD</td><td class="n">36</td>
+  <td class="c">M16HUB</td><td class="c">M16HUB</td>
+  <td>HUB 내부 수동이동 — <b>같은 영역이라 한 번만</b> 셈</td></tr>
+<tr><td>M16B → M16A</td><td class="n">13</td><td class="c">M16B</td><td class="c">M16A</td><td></td></tr>
+<tr><td>M16HUB ← M14B</td><td class="n">8</td><td class="c">M14B</td><td class="c">M16HUB</td><td></td></tr>
+<tr><td>M16HUB → M14B</td><td class="n">7</td><td class="c">M16HUB</td><td class="c">M14B</td><td></td></tr>
+<tr class="dim"><td>M16HUB → M14A</td><td class="n">0</td><td class="c">M16HUB</td><td class="c">M14</td><td>3일 내내 0</td></tr>
+<tr class="dim"><td>M16HUB ← M14A</td><td class="n">0</td><td class="c">M14</td><td class="c">M16HUB</td><td>3일 내내 0</td></tr>
+<tr class="dim"><td>M16HUB → M16A</td><td class="n">0</td><td class="c">M14B</td><td class="c">M16A</td>
+  <td>출발이 <b>고객 표대로 M14B</b></td></tr>
+<tr class="dim"><td>M14A → M14B</td><td class="n">0</td><td class="c">M14</td><td class="c">M14B</td><td>3일 내내 0</td></tr>
+<tr class="dim"><td>M14A → M10A</td><td class="n">0</td><td class="c">M14</td><td class="c">—</td>
+  <td>M10A 는 관측 영역 없음 → <b>출발만</b></td></tr>
+</tbody>
+</table>
+</div>
+<p style="font-size:13px;color:var(--sub)">※ 고객 &lt;개별 집계 참고표&gt; 기준. <b>M14A 는 룰베이스 M14 영역</b>입니다.</p>
+
+<h3>왜 양쪽 다인가 — 실측 근거</h3>
+<p>같은 실패 한 건이 <b>양쪽에 서로 다른 증상</b>을 만듭니다.</p>
+
+<div class="tw">
+<table>
+<thead><tr><th style="width:18%">어디에</th><th style="width:26%">나타나는 증상</th><th>실측 상관</th></tr></thead>
+<tbody>
+<tr><td><b>도착 영역</b></td>
+  <td>반송시간(TAT) 상승<br><span style="font-size:12px;color:var(--sub)">못 내려놓아 차량이 붙잡힘</span></td>
+  <td>M14A←M14B 1,483건 ↔ <b>M14 반송시간 r = +0.712</b><br>M16A→M16B 336건 ↔ M16B 반송시간 r = +0.251</td></tr>
+<tr><td><b>출발 영역</b></td>
+  <td>대기물량 상승<br><span style="font-size:12px;color:var(--sub)">못 보내 물건이 쌓임</span></td>
+  <td>M16HUB←M16A 1,034건 ↔ <b>M16A 대기물량 r = +0.407</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="box no">
+<b class="lab">한쪽만 쓰면 절반이 죽습니다</b>
+<div class="tw" style="margin:8px 0 0">
+<table>
+<thead><tr><th style="width:22%">배분 방식</th><th class="n">M16HUB</th><th class="n">M14</th>
+  <th class="n">M14B</th><th class="n">M16A</th><th class="n">M16B</th></tr></thead>
+<tbody>
+<tr><td>출발만</td><td class="n">0.1</td><td class="n" style="color:var(--bad)"><b>0.0</b></td>
+  <td class="n">4.4</td><td class="n">4.1</td><td class="n" style="color:var(--bad)"><b>0.0</b></td></tr>
+<tr><td>도착만</td><td class="n">3.2</td><td class="n">4.4</td>
+  <td class="n" style="color:var(--bad)"><b>0.0</b></td><td class="n" style="color:var(--bad)"><b>0.0</b></td><td class="n">1.0</td></tr>
+<tr class="hl"><td><b>양끝단</b></td><td class="n"><b>3.2</b></td><td class="n"><b>4.4</b></td>
+  <td class="n"><b>4.4</b></td><td class="n"><b>4.1</b></td><td class="n"><b>1.0</b></td></tr>
+</tbody>
+</table>
+</div>
+<p style="margin-top:10px;margin-bottom:0">10분 합계 평균값입니다. <b>양끝단만 다섯 영역이 다 삽니다.</b></p>
+</div>
+</section>
+
+
+<!-- ═══════════ 3 ═══════════ -->
+<section>
+<h2>3. 구간표 — B안 확정</h2>
+<p class="h2sub">영역 10분 합계 → 0~4점</p>
+
+<div class="tw">
+<table>
+<thead><tr><th class="c" style="width:24%">영역 10분 합계</th><th class="c" style="width:14%">영역 점수</th><th>근거</th></tr></thead>
+<tbody>
+<tr><td class="c">0 ~ 7</td><td class="c"><b>0</b></td><td>평상시 — 중앙값이 3건입니다</td></tr>
+<tr class="hl"><td class="c"><b>8 ~ 12</b></td><td class="c"><b>1</b></td><td>상위 10% 진입 (p90 = 8건)</td></tr>
+<tr class="hl"><td class="c"><b>13 ~ 20</b></td><td class="c"><b>2</b></td><td>상위 5% (p95 = 12건)</td></tr>
+<tr class="hl"><td class="c"><b>21 ~ 35</b></td><td class="c"><b>3</b></td><td>상위 1% (p99 = 29건)</td></tr>
+<tr class="hl"><td class="c"><b>36 이상</b></td><td class="c"><b>4</b></td><td>3일 중 극히 드묾 (최대 81건)</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>후보 비교 — 실제로 돌려본 결과</h3>
+<div class="tw">
+<table>
+<thead><tr>
+  <th style="width:14%">후보</th><th style="width:20%">구간 (1/2/3/4점)</th>
+  <th class="n">PIO항 평균</th><th class="n">0점인 분</th>
+  <th class="n">등급 올라간 분</th><th class="n">현재 대비</th>
+</tr></thead>
+<tbody>
+<tr><td>A 공격적</td><td class="c">6 / 10 / 16 / 28</td><td class="n">3.21</td><td class="n">58%</td>
+  <td class="n">122 (3.6%)</td><td class="n">7.6배</td></tr>
+<tr class="hl"><td><b>B 확정</b></td><td class="c"><b>8 / 13 / 21 / 36</b></td><td class="n"><b>1.93</b></td><td class="n"><b>74%</b></td>
+  <td class="n"><b>83 (2.5%)</b></td><td class="n"><b>5.2배</b></td></tr>
+<tr><td>C</td><td class="c">12 / 18 / 28 / 45</td><td class="n">0.89</td><td class="n">88%</td>
+  <td class="n">37 (1.1%)</td><td class="n">2.3배</td></tr>
+<tr><td>D 보수적</td><td class="c">16 / 24 / 36 / 60</td><td class="n">0.45</td><td class="n">94%</td>
+  <td class="n">24 (0.7%)</td><td class="n">1.5배</td></tr>
+<tr class="dim"><td colspan="4"><b>현재 운영중</b> (12경로 통합 방식)</td>
+  <td class="n"><b>16 (0.5%)</b></td><td class="n">기준</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="box wa">
+<b class="lab">B 를 고르면 알고 있어야 할 것</b>
+<p><b>등급이 바뀌는 분이 16 → 83 으로 약 5배 늘어납니다.</b> 3,375분 중 83분(2.5%)입니다.</p>
+<p style="margin-bottom:0">전부 <b>상향만</b> 되고 <b>최대 +5점 상한은 그대로</b>라, 위험·초위험이 갑자기 튀지는 않습니다.
+운영에서 경보가 잦다고 느껴지면 <b>구간표만 C 로 바꾸면</b> 됩니다 —
+<code>thresholds.json</code> 한 줄이라 코드 수정 없이 조정됩니다.</p>
+</div>
+</section>
+
+
+<!-- ═══════════ 4 ═══════════ -->
+<section>
+<h2>4. 컬럼 — 무엇이 어디에</h2>
+<p class="h2sub">기존 2칸 + 영역별 10칸 = <b>PIO 관련 12칸</b> · 발동이벤트 136 → 146</p>
+
+<div class="tw">
+<table>
+<thead><tr><th style="width:27%">컬럼</th><th style="width:11%">범위</th><th>무엇이 들어가나</th></tr></thead>
+<tbody>
+<tr><td><code>pio_10min_cnt</code></td><td class="c">0 ~</td>
+  <td><b>12경로 실제 합계.</b> 실제로 일어난 실패 건수 그대로 — <b>이중 계산 없음.</b>
+      기존 의미 그대로라 지금까지 쌓인 값과 계속 비교됩니다.</td></tr>
+<tr class="hl"><td><code>pio_score</code></td><td class="c"><b>0 ~ 11</b></td>
+  <td><b>raw 에 더해지는 PIO 항.</b> <code>min(11, Σ영역점수 × 2.75)</code><br>
+      <span style="color:var(--warn)">※ 의미가 바뀝니다</span> — 예전엔 12경로 통합 구간표 값이었는데,
+      이제는 <b>5개 영역 점수를 합쳐 상한 씌운 값</b>입니다.</td></tr>
+<tr><td><code>M16HUB_pio_10min_cnt</code><br><code>M14_pio_10min_cnt</code><br>
+        <code>M14B_pio_10min_cnt</code><br><code>M16A_pio_10min_cnt</code><br>
+        <code>M16B_pio_10min_cnt</code></td>
+  <td class="c">0 ~</td>
+  <td>그 영역이 <b>출발이거나 도착</b>인 경로들의 10분 합계.<br>
+      <b>이중 계산 포함</b> — 그래서 5개를 더해도 <code>pio_10min_cnt</code> 와 안 맞습니다.</td></tr>
+<tr><td><code>M16HUB_pio_score</code><br><code>M14_pio_score</code><br>
+        <code>M14B_pio_score</code><br><code>M16A_pio_score</code><br>
+        <code>M16B_pio_score</code></td>
+  <td class="c"><b>0 ~ 4</b></td>
+  <td>위 개수를 구간표에 넣은 값. 이 다섯을 더해 × 2.75 한 것이 <code>pio_score</code> 입니다.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="box no">
+<b class="lab">두 숫자는 안 맞습니다 — 버그가 아닙니다</b>
+<p style="margin-bottom:0"><code>pio_10min_cnt</code> 는 <b>실제 건수</b>, 영역별 5칸의 합은 <b>배분된 건수</b>라
+양끝단 배분 때문에 대략 <b>2배</b> 차이가 납니다.
+실제 몇 건 터졌는지는 <code>pio_10min_cnt</code> 를, 어느 영역이 아픈지는 영역별 칸을 보십시오.</p>
+</div>
+
+<h3>영역분리는 코드 수정이 필요 없습니다</h3>
+<p>컬럼 이름을 <code>M14_pio_…</code> 처럼 <b>영역 접두사로</b> 지었기 때문에,
+<code>발동이벤트_영역분리.py</code> 를 <b>한 줄도 안 고쳐도</b> 각 FAB 파일이 자기 것만 들고 갑니다.</p>
+<div class="tw">
+<table>
+<thead><tr><th style="width:32%">파일</th><th>들어가는 PIO 컬럼</th></tr></thead>
+<tbody>
+<tr><td><code>…_발동이벤트_M14.csv</code></td>
+  <td><code>M14_pio_10min_cnt</code> · <code>M14_pio_score</code> + 공통 2칸 + 원본 12경로</td></tr>
+<tr><td><code>…_발동이벤트_M16A.csv</code></td>
+  <td><code>M16A_pio_10min_cnt</code> · <code>M16A_pio_score</code> + 공통 2칸 + 원본 12경로</td></tr>
+<tr class="dim"><td colspan="2">나머지 3개 파일도 같은 방식</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+
+<!-- ═══════════ 5 ═══════════ -->
+<section>
+<h2>5. 실제 계산 예시</h2>
+<p class="h2sub">2026-09-02 10:57 — 3일 중 PIO 가 가장 많이 붙은 분</p>
+
+<h3>① 경로별 10분 합 → 영역 배분</h3>
+<div class="tw">
+<table>
+<thead><tr><th style="width:24%">경로</th><th class="n">10분 건수</th><th>배분되는 영역</th></tr></thead>
+<tbody>
+<tr class="hl"><td>M14A ← M14B</td><td class="n"><b>80</b></td><td>M14B <b>+</b> M14</td></tr>
+<tr><td>M16HUB ← M16A</td><td class="n">5</td><td>M16A <b>+</b> M16HUB</td></tr>
+<tr><td>M16A → M16B</td><td class="n">3</td><td>M16A <b>+</b> M16B</td></tr>
+<tr><td>M16HUB ← M14B</td><td class="n">1</td><td>M14B <b>+</b> M16HUB</td></tr>
+<tr><td><b>실제 합계</b></td><td class="n"><b>89</b></td>
+  <td><code>pio_10min_cnt</code> = <b>89</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>② 영역별 → 점수 (B안 8/13/21/36)</h3>
+<div class="tw">
+<table>
+<thead><tr><th style="width:16%">영역</th><th class="n">10분 합</th><th class="n">점수</th><th>구간</th></tr></thead>
+<tbody>
+<tr class="hl"><td><b>M14</b></td><td class="n">80</td><td class="n"><b>4</b></td><td>36 이상</td></tr>
+<tr class="hl"><td><b>M14B</b></td><td class="n">81</td><td class="n"><b>4</b></td><td>36 이상</td></tr>
+<tr><td>M16A</td><td class="n">8</td><td class="n"><b>1</b></td><td>8 ~ 12</td></tr>
+<tr><td>M16HUB</td><td class="n">6</td><td class="n">0</td><td>8 미만</td></tr>
+<tr><td>M16B</td><td class="n">3</td><td class="n">0</td><td>8 미만</td></tr>
+<tr><td><b>합</b></td><td class="n">178</td><td class="n"><b>9</b></td><td>배분 합계는 실제(89)의 2배</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>③ PIO 항 → unified</h3>
+<pre>Σ영역점수 = 9
+PIO항 = min(11, round(9 × 2.75)) = min(11, 25) = <b>11</b>   ← 상한에서 잘림
+
+raw     29 × 2.2 = 63.8  →  63.8 + 11 = 74.8
+unified   <b>29  →  34</b>   (+5점, 경계 38 미만이라 등급 변화 없음)</pre>
+
+<div class="box ok">
+<b class="lab">이중 계산은 상한이 막습니다</b>
+<p>9점 중 <b>8점</b>이 경로 하나(M14A←M14B 80건)에서 나왔습니다.
+양끝단이라 M14B 와 M14 에 각각 4점씩 들어간 겁니다.</p>
+<p style="margin-bottom:0">하지만 <code>9 × 2.75 = 25</code> 가 <b>상한 11 에서 잘렸습니다.</b>
+한쪽만 썼어도 결국 11 이었을 값입니다 —
+<b>양끝단으로 해도 최고점은 지금과 같습니다.</b></p>
+</div>
+</section>
+
+
+<!-- ═══════════ 6 ═══════════ -->
+<section>
+<h2>6. 확정 사양</h2>
+
+<div class="tw">
+<table>
+<thead><tr><th style="width:18%">항목</th><th>내용</th></tr></thead>
+<tbody>
+<tr><td>배분 방식</td><td><b>양끝단</b> — 출발 영역 + 도착 영역 (같은 영역이면 한 번만)</td></tr>
+<tr class="hl"><td><b>구간표</b></td><td><b>B안 : 8 / 13 / 21 / 36 → 1 / 2 / 3 / 4</b></td></tr>
+<tr><td>환산·상한</td><td><code>PIO항 = min(11, Σ영역점수 × 2.75)</code> — unified 최대 +5점</td></tr>
+<tr><td>경로 가중치</td><td>전 경로 <b>1.0</b> — 4~8주 데이터 축적 후 재검토</td></tr>
+<tr><td>컬럼</td><td>영역별 개수·점수 10칸 추가 (발동이벤트 136 → 146)</td></tr>
+<tr><td>영역분리</td><td><b>코드 수정 없음</b> — 접두사로 자동 분배</td></tr>
+<tr><td>정지 조건</td><td>상태파일 없음 / 5분 이상 미갱신 → PIO 항 0 (도입 전과 동일)</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>손댈 파일 — 둘뿐입니다</h3>
+<div class="tw">
+<table>
+<thead><tr><th style="width:32%">파일</th><th>무엇을</th></tr></thead>
+<tbody>
+<tr><td><code>hubroom_predictor.py</code></td>
+  <td>경로→영역 배분표 · 영역별 구간표 · <code>PioState.term()</code> 반환값 확장 ·
+      <code>EVENT_FIELDS</code> 10칸 추가 · <code>evaluate_unified()</code> 출력</td></tr>
+<tr><td><code>thresholds.json</code></td>
+  <td><code>PIO_ROUTES</code> · <code>PIO_FAB_BINS</code> · <code>PIO_FAB_SCALE</code> · <code>PIO_MAX</code></td></tr>
+<tr class="dim"><td>PIO_DATA_MAKE.py</td><td>수정 없음 — 지금 그대로 12경로 수집</td></tr>
+<tr class="dim"><td>발동이벤트_영역분리.py</td><td>수정 없음</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="box">
+<b class="lab">나중에 조정하실 때</b>
+<p style="margin-bottom:0">구간·배점·경로 배분이 전부 <code>thresholds.json</code> 에 있습니다.
+경보가 잦다 싶으면 <code>PIO_FAB_BINS</code> 를 C안(12/18/28/45)으로 바꾸고 예측기만 재시작하면 됩니다.
+<b>코드는 안 고쳐도 됩니다.</b></p>
+</div>
+</section>
+
+<div class="foot">
+PIO 영역별 점수 설계 · 2026-09-09 · 구간표 B안 확정<br>
+근거 데이터: 발동이벤트 2026-09-01 00:00 ~ 09-03 08:14 (3,375분) · 모든 수치는 해당 구간 실측값입니다.
+</div>
+
+</div>
