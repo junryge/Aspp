@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MCP 스킬 로더 설계</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#f6f7fa; --surface:#ffffff; --ink:#1c2230; --ink-2:#4b5566; --ink-3:#7c8596;
+  --line:#d9dee8; --line-2:#c3cad8;
+  --accent:#d7731c; --accent-soft:#fbead8;
+  --blue:#2f5fbf; --blue-soft:#e4ecfb;
+  --code-bg:#eef1f6; --code-ink:#1c2230;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#151922; --surface:#1d2330; --ink:#e6e9ef; --ink-2:#b4bbc8; --ink-3:#7f8899;
+    --line:#2d3544; --line-2:#3c4557;
+    --accent:#f09a45; --accent-soft:#3a2a18;
+    --blue:#7ea4f0; --blue-soft:#1f2c48;
+    --code-bg:#121620; --code-ink:#dfe4ec;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#151922; --surface:#1d2330; --ink:#e6e9ef; --ink-2:#b4bbc8; --ink-3:#7f8899;
+  --line:#2d3544; --line-2:#3c4557;
+  --accent:#f09a45; --accent-soft:#3a2a18;
+  --blue:#7ea4f0; --blue-soft:#1f2c48;
+  --code-bg:#121620; --code-ink:#dfe4ec;
+}
+body{background:var(--bg);color:var(--ink);font-family:"Noto Sans KR",system-ui,-apple-system,"Apple SD Gothic Neo",sans-serif;font-size:15.5px;line-height:1.75;}
+main{max-width:860px;margin:0 auto;padding:48px 24px 96px;}
+header{border-bottom:1px solid var(--line);padding-bottom:28px;margin-bottom:40px;}
+.eyebrow{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin:0 0 10px;}
+h1{font-size:34px;line-height:1.25;margin:0 0 14px;font-weight:700;text-wrap:balance;letter-spacing:-.01em;}
+h2{font-size:22px;margin:56px 0 14px;font-weight:700;text-wrap:balance;letter-spacing:-.01em;}
+p{margin:0 0 14px;max-width:70ch;color:var(--ink);}
+.lead{font-size:17px;color:var(--ink-2);max-width:66ch;}
+figure{margin:24px 0 30px;padding:20px 18px 14px;background:var(--surface);border:1px solid var(--line);border-radius:6px;overflow-x:auto;}
+figure svg{max-width:100%;height:auto;display:block;margin:0 auto;font-family:"Noto Sans KR",system-ui,sans-serif;}
+figcaption{font-size:13px;color:var(--ink-2);margin-top:12px;line-height:1.6;max-width:70ch;}
+figcaption b{color:var(--ink);font-weight:500;}
+pre{background:var(--code-bg);color:var(--code-ink);border:1px solid var(--line);border-radius:6px;padding:16px 18px;overflow-x:auto;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:13px;line-height:1.6;margin:12px 0 22px;}
+code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.92em;background:var(--code-bg);padding:1px 5px;border-radius:3px;}
+pre code{background:none;padding:0;font-size:inherit;}
+.cm{color:var(--ink-3);}
+.kw{color:var(--blue);}
+.st{color:var(--accent);}
+table{border-collapse:collapse;width:100%;font-size:14px;margin:12px 0 24px;}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;}
+th{font-weight:500;color:var(--ink-2);font-size:12.5px;letter-spacing:.04em;text-transform:uppercase;font-family:"IBM Plex Mono",ui-monospace,monospace;}
+td:first-child{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:13px;white-space:nowrap;}
+.pick{background:var(--accent-soft);}
+.note{border-left:3px solid var(--accent);padding:10px 16px;background:var(--surface);margin:18px 0 24px;max-width:70ch;color:var(--ink-2);font-size:14.5px;}
+.note b{color:var(--ink);font-weight:500;}
+.file{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;color:var(--ink-3);margin:18px 0 -6px;}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+</style></head><body>
+
+<main>
+<header>
+  <p class="eyebrow">LLM API 서버 × MCP × Skill</p>
+  <h1>LLM API를 받는 서버가 MCP에서 스킬을 가져와 자동으로 쓰는 구조</h1>
+  <p class="lead">호출하는 쪽은 그냥 <code>/v1/chat/completions</code>를 친다. 스킬을 고르고, MCP에서 읽고, 지침대로 실행하는 건 전부 <b>API를 받는 서버 안에서</b> 일어난다. 호출자는 스킬도 MCP도 모른다.</p>
+</header>
+
+<h2>1. 전체 구조 — 스킬 로딩은 API 서버 내부에서</h2>
+<p>vLLM 같은 추론 엔진은 그냥 텍스트를 넣고 빼는 물건이라 MCP를 직접 붙일 수 없다. 그래서 그 앞에 얇은 <b>LLM API 서버</b>(FastAPI)를 하나 두고, 이 서버가 밖으로는 OpenAI 호환 API를 열고 안으로는 MCP 클라이언트가 된다. 사내에서 "LLM API"라고 부르는 주소가 바로 이 서버다.</p>
+
+<figure>
+<svg viewBox="0 0 820 330" role="img" aria-label="호출 앱은 LLM API 서버에 일반 chat 요청만 보낸다. LLM API 서버가 내부에서 스킬 MCP 서버에서 SKILL.md를 읽고, 추론 엔진과 tool 루프를 돌린 뒤 최종 답만 돌려준다." style="color:var(--ink)">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker>
+    <marker id="ahA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#d7731c"/></marker>
+  </defs>
+  <!-- caller -->
+  <rect x="20" y="110" width="150" height="90" rx="6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+  <text x="95" y="142" text-anchor="middle" font-size="14" font-weight="700" fill="currentColor">호출 앱</text>
+  <text x="95" y="164" text-anchor="middle" font-size="11.5" fill="currentColor" opacity=".75">DEMOS / 웹 / 스크립트</text>
+  <text x="95" y="184" text-anchor="middle" font-size="11" fill="currentColor" opacity=".55">스킬·MCP 모름</text>
+
+  <!-- LLM API server (the big box) -->
+  <rect x="230" y="30" width="360" height="270" rx="8" fill="var(--blue-soft)" stroke="var(--blue)" stroke-width="1.8"/>
+  <text x="410" y="58" text-anchor="middle" font-size="15" font-weight="700" fill="currentColor">LLM API 서버  (FastAPI, pip-only)</text>
+  <text x="410" y="77" text-anchor="middle" font-size="11.5" fill="currentColor" opacity=".75">밖: /v1/chat/completions   안: MCP 클라이언트 + tool 루프</text>
+
+  <rect x="250" y="95" width="320" height="40" rx="4" fill="var(--surface)" stroke="currentColor" stroke-width="1" opacity=".95"/>
+  <text x="262" y="120" font-size="12" fill="currentColor">① 요청 수신 → 스킬 카탈로그를 system에 주입</text>
+  <rect x="250" y="145" width="320" height="40" rx="4" fill="var(--surface)" stroke="currentColor" stroke-width="1" opacity=".95"/>
+  <text x="262" y="170" font-size="12" fill="currentColor">② 추론 엔진과 루프: tool_calls 나오면 처리</text>
+  <rect x="250" y="195" width="320" height="40" rx="4" fill="var(--accent-soft)" stroke="#d7731c" stroke-width="1.4"/>
+  <text x="262" y="220" font-size="12" fill="currentColor">③ load_skill → MCP resources/read → 컨텍스트 주입</text>
+  <rect x="250" y="245" width="320" height="40" rx="4" fill="var(--surface)" stroke="currentColor" stroke-width="1" opacity=".95"/>
+  <text x="262" y="270" font-size="12" fill="currentColor">④ 루프 끝나면 최종 답만 호출자에게 반환</text>
+
+  <!-- inference engine -->
+  <rect x="650" y="40" width="150" height="90" rx="6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+  <text x="725" y="70" text-anchor="middle" font-size="14" font-weight="700" fill="currentColor">추론 엔진</text>
+  <text x="725" y="92" text-anchor="middle" font-size="11.5" fill="currentColor" opacity=".75">vLLM · Qwen3</text>
+  <text x="725" y="112" text-anchor="middle" font-size="11" fill="currentColor" opacity=".55">텍스트 in/out 만</text>
+
+  <!-- skill MCP server -->
+  <rect x="650" y="200" width="150" height="90" rx="6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+  <text x="725" y="230" text-anchor="middle" font-size="14" font-weight="700" fill="currentColor">스킬 MCP 서버</text>
+  <text x="725" y="252" text-anchor="middle" font-size="11.5" fill="currentColor" opacity=".75">stdio · skills/*/SKILL.md</text>
+  <text x="725" y="272" text-anchor="middle" font-size="11" fill="currentColor" opacity=".55">resources + tools</text>
+
+  <!-- caller <-> api -->
+  <line x1="170" y1="140" x2="228" y2="140" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah)"/>
+  <text x="199" y="130" text-anchor="middle" font-size="10.5" fill="currentColor">chat 요청</text>
+  <line x1="230" y1="175" x2="172" y2="175" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah)"/>
+  <text x="199" y="193" text-anchor="middle" font-size="10.5" fill="currentColor">최종 답</text>
+
+  <!-- api <-> engine -->
+  <line x1="590" y1="70" x2="648" y2="70" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah)"/>
+  <text x="619" y="60" text-anchor="middle" font-size="10.5" fill="currentColor">prompt+tools</text>
+  <line x1="650" y1="100" x2="592" y2="100" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah)"/>
+  <text x="619" y="118" text-anchor="middle" font-size="10.5" fill="currentColor">tool_calls</text>
+
+  <!-- api <-> mcp -->
+  <line x1="590" y1="230" x2="648" y2="230" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah)"/>
+  <text x="619" y="220" text-anchor="middle" font-size="10.5" fill="currentColor">read</text>
+  <line x1="650" y1="262" x2="592" y2="262" stroke="#d7731c" stroke-width="2" marker-end="url(#ahA)"/>
+  <text x="619" y="280" text-anchor="middle" font-size="10.5" fill="#d7731c" font-weight="500">SKILL.md</text>
+</svg>
+<figcaption><b>그림 1.</b> 파란 박스가 "LLM API"다. 호출 앱은 왼쪽 화살표 두 개만 본다. 스킬이 실제로 이동하는 경로는 주황 화살표 하나 — MCP 서버에서 읽은 SKILL.md가 API 서버 안의 컨텍스트로 들어간다.</figcaption>
+</figure>
+
+<div class="note"><b>Claude API를 쓰는 경우:</b> Anthropic Messages API는 요청에 <code>mcp_servers</code>를 넣으면 API 서버 쪽이 직접 MCP 서버에 붙어 tools를 가져온다(MCP connector). 이게 "API 받는 곳에서 MCP를 쓰는" 공식 형태다. 다만 스킬 본문 로딩은 여전히 tool 호출로 풀어야 하고, 폐쇄망 Qwen에는 해당이 없으니 아래는 직접 만드는 쪽 기준이다.</div>
+
+<h2>2. 왜 prompts가 아니라 resources + tools인가</h2>
+<p>MCP에는 스킬을 실을 수 있는 프리미티브가 세 가지 있다. 셋 다 되지만, 모델이 스스로 골라 쓰게 하려면 어디에 싣는지가 중요하다.</p>
+
+<table>
+<thead><tr><th>프리미티브</th><th>원래 용도</th><th>자동 로딩 관점</th></tr></thead>
+<tbody>
+<tr><td>prompts</td><td>사용자가 UI에서 고르는 템플릿 (슬래시 커맨드 성격)</td><td>사람이 고르는 진입점. 모델 자동 선택용으로는 부적합.</td></tr>
+<tr class="pick"><td>resources</td><td>URI로 읽는 정적 컨텐츠</td><td>SKILL.md · references/*.md를 <code>skill://</code> URI로 노출. 카탈로그는 <code>resources/list</code>, 본문은 <code>resources/read</code>.</td></tr>
+<tr class="pick"><td>tools</td><td>모델이 호출하는 함수</td><td><code>run_skill_script</code>로 스킬 스크립트 실행. 파일은 서버 쪽에 두고 결과만 돌려준다.</td></tr>
+</tbody>
+</table>
+
+<p><code>load_skill</code>은 MCP 서버 tool이 아니라 <b>API 서버가 모델에게 직접 노출하는 가상 tool</b>이다. 모델이 이걸 부르면 API 서버가 MCP <code>resources/read</code>로 바꿔 처리한다. 이렇게 하면 스킬 서버는 파일만 서빙하면 되고, "언제 무엇을 읽을지"는 API 서버 정책으로 남는다.</p>
+
+<h2>3. 요청 한 건의 흐름 — progressive disclosure</h2>
+<p>스킬 전문을 처음부터 다 넣으면 컨텍스트가 터진다. 그래서 두 단계로 나눈다. 처음엔 <b>이름 + 설명</b>만, 모델이 고른 뒤에 <b>본문</b>을 넣는다.</p>
+
+<figure>
+<svg viewBox="0 0 820 500" role="img" aria-label="시퀀스: 호출 앱이 chat 요청을 보내면 LLM API 서버가 카탈로그를 system에 넣어 추론 엔진에 보내고, 엔진이 load_skill을 요구하면 MCP에서 SKILL.md를 읽어 tool 결과로 넣고, 최종 답만 호출 앱에 돌려준다." style="color:var(--ink)">
+  <defs>
+    <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker>
+    <marker id="ah2A" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#d7731c"/></marker>
+  </defs>
+  <g font-size="13" font-weight="700" fill="currentColor" text-anchor="middle">
+    <rect x="30" y="20" width="120" height="34" rx="5" fill="none" stroke="currentColor" stroke-width="1.3"/><text x="90" y="42">호출 앱</text>
+    <rect x="240" y="20" width="150" height="34" rx="5" fill="var(--blue-soft)" stroke="var(--blue)" stroke-width="1.5"/><text x="315" y="42">LLM API 서버</text>
+    <rect x="470" y="20" width="120" height="34" rx="5" fill="none" stroke="currentColor" stroke-width="1.3"/><text x="530" y="42">추론 엔진</text>
+    <rect x="670" y="20" width="130" height="34" rx="5" fill="none" stroke="currentColor" stroke-width="1.3"/><text x="735" y="42">스킬 MCP 서버</text>
+  </g>
+  <g stroke="currentColor" stroke-width="1" stroke-dasharray="3 4" opacity=".5">
+    <line x1="90" y1="54" x2="90" y2="480"/><line x1="315" y1="54" x2="315" y2="480"/><line x1="530" y1="54" x2="530" y2="480"/><line x1="735" y1="54" x2="735" y2="480"/>
+  </g>
+
+  <rect x="20" y="70" width="790" height="60" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="2 3" opacity=".35" rx="4"/>
+  <text x="30" y="86" font-size="11" fill="currentColor" opacity=".7">서버 기동 시 1회</text>
+  <line x1="315" y1="108" x2="733" y2="108" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah2)"/>
+  <text x="525" y="100" text-anchor="middle" font-size="12" fill="currentColor">resources/list → 카탈로그 [{name, description}] 캐시</text>
+
+  <line x1="90" y1="160" x2="313" y2="160" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah2)"/>
+  <text x="202" y="152" text-anchor="middle" font-size="12" fill="currentColor">① POST /v1/chat/completions</text>
+  <text x="202" y="174" text-anchor="middle" font-size="11" fill="currentColor" opacity=".7">"M14A OHT 정체 구간 뽑아줘"</text>
+
+  <line x1="315" y1="210" x2="528" y2="210" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah2)"/>
+  <text x="422" y="202" text-anchor="middle" font-size="12" fill="currentColor">② system=카탈로그, tools=[load_skill,…]</text>
+
+  <line x1="530" y1="250" x2="317" y2="250" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah2)"/>
+  <text x="422" y="242" text-anchor="middle" font-size="12" fill="currentColor">③ tool_calls: load_skill("logpresso-query")</text>
+
+  <line x1="315" y1="290" x2="733" y2="290" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah2)"/>
+  <text x="525" y="282" text-anchor="middle" font-size="12" fill="currentColor">④ resources/read skill://logpresso-query/SKILL.md</text>
+
+  <line x1="735" y1="324" x2="317" y2="324" stroke="#d7731c" stroke-width="2" marker-end="url(#ah2A)"/>
+  <text x="525" y="316" text-anchor="middle" font-size="12" fill="#d7731c" font-weight="500">⑤ SKILL.md 전문</text>
+
+  <line x1="315" y1="362" x2="528" y2="362" stroke="#d7731c" stroke-width="2" marker-end="url(#ah2A)"/>
+  <text x="422" y="354" text-anchor="middle" font-size="12" fill="#d7731c" font-weight="500">⑥ role:tool = SKILL.md 본문</text>
+
+  <line x1="530" y1="400" x2="317" y2="400" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah2)"/>
+  <text x="422" y="392" text-anchor="middle" font-size="12" fill="currentColor">⑦ 스킬 지침대로 run_skill_script … (반복) → 최종 답</text>
+
+  <line x1="315" y1="450" x2="92" y2="450" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah2)"/>
+  <text x="202" y="442" text-anchor="middle" font-size="12" fill="currentColor">⑧ 최종 답만 반환</text>
+  <text x="202" y="466" text-anchor="middle" font-size="11" fill="currentColor" opacity=".7">중간 tool 왕복은 호출 앱에 안 보임</text>
+</svg>
+<figcaption><b>그림 2.</b> ①과 ⑧만 호출 앱이 본다. ②~⑦은 API 서버 안에서 도는 루프다. 모델이 스킬을 고르는 순간은 ③, 스킬이 컨텍스트에 들어가는 순간은 ⑥이고, 그 뒤로 모델은 스킬에 적힌 절차를 따라간다.</figcaption>
+</figure>
+
+<h2>4. 컨텍스트에 실제로 뭐가 들어가나</h2>
+
+<figure>
+<svg viewBox="0 0 820 250" role="img" aria-label="추론 엔진에 보내는 컨텍스트 구성: system에 스킬 카탈로그, tools에 load_skill과 run_skill_script, load_skill 이후 role:tool 메시지로 붙는 SKILL.md 본문." style="color:var(--ink)">
+  <defs>
+    <marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#d7731c"/></marker>
+  </defs>
+  <rect x="30" y="20" width="360" height="210" rx="6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+  <text x="46" y="42" font-size="12" font-weight="700" fill="currentColor">추론 엔진에 보내는 컨텍스트</text>
+
+  <rect x="46" y="54" width="328" height="46" rx="4" fill="var(--blue-soft)" stroke="var(--blue)" stroke-width="1.2"/>
+  <text x="58" y="72" font-size="12" font-weight="500" fill="currentColor">system</text>
+  <text x="58" y="90" font-size="11.5" fill="currentColor" opacity=".8">역할 + 스킬 카탈로그 (name/description × N) — 짧음</text>
+
+  <rect x="46" y="108" width="328" height="46" rx="4" fill="none" stroke="currentColor" stroke-width="1.2"/>
+  <text x="58" y="126" font-size="12" font-weight="500" fill="currentColor">tools</text>
+  <text x="58" y="144" font-size="11.5" fill="currentColor" opacity=".8">load_skill(name) · run_skill_script(skill, script, args)</text>
+
+  <rect x="46" y="162" width="328" height="56" rx="4" fill="var(--accent-soft)" stroke="#d7731c" stroke-width="1.6"/>
+  <text x="58" y="180" font-size="12" font-weight="500" fill="currentColor">messages … role:tool (load_skill 결과)</text>
+  <text x="58" y="198" font-size="11.5" fill="currentColor" opacity=".85">SKILL.md 전문 — 여기서만 커짐</text>
+  <text x="58" y="212" font-size="10.5" fill="currentColor" opacity=".6">고른 스킬 1~2개만, 다음 요청엔 안 실림</text>
+
+  <rect x="470" y="20" width="320" height="210" rx="6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <text x="486" y="42" font-size="12" font-weight="700" fill="currentColor">skills/ (MCP 서버가 읽는 파일)</text>
+  <g font-family="IBM Plex Mono, monospace" font-size="11.5" fill="currentColor">
+    <text x="486" y="70">logpresso-query/</text>
+    <text x="506" y="88">SKILL.md   ← frontmatter: name, description</text>
+    <text x="506" y="106">scripts/build_query.py</text>
+    <text x="506" y="124">references/fields.md</text>
+    <text x="486" y="150">oht-surge-report/</text>
+    <text x="506" y="168">SKILL.md</text>
+    <text x="506" y="186">scripts/plot_surge.py</text>
+    <text x="486" y="212">…</text>
+  </g>
+
+  <line x1="470" y1="88" x2="378" y2="77" stroke="currentColor" stroke-width="1.2" marker-end="url(#ah3)" opacity=".8"/>
+  <text x="430" y="66" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".8">frontmatter만</text>
+  <line x1="470" y1="106" x2="378" y2="190" stroke="#d7731c" stroke-width="2" marker-end="url(#ah3)"/>
+  <text x="446" y="150" text-anchor="middle" font-size="10.5" fill="#d7731c" font-weight="500">본문 전체</text>
+</svg>
+<figcaption><b>그림 3.</b> 같은 SKILL.md가 두 번 다른 크기로 들어간다. 기동 시엔 frontmatter만 system에, 호출 시엔 본문 전체가 tool 결과로. 스크립트 파일은 컨텍스트에 안 넣고 MCP 서버 쪽에서 실행만 한다.</figcaption>
+</figure>
+
+<h2>5. 구현 뼈대</h2>
+
+<p class="file">skills/logpresso-query/SKILL.md</p>
+<pre><code>---
+name: logpresso-query
+description: MCS/OHT 로그를 Logpresso 쿼리로 집계할 때 사용. 필드명·시간범위·집계 패턴 포함.
+---
+<span class="cm"># 절차</span>
+1. 사용자가 말한 대상(FAB, 구간, 시간)을 확인한다.
+2. references/fields.md 의 필드명만 쓴다. 추측 금지.
+3. scripts/build_query.py 로 쿼리를 생성하고 결과를 그대로 보여준다.
+</code></pre>
+
+<p class="file">skill_server.py — 스킬 MCP 서버 (stdio)</p>
+<pre><code><span class="kw">from</span> mcp.server <span class="kw">import</span> Server
+<span class="kw">from</span> mcp.types <span class="kw">import</span> Resource, TextContent, Tool
+<span class="kw">import</span> mcp.server.stdio, pathlib, subprocess, re
+
+ROOT = pathlib.Path(<span class="st">"skills"</span>)
+srv  = Server(<span class="st">"skill-server"</span>)
+
+<span class="kw">def</span> frontmatter(md):
+    m = re.match(<span class="st">r"---\n(.*?)\n---"</span>, md, re.S)
+    <span class="kw">return</span> dict(l.split(<span class="st">":"</span>, 1) <span class="kw">for</span> l <span class="kw">in</span> m.group(1).splitlines()) <span class="kw">if</span> m <span class="kw">else</span> {}
+
+@srv.list_resources()                      <span class="cm"># 카탈로그</span>
+<span class="kw">async def</span> list_resources():
+    out = []
+    <span class="kw">for</span> d <span class="kw">in</span> ROOT.iterdir():
+        fm = frontmatter((d / <span class="st">"SKILL.md"</span>).read_text(encoding=<span class="st">"utf-8"</span>))
+        out.append(Resource(uri=<span class="st">f"skill://{d.name}/SKILL.md"</span>,
+                            name=fm.get(<span class="st">"name"</span>, d.name).strip(),
+                            description=fm.get(<span class="st">"description"</span>, <span class="st">""</span>).strip(),
+                            mimeType=<span class="st">"text/markdown"</span>))
+    <span class="kw">return</span> out
+
+@srv.read_resource()                       <span class="cm"># 본문 (references/*.md 도 동일 경로 규칙)</span>
+<span class="kw">async def</span> read_resource(uri):
+    <span class="kw">return</span> (ROOT / str(uri).removeprefix(<span class="st">"skill://"</span>)).read_text(encoding=<span class="st">"utf-8"</span>)
+
+@srv.list_tools()                          <span class="cm"># 스킬 스크립트 실행</span>
+<span class="kw">async def</span> list_tools():
+    <span class="kw">return</span> [Tool(name=<span class="st">"run_skill_script"</span>,
+                 description=<span class="st">"스킬 폴더의 scripts/ 안 파이썬 스크립트를 실행한다"</span>,
+                 inputSchema={<span class="st">"type"</span>:<span class="st">"object"</span>,<span class="st">"properties"</span>:{
+                     <span class="st">"skill"</span>:{<span class="st">"type"</span>:<span class="st">"string"</span>},<span class="st">"script"</span>:{<span class="st">"type"</span>:<span class="st">"string"</span>},
+                     <span class="st">"args"</span>:{<span class="st">"type"</span>:<span class="st">"array"</span>,<span class="st">"items"</span>:{<span class="st">"type"</span>:<span class="st">"string"</span>}}},
+                     <span class="st">"required"</span>:[<span class="st">"skill"</span>,<span class="st">"script"</span>]})]
+
+@srv.call_tool()
+<span class="kw">async def</span> call_tool(name, a):
+    p = ROOT / a[<span class="st">"skill"</span>] / <span class="st">"scripts"</span> / a[<span class="st">"script"</span>]
+    r = subprocess.run([<span class="st">"python"</span>, str(p), *a.get(<span class="st">"args"</span>, [])],
+                       capture_output=<span class="kw">True</span>, text=<span class="kw">True</span>, timeout=120)
+    <span class="kw">return</span> [TextContent(type=<span class="st">"text"</span>, text=r.stdout <span class="kw">or</span> r.stderr)]
+
+<span class="kw">async def</span> main():
+    <span class="kw">async with</span> mcp.server.stdio.stdio_server() <span class="kw">as</span> (r, w):
+        <span class="kw">await</span> srv.run(r, w, srv.create_initialization_options())
+</code></pre>
+
+<p class="file">llm_api.py — LLM API 서버 (FastAPI, OpenAI 호환 · 안에서 vLLM + MCP)</p>
+<pre><code><span class="kw">from</span> fastapi <span class="kw">import</span> FastAPI
+<span class="kw">from</span> mcp <span class="kw">import</span> ClientSession, StdioServerParameters
+<span class="kw">from</span> mcp.client.stdio <span class="kw">import</span> stdio_client
+<span class="kw">import</span> httpx, json
+
+VLLM = <span class="st">"http://vllm:8000/v1/chat/completions"</span>      <span class="cm"># 실제 추론 엔진</span>
+app  = FastAPI()
+S    = {}                                            <span class="cm"># mcp 세션, 카탈로그, tools</span>
+
+LOAD_SKILL = {<span class="st">"type"</span>:<span class="st">"function"</span>,<span class="st">"function"</span>:{<span class="st">"name"</span>:<span class="st">"load_skill"</span>,
+  <span class="st">"description"</span>:<span class="st">"카탈로그의 스킬 본문(SKILL.md)을 읽어온다. 해당 작업 전에 반드시 호출."</span>,
+  <span class="st">"parameters"</span>:{<span class="st">"type"</span>:<span class="st">"object"</span>,<span class="st">"properties"</span>:{<span class="st">"name"</span>:{<span class="st">"type"</span>:<span class="st">"string"</span>}},<span class="st">"required"</span>:[<span class="st">"name"</span>]}}}
+
+@app.on_event(<span class="st">"startup"</span>)                      <span class="cm"># 기동 시 1회: MCP 붙고 카탈로그 캐시</span>
+<span class="kw">async def</span> boot():
+    r, w = <span class="kw">await</span> stdio_client(StdioServerParameters(command=<span class="st">"python"</span>, args=[<span class="st">"skill_server.py"</span>])).__aenter__()
+    mcp = <span class="kw">await</span> ClientSession(r, w).__aenter__(); <span class="kw">await</span> mcp.initialize()
+    res = (<span class="kw">await</span> mcp.list_resources()).resources
+    S[<span class="st">"mcp"</span>] = mcp
+    S[<span class="st">"system"</span>] = <span class="st">"사용 가능한 스킬:\n"</span> + <span class="st">"\n"</span>.join(<span class="st">f"- {x.name}: {x.description}"</span> <span class="kw">for</span> x <span class="kw">in</span> res) \
+                + <span class="st">"\n작업에 맞는 스킬이 있으면 먼저 load_skill 로 읽고 그 지침을 따른다."</span>
+    S[<span class="st">"tools"</span>] = [LOAD_SKILL] + [{<span class="st">"type"</span>:<span class="st">"function"</span>,<span class="st">"function"</span>:{<span class="st">"name"</span>:t.name,
+                  <span class="st">"description"</span>:t.description,<span class="st">"parameters"</span>:t.inputSchema}}
+                  <span class="kw">for</span> t <span class="kw">in</span> (<span class="kw">await</span> mcp.list_tools()).tools]
+
+@app.post(<span class="st">"/v1/chat/completions"</span>)            <span class="cm"># 호출 앱이 보는 유일한 엔드포인트</span>
+<span class="kw">async def</span> chat(body: dict):
+    msgs = [{<span class="st">"role"</span>:<span class="st">"system"</span>,<span class="st">"content"</span>:S[<span class="st">"system"</span>]}] + body[<span class="st">"messages"</span>]
+    <span class="kw">async with</span> httpx.AsyncClient(timeout=300) <span class="kw">as</span> hx:
+        <span class="kw">while</span> <span class="kw">True</span>:
+            out = (<span class="kw">await</span> hx.post(VLLM, json={<span class="st">"model"</span>:body.get(<span class="st">"model"</span>,<span class="st">"qwen3"</span>),
+                        <span class="st">"messages"</span>:msgs,<span class="st">"tools"</span>:S[<span class="st">"tools"</span>]})).json()
+            m = out[<span class="st">"choices"</span>][0][<span class="st">"message"</span>]
+            msgs.append(m)
+            <span class="kw">if not</span> m.get(<span class="st">"tool_calls"</span>):
+                <span class="kw">return</span> out                                 <span class="cm"># ⑧ 최종 답만 반환</span>
+            <span class="kw">for</span> tc <span class="kw">in</span> m[<span class="st">"tool_calls"</span>]:
+                fn, args = tc[<span class="st">"function"</span>][<span class="st">"name"</span>], json.loads(tc[<span class="st">"function"</span>][<span class="st">"arguments"</span>])
+                <span class="kw">if</span> fn == <span class="st">"load_skill"</span>:                        <span class="cm"># ③④⑤⑥</span>
+                    rr = <span class="kw">await</span> S[<span class="st">"mcp"</span>].read_resource(<span class="st">f"skill://{args['name']}/SKILL.md"</span>)
+                    text = rr.contents[0].text
+                <span class="kw">else</span>:                                          <span class="cm"># ⑦ run_skill_script 등</span>
+                    rr = <span class="kw">await</span> S[<span class="st">"mcp"</span>].call_tool(fn, args)
+                    text = <span class="st">"\n"</span>.join(c.text <span class="kw">for</span> c <span class="kw">in</span> rr.content)
+                msgs.append({<span class="st">"role"</span>:<span class="st">"tool"</span>,<span class="st">"tool_call_id"</span>:tc[<span class="st">"id"</span>],<span class="st">"content"</span>:text})
+</code></pre>
+
+<h2>6. 폐쇄망에서 챙길 것</h2>
+<p>세 프로세스 전부 <code>pip install mcp fastapi httpx</code>로 끝난다. 스킬 서버는 stdio라 포트를 안 열고, API 서버가 자식 프로세스로 띄운다. 스킬 폴더는 base64로 옮겨 넣고 API 서버를 재시작하면 카탈로그에 반영된다. Oracle·Logpresso 접속 정보는 스킬 서버 프로세스 환경변수에만 두면 모델 컨텍스트에도, 호출 앱에도 절대 안 실린다.</p>
+<p>호출 앱 쪽은 바꿀 게 없다. 기존에 vLLM을 직접 치던 주소를 이 API 서버로 바꾸기만 하면 스킬이 자동으로 붙는다. 스킬이 30개를 넘어가면 system에 전부 넣지 말고 <code>search_skill(query)</code> tool을 하나 더 두고 description으로 검색시키는 게 컨텍스트에 유리하다.</p>
+</main>
+
+</body></html>
