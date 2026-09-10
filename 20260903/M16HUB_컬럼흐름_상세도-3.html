@@ -1,0 +1,587 @@
+﻿<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M16HUB 컬럼 흐름 상세도</title>
+<style>
+:root{
+  color-scheme:dark;
+  --ink:#e3eaf2; --sub:#93a3b6; --line:#2a3441; --bg:#11161d; --soft:#181f28;
+  --navy:#8ec5f0; --accent:#4da3e8; --good:#4cc79a; --warn:#e8bb5c; --bad:#f0846a;
+  --chip:#1e2833; --panel:#161d25;
+}
+:root[data-theme="light"]{
+  color-scheme:light;
+  --ink:#16202e; --sub:#5b6b80; --line:#dfe5ec; --bg:#fff; --soft:#f5f7fa;
+  --navy:#1c3d6b; --accent:#0f6fc4; --good:#1a7f5a; --warn:#b8860b; --bad:#b4432c;
+  --chip:#eef3f9; --panel:#fff;
+}
+*{box-sizing:border-box}
+html{background:var(--bg)}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Malgun Gothic","맑은 고딕","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;
+  font-size:15px;line-height:1.75}
+.wrap{max-width:1020px;margin:0 auto;padding:0 24px 80px}
+
+.cover{padding:46px 0 26px;border-bottom:3px solid var(--accent);margin-bottom:32px}
+.eyebrow{font-size:12.5px;letter-spacing:.14em;color:var(--accent);font-weight:700;margin-bottom:12px}
+h1{font-size:30px;line-height:1.3;margin:0 0 10px;letter-spacing:-.02em;font-weight:800;color:var(--navy)}
+.lede{font-size:15.5px;color:var(--sub);margin:0 0 18px;max-width:76ch}
+.meta{display:flex;flex-wrap:wrap;gap:8px}
+.meta span{background:var(--chip);color:var(--navy);font-size:12.5px;font-weight:600;
+  padding:5px 12px;border-radius:20px}
+
+section{margin:0 0 44px}
+h2{font-size:20px;margin:0 0 4px;font-weight:800;padding-left:13px;
+  border-left:5px solid var(--accent);line-height:1.4}
+.h2sub{color:var(--sub);font-size:13.5px;margin:0 0 20px;padding-left:18px}
+h3{font-size:16px;margin:26px 0 9px;font-weight:700;color:var(--navy)}
+h4{font-size:14px;margin:18px 0 7px;font-weight:700}
+p{margin:0 0 12px}
+ul,ol{margin:0 0 13px;padding-left:22px}li{margin:5px 0}
+
+.tw{overflow-x:auto;margin:13px 0 16px;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:560px;background:var(--panel)}
+th,td{padding:8px 11px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:var(--soft);font-weight:700;font-size:12.5px;color:var(--navy);white-space:nowrap}
+tbody tr:last-child td{border-bottom:0}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td.c,th.c{text-align:center;white-space:nowrap}
+tr.hl td{background:color-mix(in srgb,var(--accent) 13%,var(--panel))}
+tr.dim td{color:var(--sub)}
+code{background:var(--soft);border:1px solid var(--line);border-radius:4px;padding:1px 5px;
+  font-family:Consolas,"D2Coding",Menlo,monospace;font-size:12.5px;color:var(--navy)}
+pre{background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:14px 16px;
+  overflow-x:auto;font-family:Consolas,"D2Coding",Menlo,monospace;font-size:13px;
+  line-height:1.7;margin:14px 0;color:var(--ink)}
+pre b{color:var(--accent)}
+
+.box{border-radius:8px;padding:14px 17px;margin:15px 0;font-size:14px;
+  border:1px solid var(--line);background:var(--soft)}
+.box b.lab{display:block;font-size:12.5px;letter-spacing:.06em;margin-bottom:5px}
+.box.ok{background:color-mix(in srgb,var(--good) 12%,var(--panel));
+  border-color:color-mix(in srgb,var(--good) 38%,var(--line))} .box.ok b.lab{color:var(--good)}
+.box.no{background:color-mix(in srgb,var(--bad) 12%,var(--panel));
+  border-color:color-mix(in srgb,var(--bad) 38%,var(--line))} .box.no b.lab{color:var(--bad)}
+.box.wa{background:color-mix(in srgb,var(--warn) 12%,var(--panel));
+  border-color:color-mix(in srgb,var(--warn) 38%,var(--line))} .box.wa b.lab{color:var(--warn)}
+.box p:last-child{margin-bottom:0}
+
+.tag{display:inline-block;font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:4px;
+  background:var(--chip);color:var(--navy)}
+.tag.g{background:color-mix(in srgb,var(--good) 18%,var(--panel));color:var(--good)}
+.tag.r{background:color-mix(in srgb,var(--bad) 18%,var(--panel));color:var(--bad)}
+.tag.y{background:color-mix(in srgb,var(--warn) 18%,var(--panel));color:var(--warn)}
+
+.flow{display:flex;flex-wrap:wrap;gap:9px;margin:16px 0}
+.step{flex:1 1 160px;border:1px solid var(--line);border-radius:8px;padding:12px 13px;background:var(--panel)}
+.step .s{font-size:11px;font-weight:800;color:var(--accent);letter-spacing:.08em}
+.step .b{font-weight:700;margin:3px 0 4px;font-size:13.5px}
+.step .c{font-size:12.5px;color:var(--sub);line-height:1.5}
+
+figure{margin:18px 0;border:1px solid var(--line);border-radius:8px;padding:16px 16px 10px;background:var(--panel)}
+figcaption{font-size:12.5px;color:var(--sub);margin-top:8px;text-align:center}
+svg{display:block;max-width:100%;height:auto;margin:0 auto}
+
+.foot{border-top:1px solid var(--line);margin-top:40px;padding-top:16px;font-size:12.5px;color:var(--sub)}
+@media (max-width:760px){h1{font-size:24px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="cover">
+  <div class="eyebrow">M16A HUBROOM · 룰베이스 v5</div>
+  <h1>M16HUB 컬럼 흐름 상세도</h1>
+  <p class="lede">원본 컬럼 하나가 어떤 계산을 거쳐 몇 점이 되고, 그 점수가 어떻게 등급이 되는지 —
+  <b>M16HUB 영역 하나만</b> 다룹니다. 원본 컬럼 31개가 어떤 판정을 거쳐 몇 점이 되고,
+  예측기가 어떤 컬럼을 새로 만들어 붙이는지까지 끝까지 따라갑니다.</p>
+  <div class="meta">
+    <span>원본 컬럼 <b>31개</b></span><span>점수 경로 <b>34줄</b></span><span>출력 컬럼 <b>24개</b></span>
+    <span>룰 <b>8종</b></span>
+    <span>영역 점수 0~50</span>
+    <span>기준 <code>hubroom_predictor.py</code></span>
+    <span>2026-09-10</span>
+  </div>
+</div>
+
+
+<!-- ═══════════ 1 ═══════════ -->
+<section>
+<h2>1. 큰 흐름 — 다섯 단계</h2>
+<p class="h2sub">1분마다 이 다섯 단계가 통째로 한 번 돕니다.</p>
+
+<div class="flow">
+  <div class="step"><div class="s">STEP 1</div><div class="b">원본 컬럼 수집</div>
+    <div class="c">통합 CSV 1행 = 1분.<br>M16HUB 관련 <b>31개 컬럼</b>을 읽습니다.</div></div>
+  <div class="step"><div class="s">STEP 2</div><div class="b">파싱 · 창 적재</div>
+    <div class="c">숫자로 변환해 <b>90분 창</b>에 쌓습니다.<br>과거값이 있어야 증감을 봅니다.</div></div>
+  <div class="step"><div class="s">STEP 3</div><div class="b">룰 8종 판정</div>
+    <div class="c">각 룰이 <b>켜짐/꺼짐</b>만 판정.<br>켜지면 정해진 배점을 받습니다.</div></div>
+  <div class="step"><div class="s">STEP 4</div><div class="b">영역 점수</div>
+    <div class="c">배점을 더해 <b>0~50</b>으로 자릅니다.<br>이게 M16HUB의 점수입니다.</div></div>
+  <div class="step"><div class="s">STEP 5</div><div class="b">통합 점수 · 등급</div>
+    <div class="c">5개 영역 + 흐름·SLA·Sorter·MAXCAPA를<br>합쳐 <b>0~100</b>으로 환산 후 등급.</div></div>
+</div>
+
+<pre>
+[원본 CSV 1행 = 1분]
+        │
+        │  iter_unified_rows()  ── 컬럼명 → 짧은 키로 변환
+        ▼
+   d['M16HUB'] = { ra, rb, rd_fab, rd_oht, sla_ratio, sorter,
+                   hub_stb_util, mlud_job, cnv_to_m14a, lifters{10}, maxcapa{3}, ... }
+        │
+        │  90분 창(deque)에 적재 ── R-B/R-C 는 과거값과 비교해야 함
+        ▼
+   eval_area_rules('M16HUB', window)
+        │
+        ├─ R-A  반송시간          → <b>10점</b> (+ 지속 <b>5점</b>)
+        ├─ R-B  대기물량 증가      → <b>10점</b> (+ 급증 <b>5점</b>)
+        ├─ R-C  리프터 역증가      → <b>8점</b>
+        ├─ R-D  적재율/STB/MLUD/CNV → <b>7점</b>
+        ├─ SLA  4분초과 비율       → <b>5점</b>
+        ├─ SORT Sorter 대기        → <b>3점</b>
+        └─ MAXCAPA 설비 축소       → <b>10점 × 변경수</b>
+        │
+        ▼
+   area_score = min(50, 합계)      ← M16HUB 영역 점수
+        │
+        ▼
+   evaluate_unified()  ── 5개 영역 합 + flow + SLA + Sorter + MAXCAPA
+        │
+        ▼
+   unified_risk_score = min(100, round(raw × 100 / 220))
+</pre>
+</section>
+
+
+<!-- ═══════════ 2 ═══════════ -->
+<section>
+<h2>2. 어느 컬럼이 어떻게 점수가 되나 — 31개 전수</h2>
+<p class="h2sub">M16HUB가 읽는 원본 컬럼 <b>전부</b>입니다. 한 줄 = 하나의 점수 경로.
+같은 컬럼이 두 룰에 들어가면 줄이 나뉩니다.</p>
+
+<div class="tw">
+<table>
+<thead><tr><th style="width:30%">원본 컬럼명</th><th style="width:11%">키</th><th style="width:17%">재는 것</th><th style="width:11%">룰</th><th style="width:23%">점수가 붙는 조건</th><th class="c" style="width:8%">배점</th></tr></thead>
+<tbody>
+<tr ><td><code>M16HUB.QUE.TIME.AVGTOTALTIME1MIN</code></td><td><code>ra</code></td><td>1분 평균 반송시간(분)</td><td>R-A</td><td>최근 10분 중 ≥ 9.0 이 1분 이상</td><td class="c"><span class="tag g">10</span></td></tr>
+<tr ><td><code>M16HUB.QUE.TIME.AVGTOTALTIME1MIN</code></td><td><code>ra</code></td><td>〃 (같은 컬럼, 지속 판정)</td><td>R-A 지속</td><td>최근 5분 중 ≥ 6.3 이 3분 이상</td><td class="c"><span class="tag g">+5</span></td></tr>
+<tr ><td><code>M16HUB.QUE.M14TOM16.MESCURRENTQCNT</code></td><td><code>rb</code></td><td>M14→M16 대기 물량(개)</td><td>R-B</td><td>지금 − 30분전 ≥ 100</td><td class="c"><span class="tag g">10</span></td></tr>
+<tr ><td><code>M16HUB.QUE.M14TOM16.MESCURRENTQCNT</code></td><td><code>rb</code></td><td>〃 (같은 컬럼, 급증 판정)</td><td>R-B 급증</td><td>지금 − 10분전 ≥ 30</td><td class="c"><span class="tag g">+5</span></td></tr>
+<tr ><td><code>M16HUB.QUE.M14TOM16.MESCURRENTQCNT</code></td><td><code>—</code></td><td>〃 (같은 컬럼, 흐름 노드)</td><td>흐름 M14_TO_M16</td><td>30분 평균 대비 1.5 / 2.0 / 3.0 배</td><td class="c"><span class="tag y">5/15/30</span></td></tr>
+<tr ><td><code>M16HUB.LFT.6ABL6011.TOTAL_CURRENTQCNT</code></td><td><code>lifters</code></td><td>리프터 대기량</td><td>R-C</td><td>전체 합 감소 <b>and</b> 역행 리프터 ≥ 4대<br><span class="tag y">10대를 한 덩어리로 판정 · 8점은 한 번만</span></td><td class="c"><span class="tag g">8</span></td></tr>
+<tr ><td><code>M16HUB.LFT.6ABL6012.TOTAL_CURRENTQCNT</code></td><td><code>lifters</code></td><td>〃</td><td>R-C</td><td>〃</td><td class="c"><span class="tag g">↑</span></td></tr>
+<tr ><td><code>M16HUB.LFT.6ABL6021.TOTAL_CURRENTQCNT</code></td><td><code>lifters</code></td><td>〃</td><td>R-C</td><td>〃</td><td class="c"><span class="tag g">↑</span></td></tr>
+<tr ><td><code>M16HUB.LFT.6ABL6022.TOTAL_CURRENTQCNT</code></td><td><code>lifters</code></td><td>〃</td><td>R-C</td><td>〃</td><td class="c"><span class="tag g">↑</span></td></tr>
+<tr ><td><code>M16HUB.LFT.6ABL6031.TOTAL_CURRENTQCNT</code></td><td><code>lifters</code></td><td>〃</td><td>R-C</td><td>〃</td><td class="c"><span class="tag g">↑</span></td></tr>
+<tr ><td><code>M16HUB.LFT.6ABL6032.TOTAL_CURRENTQCNT</code></td><td><code>lifters</code></td><td>〃</td><td>R-C</td><td>〃</td><td class="c"><span class="tag g">↑</span></td></tr>
+<tr ><td><code>M16HUB.LFT.6ABL0111.TOTAL_CURRENTQCNT</code></td><td><code>lifters</code></td><td>〃</td><td>R-C</td><td>〃</td><td class="c"><span class="tag g">↑</span></td></tr>
+<tr ><td><code>M16HUB.LFT.6ABL0112.TOTAL_CURRENTQCNT</code></td><td><code>lifters</code></td><td>〃</td><td>R-C</td><td>〃</td><td class="c"><span class="tag g">↑</span></td></tr>
+<tr ><td><code>M16HUB.LFT.6ABL0121.TOTAL_CURRENTQCNT</code></td><td><code>lifters</code></td><td>〃</td><td>R-C</td><td>〃</td><td class="c"><span class="tag g">↑</span></td></tr>
+<tr ><td><code>M16HUB.LFT.6ABL0122.TOTAL_CURRENTQCNT</code></td><td><code>lifters</code></td><td>〃</td><td>R-C</td><td>〃</td><td class="c"><span class="tag g">↑</span></td></tr>
+<tr ><td><code>M16HUB.STRATE.ALL.FABSTORAGERATIO</code></td><td><code>rd_fab</code></td><td>FAB 적재율(%)</td><td>R-D</td><td>≥ 25.75<br><span class="tag y">아래 4줄과 OR · 7점은 한 번만</span></td><td class="c"><span class="tag g">7</span></td></tr>
+<tr ><td><code>M16HUB.STRATE.STB.3F_STORAGE_UTIL</code></td><td><code>hub_stb_util</code></td><td>3F STB 점유율(%)</td><td>R-D</td><td>≥ 99.3</td><td class="c"><span class="tag g">↑</span></td></tr>
+<tr ><td><code>M16HUB.QUE.ALL.3F_TO_3F_MLUD_JOB</code></td><td><code>mlud_job</code></td><td>MLUD 잡 누적(개)</td><td>R-D</td><td>≥ 50</td><td class="c"><span class="tag g">↑</span></td></tr>
+<tr ><td><code>M16HUB.QUE.ALL.M16HUBTOM14MANUAL_CURRENTQCNT</code></td><td><code>mlud_manual</code></td><td>수동 이동 큐(개)</td><td>R-D</td><td>≥ 30</td><td class="c"><span class="tag g">↑</span></td></tr>
+<tr ><td><code>M16HUB.CNV.SENDFAB.TO_M14A_CURRENTQCNT</code></td><td><code>cnv_to_m14a</code></td><td>CNV 현재량(개)</td><td>R-D</td><td>÷ 정원 ≥ 0.85</td><td class="c"><span class="tag g">↑</span></td></tr>
+<tr ><td><code>M16HUB.QUE.ALL.TRANSPORT4MINOVERRATIO</code></td><td><code>sla_ratio</code></td><td>4분 초과 비율(%)</td><td>SLA</td><td>≥ 5.0</td><td class="c"><span class="tag g">5</span></td></tr>
+<tr ><td><code>M16HUB.QUE.ALL.TRANSPORT4MINOVERCNT</code></td><td><code>sla_cnt</code></td><td>4분 초과 건수(누적)</td><td>SLA</td><td>10분 전 대비 +20건 이상<br><span class="tag y">위 줄과 OR · 5점은 한 번만</span></td><td class="c"><span class="tag g">↑</span></td></tr>
+<tr ><td><code>M16HUB.SORTER.ABN.SORTERWAITCOUNTOVER</code></td><td><code>sorter</code></td><td>Sorter 대기 초과(건)</td><td>SORT</td><td>≥ 30</td><td class="c"><span class="tag g">3</span></td></tr>
+<tr class="hl"><td><code>M16HUB.QUE.LFT.3F_LFT_MAXCAPA</code></td><td><code>maxcapa</code></td><td>3F 리프터 정원 (정상 165)</td><td>MAXCAPA</td><td>≤ 100</td><td class="c"><span class="tag r">10</span></td></tr>
+<tr class="hl"><td><code>M16HUB.QUE.LFT.3F_M14BLFT_MAXCAPA</code></td><td><code>maxcapa</code></td><td>M14B 리프터 정원 (정상 66)</td><td>MAXCAPA</td><td>≤ 50</td><td class="c"><span class="tag r">10</span></td></tr>
+<tr class="hl"><td><code>M16HUB.QUE.CNV.3F_CNV_MAXCAPA</code></td><td><code>maxcapa / cnv_capa</code></td><td>3F CNV 정원 (정상 129)</td><td>MAXCAPA</td><td>≤ 80<br><span class="tag y">R-D CNV 충만도의 분모로도 사용</span></td><td class="c"><span class="tag r">10</span></td></tr>
+<tr ><td><code>M16HUB.QUE.OHT.CURRENTOHTQCNT</code></td><td><code>oht_qcnt</code></td><td>OHT 대기 잡(개)</td><td>흐름 HUB_OHT_QCNT</td><td>30분 평균 대비 1.5 / 2.0 / 3.0 배</td><td class="c"><span class="tag y">5/15/30</span></td></tr>
+<tr class="dim"><td><code>M16HUB.QUE.OHT.OHTUTIL</code></td><td><code>rd_oht</code></td><td>OHT 가동률(%)</td><td>—</td><td><span class="tag">기록만</span> M16HUB는 R-D 판정에서 제외</td><td class="c"><span class="tag">0</span></td></tr>
+<tr class="dim"><td><code>M16HUB.OHT.ALERT.OHTMCPALARMCNT</code></td><td><code>oht_alarm</code></td><td>OHT 알람 건수</td><td>—</td><td><span class="tag">기록만</span> 이벤트 CSV</td><td class="c"><span class="tag">0</span></td></tr>
+<tr class="dim"><td><code>M16HUB.QUE.ABN.AOTRANSDELAY</code></td><td><code>aotransdelay</code></td><td>반송 지연 이상 건수</td><td>—</td><td><span class="tag">기록만</span> 이벤트 CSV</td><td class="c"><span class="tag">0</span></td></tr>
+<tr class="dim"><td><code>M16HUB.QUE.ALL.3F_TO_M16A_6F_JOB</code></td><td><code>hub_outs</code></td><td>HUB → M16A 6F 잡</td><td>—</td><td><span class="tag">기록만</span> 출구 방향 원인 규명</td><td class="c"><span class="tag">0</span></td></tr>
+<tr class="dim"><td><code>M16HUB.QUE.ALL.3F_TO_M16A_2F_JOB</code></td><td><code>hub_outs</code></td><td>HUB → M16A 2F 잡</td><td>—</td><td><span class="tag">기록만</span> 〃</td><td class="c"><span class="tag">0</span></td></tr>
+<tr class="dim"><td><code>M16HUB.QUE.ALL.3F_TO_M14A_3F_JOB</code></td><td><code>hub_outs</code></td><td>HUB → M14A 3F 잡</td><td>—</td><td><span class="tag">기록만</span> 〃</td><td class="c"><span class="tag">0</span></td></tr>
+<tr class="dim"><td><code>M16HUB.QUE.ALL.3F_TO_M14B_7F_JOB</code></td><td><code>hub_outs</code></td><td>HUB → M14B 7F 잡</td><td>—</td><td><span class="tag">기록만</span> 〃</td><td class="c"><span class="tag">0</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="box">
+<b class="lab">표 읽는 법</b>
+<p><b>↑</b> 는 “바로 위 줄과 같은 배점을 나눠 쓴다”는 뜻입니다. R-C 리프터 10개, R-D 5개 조건, SLA 2개 컬럼이
+각각 <b>OR 묶음</b>이라 여러 줄이 켜져도 점수는 한 번만 붙습니다.</p>
+<p><span class="tag r">10</span> 붉은 배점(MAXCAPA)만 <b>중복 가산</b>됩니다. 3개가 동시에 걸리면 30점입니다.</p>
+</div>
+
+<h3>2-1. 세 갈래로 나누면</h3>
+<div class="tw"><table>
+<thead><tr><th style="width:22%">갈래</th><th class="n" style="width:12%">컬럼 수</th><th>어디로 가나</th></tr></thead>
+<tbody>
+<tr><td>영역 점수</td><td class="n">23</td><td>M16HUB <code>area_score</code> (0~50) 에 합산 — 룰 8종</td></tr>
+<tr><td>흐름 점수</td><td class="n">2</td><td>영역을 건너뛰고 <b>통합 점수에 직접</b> 가산 — 30분 평균 대비 배수</td></tr>
+<tr><td>기록만</td><td class="n">7</td><td>점수 없음. 이벤트 CSV 출력과 사후 원인 분석용</td></tr>
+<tr class="hl"><td>합계</td><td class="n">31</td><td>겹침 1개 (<code>M14TOM16.MESCURRENTQCNT</code> 가 영역·흐름 양쪽)</td></tr>
+</tbody></table></div>
+
+<div class="box wa">
+<b class="lab">겹쳐 쓰는 컬럼 하나</b>
+<p><code>M16HUB.QUE.M14TOM16.MESCURRENTQCNT</code> 는 <b>R-B(영역)와 흐름 룰(통합)에 둘 다</b> 들어갑니다.
+보는 방식은 다릅니다 — R-B는 <b>30분 전 대비 증가량(절대 개수)</b>, 흐름 룰은 <b>30분 평균 대비 배수(상대 비율)</b>.
+이중 계산은 아니지만 <b>급증하면 양쪽이 같이 켜져</b> 점수가 두 번 오릅니다. 최대 15점(R-B) + 30점(흐름)입니다.</p>
+</div>
+
+<h3>2-2. 배점이 큰 순서</h3>
+<div class="tw"><table>
+<thead><tr><th style="width:18%">룰</th><th class="n" style="width:12%">배점</th><th class="n" style="width:14%">컬럼 수</th><th>가산 방식</th></tr></thead>
+<tbody>
+<tr class="hl"><td>MAXCAPA</td><td class="n">10 × n</td><td class="n">3</td><td><b>중복 가산</b> — 최대 30점</td></tr>
+<tr><td>R-A</td><td class="n">10 + 5</td><td class="n">1</td><td>같은 컬럼을 두 조건으로 — 최대 15점</td></tr>
+<tr><td>R-B</td><td class="n">10 + 5</td><td class="n">1</td><td>같은 컬럼을 두 조건으로 — 최대 15점</td></tr>
+<tr><td>R-C</td><td class="n">8</td><td class="n">10</td><td>10대를 한 덩어리로 — 한 번만</td></tr>
+<tr><td>R-D</td><td class="n">7</td><td class="n">5</td><td>5개 조건 OR — 한 번만</td></tr>
+<tr><td>SLA</td><td class="n">5</td><td class="n">2</td><td>2개 조건 OR — 한 번만</td></tr>
+<tr><td>SORT</td><td class="n">3</td><td class="n">1</td><td>단일</td></tr>
+<tr class="dim"><td>흐름 (2노드)</td><td class="n">5/15/30</td><td class="n">2</td><td>노드별 독립 가산 · <b>통합 점수로 직행</b></td></tr>
+</tbody></table></div>
+
+<div class="box no">
+<b class="lab">컬럼 수와 배점은 비례하지 않습니다</b>
+<p>R-C는 컬럼 <b>10개</b>를 읽어 <b>8점</b>, MAXCAPA는 <b>3개</b>를 읽어 <b>최대 30점</b>입니다.
+컬럼을 많이 본다고 점수가 큰 게 아니라, <b>정체가 확정적인 신호일수록</b> 배점이 큽니다.
+설비 정원 축소(MAXCAPA)는 사람이 의도적으로 줄인 것이라 가장 확실한 신호로 봅니다.</p>
+</div>
+</section>
+
+
+<!-- ═══════════ 3 ═══════════ -->
+<section>
+<h2>3. 룰 8종 — 컬럼이 점수가 되는 계산식</h2>
+<p class="h2sub">각 룰은 점수를 “조금씩” 주지 않습니다. <b>켜지면 정액, 안 켜지면 0</b>입니다.</p>
+
+<h3>R-A · 반송시간 <span class="tag g">10점</span> + 지속 <span class="tag g">5점</span></h3>
+<div class="tw"><table>
+<thead><tr><th style="width:14%">항목</th><th>내용</th></tr></thead>
+<tbody>
+<tr><td>입력</td><td><code>M16HUB.QUE.TIME.AVGTOTALTIME1MIN</code> → <code>ra</code></td></tr>
+<tr><td>임계</td><td><code>TH_RA['M16HUB'] = 9.0</code> 분</td></tr>
+<tr><td>계산</td><td><b>최근 10분</b> 중 <code>ra ≥ 9.0</code> 인 분이 <b>1분이라도</b> 있으면 켜짐 → <b>10점</b></td></tr>
+<tr><td>지속</td><td><b>최근 5분</b> 중 <code>ra ≥ 9.0 × 0.7 = 6.3</code> 인 분이 <b>3분 이상</b> → 추가 <b>5점</b></td></tr>
+<tr><td>뜻</td><td>“지금 물건이 실제로 느리게 가고 있다.” 정체의 <b>결과</b>를 직접 보는 룰</td></tr>
+</tbody></table></div>
+<pre>
+ra_vals = 최근 10분의 ra
+ra_count = ra_vals 중 (v >= 9.0) 개수
+ra_trig  = ra_count >= 1                    → <b>10점</b>
+
+last5    = 최근 5분의 ra
+ra_sus   = last5 중 (v >= 6.3) 개수 >= 3    → <b>+5점</b>
+</pre>
+
+<h3>R-B · 대기 물량 증가 <span class="tag g">10점</span> + 급증 <span class="tag g">5점</span></h3>
+<div class="tw"><table>
+<thead><tr><th style="width:14%">항목</th><th>내용</th></tr></thead>
+<tbody>
+<tr><td>입력</td><td><code>M16HUB.QUE.M14TOM16.MESCURRENTQCNT</code> → <code>rb</code></td></tr>
+<tr><td>임계</td><td>30분 <code>TH_RB_30 = 100</code> 개 · 10분 <code>TH_RB_10 = 30</code> 개 <span class="tag y">30분 임계의 30%</span></td></tr>
+<tr><td>계산</td><td><code>지금 − 30분전 ≥ 100</code> → <b>10점</b></td></tr>
+<tr><td>급증</td><td><code>지금 − 10분전 ≥ 30</code> → 추가 <b>5점</b></td></tr>
+<tr><td>뜻</td><td>“물건이 쌓이는 중이다.” 정체의 <b>원인</b>을 보는 룰. R-A보다 먼저 켜집니다</td></tr>
+</tbody></table></div>
+<div class="box">
+<b class="lab">절대값이 아니라 증가량</b>
+<p>대기 물량이 <b>500개로 계속 많은</b> 상태는 안 켜집니다. <b>400 → 510 으로 늘어난</b> 순간에 켜집니다.
+평시 물량이 많은 구간에서 상시 경보가 뜨는 걸 막기 위한 설계입니다.</p>
+</div>
+
+<h3>R-C · 리프터 역증가 <span class="tag g">8점</span> <span class="tag">M16HUB 전용</span></h3>
+<div class="tw"><table>
+<thead><tr><th style="width:14%">항목</th><th>내용</th></tr></thead>
+<tbody>
+<tr><td>입력</td><td><code>M16HUB.LFT.{ID}.TOTAL_CURRENTQCNT</code> — 리프터 10대<br>
+<code>6ABL6011 6012 6021 6022 6031 6032 0111 0112 0121 0122</code></td></tr>
+<tr><td>임계</td><td><code>TH_RC_REVERSE = 4</code> 대 <span class="tag y">코드 기본 2 → 운영 4로 상향</span></td></tr>
+<tr><td>계산</td><td>20분 전과 비교해<br>① <b>전체 합은 줄었는데</b> (<code>rc_trend &lt; 0</code>)<br>② <b>개별로 늘어난 리프터가 4대 이상</b> → <b>8점</b></td></tr>
+<tr><td>뜻</td><td>“전체는 빠지는데 일부만 막혔다.” <b>국소 고장</b>을 잡는 룰</td></tr>
+</tbody></table></div>
+<pre>
+now  = 지금 리프터 10대 값
+prev = 20분 전 리프터 10대 값
+
+rc_trend  = sum(now) - sum(prev)                       ← 전체 추세
+rev_count = now[i] > prev[i] 인 리프터 개수             ← 역행 대수
+
+rc_trig = (rc_trend &lt; 0) <b>and</b> (rev_count >= 4)          → <b>8점</b>
+</pre>
+<div class="box wa">
+<b class="lab">이 룰이 M16HUB에만 있는 이유</b>
+<p>M16HUB는 리프터 10대가 <b>층간 병목</b>을 이룹니다. 전체 물량이 빠지는 와중에 특정 리프터만 쌓이면
+그 리프터가 죽은 것이고, 곧 HUB 전체가 막힙니다. 다른 FAB에는 이 구조가 없어
+이 룰은 <b>M16HUB 전용</b>입니다.</p>
+</div>
+
+<h3>R-D · 적재율 · STB · MLUD · CNV <span class="tag g">7점</span> <span class="tag y">넷 중 하나만 켜져도</span></h3>
+<div class="tw"><table>
+<thead><tr><th style="width:20%">하위 조건</th><th style="width:34%">입력 컬럼</th><th style="width:16%">임계</th><th>뜻</th></tr></thead>
+<tbody>
+<tr><td>FAB 적재율</td><td><code>STRATE.ALL.FABSTORAGERATIO</code></td><td class="n">≥ 25.75 %</td><td>보관 공간이 참</td></tr>
+<tr><td>STB 점유율</td><td><code>STRATE.STB.3F_STORAGE_UTIL</code></td><td class="n">≥ 99.3 %</td><td>3F 스토커 만재</td></tr>
+<tr><td>MLUD 잡</td><td><code>QUE.ALL.3F_TO_3F_MLUD_JOB</code></td><td class="n">≥ 50 개</td><td rowspan="2">수동 이동이 밀림<br><span class="tag y">v5 신규 · 미탐 1건 반영</span></td></tr>
+<tr><td>수동 이동 큐</td><td><code>QUE.ALL.M16HUBTOM14MANUAL_CURRENTQCNT</code></td><td class="n">≥ 30 개</td></tr>
+<tr><td>CNV 충만도</td><td><code>CNV.SENDFAB.TO_M14A_CURRENTQCNT</code><br>÷ <code>QUE.CNV.3F_CNV_MAXCAPA</code></td><td class="n">≥ 85 %</td><td>컨베이어 full<br><span class="tag y">v5 신규</span></td></tr>
+</tbody></table></div>
+<pre>
+cnv_ratio = cnv_to_m14a / cnv_capa
+
+rd_trig = (rd_fab >= 25.75)
+       <b>or</b> (hub_stb_util >= 99.3)
+       <b>or</b> (mlud_job >= 50 <b>or</b> mlud_manual >= 30)
+       <b>or</b> (cnv_ratio >= 0.85)                          → <b>7점</b>  (한 번만)
+</pre>
+<div class="box no">
+<b class="lab">주의 — 넷이 다 켜져도 7점</b>
+<p>R-D는 <b>OR 우산</b>입니다. 적재율·STB·MLUD·CNV가 전부 켜져도 <b>7점 한 번</b>만 받습니다.
+“여러 이유로 막혔다”는 걸 점수로는 구분하지 않습니다. 다만 신호 문자열에는 어느 조건이 켜졌는지 남습니다.</p>
+</div>
+
+<h3>SLA · 4분 초과 비율 <span class="tag g">5점</span></h3>
+<div class="tw"><table>
+<thead><tr><th style="width:14%">항목</th><th>내용</th></tr></thead>
+<tbody>
+<tr><td>입력</td><td><code>QUE.ALL.TRANSPORT4MINOVERRATIO</code> · <code>QUE.ALL.TRANSPORT4MINOVERCNT</code></td></tr>
+<tr><td>임계</td><td><code>TH_SLA_RATIO['M16HUB'] = 5.0</code> % <span class="tag y">반송 10건 중 1건도 4분을 넘기면 안 된다는 뜻</span></td></tr>
+<tr><td>계산</td><td>비율 <code>≥ 5.0%</code> <b>또는</b> 10분 전 대비 건수 <code>+20건 이상</code> → <b>5점</b></td></tr>
+</tbody></table></div>
+
+<h3>SORT · Sorter 대기 <span class="tag g">3점</span></h3>
+<div class="tw"><table>
+<thead><tr><th style="width:14%">항목</th><th>내용</th></tr></thead>
+<tbody>
+<tr><td>입력</td><td><code>SORTER.ABN.SORTERWAITCOUNTOVER</code></td></tr>
+<tr><td>임계</td><td><code>TH_SORTER_WAIT['M16HUB'] = 30</code> 건 <span class="tag y">건수 자체가 적어 임계가 낮음</span></td></tr>
+<tr><td>계산</td><td><code>≥ 30</code> → <b>3점</b></td></tr>
+<tr><td>참고</td><td>M16HUB에는 <code>SORTERTRANSFERFAIL</code> 컬럼이 없어 <b>대기 초과만</b> 봅니다</td></tr>
+</tbody></table></div>
+
+<h3>MAXCAPA · 설비 정원 축소 <span class="tag r">10점 × 변경 수</span></h3>
+<div class="tw"><table>
+<thead><tr><th style="width:42%">감시 컬럼</th><th class="n" style="width:14%">정상값</th><th class="n" style="width:14%">임계</th><th>판정</th></tr></thead>
+<tbody>
+<tr><td><code>QUE.LFT.3F_LFT_MAXCAPA</code></td><td class="n">165</td><td class="n">≤ 100</td><td rowspan="3">현재값이 임계 <b>이하</b>로 떨어지면<br>설비가 축소 운전 중 → 각각 <b>10점</b></td></tr>
+<tr><td><code>QUE.LFT.3F_M14BLFT_MAXCAPA</code></td><td class="n">66</td><td class="n">≤ 50</td></tr>
+<tr><td><code>QUE.CNV.3F_CNV_MAXCAPA</code></td><td class="n">129</td><td class="n">≤ 80</td></tr>
+</tbody></table></div>
+<div class="box no">
+<b class="lab">이 룰만 점수 상한이 없습니다</b>
+<p>3개가 동시에 축소되면 <b>30점</b>입니다. 다른 룰을 다 합쳐도 40점인데 이 하나로 30점이 붙습니다.
+설비 정원 축소는 <b>사람이 의도적으로 줄인 것</b>이라 정체가 사실상 확정이기 때문입니다.
+다만 영역 점수 상한 50에 걸려 잘립니다.</p>
+</div>
+</section>
+
+
+<!-- ═══════════ 4 ═══════════ -->
+<section>
+<h2>4. 영역 점수 — 합치고 자르기</h2>
+<p class="h2sub">배점을 단순 합산한 뒤 50에서 자릅니다.</p>
+
+<div class="tw"><table>
+<thead><tr><th style="width:26%">룰</th><th class="n" style="width:12%">배점</th><th class="n" style="width:14%">누적 최대</th><th>비고</th></tr></thead>
+<tbody>
+<tr><td>R-A</td><td class="n">10</td><td class="n">10</td><td>반송시간 임계 초과</td></tr>
+<tr><td>R-A 지속</td><td class="n">5</td><td class="n">15</td><td>R-A와 별개로 붙음</td></tr>
+<tr><td>R-B</td><td class="n">10</td><td class="n">25</td><td>30분 증가</td></tr>
+<tr><td>R-B 급증</td><td class="n">5</td><td class="n">30</td><td>10분 증가</td></tr>
+<tr><td>R-C</td><td class="n">8</td><td class="n">38</td><td>M16HUB 전용</td></tr>
+<tr><td>R-D</td><td class="n">7</td><td class="n">45</td><td>4개 조건 OR</td></tr>
+<tr><td>SLA</td><td class="n">5</td><td class="n">50</td><td>여기서 이미 상한 도달</td></tr>
+<tr><td>SORT</td><td class="n">3</td><td class="n">53</td><td rowspan="2"><b class="lab" style="color:var(--bad)">50에서 잘림</b></td></tr>
+<tr class="hl"><td>MAXCAPA</td><td class="n">10×n</td><td class="n">83</td></tr>
+</tbody></table></div>
+
+<pre>
+s = ra_pts + ra_sus_pts + rb_pts + rb_fast_pts
+  + rc_pts + rd_pts + sla_pts + sort_pts + mc_pts
+
+area_score     = <b>min(50, s)</b>      ← 실제 사용값
+area_score_raw = s                ← 클리핑 전 원본 (분석용으로만 보관)
+</pre>
+
+<div class="box wa">
+<b class="lab">상한 50이 만드는 문제</b>
+<p>모든 룰이 켜지면 <b>83점</b>이 나오지만 <b>50으로 잘립니다.</b> 즉 <b>“꽤 나쁨”과 “최악”이 같은 점수</b>가 됩니다.
+8월 M16HUB 최고 점수가 64점에서 멈춘 것, 43점 부근에 4,580분이 몰린 계단 현상이 여기서 옵니다.
+등급 경계를 조정할 때 반드시 감안해야 하는 부분입니다.</p>
+</div>
+
+<h3>영역 점수를 0~100으로 볼 때</h3>
+<p>FAB별 성능평가에서 쓰는 <code>area_score</code>(0~100)는 위 값을 다시 환산한 것입니다.</p>
+<pre>
+area_score(0~100) = min(100, round(area_score(0~50) × 100 / 70))
+</pre>
+<p>분모가 50이 아니라 <b>70</b>인 이유는, 상한 50에 자주 닿는 걸 감안해 <b>여유를 둔 척도</b>이기 때문입니다.
+50점(상한)이면 환산값은 71점이 됩니다.</p>
+</section>
+
+
+<!-- ═══════════ 5 ═══════════ -->
+<section>
+<h2>5. 원본 컬럼과 새로 생기는 컬럼 — 어떻게 합쳐지나</h2>
+<p class="h2sub">예측기가 <b>내보내는</b> M16HUB 컬럼은 24개입니다. 원본을 그대로 옮긴 것, 창에서 새로 계산한 것,
+판정 결과를 점수로 바꾼 것이 섞여 있습니다.</p>
+
+<div class="tw">
+<table>
+<thead><tr><th style="width:24%">출력 컬럼</th><th class="c" style="width:11%">종류</th><th style="width:31%">무엇이 들어가나</th><th>어디서 왔나</th></tr></thead>
+<tbody>
+<tr class="dim"><td><code>M16HUB_ra</code></td><td class="c"><span class="tag">그대로</span></td><td>R-A 판정에 쓴 마지막 반송시간 값</td><td><code>QUE.TIME.AVGTOTALTIME1MIN</code> 원본값 그대로</td></tr>
+<tr><td><code>M16HUB_ra_count</code></td><td class="c"><span class="tag y">새로 계산</span></td><td>최근 10분 중 9.0 이상이었던 <b>분 수</b> (0~10)</td><td>같은 컬럼을 <b>10분 창에서 세어</b> 만든 값</td></tr>
+<tr><td><code>M16HUB_rb_diff30</code></td><td class="c"><span class="tag y">새로 계산</span></td><td>지금 − 30분 전 (개)</td><td><code>QUE.M14TOM16.MESCURRENTQCNT</code> 두 시점의 <b>차</b></td></tr>
+<tr><td><code>M16HUB_rb_diff10</code></td><td class="c"><span class="tag y">새로 계산</span></td><td>지금 − 10분 전 (개)</td><td>같은 컬럼, 창 길이만 다름</td></tr>
+<tr><td><code>M16HUB_rc_trend</code></td><td class="c"><span class="tag y">새로 계산</span></td><td>리프터 10대 합계의 20분 증감</td><td><code>LFT.*.TOTAL_CURRENTQCNT</code> 10개를 <b>합산 후 차</b></td></tr>
+<tr><td><code>M16HUB_rev_count</code></td><td class="c"><span class="tag y">새로 계산</span></td><td>20분 전보다 <b>늘어난</b> 리프터 대수 (0~10)</td><td>같은 10개를 <b>개별 비교</b>해 센 값</td></tr>
+<tr><td><code>M16HUB_rev_lids</code></td><td class="c"><span class="tag y">새로 계산</span></td><td>늘어난 리프터 ID 목록 (쉼표 구분)</td><td>예: <code>6ABL6031,6ABL6032</code></td></tr>
+<tr class="dim"><td><code>M16HUB_rd_fab</code></td><td class="c"><span class="tag">그대로</span></td><td>FAB 적재율(%)</td><td><code>STRATE.ALL.FABSTORAGERATIO</code> 원본값</td></tr>
+<tr class="dim"><td><code>M16HUB_stb_util</code></td><td class="c"><span class="tag">그대로</span></td><td>3F STB 점유율(%)</td><td><code>STRATE.STB.3F_STORAGE_UTIL</code> 원본값</td></tr>
+<tr class="dim"><td><code>sla_M16HUB</code></td><td class="c"><span class="tag">그대로</span></td><td>4분 초과 비율(%)</td><td><code>QUE.ALL.TRANSPORT4MINOVERRATIO</code> 원본값</td></tr>
+<tr class="dim"><td><code>M16HUB_sla_cnt</code></td><td class="c"><span class="tag">그대로</span></td><td>4분 초과 건수(누적)</td><td><code>QUE.ALL.TRANSPORT4MINOVERCNT</code> 원본값</td></tr>
+<tr class="dim"><td><code>sorter_M16HUB</code></td><td class="c"><span class="tag">그대로</span></td><td>Sorter 대기 초과(건)</td><td><code>SORTER.ABN.SORTERWAITCOUNTOVER</code> 원본값</td></tr>
+<tr><td><code>M16HUB_pts_RA</code></td><td class="c"><span class="tag g">배점</span></td><td>R-A 점수 (0 또는 10)</td><td>판정 결과 → 배점</td></tr>
+<tr><td><code>M16HUB_pts_RA_sus</code></td><td class="c"><span class="tag g">배점</span></td><td>R-A 지속 점수 (0 또는 5)</td><td>〃</td></tr>
+<tr><td><code>M16HUB_pts_RB</code></td><td class="c"><span class="tag g">배점</span></td><td>R-B 점수 (0 또는 10)</td><td>〃</td></tr>
+<tr><td><code>M16HUB_pts_RB_fast</code></td><td class="c"><span class="tag g">배점</span></td><td>R-B 급증 점수 (0 또는 5)</td><td>〃</td></tr>
+<tr><td><code>M16HUB_pts_RC</code></td><td class="c"><span class="tag g">배점</span></td><td>R-C 점수 (0 또는 8)</td><td>〃</td></tr>
+<tr><td><code>M16HUB_pts_RD</code></td><td class="c"><span class="tag g">배점</span></td><td>R-D 점수 (0 또는 7)</td><td>〃</td></tr>
+<tr><td><code>M16HUB_pts_SLA</code></td><td class="c"><span class="tag g">배점</span></td><td>SLA 점수 (0 또는 5)</td><td>〃</td></tr>
+<tr><td><code>M16HUB_pts_SORT</code></td><td class="c"><span class="tag g">배점</span></td><td>SORT 점수 (0 또는 3)</td><td>〃</td></tr>
+<tr><td><code>M16HUB_pts_MAXCAPA</code></td><td class="c"><span class="tag g">배점</span></td><td>MAXCAPA 점수 (0 / 10 / 20 / 30)</td><td>정원 축소 컬럼 3개 중 걸린 수 × 10</td></tr>
+<tr class="hl"><td><code>M16HUB_score_raw</code></td><td class="c"><span class="tag r">합계</span></td><td>9개 pts 를 <b>그대로 더한 값</b> (0~83)</td><td>상한 적용 전</td></tr>
+<tr class="hl"><td><code>M16HUB_score</code></td><td class="c"><span class="tag r">합계</span></td><td><b>min(50, score_raw)</b> — 실제 사용값</td><td>상한 적용 후</td></tr>
+<tr class="hl"><td><code>M16HUB_signals</code></td><td class="c"><span class="tag r">합계</span></td><td>켜진 룰 이름을 <code>+</code> 로 이은 문자열</td><td>예: <code>RA+RA_sus+RB+RC+RD+SLA+SORT</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>5-1. 네 종류로 나누면</h3>
+<div class="tw"><table>
+<thead><tr><th style="width:16%">종류</th><th class="n" style="width:10%">개수</th><th style="width:30%">원본과의 관계</th><th>왜 필요한가</th></tr></thead>
+<tbody>
+<tr class="dim"><td><span class="tag">그대로</span></td><td class="n">6</td><td>원본 컬럼 값을 <b>변형 없이</b> 복사</td><td>“그때 실제 값이 얼마였나”를 보려고</td></tr>
+<tr><td><span class="tag y">새로 계산</span></td><td class="n">6</td><td>원본을 <b>시간 창에서</b> 세거나 빼서 생성<br>원본 CSV에는 없는 값</td><td>증감·지속·역행은 한 시점만 봐선 모름</td></tr>
+<tr><td><span class="tag g">배점</span></td><td class="n">9</td><td>판정 결과(참/거짓)를 <b>정액 점수</b>로 변환</td><td>어느 룰이 몇 점 넣었는지 분해해 보려고</td></tr>
+<tr class="hl"><td><span class="tag r">합계</span></td><td class="n">3</td><td>배점 9개를 더하고 상한 적용</td><td>최종 영역 점수와 근거 문자열</td></tr>
+</tbody></table></div>
+
+<h3>5-2. 원본 1개가 출력 여러 개로 갈라지는 예</h3>
+<p>같은 컬럼을 <b>다르게 보면</b> 서로 다른 출력이 나옵니다.</p>
+<pre>
+원본 <b>M16HUB.QUE.M14TOM16.MESCURRENTQCNT</b>  (매분 1개 값)
+   │
+   ├─ 지금값 − 30분전값          →  <b>M16HUB_rb_diff30</b>   (새로 계산)
+   │        └─ ≥ 100 이면        →  <b>M16HUB_pts_RB</b> = 10  (배점)
+   │
+   ├─ 지금값 − 10분전값          →  <b>M16HUB_rb_diff10</b>   (새로 계산)
+   │        └─ ≥ 30 이면         →  <b>M16HUB_pts_RB_fast</b> = 5 (배점)
+   │
+   └─ 지금값 ÷ 30분평균          →  <b>flow_signals</b> 문자열에 기록
+            └─ 1.5 / 2.0 / 3.0 배 →  <b>flow_score</b> +5 / +15 / +30  (통합 점수로 직행)
+
+원본 <b>M16HUB.LFT.{ID}.TOTAL_CURRENTQCNT</b> × 10개
+   │
+   ├─ 10개 합계의 20분 증감      →  <b>M16HUB_rc_trend</b>    (새로 계산)
+   ├─ 개별로 늘어난 대수         →  <b>M16HUB_rev_count</b>   (새로 계산)
+   ├─ 그 리프터 ID 목록          →  <b>M16HUB_rev_lids</b>    (새로 계산)
+   └─ trend&lt;0 <b>and</b> count≥4     →  <b>M16HUB_pts_RC</b> = 8   (배점)
+</pre>
+
+<div class="box wa">
+<b class="lab">원본에 없는 컬럼이 6개 생깁니다</b>
+<p><code>ra_count</code> · <code>rb_diff30</code> · <code>rb_diff10</code> · <code>rc_trend</code> ·
+<code>rev_count</code> · <code>rev_lids</code> — 전부 <b>과거값과 비교해야</b> 나옵니다.
+그래서 예측기가 <b>90분 창</b>을 메모리에 들고 있는 것입니다.
+CSV 한 줄만 보고는 절대 만들 수 없는 값이라, <b>재현하려면 반드시 시계열 순서대로</b> 넣어야 합니다.</p>
+</div>
+
+<h3>5-3. 최종 합류 지점</h3>
+<pre>
+M16HUB_pts_RA        10  ┐
+M16HUB_pts_RA_sus     5  │
+M16HUB_pts_RB        10  │
+M16HUB_pts_RB_fast    0  │
+M16HUB_pts_RC         8  ├─ 단순 합 ─→  <b>M16HUB_score_raw</b> = 48
+M16HUB_pts_RD         7  │                      │
+M16HUB_pts_SLA        5  │                      │ min(50, …)
+M16HUB_pts_SORT       3  │                      ▼
+M16HUB_pts_MAXCAPA    0  ┘              <b>M16HUB_score</b> = 48   ← 이 컬럼이 최종
+
+M16HUB_signals = "RA+RA_sus+RB+RC+RD+SLA+SORT"   ← 켜진 룰 이름만 이어붙인 문자열
+</pre>
+<p><code>score_raw</code> 와 <code>score</code> 가 <b>다르면 상한 50에 잘린 것</b>입니다.
+두 값을 같이 내보내는 이유가 그 확인 때문입니다.</p>
+
+<h3>5-4. M16HUB 점수가 통합 점수로 가는 길</h3>
+<pre>
+<b>M16HUB_score</b> ─┐
+M14_score      │
+M14B_score     ├─→  <b>layer1_total</b>  (다섯 영역 합)
+M16A_score     │           │
+M16B_score    ─┘           │  + flow_score + sla_score_total
+                           │  + sorter_score_total + mc_score_total
+                           ▼
+                      raw_score
+                           │  × 100 / 220,  min(100)
+                           ▼
+                  <b>unified_risk_score</b>  (0~100)
+</pre>
+<div class="box">
+<b class="lab">M16HUB 점수 하나가 통합에 미치는 몫</b>
+<p>영역 점수 상한이 50이고 통합 분모가 220이므로, <b>M16HUB 혼자서는 통합 점수를 최대 23점까지만</b>
+올릴 수 있습니다 (<code>50 × 100 / 220 = 22.7</code>). 통합 점수가 높으려면 다른 영역이나 흐름 룰이
+같이 켜져야 합니다.</p>
+</div>
+</section>
+
+
+<!-- ═══════════ 6 ═══════════ -->
+<section>
+<h2>6. 실제 예시 — 점수가 어떻게 붙나</h2>
+<p class="h2sub">2026-08-04 14:04, M16HUB가 64점(위험)까지 올라간 순간을 역산했습니다.</p>
+
+<div class="tw"><table>
+<thead><tr><th style="width:16%">룰</th><th class="c" style="width:10%">켜짐</th><th style="width:34%">근거</th><th class="n" style="width:10%">점수</th><th class="n">누적</th></tr></thead>
+<tbody>
+<tr class="hl"><td>R-A</td><td class="c"><span class="tag g">O</span></td><td>반송시간 9.0분 이상 발생</td><td class="n">10</td><td class="n">10</td></tr>
+<tr class="hl"><td>R-A 지속</td><td class="c"><span class="tag g">O</span></td><td>5분 중 3분이 6.3분 이상</td><td class="n">5</td><td class="n">15</td></tr>
+<tr class="hl"><td>R-B</td><td class="c"><span class="tag g">O</span></td><td>30분 전 대비 +100개 이상</td><td class="n">10</td><td class="n">25</td></tr>
+<tr><td>R-B 급증</td><td class="c"><span class="tag">—</span></td><td>10분 증가폭 30 미만</td><td class="n">0</td><td class="n">25</td></tr>
+<tr class="hl"><td>R-C</td><td class="c"><span class="tag g">O</span></td><td>전체 감소 · 역행 리프터 4대 이상<br><span class="tag y">4AFC3201 Zone60231 LD 교체 작업</span></td><td class="n">8</td><td class="n">33</td></tr>
+<tr class="hl"><td>R-D</td><td class="c"><span class="tag g">O</span></td><td>STB 점유율 99.3% 이상</td><td class="n">7</td><td class="n">40</td></tr>
+<tr class="hl"><td>SLA</td><td class="c"><span class="tag g">O</span></td><td>4분 초과 비율 5.0% 이상</td><td class="n">5</td><td class="n">45</td></tr>
+<tr class="hl"><td>SORT</td><td class="c"><span class="tag g">O</span></td><td>Sorter 대기 30건 이상</td><td class="n">3</td><td class="n">48</td></tr>
+<tr><td>MAXCAPA</td><td class="c"><span class="tag">—</span></td><td>정원 축소 없음</td><td class="n">0</td><td class="n">48</td></tr>
+</tbody>
+<tfoot><tr class="hl"><td colspan="3"><b>영역 점수</b> = min(50, 48)</td><td class="n"><b>48</b></td><td class="n">/ 50</td></tr>
+<tr><td colspan="3">0~100 환산 = min(100, round(48 × 100 / 70))</td><td class="n"><b>64</b></td><td class="n">/ 100</td></tr>
+<tr><td colspan="3">M16HUB 등급 (운영값 40 / 55 / 75)</td><td class="n" colspan="2"><span class="tag y"><b>위험</b></span></td></tr></tfoot>
+</table></div>
+
+<div class="box wa">
+<b class="lab">여기서 보이는 것</b>
+<p>8개 룰 중 <b>7개가 켜졌는데도</b> 상한 50에 2점 못 미친 48점입니다.
+MAXCAPA 하나만 더 켜졌으면 58 → <b>50으로 잘려</b> 환산값은 64점 그대로였을 것입니다.
+<b>8월 M16HUB 최고점 64점의 정체가 이것입니다</b> — 더 나빠질 수가 없는 구조입니다.</p>
+</div>
+</section>
+
+
+<div class="foot">
+<p><b>기준 코드</b> <code>WORD_MODEL/OHS_DATA_MD/V4/룰베이스_v5/hubroom_predictor.py</code> ·
+<code>thresholds.json</code> — 임계값은 json이 코드 기본값을 덮어씁니다.</p>
+<p><b>확인 필요</b> ① <code>TH_RC_REVERSE</code> 코드 기본 2 → 운영 4 상향 시점
+② PIO 항 도입 여부 (현재 문서는 미도입 기준)</p>
+<p><b>다음 문서</b> M14 · M14B · M16A · M16B 는 이 틀을 그대로 쓰되 컬럼명과 임계값만 바꿔 따로 작성합니다.</p>
+<p>M16A HUBROOM 반송정체 예측 · 2026-09-10</p>
+</div>
+
+</div>
+</body>
+</html>
