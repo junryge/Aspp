@@ -1,0 +1,434 @@
+﻿<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PIO 영역별 점수 설계</title>
+<style>
+:root{
+  color-scheme:dark;
+  --ink:#e3eaf2; --sub:#93a3b6; --line:#2a3441; --bg:#11161d; --soft:#181f28;
+  --navy:#8ec5f0; --accent:#4da3e8; --good:#4cc79a; --warn:#e8bb5c; --bad:#f0846a;
+  --chip:#1e2833; --panel:#161d25;
+}
+:root[data-theme="light"]{
+  color-scheme:light;
+  --ink:#16202e; --sub:#5b6b80; --line:#dfe5ec; --bg:#fff; --soft:#f5f7fa;
+  --navy:#1c3d6b; --accent:#0f6fc4; --good:#1a7f5a; --warn:#b8860b; --bad:#b4432c;
+  --chip:#eef3f9; --panel:#fff;
+}
+*{box-sizing:border-box}
+html{background:var(--bg)}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Malgun Gothic","맑은 고딕","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;
+  font-size:15px;line-height:1.75}
+.wrap{max-width:1280px;margin:0 auto;padding:0 28px 80px}
+
+.cover{padding:46px 0 26px;border-bottom:3px solid var(--accent);margin-bottom:32px}
+.eyebrow{font-size:12px;letter-spacing:.14em;color:var(--accent);font-weight:700;margin-bottom:12px}
+h1{font-size:30px;line-height:1.3;margin:0 0 10px;letter-spacing:-.02em;font-weight:800;color:var(--navy)}
+.lede{font-size:15px;color:var(--sub);margin:0 0 18px;max-width:76ch}
+p,ul,ol,.h2sub{max-width:96ch}
+.meta{display:flex;flex-wrap:wrap;gap:8px}
+.meta span{background:var(--chip);color:var(--navy);font-size:12px;font-weight:600;
+  padding:5px 12px;border-radius:20px}
+
+section{margin:0 0 44px}
+h2{font-size:20px;margin:0 0 4px;font-weight:800;padding-left:13px;
+  border-left:5px solid var(--accent);line-height:1.4}
+.h2sub{color:var(--sub);font-size:13px;margin:0 0 20px;padding-left:18px}
+h3{font-size:16px;margin:26px 0 9px;font-weight:700;color:var(--navy)}
+h4{font-size:14px;margin:18px 0 7px;font-weight:700}
+p{margin:0 0 12px}
+ul,ol{margin:0 0 13px;padding-left:22px}li{margin:5px 0}
+
+.tw{overflow-x:auto;margin:13px 0 16px;border:1px solid var(--line);border-radius:8px}
+.tw.wide table{min-width:1080px}
+table{border-collapse:collapse;width:100%;font-size:13px;min-width:560px;background:var(--panel)}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:var(--soft);font-weight:700;font-size:12px;color:var(--navy);white-space:normal}
+tbody tr:last-child td{border-bottom:0}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td.c,th.c{text-align:center;white-space:nowrap}
+tr.hl td{background:color-mix(in srgb,var(--accent) 13%,var(--panel))}
+tr.dim td{color:var(--sub)}
+code{background:var(--soft);border:1px solid var(--line);border-radius:4px;padding:1px 5px;
+  font-family:Consolas,"D2Coding",Menlo,monospace;font-size:12px;color:var(--navy)}
+td code,th code{display:inline-block;max-width:100%;word-break:break-all;
+  overflow-wrap:anywhere;line-height:1.55;font-size:11px;padding:1px 4px}
+pre{background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:14px 16px;
+  overflow-x:auto;font-family:Consolas,"D2Coding",Menlo,monospace;font-size:13px;
+  line-height:1.7;margin:14px 0;color:var(--ink)}
+pre b{color:var(--accent)}
+
+.box{border-radius:8px;padding:14px 17px;margin:15px 0;font-size:14px;
+  border:1px solid var(--line);background:var(--soft)}
+.box b.lab{display:block;font-size:12px;letter-spacing:.06em;margin-bottom:5px}
+.box.ok{background:color-mix(in srgb,var(--good) 12%,var(--panel));
+  border-color:color-mix(in srgb,var(--good) 38%,var(--line))} .box.ok b.lab{color:var(--good)}
+.box.no{background:color-mix(in srgb,var(--bad) 12%,var(--panel));
+  border-color:color-mix(in srgb,var(--bad) 38%,var(--line))} .box.no b.lab{color:var(--bad)}
+.box.wa{background:color-mix(in srgb,var(--warn) 12%,var(--panel));
+  border-color:color-mix(in srgb,var(--warn) 38%,var(--line))} .box.wa b.lab{color:var(--warn)}
+.box p:last-child{margin-bottom:0}
+
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;
+  background:var(--chip);color:var(--navy)}
+.tag.g{background:color-mix(in srgb,var(--good) 18%,var(--panel));color:var(--good)}
+.tag.r{background:color-mix(in srgb,var(--bad) 18%,var(--panel));color:var(--bad)}
+.tag.y{background:color-mix(in srgb,var(--warn) 18%,var(--panel));color:var(--warn)}
+
+.flow{display:flex;flex-wrap:wrap;gap:9px;margin:16px 0}
+.step{flex:1 1 160px;border:1px solid var(--line);border-radius:8px;padding:12px 13px;background:var(--panel)}
+.step .s{font-size:11px;font-weight:800;color:var(--accent);letter-spacing:.08em}
+.step .b{font-weight:700;margin:3px 0 4px;font-size:13px}
+.step .c{font-size:12px;color:var(--sub);line-height:1.5}
+
+figure{margin:18px 0;border:1px solid var(--line);border-radius:8px;padding:16px 16px 10px;background:var(--panel)}
+figcaption{font-size:12px;color:var(--sub);margin-top:8px;text-align:center}
+svg{display:block;max-width:100%;height:auto;margin:0 auto}
+
+.foot{border-top:1px solid var(--line);margin-top:40px;padding-top:16px;font-size:12px;color:var(--sub)}
+@media (max-width:760px){h1{font-size:24px}}
+</style>
+</head><body>
+<div class="wrap">
+
+<div class="cover">
+  <div class="eyebrow">M16A HUBROOM · 룰베이스</div>
+  <h1>PIO 영역별 점수 설계</h1>
+  <p class="lede">지금은 PIO 실패를 <b>12경로 한 덩어리</b>로만 봅니다. 이걸 <b>FAB별로 나눠</b>
+  어느 구간이 막혔는지 점수로 바로 보이게 하는 안입니다.
+  전체 점수(unified)는 <b>지금 그대로 둡니다.</b></p>
+  <div class="meta">
+    <span>FAB 마다 <b>최대 10점</b></span>
+    <span>경로 <b>12개</b> 전부 배정</span>
+    <span>변화값 기준</span>
+    <span>전체 점수 영향 <b>없음</b></span><span>컬럼 <b>15칸</b> 추가</span>
+    <span>2026-09-11</span>
+  </div>
+</div>
+
+<section>
+<h2>1. 지금과 무엇이 달라지나</h2>
+<p class="h2sub">보는 단위만 늘어납니다. 기존 점수 체계는 건드리지 않습니다.</p>
+<div class="tw"><table>
+<thead><tr><th style="width:18%"></th><th style="width:34%">지금</th><th>바뀐 뒤</th></tr></thead>
+<tbody>
+<tr><td>PIO 집계</td><td>12경로를 모두 더해 숫자 하나</td><td>12경로를 <b>FAB별로 나눠</b> 집계</td></tr>
+<tr><td>FAB별 점수</td><td><span class="tag r">없음</span></td><td><b>FAB 마다 0~10점</b></td></tr>
+<tr><td>어디가 막혔나</td><td>문자열로만 표시 (<code>pio_hot_path</code>)</td><td><b>점수로 바로</b> 보임</td></tr>
+<tr class="hl"><td>전체 점수</td><td>12경로 합 → 최대 +5점</td><td><b>그대로</b> (변경 없음)</td></tr>
+<tr class="hl"><td>등급 경계</td><td>ALL 48 / 60 / 80</td><td><b>그대로</b> (재조정 불필요)</td></tr>
+</tbody></table></div>
+
+<h3>예를 들면</h3>
+<p>M16A → M16B 리프터가 막혀 10분 실패가 <b>3건 → 18건</b>으로 늘었다고 하겠습니다.</p>
+<div class="tw"><table>
+<thead><tr><th style="width:16%">FAB</th><th class="n" style="width:12%">점수</th><th>근거</th></tr></thead>
+<tbody>
+<tr class="hl"><td><b>M16A</b></td><td class="n"><b>3</b></td><td>M16A→M16B 18건 — <b>내보내다</b> 실패</td></tr>
+<tr class="hl"><td><b>M16B</b></td><td class="n"><b>3</b></td><td>M16A→M16B 18건 — <b>못 받고</b> 있음</td></tr>
+<tr class="dim"><td>M16HUB · M14 · M14B</td><td class="n">0</td><td>—</td></tr>
+</tbody>
+<tfoot><tr><td colspan="3">두 FAB 화면에 신호가 뜹니다. 전체 점수는 지금과 같은 <b>+1점</b> 입니다.</td></tr></tfoot>
+</table></div>
+</section>
+
+<section>
+<h2>2. 경로를 FAB에 어떻게 붙이나</h2>
+<p class="h2sub">기준은 <b>방향</b> 하나입니다.</p>
+<div class="tw"><table>
+<thead><tr><th class="c" style="width:12%">구분</th><th style="width:26%">뜻</th><th style="width:14%">가중치</th><th>왜 이렇게</th></tr></thead>
+<tbody>
+<tr><td class="c"><span class="tag g">직접</span></td><td>그 FAB에서 <b>내보내다</b> 실패</td><td class="n">2</td>
+<td>물건이 그 FAB에 쌓입니다. 정체의 직접 원인입니다</td></tr>
+<tr class="dim"><td class="c"><span class="tag y">간접</span></td><td>그 FAB으로 <b>들여보내다</b> 실패</td><td class="n">1</td>
+<td>받는 쪽 포트가 막혔을 수 있습니다. 영향은 있으나 간접입니다</td></tr>
+</tbody></table></div>
+<p>FAB 하나에 주어진 <b>10점</b>을 그 FAB의 경로들이 위 가중치로 나눠 갖습니다.
+직접이 간접의 <b>2배</b>입니다. 나눈 몫을 다 더하면 정확히 10이 됩니다.</p>
+
+<div class="box">
+<b class="lab">한도가 있어야 구분이 됩니다</b>
+<p>경로마다 몫(한도)이 정해져 있어, <b>한 경로가 아무리 심해도 제 한도까지만</b> 올라갑니다.
+그래서 “한 군데 막힘”과 “여러 군데 막힘”이 점수로 구분됩니다.</p>
+</div>
+</section>
+
+<section>
+<h2>3. FAB별 지표와 한도</h2>
+<p class="h2sub">FAB 마다 합이 정확히 <b>10점</b>입니다.</p>
+<h3>M16HUB — 지표 7개</h3>
+<div class="tw"><table>
+<thead><tr><th class="c" style="width:9%">구분</th><th style="width:20%">경로</th>
+<th class="c" style="width:11%">설비</th><th class="n" style="width:8%">한도</th><th>무슨 상황일 때 점수가 오르나</th></tr></thead>
+<tbody>
+<tr><td class="c"><span class="tag g">직접</span></td><td><code>M16HUB->MLUD</code></td><td class="c"><code>6FIOB%</code></td><td class="n"><b>2</b></td><td>HUB → MLUD(수동구간) 로 못 내보냄</td></tr>
+<tr><td class="c"><span class="tag g">직접</span></td><td><code>M16HUB->M14B</code></td><td class="c"><code>4ABLD%</code></td><td class="n"><b>2</b></td><td>HUB → M14B(7F) 로 못 올려보냄</td></tr>
+<tr><td class="c"><span class="tag g">직접</span></td><td><code>M16HUB->M14A</code></td><td class="c"><code>4AFC%</code></td><td class="n"><b>2</b></td><td>HUB → M14A 로 못 내보냄</td></tr>
+<tr><td class="c"><span class="tag g">직접</span></td><td><code>M16HUB->M16A</code></td><td class="c"><code>6ABL%</code></td><td class="n"><b>1</b></td><td>HUB → M16A 로 못 내보냄</td></tr>
+<tr class="dim"><td class="c"><span class="tag y">간접</span></td><td><code>M16HUB<-M16A</code></td><td class="c"><code>6ABL%</code></td><td class="n"><b>1</b></td><td>M16A → HUB 로 못 보냄</td></tr>
+<tr class="dim"><td class="c"><span class="tag y">간접</span></td><td><code>M16HUB<-M14A</code></td><td class="c"><code>4AFC%</code></td><td class="n"><b>1</b></td><td>M14A → HUB 로 못 보냄</td></tr>
+<tr class="dim"><td class="c"><span class="tag y">간접</span></td><td><code>M16HUB<-M14B</code></td><td class="c"><code>4ABLD%</code></td><td class="n"><b>1</b></td><td>M14B(7F) → HUB 로 못 내려보냄</td></tr>
+</tbody>
+<tfoot><tr class="hl"><td class="c"><b>합</b></td><td colspan="2">직접 7점 + 간접 3점</td>
+<td class="n"><b>10</b></td><td>HUB 는 사방으로 내보내는 곳이라 <b>직접이 4개</b>로 가장 많습니다. 경로가 많은 만큼 하나당 몫은 작습니다.</td></tr></tfoot>
+</table></div>
+<h3>M16A — 지표 4개</h3>
+<div class="tw"><table>
+<thead><tr><th class="c" style="width:9%">구분</th><th style="width:20%">경로</th>
+<th class="c" style="width:11%">설비</th><th class="n" style="width:8%">한도</th><th>무슨 상황일 때 점수가 오르나</th></tr></thead>
+<tbody>
+<tr><td class="c"><span class="tag g">직접</span></td><td><code>M16HUB<-M16A</code></td><td class="c"><code>6ABL%</code></td><td class="n"><b>3</b></td><td>M16A → HUB 로 못 보냄</td></tr>
+<tr><td class="c"><span class="tag g">직접</span></td><td><code>M16A->M16B</code></td><td class="c"><code>6ALF%</code></td><td class="n"><b>3</b></td><td>M16A → M16B 로 못 보냄</td></tr>
+<tr class="dim"><td class="c"><span class="tag y">간접</span></td><td><code>M16HUB->M16A</code></td><td class="c"><code>6ABL%</code></td><td class="n"><b>2</b></td><td>HUB → M16A 로 못 내보냄</td></tr>
+<tr class="dim"><td class="c"><span class="tag y">간접</span></td><td><code>M16B->M16A</code></td><td class="c"><code>6ALF%</code></td><td class="n"><b>2</b></td><td>M16B → M16A 로 못 보냄</td></tr>
+</tbody>
+<tfoot><tr class="hl"><td class="c"><b>합</b></td><td colspan="2">직접 6점 + 간접 4점</td>
+<td class="n"><b>10</b></td><td>HUB · M16B 양쪽과 주고받는 구조라 <b>직접 2 · 간접 2</b> 로 균형입니다.</td></tr></tfoot>
+</table></div>
+<h3>M16B — 지표 2개</h3>
+<div class="tw"><table>
+<thead><tr><th class="c" style="width:9%">구분</th><th style="width:20%">경로</th>
+<th class="c" style="width:11%">설비</th><th class="n" style="width:8%">한도</th><th>무슨 상황일 때 점수가 오르나</th></tr></thead>
+<tbody>
+<tr><td class="c"><span class="tag g">직접</span></td><td><code>M16B->M16A</code></td><td class="c"><code>6ALF%</code></td><td class="n"><b>7</b></td><td>M16B → M16A 로 못 보냄</td></tr>
+<tr class="dim"><td class="c"><span class="tag y">간접</span></td><td><code>M16A->M16B</code></td><td class="c"><code>6ALF%</code></td><td class="n"><b>3</b></td><td>M16A → M16B 로 못 보냄</td></tr>
+</tbody>
+<tfoot><tr class="hl"><td class="c"><b>합</b></td><td colspan="2">직접 7점 + 간접 3점</td>
+<td class="n"><b>10</b></td><td><b>M16A 하고만</b> 붙어 있어 경로가 둘뿐입니다. 그래서 한 경로 몫이 가장 큽니다.</td></tr></tfoot>
+</table></div>
+<h3>M14 <span class="tag">고객 표의 #M14A</span> — 지표 5개</h3>
+<div class="tw"><table>
+<thead><tr><th class="c" style="width:9%">구분</th><th style="width:20%">경로</th>
+<th class="c" style="width:11%">설비</th><th class="n" style="width:8%">한도</th><th>무슨 상황일 때 점수가 오르나</th></tr></thead>
+<tbody>
+<tr><td class="c"><span class="tag g">직접</span></td><td><code>M16HUB<-M14A</code></td><td class="c"><code>4AFC%</code></td><td class="n"><b>3</b></td><td>M14A → HUB 로 못 보냄</td></tr>
+<tr><td class="c"><span class="tag g">직접</span></td><td><code>M14A->M14B</code></td><td class="c"><code>4ALF%</code></td><td class="n"><b>3</b></td><td>M14A → M14B 로 못 올려보냄</td></tr>
+<tr><td class="c"><span class="tag g">직접</span></td><td><code>M14A->M10A</code></td><td class="c"><code>4ABL%</code></td><td class="n"><b>2</b></td><td>M14A → M10A 로 못 보냄</td></tr>
+<tr class="dim"><td class="c"><span class="tag y">간접</span></td><td><code>M16HUB->M14A</code></td><td class="c"><code>4AFC%</code></td><td class="n"><b>1</b></td><td>HUB → M14A 로 못 내보냄</td></tr>
+<tr class="dim"><td class="c"><span class="tag y">간접</span></td><td><code>M14A<-M14B</code></td><td class="c"><code>4ALF%</code></td><td class="n"><b>1</b></td><td>M14B → M14A 로 못 내려보냄</td></tr>
+</tbody>
+<tfoot><tr class="hl"><td class="c"><b>합</b></td><td colspan="2">직접 8점 + 간접 2점</td>
+<td class="n"><b>10</b></td><td>나가는 길이 <b>셋(HUB · M14B · M10A)</b> 이라 직접이 많습니다.</td></tr></tfoot>
+</table></div>
+<h3>M14B — 지표 3개</h3>
+<div class="tw"><table>
+<thead><tr><th class="c" style="width:9%">구분</th><th style="width:20%">경로</th>
+<th class="c" style="width:11%">설비</th><th class="n" style="width:8%">한도</th><th>무슨 상황일 때 점수가 오르나</th></tr></thead>
+<tbody>
+<tr><td class="c"><span class="tag g">직접</span></td><td><code>M14A<-M14B</code></td><td class="c"><code>4ALF%</code></td><td class="n"><b>4</b></td><td>M14B → M14A 로 못 내려보냄</td></tr>
+<tr><td class="c"><span class="tag g">직접</span></td><td><code>M16HUB<-M14B</code></td><td class="c"><code>4ABLD%</code></td><td class="n"><b>4</b></td><td>M14B(7F) → HUB 로 못 내려보냄</td></tr>
+<tr class="dim"><td class="c"><span class="tag y">간접</span></td><td><code>M16HUB->M14B</code></td><td class="c"><code>4ABLD%</code></td><td class="n"><b>2</b></td><td>HUB → M14B(7F) 로 못 올려보냄</td></tr>
+</tbody>
+<tfoot><tr class="hl"><td class="c"><b>합</b></td><td colspan="2">직접 8점 + 간접 2점</td>
+<td class="n"><b>10</b></td><td>7F 라 <b>아래로 내려보내는 게 전부</b> 입니다. 직접 둘 다 몫이 큽니다.</td></tr></tfoot>
+</table></div>
+</section>
+
+<section>
+<h2>4. 점수를 매기는 방법</h2>
+<p class="h2sub">고객님 요청 세 가지를 그대로 반영했습니다.</p>
+
+<h3>4-1. 건수가 아니라 <b>늘어난 만큼</b></h3>
+<p>평소에도 계속 실패가 나는 경로는 점수가 오르지 않습니다. <b>늘어날 때</b>만 오릅니다.</p>
+<div class="tw"><table>
+<thead><tr><th style="width:34%">상황</th><th class="n" style="width:14%">10분 건수</th>
+<th class="n" style="width:14%">쓰는 값</th><th class="n" style="width:12%">점수</th><th>판단</th></tr></thead>
+<tbody>
+<tr class="dim"><td>직전에도 30건 (평소 상태)</td><td class="n">30</td><td class="n">0</td><td class="n">0</td><td>평소와 같음 — 안 올림</td></tr>
+<tr><td>직전 10건 → 30건</td><td class="n">30</td><td class="n">20</td><td class="n">3</td><td>늘어남 — 올림</td></tr>
+<tr class="hl"><td>직전 0건 → 30건 급증</td><td class="n">30</td><td class="n">30</td><td class="n">3</td><td>급증 — 올림</td></tr>
+</tbody></table></div>
+<p>줄어들 때는 0으로 막아 <b>점수를 깎지는 않습니다.</b></p>
+
+<h3>4-2. 배분 방식 — 세 안 비교</h3>
+<p>고객님이 주신 세 가지를 같은 입력으로 돌려봤습니다. M16A 기준입니다.</p>
+<div class="tw"><table>
+<thead><tr><th style="width:26%">상황</th><th class="n" style="width:16%">1안<br>비율 배분</th>
+<th class="n" style="width:16%">2안<br>한도 적용</th><th class="n" style="width:16%">3안<br>합만 자르기</th><th>비고</th></tr></thead>
+<tbody>
+<tr class="dim"><td>아무 일 없음</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td>—</td></tr>
+<tr><td>한 경로만 터짐</td><td class="n">3</td><td class="n">3</td><td class="n">10</td><td rowspan="3">3안은 세 상황이<br><b>전부 10점으로 같음</b></td></tr>
+<tr><td>두 경로 터짐</td><td class="n">6</td><td class="n">6</td><td class="n">10</td></tr>
+<tr><td>전부 터짐</td><td class="n">10</td><td class="n">10</td><td class="n">10</td></tr>
+</tbody></table></div>
+<div class="box no">
+<b class="lab">3안은 권하지 않습니다</b>
+<p>“한 군데 막힘”과 “전부 막힘”이 <b>같은 10점</b>이 됩니다.
+정보가 가장 필요한 순간에 구분이 사라집니다.</p>
+<p><b>2안(한도 적용)을 기본값으로 두었습니다.</b> 고객님 예시의 <code>N≤3 M≤4 K≤5</code> 는 합이 12 라
+1안의 <code>N+M+K ≤ 10</code> 과 어긋나는데, <b>한도 합을 정확히 10</b> 으로 맞추면 자를 일이 없어집니다.</p>
+</div>
+
+<h3>4-3. 왜 직접:간접 = 2:1 인가</h3>
+<p>간접을 직접보다 적게 주라는 요청에 따라 비율을 바꿔가며 계산했습니다.</p>
+<div class="tw"><table>
+<thead><tr><th class="c" style="width:14%">비율</th><th style="width:30%">결과</th><th>판단</th></tr></thead>
+<tbody>
+<tr class="hl"><td class="c"><b>2 : 1</b></td><td>모든 간접 지표가 <b>1점 이상</b> 확보</td><td><b>채택</b> — 넣기로 한 지표가 다 살아있음</td></tr>
+<tr class="dim"><td class="c">3 : 1</td><td>일부 간접 한도가 <b>0</b> 이 됨<br>(M16HUB ←M14B, M14 ←M14B)</td><td rowspan="2">넣기로 해놓고 점수를 0 주는 셈</td></tr>
+<tr class="dim"><td class="c">4 : 1</td><td>0 이 되는 지표가 더 늘어남</td></tr>
+</tbody></table></div>
+</section>
+
+<section>
+<h2>5. 간접 지표를 넣어야 하나</h2>
+<p class="h2sub">고객님이 분석을 요청하신 부분입니다. <b>결론: 넣되, 전체 점수에는 반영하지 않습니다.</b></p>
+
+<h3>5-1. 넣어야 하는 이유 — FAB에 따라 간접이 유일한 눈입니다</h3>
+<div class="tw"><table>
+<thead><tr><th style="width:14%">FAB</th><th class="n" style="width:12%">직접</th><th class="n" style="width:12%">간접</th><th>간접을 빼면</th></tr></thead>
+<tbody>
+<tr class="hl"><td><b>M16B</b></td><td class="n">1</td><td class="n">1</td><td><b>들어오는 실패를 전혀 못 봅니다</b> — 직접이 하나뿐</td></tr>
+<tr class="hl"><td><b>M14B</b></td><td class="n">2</td><td class="n">1</td><td>〃</td></tr>
+<tr class="hl"><td><b>M16A</b></td><td class="n">2</td><td class="n">2</td><td>〃</td></tr>
+<tr class="dim"><td>M16HUB</td><td class="n">4</td><td class="n">3</td><td>직접만으로도 볼 수 있음</td></tr>
+<tr class="dim"><td>M14</td><td class="n">3</td><td class="n">2</td><td>〃</td></tr>
+</tbody></table></div>
+<p>M16B 는 직접 지표가 <code>M16B->M16A</code> <b>하나뿐</b>입니다. 간접을 빼면
+<code>M16A->M16B</code> 가 터져도 M16B 점수는 <b>0점</b> 이라 화면에 아무 신호도 뜨지 않습니다.
+실제로는 M16B 가 물건을 못 받고 있는 상황인데도요.</p>
+
+<h3>5-2. 전체 점수에 넣으면 안 되는 이유 — 같은 실패를 두 번 셉니다</h3>
+<p>모든 간접 지표는 <b>다른 FAB의 직접 지표와 같은 데이터</b>입니다.
+12경로 중 <b>9개</b>가 두 FAB에 동시에 들어갑니다.</p>
+<div class="tw"><table>
+<thead><tr><th style="width:26%">경로</th><th style="width:24%">이 FAB 에 직접</th><th style="width:24%">저 FAB 에 간접</th><th>실제</th></tr></thead>
+<tbody>
+<tr><td><code>M16A->M16B</code></td><td>M16A (3점)</td><td>M16B (3점)</td><td rowspan="3">같은 실패 <b>하나</b>를<br>보내는 쪽·받는 쪽에서 각각 본 것</td></tr>
+<tr><td><code>M16HUB->M16A</code></td><td>M16HUB (1점)</td><td>M16A (2점)</td></tr>
+<tr><td><code>M16HUB->M14B</code></td><td>M16HUB (2점)</td><td>M14B (2점)</td></tr>
+</tbody></table></div>
+<div class="box no">
+<b class="lab">FAB 점수를 더해 전체 점수로 보내면</b>
+<p>실패 1건이 <b>두 번</b> 계상됩니다. 게다가 FAB 5개 × 10점 = <b>최대 50점</b> 이라
+전체 점수 가산이 지금 <b>+5점 → +23점</b> 으로 4배 넘게 부풀어 <b>등급 경계가 전부 틀어집니다.</b></p>
+</div>
+<div class="box ok">
+<b class="lab">그래서 이렇게 나눕니다</b>
+<p><b>FAB별 10점</b> — 그 FAB 화면 표시 · FAB별 등급 판정 · 조치 지점 안내</p>
+<p><b>전체 점수</b> — 지금 그대로 (12경로 합 한 번, 최대 +5점)</p>
+<p>중복이 원천적으로 없어지고, 8월 성능평가 결과도 그대로 유효합니다.</p>
+</div>
+</section>
+
+
+<section>
+<h2>6. 어떤 컬럼이 생기나</h2>
+<p class="h2sub">발동이벤트 CSV 에 <b>FAB 당 3칸 · 모두 15칸</b>이 추가됩니다. 기존 컬럼은 그대로입니다.</p>
+
+<div class="tw"><table>
+<thead><tr><th style="width:12%">FAB</th><th style="width:30%">컬럼명</th>
+<th class="c" style="width:10%">값</th><th>무엇인가</th></tr></thead>
+<tbody>
+<tr><td rowspan="3"><b>M16HUB</b></td><td><code>pio_M16HUB_10min_cnt</code></td><td class="c">정수</td><td>M16HUB 에 붙은 경로들의 <b>10분 실패 건수 합</b></td></tr>
+<tr class="dim"><td><code>pio_M16HUB_10min_delta</code></td><td class="c">정수</td><td>그중 <b>늘어난 만큼</b> — 점수 계산에 실제로 쓴 값</td></tr>
+<tr class="hl"><td><code>pio_M16HUB_score</code></td><td class="c">0~10</td><td><b>M16HUB PIO 점수</b></td></tr>
+<tr><td rowspan="3"><b>M14</b></td><td><code>pio_M14_10min_cnt</code></td><td class="c">정수</td><td>M14 에 붙은 경로들의 <b>10분 실패 건수 합</b></td></tr>
+<tr class="dim"><td><code>pio_M14_10min_delta</code></td><td class="c">정수</td><td>그중 <b>늘어난 만큼</b> — 점수 계산에 실제로 쓴 값</td></tr>
+<tr class="hl"><td><code>pio_M14_score</code></td><td class="c">0~10</td><td><b>M14 PIO 점수</b></td></tr>
+<tr><td rowspan="3"><b>M14B</b></td><td><code>pio_M14B_10min_cnt</code></td><td class="c">정수</td><td>M14B 에 붙은 경로들의 <b>10분 실패 건수 합</b></td></tr>
+<tr class="dim"><td><code>pio_M14B_10min_delta</code></td><td class="c">정수</td><td>그중 <b>늘어난 만큼</b> — 점수 계산에 실제로 쓴 값</td></tr>
+<tr class="hl"><td><code>pio_M14B_score</code></td><td class="c">0~10</td><td><b>M14B PIO 점수</b></td></tr>
+<tr><td rowspan="3"><b>M16A</b></td><td><code>pio_M16A_10min_cnt</code></td><td class="c">정수</td><td>M16A 에 붙은 경로들의 <b>10분 실패 건수 합</b></td></tr>
+<tr class="dim"><td><code>pio_M16A_10min_delta</code></td><td class="c">정수</td><td>그중 <b>늘어난 만큼</b> — 점수 계산에 실제로 쓴 값</td></tr>
+<tr class="hl"><td><code>pio_M16A_score</code></td><td class="c">0~10</td><td><b>M16A PIO 점수</b></td></tr>
+<tr><td rowspan="3"><b>M16B</b></td><td><code>pio_M16B_10min_cnt</code></td><td class="c">정수</td><td>M16B 에 붙은 경로들의 <b>10분 실패 건수 합</b></td></tr>
+<tr class="dim"><td><code>pio_M16B_10min_delta</code></td><td class="c">정수</td><td>그중 <b>늘어난 만큼</b> — 점수 계산에 실제로 쓴 값</td></tr>
+<tr class="hl"><td><code>pio_M16B_score</code></td><td class="c">0~10</td><td><b>M16B PIO 점수</b></td></tr>
+</tbody>
+</table></div>
+
+<h3>6-1. 가운데 칸(<code>10min_delta</code>)이 왜 필요한가</h3>
+<p>점수를 <b>늘어난 만큼</b>으로 매기기 때문에, 건수와 점수가 따로 노는 구간이 생깁니다.</p>
+<div class="tw"><table>
+<thead><tr><th style="width:34%">상황</th><th class="n" style="width:16%">10min_cnt</th>
+<th class="n" style="width:16%">10min_delta</th><th class="n" style="width:12%">score</th><th>화면에서 읽히는 것</th></tr></thead>
+<tbody>
+<tr class="hl"><td>평소에도 계속 30건</td><td class="n">30</td><td class="n">0</td><td class="n">0</td>
+<td>“많긴 한데 <b>안 늘었다</b>” — 정상</td></tr>
+<tr><td>10건 → 30건 증가</td><td class="n">30</td><td class="n">20</td><td class="n">7</td><td>늘어남 — 조치 필요</td></tr>
+<tr><td>0건 → 30건 급증</td><td class="n">30</td><td class="n">30</td><td class="n">7</td><td>급증 — 조치 필요</td></tr>
+</tbody></table></div>
+<div class="box no">
+<b class="lab">가운데 칸이 없으면</b>
+<p>첫 줄이 <b>건수 30 인데 점수 0</b> 으로만 보입니다. 운영자가 고장으로 오해합니다.
+가운데 칸이 있으면 <code>delta = 0</code> 이라 “안 늘어서 안 올렸다” 가 바로 읽힙니다.</p>
+<p>2칸(FAB 당 <code>cnt</code> · <code>score</code>, 모두 10칸)으로 줄일 수도 있습니다.
+그 경우 늘어난 양은 <code>reason</code> 문자열에만 남습니다.</p>
+</div>
+
+<h3>6-2. 실제 출력 — M16A → M16B 리프터가 막혔을 때</h3>
+<p>10분 실패가 3건 → 18건으로 늘어난 상황입니다.</p>
+<div class="tw"><table>
+<thead><tr><th style="width:20%">FAB</th><th class="n" style="width:20%">10min_cnt</th>
+<th class="n" style="width:20%">10min_delta</th><th class="n" style="width:16%">score</th></tr></thead>
+<tbody>
+<tr><td><b>M16HUB</b></td><td class="n">2</td><td class="n">0</td><td class="n">0</td></tr><tr><td><b>M14</b></td><td class="n">2</td><td class="n">0</td><td class="n">0</td></tr><tr><td><b>M14B</b></td><td class="n">0</td><td class="n">0</td><td class="n">0</td></tr><tr><td><b>M16A</b></td><td class="n">18</td><td class="n">15</td><td class="n"><b>3</b></td></tr><tr><td><b>M16B</b></td><td class="n">18</td><td class="n">15</td><td class="n"><b>3</b></td></tr>
+</tbody></table></div>
+<p><b>근거 문자열</b>(<code>reason</code> 컬럼에 함께 들어갑니다)</p>
+<pre>M16A=3점[M16A->M16B(18건,+15→3점)] / M16B=3점[M16A->M16B*(18건,+15→3점)]</pre>
+<p>M16A 와 M16B 가 같은 18건인 것은 <b>같은 경로를 보내는 쪽·받는 쪽에서 각각</b> 보기 때문입니다.
+FAB 별로 보는 값이라 맞습니다.</p>
+
+<h3>6-3. 실제 출력 — HUB 에서 사방으로 실패가 터졌을 때</h3>
+<div class="tw"><table>
+<thead><tr><th style="width:20%">FAB</th><th class="n" style="width:20%">10min_cnt</th>
+<th class="n" style="width:20%">10min_delta</th><th class="n" style="width:16%">score</th></tr></thead>
+<tbody>
+<tr><td><b>M16HUB</b></td><td class="n">48</td><td class="n">48</td><td class="n"><b>7</b></td></tr><tr><td><b>M14</b></td><td class="n">12</td><td class="n">12</td><td class="n"><b>1</b></td></tr><tr><td><b>M14B</b></td><td class="n">12</td><td class="n">12</td><td class="n"><b>2</b></td></tr><tr><td><b>M16A</b></td><td class="n">12</td><td class="n">12</td><td class="n"><b>2</b></td></tr><tr><td><b>M16B</b></td><td class="n">0</td><td class="n">0</td><td class="n">0</td></tr>
+</tbody></table></div>
+<div class="box">
+<b class="lab">근원과 여파가 점수 크기로 구분됩니다</b>
+<p>HUB 가 <b>7점</b> 으로 가장 높고, 영향을 받는 세 FAB 이 1~2점씩 뜹니다.
+어디를 먼저 봐야 하는지가 바로 보입니다.</p>
+</div>
+
+<h3>6-4. 기존 컬럼은 그대로</h3>
+<div class="tw"><table>
+<thead><tr><th style="width:28%">컬럼</th><th class="c" style="width:14%">변경</th><th>내용</th></tr></thead>
+<tbody>
+<tr><td><code>pio_10min_cnt</code></td><td class="c"><span class="tag g">그대로</span></td><td>12경로 전체 합 — 전체 점수 산출에 계속 사용</td></tr>
+<tr><td><code>pio_score</code></td><td class="c"><span class="tag g">그대로</span></td><td>전체 점수에 더하는 값 (최대 +5점)</td></tr>
+<tr><td><code>pio_hot_path</code></td><td class="c"><span class="tag g">그대로</span></td><td>가장 많이 실패한 경로 이름</td></tr>
+<tr><td><code>pio_hot_cnt</code></td><td class="c"><span class="tag g">그대로</span></td><td>그 경로의 건수</td></tr>
+</tbody></table></div>
+<div class="box ok">
+<b class="lab">수집이 멈추면</b>
+<p>PIO 상태파일이 없거나 5분 이상 갱신되지 않으면 <b>15칸이 전부 0</b> 이 되고,
+전체 점수도 PIO 도입 전과 같아집니다. 기존 안전장치가 그대로 작동합니다.</p>
+</div>
+</section>
+
+<section>
+<h2>7. 확인 부탁드립니다</h2>
+<div class="tw"><table>
+<thead><tr><th style="width:24%">항목</th><th style="width:38%">현재 표 기준</th><th>여쭙는 것</th></tr></thead>
+<tbody>
+<tr class="hl"><td><code>M14A->M14B</code></td>
+<td>#M14B 에 간접으로 <b>없음</b></td>
+<td>M14B 로 들어오는 경로는 <code>M16HUB->M14B</code> · <code>M14A->M14B</code> 둘인데
+앞의 것만 있습니다. <b>의도적으로 빼신 것인지</b> 확인 부탁드립니다</td></tr>
+<tr class="hl"><td><code>M14A->M10A</code></td>
+<td>M14 직접 (한도 2점)</td>
+<td>앞서 <b>“M10A 는 표기만 하고 사용은 하지 말라”</b> 고 하신 것과 다릅니다.
+<b>점수에 반영할지</b> 확인 부탁드립니다</td></tr>
+</tbody></table></div>
+</section>
+
+<div class="foot">
+<p><b>바뀌지 않는 것</b> 전체 점수(unified) 계산식 · 등급 경계(ALL 48/60/80) ·
+8월 성능평가 결과 · 기존 <code>pio_10min_cnt</code> / <code>pio_score</code> 컬럼</p>
+<p><b>추가되는 것</b> FAB별 컬럼 10개 —
+<code>pio_M16HUB_10min_cnt</code> / <code>pio_M16HUB_score</code> 형식으로 5개 FAB × 2개</p>
+<p><b>안전장치</b> PIO 수집이 멈추면(상태파일 없음 또는 5분 이상 미갱신) 모든 FAB 점수가 0 이 되어
+PIO 도입 전과 같은 점수가 됩니다</p>
+<p>M16A HUBROOM 반송정체 예측 · 2026-09-11</p>
+</div>
+
+</div>
+</body>
+</html>
