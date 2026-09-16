@@ -173,35 +173,39 @@ SELECT GUBUN,
        TO_CHAR(GROUP1, 'YYYY-MM-DD HH24:MI') AS GROUP1,
        SUM(CASE WHEN FT = 'DEPOSIT' THEN 1 ELSE 0 END) AS DEPOSITED_FAIL_CNT
 FROM (
-    SELECT TO_DATE(SUBSTR(A.COMPLT_TM, 1, 12), 'YYYYMMDDHH24MI') AS GROUP1,
-           UPPER(TRIM(A.FAIL_TYP)) AS FT,
-           UPPER(TRIM(A.FAC_ID))  AS FC,
-           UPPER(TRIM(A.FAB_ID))  AS FB,
-           UPPER(TRIM(A.PORT_NM)) AS PN,
-           -- ★ 2026-09-16 수정 — 12경로 중 5개가 8시간 내내 0건이던 문제
-           --   ① FAC_ID/FAB_ID 도 UPPER(TRIM()) 정규화 (앞뒤 공백·대소문자 대비)
-           --   ② FAB_ID='M14A' / 'M10A' 만 통째로 0 → 표기 흔들림 대비해 'M14'/'M10' 도 허용
-           --   ③ M16HUB->M16A 의 FAB_ID='M14B' 는 오타로 보임
-           --      (HUB 출발 경로는 나머지 셋이 모두 'M16HUB') → 'M16HUB' 를 함께 허용
-           --   어느 경우든 조건을 넓히기만 해서, 지금 잡히던 건이 빠지는 일은 없다.
+    SELECT GROUP1, FT,
+           -- 2026-09-16 수정 : 12경로 중 5개가 0건이던 문제
+           --   (1) FAC_ID/FAB_ID 도 UPPER(TRIM()) 정규화 (앞뒤 공백/대소문자 대비)
+           --   (2) FAB_ID='M14A' / 'M10A' 만 통째로 0 이므로 'M14'/'M10' 도 허용
+           --   (3) M16HUB->M16A 의 FAB_ID='M14B' 는 오타로 보여 'M16HUB' 도 허용
+           --   조건을 넓히기만 해서 지금 잡히던 건이 빠지지 않는다.
+           --   FC/FB/PN 별칭은 반드시 한 단계 아래 SELECT 에서 만든다.
+           --   같은 SELECT 안에서는 방금 만든 별칭을 참조할 수 없다 (ORA-00904).
            CASE
-               WHEN FC='M16' AND FB='M16HUB'            AND PN LIKE '6FIOB%' THEN 'M16HUB->MLUD'
-               WHEN FC='M16' AND FB='M16HUB'            AND PN LIKE '4ABLD%' THEN 'M16HUB->M14B'
-               WHEN FC='M14' AND FB='M14B'              AND PN LIKE '4ABLD%' THEN 'M16HUB<-M14B'
-               WHEN FC='M16' AND FB='M16HUB'            AND PN LIKE '4AFC%'  THEN 'M16HUB->M14A'
-               WHEN FC='M14' AND FB IN ('M14A','M14')   AND PN LIKE '4AFC%'  THEN 'M16HUB<-M14A'
-               WHEN FC='M16' AND FB IN ('M16HUB','M14B') AND PN LIKE '6ABL%' THEN 'M16HUB->M16A'
-               WHEN FC='M16' AND FB='M16A'              AND PN LIKE '6ABL%'  THEN 'M16HUB<-M16A'
-               WHEN FC='M16' AND FB='M16A'              AND PN LIKE '6ALF%'  THEN 'M16A->M16B'
-               WHEN FC='M16' AND FB='M16B'              AND PN LIKE '6ALF%'  THEN 'M16B->M16A'
-               WHEN FC='M14' AND FB IN ('M14A','M14')   AND PN LIKE '4ALF%'  THEN 'M14A->M14B'
-               WHEN FC='M14' AND FB='M14B'              AND PN LIKE '4ALF%'  THEN 'M14A<-M14B'
-               WHEN FC='M14' AND FB IN ('M10A','M10')   AND PN LIKE '4ABL%'  THEN 'M14A->M10A'
+               WHEN FC='M16' AND FB='M16HUB'             AND PN LIKE '6FIOB%' THEN 'M16HUB->MLUD'
+               WHEN FC='M16' AND FB='M16HUB'             AND PN LIKE '4ABLD%' THEN 'M16HUB->M14B'
+               WHEN FC='M14' AND FB='M14B'               AND PN LIKE '4ABLD%' THEN 'M16HUB<-M14B'
+               WHEN FC='M16' AND FB='M16HUB'             AND PN LIKE '4AFC%'  THEN 'M16HUB->M14A'
+               WHEN FC='M14' AND FB IN ('M14A','M14')    AND PN LIKE '4AFC%'  THEN 'M16HUB<-M14A'
+               WHEN FC='M16' AND FB IN ('M16HUB','M14B') AND PN LIKE '6ABL%'  THEN 'M16HUB->M16A'
+               WHEN FC='M16' AND FB='M16A'               AND PN LIKE '6ABL%'  THEN 'M16HUB<-M16A'
+               WHEN FC='M16' AND FB='M16A'               AND PN LIKE '6ALF%'  THEN 'M16A->M16B'
+               WHEN FC='M16' AND FB='M16B'               AND PN LIKE '6ALF%'  THEN 'M16B->M16A'
+               WHEN FC='M14' AND FB IN ('M14A','M14')    AND PN LIKE '4ALF%'  THEN 'M14A->M14B'
+               WHEN FC='M14' AND FB='M14B'               AND PN LIKE '4ALF%'  THEN 'M14A<-M14B'
+               WHEN FC='M14' AND FB IN ('M10A','M10')    AND PN LIKE '4ABL%'  THEN 'M14A->M10A'
            END AS GUBUN
-    FROM STA_TRANS_TIMEOUT_FAIL_HIS A
-    WHERE A.COMPLT_TM >= :t_from
-      AND A.COMPLT_TM <  :t_to
-      AND A.FAC_ID IN ('M14', 'M16')
+    FROM (
+        SELECT TO_DATE(SUBSTR(A.COMPLT_TM, 1, 12), 'YYYYMMDDHH24MI') AS GROUP1,
+               UPPER(TRIM(A.FAIL_TYP)) AS FT,
+               UPPER(TRIM(A.FAC_ID))   AS FC,
+               UPPER(TRIM(A.FAB_ID))   AS FB,
+               UPPER(TRIM(A.PORT_NM))  AS PN
+        FROM STA_TRANS_TIMEOUT_FAIL_HIS A
+        WHERE A.COMPLT_TM >= :t_from
+          AND A.COMPLT_TM <  :t_to
+          AND A.FAC_ID IN ('M14', 'M16')
+    )
 )
 WHERE GUBUN IS NOT NULL
 GROUP BY GUBUN, GROUP1
