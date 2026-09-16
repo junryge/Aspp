@@ -238,6 +238,68 @@ PIO_GUBUNS = [
 PIO_COL_SUFFIX = '_PIOERROR_DEPOSITED'
 PIO_CSV_COLUMNS = [g + PIO_COL_SUFFIX for g in PIO_GUBUNS]
 
+# ★ v4.2 — PIO_ERROR FAB별 점수 (발동이벤트 CSV 기록용, 10칸)
+#   경로를 FAB 에 배정한다. True = 직접(그 FAB 에서 나가는 반송의 실패),
+#                          False = 간접(그 FAB 으로 들어오는 반송의 실패).
+#   한 경로는 출발 FAB 과 도착 FAB 양쪽에 들어간다.
+#   ※ 이 점수는 unified 에 더하지 않는다 — 기록만 한다.
+#      area_score 반영은 발동이벤트_영역분리.py 가 한다 (단계가 나뉘어 중복이 없다).
+PIO_AREA_ROUTES = _TD('PIO_AREA_ROUTES', {
+    'M16HUB': [['M16HUB->MLUD', True],  ['M16HUB->M14B', True],
+               ['M16HUB->M14A', True],  ['M16HUB->M16A', True],
+               ['M16HUB<-M16A', False], ['M16HUB<-M14A', False],
+               ['M16HUB<-M14B', False]],
+    'M16A':   [['M16HUB<-M16A', True],  ['M16A->M16B', True],
+               ['M16HUB->M16A', False], ['M16B->M16A', False]],
+    'M16B':   [['M16B->M16A', True],
+               ['M16A->M16B', False]],
+    'M14':    [['M16HUB<-M14A', True],  ['M14A->M14B', True],
+               ['M14A->M10A', True],
+               ['M16HUB->M14A', False], ['M14A<-M14B', False]],
+    'M14B':   [['M14A<-M14B', True],    ['M16HUB<-M14B', True],
+               ['M16HUB->M14B', False]],
+})
+PIO_FAB_AREAS = ['M16HUB', 'M14', 'M14B', 'M16A', 'M16B']
+PIO_W_DIRECT = _T('PIO_W_DIRECT', 2.0)       # 직접 가중 — 실패의 책임은 출발지에 있다
+PIO_W_INDIRECT = _T('PIO_W_INDIRECT', 1.0)   # 간접 가중
+PIO_FAB_MAX = _T('PIO_FAB_MAX', 10)          # FAB 당 상한
+#   [가중합 기준값, 점수] 오름차순. 2026-09-10~15 (8,639분) 실측 p50/p75/p90/p95/p99.
+#   ★ M14 · M16B 는 3경로(M16HUB->M16A / M14A->M14B / M14A->M10A)가 0건이라 분포 부족 —
+#     PIO_DATA_MAKE.py CASE 수정본으로 재추출 후 재산정할 것.
+PIO_FAB_BINS = _TD('PIO_FAB_BINS', {
+    'M16HUB': [[8, 1], [14, 3], [28, 5], [37, 8], [61, 10]],     # 확정
+    'M16A':   [[1, 1], [10, 3], [26, 5], [44, 8], [80, 10]],     # 확정
+    'M14B':   [[10, 1], [20, 3], [38, 5], [52, 8], [94, 10]],    # 확정
+    'M14':    [[1, 1], [2, 3], [6, 5], [9, 8], [17, 10]],        # ★ 재산정 필요
+    'M16B':   [[1, 1], [1, 3], [2, 5], [3, 8], [4, 10]],         # ★ 재산정 필요
+})
+
+
+def pio_fab_term(by_route):
+    """{경로: 10분 누적} → {area: {'wsum': 가중합, 'score': 0~10}}"""
+    out = {}
+    for area in PIO_FAB_AREAS:
+        wsum = 0.0
+        for row in PIO_AREA_ROUTES.get(area, ()):
+            try:
+                route, direct = row[0], bool(row[1])
+            except (TypeError, IndexError):
+                continue
+            c = (by_route or {}).get(route) or 0
+            if c:
+                wsum += c * (PIO_W_DIRECT if direct else PIO_W_INDIRECT)
+        wsum = round(wsum, 1)
+        pts = 0
+        for row in PIO_FAB_BINS.get(area, ()):
+            try:
+                cut, p = row[0], row[1]
+            except (TypeError, IndexError):
+                continue
+            if wsum >= cut:
+                pts = p
+        out[area] = {'wsum': wsum, 'score': min(PIO_FAB_MAX, pts)}
+    return out
+
 
 def pio_term(cnt10):
     """10분 건수 → raw 가산 (구간표)."""
@@ -933,6 +995,8 @@ def evaluate_unified(t, area_results, flow_result, propagation_history, pio=None
         'pio_10min_cnt': pio.get('cnt10', 0) or 0,
         'pio_hot_path': pio.get('hot_path', '') or '',
         'pio_hot_cnt': pio.get('hot_cnt', 0) or 0,
+        # ★ v4.2 — PIO FAB별 (기록용 10칸). unified 점수에는 더하지 않는다.
+        'pio_fab': pio_fab_term(pio.get('by_route')),
     }
 
 
@@ -1215,6 +1279,13 @@ EVENT_FIELDS = [
     'M16A_sorter_fail', 'M16B_sorter_fail',
     # 영역 점수 원본 (50 클리핑 전, 5 영역) — score 가 50 캡 됐는지 확인용
     'M16HUB_score_raw', 'M14_score_raw', 'M14B_score_raw', 'M16A_score_raw', 'M16B_score_raw',
+    # ★ v4.2 — PIO_ERROR FAB별 (10칸). 10분 가중합(직접2.0/간접1.0)과 구간표 점수 0~10.
+    #   unified 에는 더하지 않는다 — area_score 반영은 발동이벤트_영역분리.py 가 한다.
+    'M16HUB_PIO_WSUM10', 'M16HUB_PIO_SCORE',
+    'M14_PIO_WSUM10', 'M14_PIO_SCORE',
+    'M14B_PIO_WSUM10', 'M14B_PIO_SCORE',
+    'M16A_PIO_WSUM10', 'M16A_PIO_SCORE',
+    'M16B_PIO_WSUM10', 'M16B_PIO_SCORE',
 ]
 
 INCIDENT_FIELDS = [
@@ -1519,7 +1590,17 @@ def event_to_row(ev, file_name):
         A('M16HUB','area_score_raw',0), A('M14','area_score_raw',0),
         A('M14B','area_score_raw',0), A('M16A','area_score_raw',0),
         A('M16B','area_score_raw',0),
-    ]
+    ] + _pio_fab_row(ctx.get('pio_fab'))
+
+
+def _pio_fab_row(pf):
+    """★ v4.2 — EVENT_FIELDS 의 PIO FAB 10칸 값. 순서는 PIO_FAB_AREAS 와 같다."""
+    pf = pf or {}
+    out = []
+    for a in PIO_FAB_AREAS:
+        d = pf.get(a) or {}
+        out += [d.get('wsum', 0), d.get('score', 0)]
+    return out
 
 
 def _predict_fault_type_from_incident(c):
