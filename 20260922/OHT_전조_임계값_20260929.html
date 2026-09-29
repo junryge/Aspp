@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OHT 전조 임계값</title>
+<style>
+:root{
+  --bg:#f7f8fa; --card:#ffffff; --ink:#1d2330; --sub:#5b6475; --line:#dfe3ea;
+  --acc:#2f6fdf; --warn:#c9731f; --bad:#d64545; --ok:#2e9d62; --soft:#eef3fc; --pick:#e7f1ff;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#14171d; --card:#1c2029; --ink:#e7eaf0; --sub:#9aa3b2; --line:#2e3441;
+    --acc:#6b9cf5; --warn:#f0a35a; --bad:#f07070; --ok:#5cc58d; --soft:#1f2838; --pick:#1d2b44;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#14171d; --card:#1c2029; --ink:#e7eaf0; --sub:#9aa3b2; --line:#2e3441;
+  --acc:#6b9cf5; --warn:#f0a35a; --bad:#f07070; --ok:#5cc58d; --soft:#1f2838; --pick:#1d2b44;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Pretendard","Malgun Gothic","Apple SD Gothic Neo",sans-serif;line-height:1.65;font-size:15px}
+main{max-width:960px;margin:0 auto;padding:28px 16px 60px}
+h1{font-size:24px;margin:0 0 4px}
+h2{font-size:18px;margin:32px 0 10px;padding-bottom:6px;border-bottom:2px solid var(--line)}
+.meta{color:var(--sub);font-size:13px;margin-bottom:18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:12px 0}
+.key{background:var(--soft);border-left:4px solid var(--acc)}
+.final{border:2px solid var(--acc)}
+.final .big{font-size:20px;font-weight:800;margin:4px 0}
+.tw{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px;background:var(--card)}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:center;white-space:nowrap}
+th{background:var(--soft);font-weight:600}
+td.l,th.l{text-align:left;white-space:normal}
+tr.pick td{background:var(--pick);font-weight:700}
+tr.alt td{background:rgba(201,115,31,.08)}
+.ok{color:var(--ok);font-weight:700}.bad{color:var(--bad);font-weight:700}.warn{color:var(--warn);font-weight:700}.sub{color:var(--sub)}
+ul{margin:6px 0;padding-left:20px}
+.note{font-size:12.5px;color:var(--sub)}
+.tag{display:inline-block;font-size:12px;font-weight:700;padding:1px 8px;border-radius:10px;background:var(--acc);color:#fff;margin-left:6px}
+.tag.o{background:var(--warn)}
+</style>
+</head>
+<body>
+<main>
+
+<h1>OHT 전조 임계값 — 미보고 · JAM 동시 조건</h1>
+<div class="meta">M16HUB OHT 50초 집계 · 37일(8/11~9/15, 9/29) · 실제 사건 3건(9/12 오후 · 9/12 밤 · 9/29 오전) · 작성 2026-09-29</div>
+
+<div class="card final">
+<b>최종 전조 조건</b>
+<div class="big">같은 50초 구간에 미보고 5대 이상 + JAM 10대 이상</div>
+<div>또는 <b>HT_STOP 1대 이상</b> (평소 0대라 단독으로 봄)</div>
+<p class="note" style="margin-bottom:0">스코어 알람(경계 · 위험 · 초위험)이 발생하면, 그 순간 과거 10분 OHT 에서 이 조건이 있었는지 확인합니다.</p>
+</div>
+
+<div class="card key">
+<b>요약</b>
+<ul>
+<li>실제 전조에서는 <b>미보고와 JAM 이 같은 구간에 함께</b> 나타났습니다. 평소 잡음은 <b>한쪽만</b> 튀었습니다.</li>
+<li>그래서 "둘이 같이"를 조건으로 삼고, 미보고 · JAM 숫자 조합 6가지를 37일 데이터로 비교했습니다.</li>
+<li><b>미보고 5 + JAM 10</b> 이 9/12 오후 사건을 현장 인지보다 <b>25분 먼저</b> 잡으면서, 사건 밖에서는 하루 1회 수준입니다.</li>
+</ul>
+</div>
+
+<h2>1. 왜 "동시" 조건인가</h2>
+<div class="tw"><table>
+<tr><th class="l">구분</th><th class="l">50초 구간 모습</th><th>의미</th></tr>
+<tr><td class="l"><b>실제 전조</b> (9/12 14:28)</td><td class="l">미보고 6 · JAM 12 → 14:30 미보고 6 · JAM 21 — <b>같이</b> 나옴</td><td class="bad">사건 약 25분 전</td></tr>
+<tr><td class="l"><b>실제 전조</b> (9/29 08:03~08:06)</td><td class="l">미보고 8~18 · JAM 3~10 — <b>같이</b> 나옴 (08:05:50 미보고 14 · JAM 10)</td><td class="bad">대규모 정지 2~4분 전</td></tr>
+<tr><td class="l">평소 잡음 ①</td><td class="l">JAM 만 20~37대로 한 구간 튐 (미보고 0~5) — 36일 중 26회</td><td class="sub">단발 JAM</td></tr>
+<tr><td class="l">평소 잡음 ②</td><td class="l">미보고만 100~200대로 한 구간 튐 (JAM · HT 0) — 예: 8/20</td><td class="sub">수집 누락</td></tr>
+</table></div>
+<p class="note">한쪽만 보면 잡음에 속습니다. 미보고 7 이상만 보면 하루 3.6회, JAM 13 이상만 보면 하루 2회 울려서 쓸 수 없습니다.</p>
+
+<h2>2. 조합별 비교</h2>
+<p>조건: <b>같은 50초 구간에 미보고 X대 이상 AND JAM Y대 이상</b></p>
+<div class="tw"><table>
+<tr><th>미보고</th><th>JAM</th><th>9/12 오후<br><span class="note">(인지 14:53 대비)</span></th><th>9/12 밤</th><th>9/29</th><th>사건 밖에서<br>울리는 횟수</th></tr>
+<tr><td>3</td><td>10</td><td>25분 전</td><td>1분 전</td><td>2분 전</td><td>하루 1.6회</td></tr>
+<tr class="pick"><td>5</td><td>10</td><td>25분 전</td><td>1분 전</td><td>2분 전</td><td>하루 1.0회 <span class="tag">추천</span></td></tr>
+<tr class="alt"><td>5</td><td>13</td><td>22분 전</td><td>1분 전</td><td>2분 뒤</td><td>하루 0.8회 <span class="tag o">대안</span></td></tr>
+<tr><td>7</td><td>10</td><td>7분 전</td><td>1분 전</td><td>2분 전</td><td>하루 0.8회</td></tr>
+<tr><td>7</td><td>13</td><td>7분 전</td><td>1분 전</td><td>2분 뒤</td><td>하루 0.6회</td></tr>
+<tr><td>10</td><td>10</td><td>7분 전</td><td>1분 전</td><td>2분 전</td><td>하루 0.5회</td></tr>
+</table></div>
+<p class="note">9/12 밤 · 9/29 기준 시각 = 대규모 정지 시작(미보고 30대 이상 연속). 사건 밖 횟수 = 사건 3건 구간 밖에서 조건이 처음 걸린 횟수(30분 안 반복은 1회), 36일 기준.</p>
+
+<h2>3. 추천 이유</h2>
+<div class="card">
+<ul>
+<li><b>미보고 5 + JAM 10 (추천)</b>
+  <ul>
+  <li>9/12 오후를 <b>25분 먼저</b> 잡습니다. 14:28 의 미보고 6 · JAM 12 를 잡기 때문입니다.</li>
+  <li>9/12 밤 · 9/29 도 대규모 정지보다 먼저 잡습니다(1~2분 전). 이 두 사건은 갑자기 터지는 유형입니다.</li>
+  <li>미보고 기준을 7로 올리면 14:28 신호를 놓쳐서, 9/12 오후를 7분 전에야 잡습니다.</li>
+  </ul>
+</li>
+<li><b>미보고 5 + JAM 13 (대안)</b> — 울리는 횟수를 조금 더 줄이고 싶을 때 씁니다(하루 0.8회). 9/12 오후는 22분 전에 잡지만, 9/29 는 2분 늦어집니다.</li>
+<li><b>하루 1회 수준은 부담이 크지 않습니다.</b> 이 조건은 <b>스코어 알람이 났을 때만</b> 확인하기 때문에, 실제 판정에서 오탐으로 이어지는 건 스코어 알람과 겹치는 경우뿐입니다.</li>
+</ul>
+</div>
+
+<h2>4. 참고 — 판정 단계 전체</h2>
+<div class="tw"><table>
+<tr><th>단계</th><th class="l">과거 10분 OHT 에 이것이 있으면</th></tr>
+<tr><td class="warn">전조</td><td class="l"><b>같은 50초 구간에 미보고 5대 이상 + JAM 10대 이상</b>, 또는 HT_STOP 1대 이상</td></tr>
+<tr><td class="bad">경보</td><td class="l">미보고 30대 이상 2구간 연속, 또는 JAM 20대 이상이 10분 안에 2구간, 또는 HT_STOP 10대 이상</td></tr>
+<tr><td class="bad">확정</td><td class="l">미보고 100대 이상 2구간 연속(JAM · HT 동반), 또는 JAM 40대 이상, 또는 HT_STOP 30대 이상</td></tr>
+</table></div>
+<p class="note">경보 · 확정 기준은 37일 중 큰 사건 3건 밖에서 거의 걸리지 않도록 잡은 값입니다(확정은 0회). 모든 값은 사건 3건 · 37일 기준이며, 데이터가 쌓이면 다시 조정합니다.</p>
+
+</main>
+</body>
+</html>
