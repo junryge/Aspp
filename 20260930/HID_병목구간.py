@@ -9,12 +9,13 @@ HID_병목구간.py — 5 FAB OHT 병목 HID 구간 찾기 (따로 실행)
     ③ 과거 10분(50초 12구간)으로 FAB 알람 판정 — 경계(전조) · 위험(사건) · 초위험(사건 시작)
     ④ 알람이면 멈춘 차가 많은 HID 구역 상위 TOP_N 개를 저장
 
-  저장  HID_병목/{FAB}/HID병목_{FAB}_YYYYMMDD.csv  (FAB 마다 폴더 · 파일 따로)
-        알람일 때만 줄을 쓴다 (50초 구간마다 · 구역마다 한 줄). 알람 없는 날도 헤더만 있는 파일은 만든다.
-        날짜, 시간, HID구역, {FAB}_OHT_missing, {FAB}_OHT_JAM, {FAB}_OHT_HT_STOP, ALARM, HID_section
-          HID구역      = HID_Zone_Master 의 Full_Name   (예: HID-B01-1(001))
-          HID_section  = HID_Zone_Master 의 Bay_Zone    (예: B01)
-          missing/JAM/HT_STOP = 그 HID 구역 안의 대수 (과거 10분 중 최대)
+  저장  HID_병목/{FAB}/HID병목_{FAB}_YYYYMMDD.csv  (FAB 마다 폴더 · 파일 따로, 실시간 1분마다 한 줄)
+        날짜, 시간, HID_ZONE, {FAB}_OHT_missing, {FAB}_OHT_JAM, {FAB}_OHT_HT_STOP, ALARM, HID_section
+          missing/JAM/HT_STOP = FAB 전체 (그 분이 끝날 때까지 끝난 마지막 50초 구간)
+          ALARM        = 경계 / 위험 / 초위험, 조건에 안 맞으면 0
+          HID_ZONE     = 병목 HID 구역 번호 (HID_Zone_Master 의 Zone_ID, 과거 10분 멈춘 차 최다), 알람 아니면 0
+          HID_section  = 그 구역의 Bay_Zone, 알람 아니면 0
+          데이터가 없는 분은 전부 0
 
   알람 (과거 10분, FAB 전체 50초 구간 값)  — POLICY 에서 바꾼다
     경계   전조       같은 50초 구간에 미보고 7↑ AND JAM 10↑, 또는 HT_STOP 1↑
@@ -242,6 +243,7 @@ class FabState:
         self.first = {}                             # 차량 → 처음 보고 구간 (자동 전체 대수)
         self.done_to = None
         self.use_remote = None                      # None 모름 / False 바로 / True remote
+        self.minute_done = None                     # 여기까지 1분 행을 썼다
 
     @property
     def ok(self):
@@ -387,25 +389,54 @@ class FabState:
                     mx[z] = max(mx[z], c)
         return [(z, mm[z], mj[z], mh[z], s) for z, s in tot.most_common(n)]
 
-    def rows(self, b):
-        level, why = self.alarm(b)
-        if not level:
-            return None, why, []
+    def bucket_of_minute(self, m):
+        """1분 행 m(HH:MM) 에 쓸 50초 구간 = 그 분이 끝날 때까지 끝난 마지막 구간"""
+        return bucket_floor(m + timedelta(seconds=60)) - timedelta(seconds=BUCKET_SEC)
+
+    def minute_row(self, m):
+        """
+        1분 한 줄: 날짜, 시간, HID_ZONE, {FAB}_OHT_missing, _JAM, _HT_STOP, ALARM, HID_section
+          missing · JAM · HT_STOP = FAB 전체 (그 분의 마지막 50초 구간)
+          ALARM · HID_ZONE · HID_section = 알람일 때만, 아니면 0
+          데이터가 없으면 전부 0
+        """
+        b = self.bucket_of_minute(m)
+        v = self.buckets.get(b)
+        head = [f"{m:%Y-%m-%d}", f"{m:%H:%M}"]
+        if not v or v.get("gap"):
+            return head + [0, 0, 0, 0, 0, 0], None
+        level, _ = self.alarm(b)
+        zone, bay = 0, 0
+        if level:
+            top = self.top_zones(b, 1)
+            if top:
+                zone = top[0][0]
+                bay = self.info.get(zone, ("", ""))[1] or 0
+        return head + [zone, v["miss"], v["jam"], v["ht"], level or 0, bay], level
+
+    def minute_rows(self):
+        """받은 데까지 아직 안 쓴 분을 1분씩 꺼낸다."""
+        if self.done_to is None:
+            return []
+        if self.minute_done is None:
+            first = min((k for k, v in self.buckets.items() if not v.get("gap")), default=None)
+            if first is None:
+                return []
+            self.minute_done = first.replace(second=0) - timedelta(minutes=1)
         out = []
-        for z, m, j, h, _ in self.top_zones(b):
-            name, bay = self.info.get(z, (f"Zone-{z}", ""))
-            out.append([f"{b:%Y-%m-%d}", f"{b:%H:%M:%S}", name, m, j, h, level, bay])
-        if not out:                                  # 알람인데 위치를 못 찾은 경우도 한 줄 남긴다
-            v = self.buckets[b]
-            out.append([f"{b:%Y-%m-%d}", f"{b:%H:%M:%S}", "", v["miss"], v["jam"], v["ht"], level, ""])
-        return level, why, out
+        m = self.minute_done + timedelta(minutes=1)
+        while bucket_floor(m + timedelta(seconds=60)) <= self.done_to:    # 그 분의 마지막 구간까지 받았나
+            out.append(self.minute_row(m)[0])
+            self.minute_done = m
+            m += timedelta(minutes=1)
+        return out
 
 
 # ==========================================================
 # ⑤ 저장
 # ==========================================================
 def header(fab):
-    return ["날짜", "시간", "HID구역", f"{fab}_OHT_missing", f"{fab}_OHT_JAM", f"{fab}_OHT_HT_STOP",
+    return ["날짜", "시간", "HID_ZONE", f"{fab}_OHT_missing", f"{fab}_OHT_JAM", f"{fab}_OHT_HT_STOP",
             "ALARM", "HID_section"]
 
 
@@ -450,19 +481,20 @@ def load_states():
 
 
 def process(st, frm, to, timeout=None, write=True, verbose=False):
-    """frm~to 를 받아 새 50초 구간마다 판정 · 저장. 알람 난 구간 수를 돌려준다."""
+    """frm~to 를 받아 쌓고, 끝난 분마다 1분 한 줄씩 저장. 알람 난 50초 구간 수를 돌려준다."""
     new = st.ingest(st.fetch(frm, to, timeout), frm, to)
-    rows, n_alarm = [], 0
-    for b in new:
-        level, why, rs = st.rows(b)
+    n_alarm = 0
+    for b in new:                                    # 로그 — 알람 난 50초 구간
+        level, why = st.alarm(b)
         if level:
             n_alarm += 1
-            rows += rs
-            top = " · ".join(f"{r[2]}({r[3]}/{r[4]}/{r[5]})" for r in rs if r[2])
+            top = " · ".join(f"{z}번 {st.info.get(z, ('', ''))[0]}({m}/{j}/{h})"
+                             for z, m, j, h, _ in st.top_zones(b))
             log.info(f"  ▲ {st.fab} {b:%H:%M:%S} {level} — {why} → {top or '위치 없음'}")
         elif verbose:
             v = st.buckets[b]
             log.info(f"    {st.fab} {b:%H:%M:%S} 정상 — 미보고 {v['miss']} JAM {v['jam']} HT {v['ht']}")
+    rows = st.minute_rows()
     if write:
         save(st.fab, rows)
     return n_alarm
@@ -515,6 +547,7 @@ def run_range(states, frm, to):
             log.info(f"  {fab}: 맵 없음 — 건너뜀")
             continue
         ensure_file(fab, f"{frm:%Y%m%d}")
+        st.minute_done = frm.replace(second=0) - timedelta(minutes=1)
         cur = bucket_floor(frm - timedelta(minutes=WINDOW_MIN))   # 앞 10분부터 받아야 첫 판정이 맞다
         first_save = bucket_floor(frm)
         n = 0
