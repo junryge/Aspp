@@ -19,7 +19,7 @@ hid_aws_idc_realtime_collector.py — FAB별 OHT 50초 집계 (aws_idc_realtime_
   · 조회가 안 되거나 그 구간 보고가 0 이면 빈칸. 절대 예외를 밖으로 던지지 않는다.
   · 서버 하나에 못 붙으면 3초 만에 포기하고 그 서버 FAB 만 빈칸 — 다른 서버는 그대로 받는다.
 
-  키:    같은 폴더 hdi_api_key.txt  (한 줄 = 두 서버 공통, 또는 M16=… / M14=… 서버별)
+  키:    같은 폴더 hdi_api_key.txt 첫 줄 (두 서버 같은 키)
   확인:  python hid_aws_idc_realtime_collector.py      (Oracle 없이 최근 값만 출력)
 """
 import csv
@@ -35,10 +35,7 @@ log = logging.getLogger("idc_collector_v42")
 # ==========================================================
 # 설정
 # ==========================================================
-# 서버별 접속. key 를 비우면 같은 폴더 hdi_api_key.txt 에서 읽는다.
-#   hdi_api_key.txt — 한 줄이면 두 서버 같은 키,  서버별로 다르면
-#       M16=167서버키
-#       M14=27서버키
+# 서버별 접속. key 를 비우면 같은 폴더 hdi_api_key.txt 첫 줄을 두 서버에 같이 쓴다.
 #   ★저장소에 올릴 때는 key 를 비우세요.
 SERVERS = {
     "M16": {"host": "10.40.42.167", "port": 8888, "key": "", "remote": "icamcslogdt01"},
@@ -79,30 +76,23 @@ def bucket_floor(t):
     return EPOCH_KST + timedelta(seconds=sec)
 
 
-KEY_FILES = ("hdi_api_key.txt", "hid_api_key.txt")
+KEY_FILE = "hdi_api_key.txt"      # ★키 파일 (확장자 포함 이 이름 그대로)
 _key_warned = False
 
 
 def _key(server):
-    """파일 위 SERVERS 의 key → hdi_api_key.txt (서버별 'M16=…' 줄, 없으면 첫 줄)"""
+    """파일 위 SERVERS 의 key → 같은 폴더 hdi_api_key.txt 첫 줄 (두 서버 같은 키)"""
     global _key_warned
     if SERVERS[server].get("key"):
         return SERVERS[server]["key"]
     for base in (Path(__file__).resolve().parent, Path.cwd()):
-        for name in KEY_FILES:
-            p = base / name
-            if not p.exists():
-                continue
-            lines = [ln.strip() for ln in p.read_text(encoding="utf-8-sig").splitlines() if ln.strip()]
-            plain = [ln for ln in lines if "=" not in ln]
-            for ln in lines:
-                if "=" in ln:
-                    k, v = ln.split("=", 1)
-                    if k.strip().upper() == server:
-                        return v.strip()
-            return plain[0] if plain else ""
+        p = base / KEY_FILE
+        if p.exists():
+            lines = [ln.strip().strip('"').strip("'") for ln in p.read_text(encoding="utf-8-sig").splitlines()
+                     if ln.strip()]
+            return lines[0] if lines else ""
     if not _key_warned:
-        log.warning(f"  OHT: {KEY_FILES[0]} 없음 — 수집기와 같은 폴더에 두세요 (인증 실패로 빈칸)")
+        log.warning(f"  OHT: {KEY_FILE} 없음 — 수집기와 같은 폴더에 두세요 (인증 실패로 빈칸)")
         _key_warned = True
     return ""
 
@@ -117,14 +107,24 @@ def _query(server, table, frm, to):
     return f"remote {remote} [ {inner} ]" if remote else inner
 
 
+def _url(server, q, key):
+    s = SERVERS[server]
+    return (f"http://{s['host']}:{s['port']}/logpresso/httpexport/query.csv"
+            f"?_apikey={key}&_q={urllib.parse.quote(q, safe='')}")
+
+
 def _get(server, q):
     import requests
     s = SERVERS[server]
-    url = (f"http://{s['host']}:{s['port']}/logpresso/httpexport/query.csv"
-           f"?_apikey={_key(server)}&_q={urllib.parse.quote(q, safe='')}")
-    r = requests.get(url, verify=False, timeout=(CONNECT_TIMEOUT, HTTP_TIMEOUT))
+    key = _key(server)
+    r = requests.get(_url(server, q, key), verify=False, timeout=(CONNECT_TIMEOUT, HTTP_TIMEOUT))
     if r.status_code != 200 or r.text.lstrip().startswith("<"):
-        raise RuntimeError(f"HTTP {r.status_code} from {s['host']}:{s['port']}: {r.text[:200]}")
+        # 로그프레소는 키가 없거나 틀리면 쿼리를 돌리지 않고 로그인/대시보드 HTML 을 돌려준다
+        ks = f"키 끝 4자 …{key[-4:]}" if key else "키 없음 (hdi_api_key.txt 못 읽음)"
+        if r.text.lstrip().startswith("<"):
+            raise RuntimeError(f"HTTP {r.status_code} from {s['host']}:{s['port']} — 데이터 대신 HTML 화면 "
+                               f"(키 인증 실패 가능성 큼 · {ks})")
+        raise RuntimeError(f"HTTP {r.status_code} from {s['host']}:{s['port']} ({ks}): {r.text[:300]}")
     return r.content
 
 
@@ -222,7 +222,14 @@ if __name__ == "__main__":
         k = _key(name)
         fabs = ", ".join(f for f, sv in TABLES.values() if sv == name)
         print(f"[접속] {s['host']}:{s['port']} → {fabs} · 키 {'있음 …' + k[-4:] if k else '없음 (hdi_api_key.txt)'}")
+    for base in (Path(__file__).resolve().parent, Path.cwd()):
+        print(f"[키 파일] {base / KEY_FILE}: {'있음' if (base / KEY_FILE).exists() else '없음'}")
     now = datetime.now()
+    t0 = bucket_floor(now - timedelta(minutes=2))
+    for name in SERVERS:                                   # 브라우저로 직접 열어 볼 주소 (키는 가림)
+        table = next(t for t, (_, sv) in TABLES.items() if sv == name)
+        q = _query(name, table, t0, t0 + timedelta(seconds=BUCKET_SEC))
+        print(f"[브라우저 확인] {_url(name, q, '<키>')}")
     fetch(now=now)
     for m in range(5, 0, -1):
         k = (now - timedelta(minutes=m)).strftime("%Y-%m-%d %H:%M")
