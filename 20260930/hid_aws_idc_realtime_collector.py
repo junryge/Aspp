@@ -37,6 +37,9 @@ log = logging.getLogger("idc_collector_v42")
 # ==========================================================
 # 서버별 접속. key 를 비우면 같은 폴더 hdi_api_key.txt 첫 줄을 두 서버에 같이 쓴다.
 #   ★저장소에 올릴 때는 key 를 비우세요.
+#   remote — 테이블이 그 서버에 바로 있으면 remote 없이, 아니면 remote 로 감싸 조회.
+#            어느 쪽인지는 처음 조회 때 둘 다 해 보고 되는 쪽을 기억한다 (remote 없이 먼저).
+#            10.40.42.167 은 oht_data_m16br 가 바로 조회됨 (2026-10-01 확인)
 SERVERS = {
     "M16": {"host": "10.40.42.167", "port": 8888, "key": "", "remote": "icamcslogdt01"},
     "M14": {"host": "10.40.42.27",  "port": 8888, "key": "", "remote": "icamcslogdt01"},
@@ -69,6 +72,7 @@ FMT = "%Y%m%d%H%M%S"
 _cache = {t: {} for t in TABLES}                 # 테이블 → {구간시작: (보고, JAM, HT)}
 _seen = {t: {} for t in TABLES}                  # 테이블 → {차량: 마지막 보고 구간}  (FLEET 0 일 때)
 _done = {t: None for t in TABLES}                # 테이블 → 여기 전까지 받았다
+_use_remote = {t: None for t in TABLES}          # 테이블 → None(아직 모름) / False(바로) / True(remote)
 
 
 def bucket_floor(t):
@@ -97,14 +101,14 @@ def _key(server):
     return ""
 
 
-def _query(server, table, frm, to):
+def _query(server, table, frm, to, use_remote=False):
     inner = (f"table from={frm.strftime(FMT)} to={to.strftime(FMT)} {table}"
              ' | search MSG_ID == "2"'
              " | fields _time, VEHICLE, STATUS"
              f' | eval _time = datetrunc(_time, "{BUCKET_SEC}s")'
              " | stats first(STATUS) as STATUS, last(STATUS) as STATUS_LAST by VEHICLE, _time")
     remote = SERVERS[server].get("remote")
-    return f"remote {remote} [ {inner} ]" if remote else inner
+    return f"remote {remote} [ {inner} ]" if (use_remote and remote) else inner
 
 
 def _url(server, q, key):
@@ -128,6 +132,29 @@ def _get(server, q):
     return r.content
 
 
+def _get_auto(server, table, start, end):
+    """remote 없이 / remote 로 — 아는 쪽으로, 모르면 둘 다 해 보고 되는 쪽을 기억한다."""
+    import requests
+    mode = _use_remote[table]
+    tries = [mode] if mode is not None else [False, True]
+    last = None
+    for m in tries:
+        try:
+            body = _get(server, _query(server, table, start, end, use_remote=m))
+        except requests.exceptions.ConnectionError:
+            raise                                  # 서버에 못 붙음 — 다른 방식도 똑같다
+        except Exception as e:
+            last = e
+            continue
+        if _use_remote[table] is None:
+            _use_remote[table] = m
+            log.info(f"  OHT {table}: {'remote ' + SERVERS[server]['remote'] if m else 'remote 없이'} 조회로 확정")
+        return body
+    if mode is not None:                           # 되던 방식이 안 되면 다음 분에 둘 다 다시 해 본다
+        _use_remote[table] = None
+    raise last
+
+
 def _parse_time(s):
     s = (s or "").strip().strip('"')[:19]
     for f in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
@@ -144,7 +171,7 @@ def _fetch_table(table, server, now):
     start = max(_done[table] or bucket_floor(now - timedelta(minutes=FIRST_MIN)), oldest)
     if start >= end:
         return
-    body = _get(server, _query(server, table, start, end))
+    body = _get_auto(server, table, start, end)
 
     rep, jam, ht = defaultdict(set), defaultdict(set), defaultdict(set)
     for r in csv.DictReader(io.StringIO(body.decode("utf-8-sig", "replace"))):
@@ -230,6 +257,7 @@ if __name__ == "__main__":
         table = next(t for t, (_, sv) in TABLES.items() if sv == name)
         q = _query(name, table, t0, t0 + timedelta(seconds=BUCKET_SEC))
         print(f"[브라우저 확인] {_url(name, q, '<키>')}")
+    print("  (remote 없이 먼저 조회하고, 안 되면 remote 로 한 번 더 — 되는 쪽을 기억합니다)")
     fetch(now=now)
     for m in range(5, 0, -1):
         k = (now - timedelta(minutes=m)).strftime("%Y-%m-%d %H:%M")
