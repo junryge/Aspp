@@ -3,12 +3,13 @@
 hid_aws_idc_realtime_collector.py — FAB별 OHT 50초 집계 (aws_idc_realtime_collector.py 에서 import)
 
   서버                  테이블              FAB      컬럼
-  10.40.42.167:8888    oht_data_m16br  →  M16HUB   M16HUB_OHT_missing, M16HUB_OHT_JAM, M16HUB_OHT_HT_STOP
-                       oht_data_m16a   →  M16A     M16A_OHT_missing,   M16A_OHT_JAM,   M16A_OHT_HT_STOP
-                       oht_data_m16b   →  M16B     M16B_OHT_missing,   M16B_OHT_JAM,   M16B_OHT_HT_STOP
-  10.40.42.27:8888     oht_data_m14a   →  M14      M14_OHT_missing,    M14_OHT_JAM,    M14_OHT_HT_STOP
-                       oht_data_m14b   →  M14B     M14B_OHT_missing,   M14B_OHT_JAM,   M14B_OHT_HT_STOP
+  10.40.42.167:8888    oht_data_m16br  →  M16HUB   M16HUB_OHT_report, M16HUB_OHT_missing, M16HUB_OHT_JAM, M16HUB_OHT_HT_STOP
+                       oht_data_m16a   →  M16A     M16A_OHT_report, M16A_OHT_missing,   M16A_OHT_JAM,   M16A_OHT_HT_STOP
+                       oht_data_m16b   →  M16B     M16B_OHT_report, M16B_OHT_missing,   M16B_OHT_JAM,   M16B_OHT_HT_STOP
+  10.40.42.27:8888     oht_data_m14a   →  M14      M14_OHT_report, M14_OHT_missing,    M14_OHT_JAM,    M14_OHT_HT_STOP
+                       oht_data_m14b   →  M14B     M14B_OHT_report, M14B_OHT_missing,   M14B_OHT_JAM,   M14B_OHT_HT_STOP
 
+  {FAB}_OHT_report  = 그 50초 안에 보고한 차량 수
   {FAB}_OHT_missing = 미보고 = 전체 차량 − 그 50초 안에 보고한 차량
   {FAB}_OHT_JAM     = 그 50초 안에 STATUS 7 이 있었던 차량
   {FAB}_OHT_HT_STOP = 그 50초 안에 STATUS 8 이 있었던 차량
@@ -64,7 +65,7 @@ FIRST_MIN  = 12                   # 처음 켤 때 받을 분 (길게 받으면 
 
 COLUMNS = []
 for _fab, _ in TABLES.values():
-    COLUMNS += [f"{_fab}_OHT_missing", f"{_fab}_OHT_JAM", f"{_fab}_OHT_HT_STOP"]
+    COLUMNS += [f"{_fab}_OHT_report", f"{_fab}_OHT_missing", f"{_fab}_OHT_JAM", f"{_fab}_OHT_HT_STOP"]
 
 EPOCH_KST = datetime(1970, 1, 1, 9, 0, 0)       # datetrunc(_time, "50s") 와 같은 기준
 FMT = "%Y%m%d%H%M%S"
@@ -233,11 +234,11 @@ def values(minute_key):
     for table, (fab, _) in TABLES.items():
         v = _cache[table].get(b)
         if not v or v[0] == 0:                                # 조회 안 됨 / 보고 0 = 수집 누락
-            out += ["", "", ""]
+            out += ["", "", "", ""]
             continue
         n, j, h = v
         fleet = FLEET.get(fab) or len(_seen[table])
-        out += [max(0, fleet - n), j, h]
+        out += [n, max(0, fleet - n), j, h]
     return out
 
 
