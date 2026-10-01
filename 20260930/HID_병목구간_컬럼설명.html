@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HID 병목 구간 데이터</title>
+<style>
+:root{
+  --bg:#f7f8fa; --card:#ffffff; --ink:#1d2330; --sub:#5b6475; --line:#dfe3ea;
+  --acc:#2f6fdf; --warn:#c9731f; --bad:#d64545; --ok:#2e9d62; --soft:#eef3fc;
+  --g1:#eef3fc; --g2:#fff4e8; --g3:#fdecec; --g4:#ecf7f1;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#14171d; --card:#1c2029; --ink:#e7eaf0; --sub:#9aa3b2; --line:#2e3441;
+    --acc:#6b9cf5; --warn:#f0a35a; --bad:#f07070; --ok:#5cc58d; --soft:#1f2838;
+    --g1:#1f2838; --g2:#2e2619; --g3:#2f1d1f; --g4:#1a2a22;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#14171d; --card:#1c2029; --ink:#e7eaf0; --sub:#9aa3b2; --line:#2e3441;
+  --acc:#6b9cf5; --warn:#f0a35a; --bad:#f07070; --ok:#5cc58d; --soft:#1f2838;
+  --g1:#1f2838; --g2:#2e2619; --g3:#2f1d1f; --g4:#1a2a22;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Pretendard","Malgun Gothic","Apple SD Gothic Neo",sans-serif;line-height:1.65;font-size:15px}
+main{max-width:1000px;margin:0 auto;padding:28px 16px 60px}
+h1{font-size:24px;margin:0 0 4px}
+h2{font-size:18px;margin:34px 0 10px;padding-bottom:6px;border-bottom:2px solid var(--line)}
+.meta{color:var(--sub);font-size:13px;margin-bottom:18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:12px 0}
+.key{background:var(--soft);border-left:4px solid var(--acc)}
+.tw{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--card)}
+th,td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}
+th{background:var(--soft);font-weight:600;white-space:nowrap}
+td.c{text-align:center;white-space:nowrap}
+code{font-family:Consolas,"D2Coding",monospace;font-size:12.5px;background:var(--soft);padding:1px 5px;border-radius:4px}
+td code{white-space:nowrap}
+tr.g1 td:first-child{border-left:4px solid var(--acc)}
+tr.g2 td:first-child{border-left:4px solid var(--warn)}
+tr.g3 td:first-child{border-left:4px solid var(--bad)}
+tr.g4 td:first-child{border-left:4px solid var(--ok)}
+.tag{display:inline-block;font-size:11.5px;font-weight:700;padding:1px 7px;border-radius:9px;color:#fff;white-space:nowrap}
+.t1{background:var(--acc)}.t2{background:var(--warn)}.t3{background:var(--bad)}.t4{background:var(--ok)}
+.warn{color:var(--warn);font-weight:700}.bad{color:var(--bad);font-weight:700}.ok{color:var(--ok);font-weight:700}.sub{color:var(--sub)}
+ul,ol{margin:6px 0;padding-left:20px}
+.note{font-size:12.5px;color:var(--sub)}
+svg{width:100%;height:auto;display:block}
+svg .box{fill:var(--card);stroke:var(--line);stroke-width:1.5}
+svg .hl{stroke:var(--acc);stroke-width:2}
+svg .t{fill:var(--ink);font-size:13px;font-weight:700;text-anchor:middle}
+svg .s{fill:var(--sub);font-size:11.5px;text-anchor:middle}
+svg .ar{stroke:var(--sub);stroke-width:1.5;fill:none;marker-end:url(#a)}
+svg .ah{fill:var(--sub)}
+.ex td{font-family:Consolas,"D2Coding",monospace;font-size:12.5px;text-align:center;white-space:nowrap}
+.ex tr.al td{background:rgba(214,69,69,.07)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12.5px;color:var(--sub);margin:4px 0 8px}
+</style>
+</head>
+<body>
+<main>
+
+<h1>HID 병목 구간 데이터 — 왜 만들고, 칸마다 무엇인가</h1>
+<div class="meta">HID_병목구간.py 결과 파일 <code>HID_병목\{FAB}\HID병목_{FAB}_YYYYMMDD.csv</code> · FAB 5개(M14 · M14B · M16A · M16B · M16HUB) · 1분마다 한 줄 · 작성 2026-10-01</div>
+
+<div class="card key">
+<b>한 줄 요약</b>
+<ul>
+<li>스코어 알람은 <b>"언제"</b> 위험한지는 잘 알려주지만, <b>"진짜 막혔는지"</b>와 <b>"어디가 막혔는지"</b>는 알려주지 못합니다.</li>
+<li>이 데이터는 OHT 차량 보고(50초 단위)로 <b>막힘을 직접 확인</b>하고(경계 · 위험 · 초위험), <b>막힌 HID 구역 번호</b>까지 짚어 줍니다.</li>
+<li>그래서 알람이 울렸을 때 현장이 <b>어느 구역부터 볼지</b> 바로 알 수 있습니다.</li>
+</ul>
+</div>
+
+<h2>1. 왜 만드나</h2>
+<div class="card">
+<ol>
+<li><b>진짜 막혔는지 확인</b> — 차가 실제로 멈추면 OHT 보고에 바로 드러납니다.
+  <ul>
+  <li>보고가 끊긴 차(<b>미보고</b>)가 늘어납니다.</li>
+  <li>막혀 선 차(<b>JAM</b>)와 반송 중 멈춘 차(<b>HT_STOP</b>)가 생깁니다.</li>
+  <li>평소에는 한쪽만 잠깐 튀고 사라지지만, 진짜 막힘 직전에는 <b>미보고와 JAM이 같은 50초 구간에 함께</b> 나옵니다.</li>
+  </ul></li>
+<li><b>어디가 막혔는지 확인</b> — 멈춘 차의 마지막 위치(주소)를 HID 구역으로 바꿔서 세면, 막힘이 시작된 구역이 나옵니다.</li>
+<li><b>먼저 알기</b> — 실제 사례
+  <ul>
+  <li><b>9/12 오후</b>: 대규모 정지(14:46)보다 <b>15분 먼저</b>(14:31) <b>HID 4</b>가 막히기 시작한 것이 잡혔습니다.</li>
+  <li><b>9/29 오전</b>: 08:06에 <b>HID 33</b>에서 시작해 HID 35 · 34로 번진 것이 보였습니다.</li>
+  </ul></li>
+</ol>
+</div>
+
+<h2>2. 어떻게 만들어지나</h2>
+<div class="card">
+<svg viewBox="0 0 960 150" role="img" aria-label="처리 흐름">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker></defs>
+<rect x="5" y="20" width="170" height="104" rx="10" class="box"/>
+<text x="90" y="52" class="t">① 로그프레소</text><text x="90" y="74" class="s">FAB별 OHT 테이블</text><text x="90" y="92" class="s">50초마다 차량별</text><text x="90" y="110" class="s">상태 · 위치(ADDRESS)</text>
+<path d="M178 72 H 196" class="ar"/>
+<rect x="198" y="20" width="170" height="104" rx="10" class="box"/>
+<text x="283" y="52" class="t">② 멈춘 차 찾기</text><text x="283" y="74" class="s">미보고 (끊기기 직전 위치)</text><text x="283" y="92" class="s">JAM (STATUS 7)</text><text x="283" y="110" class="s">HT_STOP (STATUS 8)</text>
+<path d="M371 72 H 389" class="ar"/>
+<rect x="391" y="20" width="170" height="104" rx="10" class="box"/>
+<text x="476" y="52" class="t">③ HID 구역으로</text><text x="476" y="74" class="s">주소 → HID 구역</text><text x="476" y="92" class="s">(HID_Zone_Master</text><text x="476" y="110" class="s">+ 레이아웃)</text>
+<path d="M564 72 H 582" class="ar"/>
+<rect x="584" y="20" width="170" height="104" rx="10" class="box"/>
+<text x="669" y="52" class="t">④ 판정</text><text x="669" y="74" class="s">과거 10분 (50초 12개)</text><text x="669" y="92" class="s">경계 · 위험 · 초위험</text><text x="669" y="110" class="s">멈춘 차 많은 구역 순위</text>
+<path d="M757 72 H 775" class="ar"/>
+<rect x="777" y="20" width="178" height="104" rx="10" class="box hl"/>
+<text x="866" y="52" class="t">⑤ 1분 한 줄 저장</text><text x="866" y="74" class="s">FAB마다 파일 따로</text><text x="866" y="92" class="s">정상이면 구역 칸 0</text><text x="866" y="110" class="s">알람이면 병목 구역</text>
+</svg>
+<p class="note">기존 수집 데이터(M16A_HUBROOM_PR.csv)와 별개로, 로그프레소에서 차량 보고를 직접 받아 새로 계산합니다. 50초 구간이 끝나고 30초 뒤에 받아서(로그프레소 적재 지연 감안), 어떤 일이 생기면 약 1분 20초 안에 기록됩니다.</p>
+</div>
+
+<h2>3. 알람 기준 (과거 10분, FAB 전체 값)</h2>
+<div class="tw"><table>
+<tr><th>ALARM</th><th>뜻</th><th>조건 — 하나라도 맞으면</th></tr>
+<tr><td class="c ok">정상</td><td>막힘 없음</td><td>아래 조건 없음</td></tr>
+<tr><td class="c warn">경계</td><td>전조 — 막히기 시작</td><td>같은 50초 구간에 <b>미보고 7대↑ AND JAM 10대↑</b>, 또는 HT_STOP 1대↑</td></tr>
+<tr><td class="c bad">위험</td><td>사건 — 막힘 진행 중</td><td>미보고 30대↑가 2구간(100초) 연속, 또는 JAM 20대↑ 구간이 2개↑, 또는 HT_STOP 10대↑</td></tr>
+<tr><td class="c bad">초위험</td><td>사건 시작 — 대규모 정지</td><td>미보고 100대↑가 2구간 연속, 또는 JAM 40대↑, 또는 HT_STOP 30대↑</td></tr>
+</table></div>
+<p class="note">위는 기본값(미보고 7 · JAM 10)입니다. <b>FAB마다 <code>HID_CONFIG.json</code>에서 따로 바꿀 수 있습니다</b> — 숫자 0은 그 조건을 끔, 고치면 다시 켜지 않아도 다음 50초 구간부터 적용됩니다. 예를 들어 M16HUB 경계 미보고를 7 → 5로 낮추면 9/12는 14:31 위험보다 2분 먼저(14:29) 경계로 잡힙니다.</p>
+
+<h2>4. 칸 설명 (M14 파일 기준 — 다른 FAB는 앞머리만 바뀜)</h2>
+<div class="legend">
+<span><span class="tag t1">시각</span> 언제</span>
+<span><span class="tag t2">FAB 전체</span> 그 FAB 전체 차량 상태</span>
+<span><span class="tag t3">판정 · 구역</span> 알람과 병목 HID 구역</span>
+<span><span class="tag t4">구역 상세</span> 병목 구역이 얼마나 막혔나 · 어디로 번지나</span>
+</div>
+<div class="tw"><table>
+<tr><th>#</th><th>칸</th><th>무엇인가</th><th>정상일 때</th><th>예 (9/29 08:06)</th></tr>
+
+<tr class="g1"><td class="c">1</td><td><code>날짜</code></td><td>YYYY-MM-DD</td><td class="c">값 있음</td><td class="c">2026-09-29</td></tr>
+<tr class="g1"><td class="c">2</td><td><code>시간</code></td><td>HH:MM — <b>1분마다 한 줄</b>. 값은 그 분이 끝날 때까지 끝난 마지막 50초 구간 기준</td><td class="c">값 있음</td><td class="c">08:06</td></tr>
+
+<tr class="g3"><td class="c">3</td><td><code>HID_ZONE</code></td><td><b>병목 HID 구역 번호</b> — 과거 10분 동안 멈춘 차가 가장 많았던 구역. 문서(병목 HID 구간 찾기)의 "HID 4 · HID 33"과 같은 번호(HID_Zone_Master의 ZONE 번호)</td><td class="c">0</td><td class="c">33</td></tr>
+
+<tr class="g2"><td class="c">4</td><td><code>M14_OHT_missing</code></td><td><b>미보고</b> — 그 50초 동안 보고가 없는 차 수 (전체 차량 − 보고한 차량). 막혀 서 있거나 통신이 끊긴 차</td><td class="c">값 있음 (보통 0~수 대)</td><td class="c">14</td></tr>
+<tr class="g2"><td class="c">5</td><td><code>M14_OHT_JAM</code></td><td><b>JAM</b> — 그 50초 안에 JAM(STATUS 7)이었던 차 수. 앞차에 막혀 선 차</td><td class="c">값 있음</td><td class="c">10</td></tr>
+<tr class="g2"><td class="c">6</td><td><code>M14_OHT_HT_STOP</code></td><td><b>HT_STOP</b> — 그 50초 안에 HT_STOP(STATUS 8)이었던 차 수. 평소 거의 0이라 1대만 나와도 신호</td><td class="c">값 있음 (보통 0)</td><td class="c">1</td></tr>
+
+<tr class="g3"><td class="c">7</td><td><code>ALARM</code></td><td>과거 10분 판정 — <b>정상 / 경계 / 위험 / 초위험</b> (3장 기준)</td><td class="c">정상</td><td class="c">경계</td></tr>
+<tr class="g3"><td class="c">8</td><td><code>HID_section</code></td><td>병목 구역이 속한 <b>큰 구역(Bay)</b> — HID_Zone_Master의 Bay_Zone</td><td class="c">0</td><td class="c">BR06</td></tr>
+
+<tr class="g4"><td class="c">9</td><td><code>ZONE_STOP</code></td><td>병목 구역 <b>안에서 멈춘 차</b> — 미보고 + JAM + HT_STOP (한 대는 한 번만). 그 구역이 실제로 얼마나 막혔나</td><td class="c">0</td><td class="c">10</td></tr>
+<tr class="g4"><td class="c">10</td><td><code>ZONE_VHL</code></td><td>병목 구역 <b>안에 있는 전체 차</b> — 보고한 차 + 미보고 차(끊기기 직전 위치)</td><td class="c">0</td><td class="c">24</td></tr>
+<tr class="g4"><td class="c">11</td><td><code>VHL_MAX</code></td><td>그 구역 <b>정원</b> — HID_Zone_Master의 Vehicle_Max (HID 시스템이 정한 최대 대수)</td><td class="c">0</td><td class="c">(마스터 값)</td></tr>
+<tr class="g4"><td class="c">12</td><td><code>ZONE_OCC</code></td><td><b>점유율 %</b> = ZONE_VHL ÷ VHL_MAX × 100. 100을 넘으면 정원보다 차가 많이 몰린 것. VHL_MAX가 없으면 0</td><td class="c">0</td><td class="c">(계산 값)</td></tr>
+<tr class="g4"><td class="c">13</td><td><code>HID_ZONE_2</code></td><td>멈춘 차가 <b>2번째</b>로 많은 구역 번호 — 막힘이 어디로 번지는지</td><td class="c">0</td><td class="c">28</td></tr>
+<tr class="g4"><td class="c">14</td><td><code>HID_ZONE_3</code></td><td>멈춘 차가 <b>3번째</b>로 많은 구역 번호</td><td class="c">0</td><td class="c">34</td></tr>
+</table></div>
+<ul class="note">
+<li>FAB마다 파일이 따로이고, 4~6번 칸 앞머리만 FAB 이름입니다 (예: <code>M16HUB_OHT_missing</code>).</li>
+<li>4~6번(FAB 전체 값)은 정상일 때도 실제 값이 들어갑니다. 3번과 8~14번(구역 관련)은 알람일 때만 값이 있고, 정상이면 0입니다.</li>
+<li>데이터가 없는 분(로그프레소 조회 실패 · 수집 누락)은 숫자는 0, ALARM은 정상으로 들어갑니다.</li>
+</ul>
+
+<h2>5. 읽는 법 — 9/29 오전 사례</h2>
+<div class="tw"><table class="ex">
+<tr><th>시간</th><th>HID_ZONE</th><th>missing</th><th>JAM</th><th>HT</th><th>ALARM</th><th>section</th><th>ZONE_STOP</th><th>ZONE_VHL</th><th>ZONE_2</th><th>ZONE_3</th></tr>
+<tr><td>08:05</td><td>0</td><td>18</td><td>5</td><td>0</td><td>정상</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
+<tr class="al"><td>08:06</td><td>33</td><td>14</td><td>10</td><td>1</td><td>경계</td><td>BR06</td><td>10</td><td>24</td><td>28</td><td>34</td></tr>
+<tr class="al"><td>08:09</td><td>33</td><td>38</td><td>25</td><td>6</td><td>위험</td><td>BR06</td><td>12</td><td>26</td><td>35</td><td>28</td></tr>
+<tr class="al"><td>08:10</td><td>35</td><td>58</td><td>12</td><td>2</td><td>위험</td><td>BR06</td><td>24</td><td>24</td><td>33</td><td>28</td></tr>
+<tr class="al"><td>08:12</td><td>35</td><td>96</td><td>41</td><td>6</td><td>초위험</td><td>BR06</td><td>24</td><td>24</td><td>33</td><td>34</td></tr>
+</table></div>
+<div class="card">
+<ul>
+<li><b>08:05</b> — 미보고 18대지만 JAM이 5대뿐이라 아직 <span class="ok">정상</span>.</li>
+<li><b>08:06</b> — 같은 구간에 미보고 14 · JAM 10이 함께 나와 <span class="warn">경계</span>. 멈춘 차가 가장 많은 곳은 <b>HID 33</b>(구역 안 24대 중 10대 멈춤), 다음은 28 · 34. <b>→ HID 33부터 보면 됩니다.</b></li>
+<li><b>08:09</b> — JAM 20대↑ 구간이 2개가 되어 <span class="bad">위험</span>.</li>
+<li><b>08:10</b> — 1위가 <b>HID 35</b>로 바뀜(구역 안 24대 전부 멈춤). 막힘이 33 → 35로 번지는 중입니다.</li>
+<li><b>08:12</b> — JAM 41대로 <span class="bad">초위험</span>(대규모 정지 시작). 실제 대규모 정지는 08:07~08:17이었습니다.</li>
+</ul>
+<p class="note">위 표는 9/29 실제 OHT 데이터를 프로그램에 다시 넣어 본 결과입니다. 구역 번호는 문서 작성 때 쓴 HID 구간표 기준이라, 실제 HID_Zone_Master로 돌리면 경계 부근 주소에서 조금 다를 수 있습니다. VHL_MAX · ZONE_OCC는 마스터의 Vehicle_Max로 계산되므로 표에서 뺐습니다.</p>
+</div>
+
+<h2>6. 알아 둘 점</h2>
+<ul>
+<li><b>알람은 과거 10분, 구역 상세(9~12번)는 지금 50초 기준</b>입니다. 그래서 막힘이 풀린 직후에는 ALARM이 남아 있어도 ZONE_STOP이 작거나 0일 수 있습니다 — 회복 중이라는 뜻입니다.</li>
+<li><b>미보고 차의 위치</b>는 보고가 끊기기 직전 주소입니다. 실제로는 바로 다음 주소에 서 있을 수 있지만, 대부분 같은 구역입니다.</li>
+<li><b>VHL_MAX가 비어 있는 구역</b>은 점유율이 0입니다(마스터에 정원이 없는 구역).</li>
+<li><b>FAB마다 차량 수가 달라서</b>, 같은 기준(미보고 7 · JAM 10)이 큰 FAB(M14)에서는 더 자주 걸릴 수 있습니다. 운영해 보며 FAB별로 기준을 맞출 수 있습니다.</li>
+</ul>
+
+</main>
+</body>
+</html>
