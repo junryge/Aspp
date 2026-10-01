@@ -1,1 +1,1 @@
-AFAFAFAF
+http://10.40.42.167:8888/logpresso/httpexport/query.csv?_apikey=<키>&_q=table%20limit%3D1%20oht_data_m16br
