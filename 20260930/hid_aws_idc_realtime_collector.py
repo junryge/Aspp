@@ -19,12 +19,12 @@ hid_aws_idc_realtime_collector.py — FAB별 OHT 50초 집계 (aws_idc_realtime_
   · 조회가 안 되거나 그 구간 보고가 0 이면 빈칸. 절대 예외를 밖으로 던지지 않는다.
   · 서버 하나에 못 붙으면 3초 만에 포기하고 그 서버 FAB 만 빈칸 — 다른 서버는 그대로 받는다.
 
+  키:    같은 폴더 hdi_api_key.txt  (한 줄 = 두 서버 공통, 또는 M16=… / M14=… 서버별)
   확인:  python hid_aws_idc_realtime_collector.py      (Oracle 없이 최근 값만 출력)
 """
 import csv
 import io
 import logging
-import os
 import urllib.parse
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -35,7 +35,10 @@ log = logging.getLogger("idc_collector_v42")
 # ==========================================================
 # 설정
 # ==========================================================
-# 서버별 접속. key 를 비우면 환경변수 LP_API_KEY → 같은 폴더 api_key.txt
+# 서버별 접속. key 를 비우면 같은 폴더 hdi_api_key.txt 에서 읽는다.
+#   hdi_api_key.txt — 한 줄이면 두 서버 같은 키,  서버별로 다르면
+#       M16=167서버키
+#       M14=27서버키
 #   ★저장소에 올릴 때는 key 를 비우세요.
 SERVERS = {
     "M16": {"host": "10.40.42.167", "port": 8888, "key": "", "remote": "icamcslogdt01"},
@@ -76,15 +79,32 @@ def bucket_floor(t):
     return EPOCH_KST + timedelta(seconds=sec)
 
 
+KEY_FILES = ("hdi_api_key.txt", "hid_api_key.txt")
+_key_warned = False
+
+
 def _key(server):
-    k = SERVERS[server].get("key") or os.environ.get("LP_API_KEY", "").strip()
-    if not k:
-        for base in (Path(__file__).resolve().parent, Path.cwd()):
-            p = base / "api_key.txt"
-            if p.exists():
-                lines = p.read_text(encoding="utf-8-sig").strip().splitlines()
-                return lines[0].strip() if lines else ""
-    return k
+    """파일 위 SERVERS 의 key → hdi_api_key.txt (서버별 'M16=…' 줄, 없으면 첫 줄)"""
+    global _key_warned
+    if SERVERS[server].get("key"):
+        return SERVERS[server]["key"]
+    for base in (Path(__file__).resolve().parent, Path.cwd()):
+        for name in KEY_FILES:
+            p = base / name
+            if not p.exists():
+                continue
+            lines = [ln.strip() for ln in p.read_text(encoding="utf-8-sig").splitlines() if ln.strip()]
+            plain = [ln for ln in lines if "=" not in ln]
+            for ln in lines:
+                if "=" in ln:
+                    k, v = ln.split("=", 1)
+                    if k.strip().upper() == server:
+                        return v.strip()
+            return plain[0] if plain else ""
+    if not _key_warned:
+        log.warning(f"  OHT: {KEY_FILES[0]} 없음 — 수집기와 같은 폴더에 두세요 (인증 실패로 빈칸)")
+        _key_warned = True
+    return ""
 
 
 def _query(server, table, frm, to):
@@ -201,7 +221,7 @@ if __name__ == "__main__":
     for name, s in SERVERS.items():
         k = _key(name)
         fabs = ", ".join(f for f, sv in TABLES.values() if sv == name)
-        print(f"[접속] {s['host']}:{s['port']} → {fabs} · 키 {'있음 …' + k[-4:] if k else '없음'}")
+        print(f"[접속] {s['host']}:{s['port']} → {fabs} · 키 {'있음 …' + k[-4:] if k else '없음 (hdi_api_key.txt)'}")
     now = datetime.now()
     fetch(now=now)
     for m in range(5, 0, -1):
