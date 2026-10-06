@@ -69,7 +69,7 @@
   "OHT_ADJ_FAB": {
     "enabled": true,
     "plus_missing": 5,  "plus_jam": 10,  "plus_score": 15,
-    "minus_missing": 5, "minus_jam": 10, "minus_score": -15,
+    "minus_missing": 5, "minus_jam": 10, "minus_score": -10,
     "ht_min": 1,        "ht_score": 10
   }
 }
