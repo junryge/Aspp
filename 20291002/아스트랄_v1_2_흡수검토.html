@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>아스트랄 v1.2 흡수 검토</title>
+<style>
+:root{
+  --bg:#f7f7f5; --card:#ffffff; --ink:#1c1c1a; --muted:#5f5f5a; --line:#e3e2dd;
+  --accent:#2f5d8a; --good:#2e7d4f; --warn:#b26a00; --bad:#b3261e; --chip:#eef2f7;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#151514; --card:#1e1e1c; --ink:#ecebe6; --muted:#a3a29b; --line:#33332f;
+    --accent:#8fb6dd; --good:#6cc08f; --warn:#e0a54a; --bad:#ef7d74; --chip:#26303b;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#151514; --card:#1e1e1c; --ink:#ecebe6; --muted:#a3a29b; --line:#33332f;
+  --accent:#8fb6dd; --good:#6cc08f; --warn:#e0a54a; --bad:#ef7d74; --chip:#26303b;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 "Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif}
+main{max-width:1080px;margin:0 auto;padding:28px 16px 64px}
+h1{font-size:26px;margin:0 0 4px}
+.sub{color:var(--muted);font-size:13px;margin-bottom:20px}
+h2{font-size:19px;margin:36px 0 10px;padding-top:6px;border-top:1px solid var(--line)}
+h3{font-size:16px;margin:20px 0 6px}
+.lead{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:8px;padding:14px 16px}
+.lead b{color:var(--accent)}
+.wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:8px 0}
+table{border-collapse:collapse;width:100%;background:var(--card);border:1px solid var(--line);border-radius:8px;font-size:14px}
+th,td{border-bottom:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+th{background:var(--chip);font-weight:600;white-space:nowrap}
+tr:last-child td{border-bottom:none}
+td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.rank{display:inline-block;min-width:22px;text-align:center;border-radius:11px;background:var(--accent);color:var(--card);font-weight:700;font-size:13px}
+.tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:600;white-space:nowrap}
+.t-small{background:color-mix(in srgb,var(--good) 18%,transparent);color:var(--good)}
+.t-mid{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.t-big{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad)}
+code{background:var(--chip);padding:1px 5px;border-radius:4px;font-size:13px}
+.formula{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin:6px 0 14px}
+.formula div{font-family:ui-monospace,Consolas,monospace;font-size:13.5px;margin:2px 0}
+ul,ol{padding-left:22px} li{margin:3px 0}
+.note{color:var(--muted);font-size:13px}
+.src{color:var(--muted);font-size:12.5px;margin-top:6px}
+</style>
+</head>
+<body>
+<main>
+
+<h1>아스트랄 v1.2 흡수 검토</h1>
+<div class="sub">2026-10-07 · 대상: <code>룰베이스_v5/hubroom_predictor.py</code> (OHT 가감점 포함 운영본) · 자료: <code>V4/아스트랄_결과파일/</code></div>
+
+<div class="lead">
+아스트랄 FAB 위험 룰 v1.2 는 <b>통째로 쓰지 않는다</b>. 9/12~9/15 에 M14A 경고만 하루 688분이 나오는 등 경보가 너무 많아 오탐 줄이기와 반대다.
+대신 <b>룰 아이디어 5가지</b>와 <b>도메인 지식 6가지</b>를 하나씩 우리 예측기에 넣고 8/11~9/15 데이터로 전후를 비교해 좋아진 것만 운영에 넣는다.
+오탐에 가장 직접적인 것은 <b>MAXCAPA 이중 가점 정리</b>(도메인 ①)와 <b>점수 합치는 방식</b>(후보 3), 놓친 사건에는 <b>무언정지 룰</b>(후보 1)이다.
+</div>
+
+<h2>1. 흡수 후보 — 룰 아이디어 5가지</h2>
+<div class="wrap"><table>
+<tr><th>순위</th><th>아이디어</th><th>왜 필요한가</th><th>우리 쪽 상황</th><th>넣는 부담</th></tr>
+<tr><td><span class="rank">1</span></td><td><b>무언정지 룰</b><br>(처리 감소 + 대기 증가)</td><td>완료량이 평소보다 떨어지는데 물량은 남아 있으면 점수를 준다</td><td>예측기는 지표가 <b>올라갈 때만</b> 잡는다. 9/13 M14 무언정지 때 ALL 정상 · 알람 없음 · M14 최고 46점 (아스트랄 대화)</td><td><span class="tag t-mid">중간</span><br>완료량 기준선 계산 추가</td></tr>
+<tr><td><span class="rank">2</span></td><td><b>OHT 가동률 급락 + Queue 급증</b></td><td>가동률이 8%p 이상 떨어지면서 Queue 가 5% 이상 늘 때만 점수</td><td>R-D 는 가동률 ≥ 95% 만 본다. 설계 기간 발동 4분뿐이라 오탐 걱정이 적다</td><td><span class="tag t-small">작음</span><br>직전 5분 중앙값 비교</td></tr>
+<tr><td><span class="rank">3</span></td><td><b>점수 합치는 방식</b><br>1등 + 0.3×2등 + 0.15×3등</td><td>약한 신호 여러 개가 쌓여 생기는 오탐을 줄인다</td><td>지금은 전부 그냥 더한다 (raw). <b>오탐 목표와 바로 연결</b></td><td><span class="tag t-small">작음</span><br>합산 한 곳. 등급 컷 재조정 필요</td></tr>
+<tr><td><span class="rank">4</span></td><td><b>판단불가 표시</b></td><td>필수 값이 비면 '정상' 이 아니라 '판단불가'</td><td>값이 비면 룰이 안 걸려 정상처럼 보인다</td><td><span class="tag t-small">아주 작음</span><br>칸 하나, 점수 영향 없음</td></tr>
+<tr><td><span class="rank">5</span></td><td><b>임계 초과 정도 반영</b><br>clip((x−P90)/(P99−P90))</td><td>켜짐/꺼짐이 아니라 얼마나 넘었는지로 점수</td><td>넘으면 고정 점수. 아스트랄 대화에서도 '임계 초과 정도 · 지속시간 미반영' 지적</td><td><span class="tag t-big">큼</span><br>룰 배점 구조 전체 변경</td></tr>
+</table></div>
+<p class="note">이미 맞춰져 있는 것: HUB 저장률은 <code>FABSTORAGERATIO</code> 만 쓰고 <code>3F_STORAGE_UTIL</code> 은 판정에 안 쓴다 (8월 고객 요청과 같음). PIO 는 9월에 ALL 점수에 넣었다.</p>
+
+<h2>2. 흡수 후보 — 도메인 지식 (<code>HUBROOM_domain.md</code>)</h2>
+<p>현장 설명으로 확정한 지표 의미 중 <b>우리 예측기 룰과 직접 부딪히는 것</b>만 골랐다. 코드는 직접 확인했다.</p>
+<div class="wrap"><table>
+<tr><th>#</th><th>도메인 사실</th><th>우리 예측기 지금</th><th>영향</th><th>제안</th></tr>
+<tr><td><span class="rank">①</span></td><td><b>MAXCAPA 감소는 작업자 조치일 수 있다.</b> 집계 MAXCAPA 는 절대 상한이 아니고, 6ABL 3F AI 는 TOTALMAXCAPA 280 예외가 있다. "조치 자체에 무조건 장애 점수를 주지 않는다"</td><td>MAXCAPA 가 기준 이하로 내려가면 영역 점수 +10 <b>그리고</b> 통합 점수에 mc_score +10 을 따로 더한다 → 1개당 raw +20 (ALL 약 +9점). 기준: 3F_LFT ≤100, M14BLFT ≤50, CNV ≤80, M14 CNV ≤150, M16A 2F ≤40, 6F ≤100</td><td><b>오탐 원인 후보.</b> 작업자가 계획적으로 MAXCAPA 를 낮추면 장애 없이 점수가 오른다</td><td>이중 가점 정리 + 실제 반송 영향(반송시간 · PIO · 큐)이 같이 있을 때만 가점 → 데이터로 비교</td></tr>
+<tr><td><span class="rank">②</span></td><td><b>AVGTOTALTIME1MIN = 완료된 OHT CMD 의 집기→내려놓기 시간.</b> 완료가 없는 1분은 0. "0 을 정상으로 단정하지 않는다". 정체 해소 뒤 긴 CMD 가 끝나면서 뒤늦게 튈 수 있다</td><td>R-A 는 이 값이 임계(M16HUB 9분 등) 이상일 때만 걸린다. 0 은 그냥 낮은 값으로 본다</td><td>심한 정체(데드락 · 무언정지) 중에는 완료가 없어 <b>R-A 가 안 걸리고</b>, 풀린 뒤에 <b>늦게 걸린다</b></td><td>후보 1(무언정지)과 묶어 "반송시간 0 + 큐 남음" 을 위험 신호로. 0 연속을 판단불가/주의로 표시</td></tr>
+<tr><td><span class="rank">③</span></td><td><b>MLUD 유입은 MMDM 기준(작업자 수동)으로 바뀐다.</b> MLUD 비중 급변이 장비 이상인지 정책 변경인지 데이터만으로 구분 못 할 수 있다</td><td>R-D 안에 MLUD 잡 ≥ 50 또는 수동 이동 ≥ 30 이면 +7</td><td>MMDM 기준을 올리면 장애 없이 R-D 가 걸릴 수 있다</td><td>MLUD 단독 가점 대신 PIO(MLUD AI) · 적재 OHT 동반 시에만</td></tr>
+<tr><td><span class="rank">④</span></td><td><b>6ABL6031/6032 는 한 호기가 CNV(6ACNVB01) 출고, 다른 호기가 OHT 출고로 운용될 수 있다.</b> 호기별 물량 불균형은 운용 모드 차이일 수 있다</td><td>R-C' 는 리프터별 20분 역증가 개수 ≥ 기준이면 +8</td><td>모드 차이로 생긴 불균형이 역증가로 잡힐 수 있다</td><td>6031/6032 를 R-C' 에서 따로 보거나 제외해 비교</td></tr>
+<tr><td><span class="rank">⑤</span></td><td><b>Sorter 물량만으로 FAB 위험에 가점하지 않는다.</b> 층간 · PIO · 반송 지연이 같이 있을 때만 반송 지표로 반영. 일반 Sorter 와 CU Sorter 는 다른 장비</td><td>Sorter 대기 기준 이상이면 영역 +3, 통합 sorter_score +3 (역시 두 번)</td><td>작지만 오탐 쪽으로 더해진다</td><td>단독 가점 제거 또는 동반 조건 → 비교</td></tr>
+<tr><td><span class="rank">⑥</span></td><td><b>평가 원칙.</b> 설계(8/11~9/11)와 평가(9/12~9/15)를 나누고, 시점 t 까지 자료만 쓰는 순방향 재생. 메신저 대화로 사건 목록을 먼저 만들고, 대화 없는 구간 경보는 바로 오경보로 세지 않고 '검토 대상' 으로</td><td><code>성능평가.py</code> 는 반송시간(R-A) 기준 대리 정답을 쓴다 — R-A 가 룰 입력이라 독립 정답이 아니다</td><td>지금 오탐률 숫자가 실제보다 좋거나 나쁘게 보일 수 있다</td><td><code>운영로그_분석_v2</code> Episode 라벨을 정답으로 연결해 평가 (README 의 '예정' 항목)</td></tr>
+</table></div>
+<p class="note">그 밖에 참고: HUBROOM = bridge = M14HUB = M16HUB (같은 공간), M16 3F = M14 측 4F, 4AFC3201 남측 · 4AFC3301 북측 CNV, <code>CURRENTQCREATED/COMPLETED</code> 는 최근 10분 MCS JOB 집계라 다시 10분 합산하면 안 된다, <code>M16A.QUE.ALL.CURRENTQCNT</code> 는 2F·3F·6F 전체라 6F 신호가 아니다, HUB STB_CMD 는 STB 로 가는 모든 사유 포함(MAXCAPA 제한 지표 아님), 계획 작업(OHT STOP · OSS ON/OFF)은 장애와 따로 표시.</p>
+
+<h2>3. 통째로 쓰지 않는 이유</h2>
+<div class="wrap"><table>
+<tr><th>FAB</th><th>날짜</th><th>경고 (분)</th><th>위험 (분)</th><th>비고</th></tr>
+<tr><td>M14A</td><td>9/13</td><td class="num">688</td><td class="num">84</td><td>00:00~10:57 경고 연속 655분</td></tr>
+<tr><td>M14B</td><td>9/14</td><td class="num">546</td><td class="num">2</td><td></td></tr>
+<tr><td>M14A</td><td>9/12</td><td class="num">449</td><td class="num">5</td><td></td></tr>
+<tr><td>M14B</td><td>9/15</td><td class="num">312</td><td class="num">17</td><td></td></tr>
+<tr><td>M16HUB</td><td>9/14</td><td class="num">105</td><td class="num">18</td><td>위험 15:54~16:52</td></tr>
+<tr><td>M16HUB</td><td>9/12</td><td class="num">41</td><td class="num">0</td><td>경고 14:29 · 14:45 · 14:57~15:17 — 데드락을 VHL_OHL(14:29 HID 4, 14:46 경계, 14:55 위험)과 거의 같은 시각에 잡음</td></tr>
+</table></div>
+<ul>
+<li>설계 기간(8/11~9/11) 재현에서도 경보 구간 949개(하루 약 30개), 전부 '미확인 경보'.</li>
+<li>패키지에 '9/12~15 독립평가 미완료' 라고 적혀 있다. 검증 13개는 v1.1 과 점수가 같은지만 본 것이다.</li>
+<li>pandas · numpy 필요, 등급 체계(주의 · 경고 · 위험 · 판단불가)와 결과 컬럼이 우리 예측기와 다르다.</li>
+</ul>
+<div class="src">출처: 노트북/아스트랄_결과데이터_셀1.csv (9/12~9/15, 28,800행) · FAB_rules_v1_2/design_replay/alert_episodes.csv · CHANGELOG.md</div>
+
+<h2>4. 후보별 산식 (아스트랄 원문)</h2>
+<p class="note">숫자(8%p, 0.3 등)는 아스트랄 후보값이라 우리 데이터로 다시 정한다. S(x) = 0~1 위험 강도, D = 반송 지연, Q = 현재 물량, G = 10분 증가율, F = 생성 대비 완료 부족.</p>
+<h3>1. 무언정지 (처리 감소와 대기 증가, 최대 85점)</h3>
+<div class="formula">
+<div>기준완료 = 중앙값( t−39 ~ t−10 분의 최근10분 완료값 )   ※ 유효 20개 이상</div>
+<div>L = S( max(0, 1 − 현재완료10 ÷ 기준완료) )</div>
+<div>점수 = 85 × min( L, max(G, F, D) )   ← 완료가 줄고 + 물량·부족·지연 중 하나가 같이 있어야</div>
+</div>
+<h3>2. OHT 가동률 급락 · Queue 급증 (40~70점)</h3>
+<div class="formula">
+<div>조건: 직전 5분 중앙값 대비 가동률 하락 ≥ 8%p 그리고 Queue 증가 ≥ 5%</div>
+<div>u = clip((하락폭 − 8) ÷ 12, 0, 1),  q = clip((증가율 − 0.05) ÷ 0.10, 0, 1)</div>
+<div>점수 = 40 + 30 × min(u, q)   ※ 가동률 하락 단독은 0점</div>
+</div>
+<h3>3. 점수 합치는 방식</h3>
+<div class="formula">
+<div>룰 점수를 큰 순으로 r1 ≥ r2 ≥ r3</div>
+<div>기본점수 = min(100, r1 + 0.30×r2 + 0.15×r3)</div>
+<div>안정화: 3분 중앙값 · 하락은 분당 최대 5점 · 강한 룰(처리감소 ≥70, 급락 ≥40)은 즉시 상승</div>
+</div>
+<h3>4. 판단불가</h3>
+<div class="formula"><div>필수 입력 결측 → 등급 '판단불가' + 품질.파생값관측률(활성 파생값 중 관측 비율) 별도 출력. 결측을 0 으로 계산하더라도 '결측 = 정상' 으로 보지 않음</div></div>
+<h3>5. 임계 초과 정도</h3>
+<div class="formula">
+<div>S(x) = clip((x − L) ÷ (H − L), 0, 1),  L = 설계구간 P90, H = P99 (PIO 는 P99.5)</div>
+<div>예) 반송 지연 = 45 × max( S(완료시간 3분 중앙값), S(4분 초과율 3분 중앙값) )</div>
+</div>
+<div class="src">출처: FAB_rules_v1_2/RULES.md · rule_config.json · HUBROOM_domain.md</div>
+
+<h2>5. 검증 계획</h2>
+<p>하나씩 넣고 같은 기간을 넣기 전 · 후로 돌려 <code>성능평가.py</code> 로 비교한다. 좋아진 것만 운영에 넣는다.</p>
+<ol>
+<li><b>도메인 ①</b> MAXCAPA 이중 가점 정리 — 오탐에 가장 직접적, 코드 몇 줄</li>
+<li><b>후보 3</b> 점수 합치는 방식 — 등급 컷(60/71/85) 재조정이 같이 필요한지 확인</li>
+<li><b>후보 1 + 도메인 ②</b> 무언정지 · 반송시간 0 — 9/13 M14 를 잡는지가 핵심</li>
+<li><b>후보 2</b> OHT 급락 · Queue 급증 — 발동 분 수가 적은지 확인</li>
+<li><b>도메인 ③ ④ ⑤</b> MLUD · 6031/6032 · Sorter 단독 가점 — 각각 빼 보고 비교</li>
+<li><b>후보 4</b> 판단불가 칸 추가 — 점수 영향 없음</li>
+<li><b>후보 5</b> 임계 초과 정도 — 앞의 결과를 보고 할지 정함</li>
+</ol>
+<div class="wrap"><table>
+<tr><th>비교 지표</th><th>기준</th></tr>
+<tr><td>사건 감지</td><td>9/12 M16HUB 데드락 · 9/13 M14 무언정지 · 9/14 M16HUB 를 잡는가</td></tr>
+<tr><td>최초 감지 시각</td><td>지금보다 늦어지지 않는가</td></tr>
+<tr><td>오탐 경보 수</td><td>사건이 없는 날의 경보 구간 수가 줄었는가 (대화 없는 구간은 '검토 대상' 으로 따로)</td></tr>
+<tr><td>반복 알람</td><td>같은 사건에서 켜졌다 꺼졌다 하는 횟수</td></tr>
+</table></div>
+<p class="note">필요한 데이터: 8/11~9/15 수집 원본(<code>M16A_HUBROOM_PR</code> 형식 CSV)과 운영 확인 사건 목록. 저장소에는 아직 없다.</p>
+
+</main>
+</body>
+</html>
