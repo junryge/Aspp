@@ -8,7 +8,7 @@ run_oht.py — HID_VHL_OHT.py + Rule_hid.py (+ OHT_MAP_INDEX.py) 같이 돌리�
 
   50초마다  HID_VHL_OHT 가 로그프레소에서 차량 보고를 받아 판정
   1분 끝나면 그 분 한 줄 → CSV  (HID_BOTTLENECK/{FAB}/HID_BOTTLENECK_{FAB}_YYYYMMDD.csv)
-                          → 같은 줄 + FAB → 로그프레소 AMHS_VHL_OHT  (Rule_hid, 매분 01초에 모아서)
+                          → 같은 줄 + FAB → 로그프레소 AMHS_VHL_OHT  (Rule_hid, 매분 01초에 2분 전 1건)
                           → 경계 이상이면 문제맵 (HID_BOTTLENECK/PROBLEM_MAP/…)
                           → 문제맵 경로 → ../m16a_hubroom_event_prediction/oht_map/OHT_MAP_YYYYMMDD.csv
                                           (OHT_MAP_INDEX — 다운로드 화면용 목록)
@@ -20,18 +20,24 @@ import json
 import sys
 import threading
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import HID_VHL_OHT as HID
 import Rule_hid
 
-# ★ 로그프레소 저장 시각 — 매분 이 초에 그동안 CSV 에 새로 쓴 줄을 한 번에 AMHS_VHL_OHT 로
-#   config.json 의 "hid_upload_at_sec" 로 바꿀 수 있다 (0~59, 기본 1)
+# ★ 로그프레소 저장 — 매분 UPLOAD_AT_SEC 초에 UPLOAD_LAG_MIN 분 전 줄 1건 (예: 14:02:01 → 14:00)
+#   1분 줄은 50초 판정 주기라 CSV 에 써지는 시각이 분마다 달라(그 분 시작 + 51~92초)
+#   '모인 것 전부' 를 보내면 5분에 한 번 2건 · 0건이 생긴다 → 분 기준으로 하나씩 보낸다 (2026-10-07)
+#   2분 전 줄은 늦어도 92초면 써져 있으므로 평소엔 매분 정확히 1건.
+#   다시 켠 직후 · 조회가 멈췄다 풀릴 때만 밀린 분이 한 번에 들어간다 (버리지 않는다)
+#   config.json "hid_upload_at_sec" (0~59, 기본 1) · "hid_upload_lag_min" (기본 2)
 try:
     _cfg = json.loads((Path(__file__).resolve().parent / "config.json").read_text(encoding="utf-8"))
 except Exception:
     _cfg = {}
 UPLOAD_AT_SEC = int(_cfg.get("hid_upload_at_sec", 1)) % 60
+UPLOAD_LAG_MIN = max(1, int(_cfg.get("hid_upload_lag_min", 2)))
 
 # ★ 영문 등급 (2026-10 변경) — HID_VHL_OHT.py 는 그대로 두고 여기서 바꿔 끼운다
 #   CSV ALARM_EN · 문제맵 파일 이름 · 로그프레소 alarm_en 이 모두 이 이름으로 나간다
@@ -107,12 +113,23 @@ def _queue_rows(fab, header, rows):
             _queue.append((fab, header, list(r)))
 
 
-def _flush():
+def _row_minute(r):
+    """CSV 1분 줄 → 'YYYY-MM-DD HH:MM' (못 읽으면 '' = 바로 보냄)"""
+    try:
+        return f"{str(r[0]).strip()} {str(r[1]).strip()}"
+    except (IndexError, TypeError):
+        return ""
+
+
+def _flush(all_rows=False):
+    """보낼 줄 — all_rows 면 전부(끌 때), 아니면 데이터 시각이 지금 분 − UPLOAD_LAG_MIN 이하인 줄만."""
+    cut = (datetime.now() - timedelta(minutes=UPLOAD_LAG_MIN)).strftime("%Y-%m-%d %H:%M")
     with _lock:
-        todo = list(_queue)
-        _queue.clear()
+        todo = [x for x in _queue if all_rows or _row_minute(x[2]) <= cut]
+        _queue[:] = [x for x in _queue if x not in todo]
     if not todo:
         return
+    todo.sort(key=lambda x: _row_minute(x[2]))
     groups = {}                                       # (FAB, 헤더) 별로 묶어 원래 함수로
     for fab, header, r in todo:
         groups.setdefault((fab, tuple(header)), []).append(r)
@@ -143,7 +160,7 @@ def _hook_upload():
     if _queue_rows not in HID.SAVE_HOOKS:
         HID.SAVE_HOOKS.append(_queue_rows)            # CSV 에 1분 줄을 쓸 때마다 → 모아 둠
     threading.Thread(target=_uploader, name="AMHS_VHL_OHT", daemon=True).start()
-    HID.log.info(f"  로그프레소 AMHS_VHL_OHT 저장: 매분 {UPLOAD_AT_SEC:02d}초")
+    HID.log.info(f"  로그프레소 AMHS_VHL_OHT 저장: 매분 {UPLOAD_AT_SEC:02d}초에 {UPLOAD_LAG_MIN}분 전 1건")
 
 
 def main():
@@ -160,7 +177,7 @@ def main():
         HID.log.info("멈춤 (Ctrl+C)")
     finally:
         _stop.set()
-        _flush()                                      # 모아 둔 줄 마저 보내고
+        _flush(all_rows=True)                         # 모아 둔 줄 마저 보내고
         Rule_hid.stop()                               # 끝
 
 
