@@ -1,75 +1,168 @@
-{
-  "TH_RA": {
-    "M16HUB": 9.0,
-    "M14": 3.3,
-    "M14B": 5.0,
-    "M16A": 3.2,
-    "M16B": 3.5,
-    "M16_WT": 2.8
-  },
-  "_comment_m16pkt": "M16_PKT 는 제외됨 (2026-08 고객 요청) — 코드에서 영역 자체가 빠져 여기 값을 넣어도 무시된다",
-  "TH_RA_SUSTAINED_RATIO": 0.7,
-  "TH_RA_SUSTAINED_COUNT": 3,
-  "TH_RB_30": {
-    "M16HUB": 100,
-    "M14": 80,
-    "M14B": 150,
-    "M16A": 84,
-    "M16B": 32,
-    "M16": 20
-  },
-  "TH_RC_REVERSE": 4,
-  "TH_RD_FABSTORAGE": 25.75,
-  "_comment_stb": "TH_RD_HUB_STB_UTIL 제거됨 (2026-08 고객 요청) — R-D 는 M16HUB.STRATE.ALL.FABSTORAGERATIO 만 사용, STB.3F_STORAGE_UTIL 미사용",
-  "TH_RD_OHT_UTIL": 95.0,
-  "TH_SLA_RATIO": {
-    "M16HUB": 5.0,
-    "M14": 25.45,
-    "M16A": 14.05,
-    "M16B": 22.05
-  },
-  "TH_SORTER_WAIT": {
-    "M14": 148,
-    "M14B": 109,
-    "M16A": 180,
-    "M16B": 90,
-    "M16HUB": 30
-  },
-  "WINDOW_MIN": 90,
-  "INCIDENT_END_GAP_MIN": 60,
-  "PREDICT_LOOKBACK_MIN": 60,
-  "_comment_min_incident": "사건 시작/종료 기준 점수. 등급 하한(경계)과 같은 값이어야 한다. 50→60 (2026-08) — 경계 구간을 60~70 으로 올리면서 같이 올림. 코드 기본값도 60 이지만, 예전 코드(50)가 도는 서버에서도 확실히 적용되도록 여기 명시한다.",
-  "MIN_INCIDENT_SCORE": 60,
-  "TH_SORTER_TRANSFER_FAIL": 1,
-  "TH_FLOW_X1_5": 1.5,
-  "TH_FLOW_X2_0": 2.0,
-  "TH_FLOW_X3_0": 3.0,
-  "_comment": "v6: RA만 v4.1 원본 / gap 60분 / 5단계 등급(관심100~ 주의120~ 경계130~ 위험160~ 발동220~) — 4-5월 검증 정밀도 52%, 사전예측 +32분",
-  "TH_MLUD_JOB": 50,
-  "TH_MLUD_MANUAL": 30,
-  "TH_CNV_FULL_RATIO": 0.85,
-  "_comment_pio": "PIO 항 (2026-09) — PIO_DATA_MAKE 가 쓴 predict_tobe/pio_state.json 을 읽어 raw 에 더한다. [10분 건수 하한, raw 가산] 목록이며 raw 11 = 점수 +5 가 상한. 9/1~9/3 실측 3,375분에서 등급 바뀌는 분 16개(0.5%)·위험 이상 변화 없음. 상태파일이 없거나 PIO_STALE_MIN 분 넘게 안 바뀌면 0 이 되어 예전 점수와 같아진다.",
-  "PIO_BINS": [[16, 2], [26, 4], [41, 7], [61, 9], [81, 11]],
-  "PIO_WINDOW": 10,
-  "PIO_STALE_MIN": 5,
-  "_comment_area_weight": "영역별 점수 가중 — unified_risk_score 합산에만 적용. hot_area/affected_areas/단계는 무영향. 미기재 영역은 1.0. M16B 0.5 가중은 취소되어 1.0 으로 명시함 — 코드 기본값이 예전(0.5)인 서버에서도 이 값이 덮어써서 확실히 꺼진다. 비워두면(=키 없음) 코드 기본값이 그대로 살아나므로 비우지 말 것",
-  "AREA_WEIGHT": {
-    "M16B": 1.0
-  },
+# -*- coding: utf-8 -*-
+"""
+run_oht.py — HID_VHL_OHT.py + Rule_hid.py (+ OHT_MAP_INDEX.py) 같이 돌리기
 
-  "_comment_oht": "OHT 가감점 (2026-10) — 오탐 줄이기. 입력 CSV 의 {FAB}_OHT_report/_missing/_JAM/_HT_STOP 을 본다. OHT_ADJ_ENABLED false 면 예전 점수 그대로. OHT_ADJ_FABS 에 넣은 FAB 만 적용 (지금 M16HUB 만). ALL = unified_risk_score 에 가감 (0~100 안에서, 등급·사건도 가감된 점수로), FAB = {FAB}_score_raw 에 가감. 미보고·JAM 은 둘 다 기준을 같이 넘어야(+) / 둘 다 기준 이하여야(−) 한다 — 정확히 경계값이면 + 우선. HT_STOP 이 ht_min 이상이면 ht_score 를 더하고 0 이면 그대로. 보고(report) 가 비었거나 0 인 FAB 은 가감하지 않는다. ALL 은 FAB 여러 개일 때 하나라도 + 면 +, 모두 − 면 −. FAB 별로 다르게 주려면 OHT_ADJ_FAB 안에 \"M16A\": {\"plus_score\": 20} 처럼 FAB 이름 키로 덮어쓴다. 수정 후 predictor 재시작",
-  "OHT_ADJ_ENABLED": true,
-  "OHT_ADJ_FABS": ["M16HUB"],
-  "OHT_ADJ_ALL": {
-    "enabled": true,
-    "plus_missing": 5,  "plus_jam": 10,  "plus_score": 15,
-    "minus_missing": 5, "minus_jam": 10, "minus_score": -10,
-    "ht_min": 1,        "ht_score": 10
-  },
-  "OHT_ADJ_FAB": {
-    "enabled": true,
-    "plus_missing": 5,  "plus_jam": 10,  "plus_score": 15,
-    "minus_missing": 5, "minus_jam": 10, "minus_score": -10,
-    "ht_min": 1,        "ht_score": 10
-  }
-}
+    python run_oht.py                     실시간 (계속 돈다, Ctrl+C 로 멈춤)
+    python run_oht.py --no-problem-map    실시간인데 문제맵은 안 만듦
+    (HID_VHL_OHT.py 의 옵션을 그대로 넘긴다)
+
+  50초마다  HID_VHL_OHT 가 로그프레소에서 차량 보고를 받아 판정
+  1분 끝나면 그 분 한 줄 → CSV  (HID_BOTTLENECK/{FAB}/HID_BOTTLENECK_{FAB}_YYYYMMDD.csv)
+                          → 같은 줄 + FAB → 로그프레소 AMHS_VHL_OHT  (Rule_hid, 매분 01초에 모아서)
+                          → 경계 이상이면 문제맵 (HID_BOTTLENECK/PROBLEM_MAP/…)
+                          → 문제맵 경로 → ../m16a_hubroom_event_prediction/oht_map/OHT_MAP_YYYYMMDD.csv
+                                          (OHT_MAP_INDEX — 다운로드 화면용 목록)
+  돌릴 FAB 은 HID_CONFIG.json 의 RUN_FABS. 적재 · 목록 설정은 config.json (Rule_LO 와 같은 파일).
+  다시 켜도 이미 CSV 에 쓴 분은 다시 안 넣는다 (CSV · AMHS_VHL_OHT · 목록 중복 없음).
+  영문 등급은 정상 NONE · 경계 WARNING · 위험 CRITICAL · 초위험 EMERGENCY (ALARM_EN_NEW)
+"""
+import json
+import sys
+import threading
+import time
+from pathlib import Path
+
+import HID_VHL_OHT as HID
+import Rule_hid
+
+# ★ 로그프레소 저장 시각 — 매분 이 초에 그동안 CSV 에 새로 쓴 줄을 한 번에 AMHS_VHL_OHT 로
+#   config.json 의 "hid_upload_at_sec" 로 바꿀 수 있다 (0~59, 기본 1)
+try:
+    _cfg = json.loads((Path(__file__).resolve().parent / "config.json").read_text(encoding="utf-8"))
+except Exception:
+    _cfg = {}
+UPLOAD_AT_SEC = int(_cfg.get("hid_upload_at_sec", 1)) % 60
+
+# ★ 영문 등급 (2026-10 변경) — HID_VHL_OHT.py 는 그대로 두고 여기서 바꿔 끼운다
+#   CSV ALARM_EN · 문제맵 파일 이름 · 로그프레소 alarm_en 이 모두 이 이름으로 나간다
+ALARM_EN_NEW = {"정상": "NONE", "경계": "WARNING", "위험": "CRITICAL", "초위험": "EMERGENCY"}
+
+
+def _rename_alarm_en():
+    """HID 안의 한글→영문 사전(ALARM_EN_OF 등)과 영문→한글 사전 값을 새 이름으로 바꾼다."""
+    kr = set(ALARM_EN_NEW)
+    en = {"NORMAL", "WARNING", "DANGER", "CRITICAL", "NONE", "EMERGENCY"}   # 예전 · 새 영문 이름
+    done = []
+    for name, d in list(vars(HID).items()):
+        if not isinstance(d, dict) or not d:
+            continue
+        # 키 · 값이 전부 문자열인 사전만 본다 (DEFAULT_LEVELS 처럼 값이 사전인 것 · 숫자 · None 키는 건너뜀)
+        if not all(isinstance(k, str) and isinstance(v, str) for k, v in d.items()):
+            continue
+        if set(d) <= kr and set(d.values()) <= en:          # 한글 → 영문 (색 등 다른 사전은 안 건드림)
+            for k in d:
+                d[k] = ALARM_EN_NEW[k]
+            done.append(name)
+        elif set(d) <= en and set(d.values()) <= kr:        # 영문 → 한글
+            new = {ALARM_EN_NEW[v]: v for v in d.values()}
+            d.clear()
+            d.update(new)
+            done.append(name)
+    HID.log.info(f"  영문 등급: " + " · ".join(f"{k} {v}" for k, v in ALARM_EN_NEW.items())
+                 + (f"  ({', '.join(done)})" if done else "  (⚠ 바꿀 사전을 못 찾음 — 예전 이름 그대로)"))
+
+try:
+    import OHT_MAP_INDEX as MAP_INDEX
+except Exception as _e:                               # 없거나 깨져도 본 기능은 그대로 돈다
+    MAP_INDEX = None
+    print(f"[run_oht] OHT_MAP_INDEX 불러오기 실패 — 문제맵 목록 CSV 없이 진행: {_e}")
+
+
+def _hook_map_index():
+    """문제맵을 만들 때마다 바로 목록 CSV 에 넣는다 (HID_VHL_OHT.py 는 그대로)."""
+    if MAP_INDEX is None or not MAP_INDEX.ENABLED:
+        return
+    try:
+        n = MAP_INDEX.sync()                          # 켤 때 — 그동안 만들어진 맵 전부 (빠진 것만)
+        HID.log.info(f"  문제맵 목록 → {MAP_INDEX.INDEX_DIR}" + (f"  ({n}개 추가)" if n else ""))
+    except Exception as e:
+        HID.log.warning(f"  문제맵 목록 정리 실패 — 계속 진행: {e}")
+    orig = HID.problem_map
+
+    def problem_map(*a, **kw):
+        res = orig(*a, **kw)
+        try:
+            MAP_INDEX.sync_recent()
+        except Exception as e:
+            HID.log.warning(f"  문제맵 목록 추가 실패 — 다음 맵 때 같이 넣는다: {e}")
+        return res
+
+    HID.problem_map = problem_map
+
+
+# ---------- 로그프레소 저장: 매분 UPLOAD_AT_SEC 초 ----------
+_upload_now = Rule_hid.upload_rows                    # 원래 함수 (바로 보냄)
+_queue, _sent = [], set()                             # 보낼 줄 · 최근 보낸 줄 (같은 줄 두 번 안 보냄)
+_lock = threading.Lock()
+_stop = threading.Event()
+
+
+def _queue_rows(fab, header, rows):
+    """CSV 에 1분 줄을 쓸 때 — 바로 보내지 않고 모아 둔다."""
+    with _lock:
+        for r in rows:
+            k = (fab, tuple(r))
+            if k in _sent or any(k == (f, tuple(x)) for f, _, x in _queue):
+                continue
+            _queue.append((fab, header, list(r)))
+
+
+def _flush():
+    with _lock:
+        todo = list(_queue)
+        _queue.clear()
+    if not todo:
+        return
+    groups = {}                                       # (FAB, 헤더) 별로 묶어 원래 함수로
+    for fab, header, r in todo:
+        groups.setdefault((fab, tuple(header)), []).append(r)
+    for (fab, header), rows in groups.items():
+        try:
+            _upload_now(fab, list(header), rows)
+        except Exception as e:
+            HID.log.warning(f"  AMHS_VHL_OHT 저장 실패 ({fab} {len(rows)}줄) — CSV 는 그대로: {e}")
+        with _lock:
+            _sent.update((fab, tuple(r)) for r in rows)
+            if len(_sent) > 5000:                     # 오래된 것은 비운다 (CSV 쪽에서도 중복을 막는다)
+                _sent.clear()
+
+
+def _uploader():
+    while not _stop.is_set():
+        wait = (UPLOAD_AT_SEC - time.time() % 60) % 60
+        if _stop.wait(wait if wait > 0.05 else 60):
+            break
+        _flush()
+
+
+def _hook_upload():
+    """Rule_hid.upload_rows 를 '모아 두기' 로 바꿔 끼운다.
+       HID_VHL_OHT 가 스스로 등록하는 것도 같은 함수가 되어 바로 보내는 일이 없다."""
+    Rule_hid.upload_rows = _queue_rows
+    HID.SAVE_HOOKS[:] = [h for h in HID.SAVE_HOOKS if h is not _upload_now]
+    if _queue_rows not in HID.SAVE_HOOKS:
+        HID.SAVE_HOOKS.append(_queue_rows)            # CSV 에 1분 줄을 쓸 때마다 → 모아 둠
+    threading.Thread(target=_uploader, name="AMHS_VHL_OHT", daemon=True).start()
+    HID.log.info(f"  로그프레소 AMHS_VHL_OHT 저장: 매분 {UPLOAD_AT_SEC:02d}초")
+
+
+def main():
+    try:
+        _rename_alarm_en()
+    except Exception as e:                            # 이름 바꾸기 때문에 멈추는 일은 없게
+        HID.log.warning(f"  영문 등급 바꾸기 실패 — 예전 이름으로 진행: {e}")
+    Rule_hid.start()
+    _hook_upload()
+    _hook_map_index()
+    try:
+        HID.main()                                    # 50초마다 판정 (옵션은 HID_VHL_OHT.py 와 같다)
+    except KeyboardInterrupt:
+        HID.log.info("멈춤 (Ctrl+C)")
+    finally:
+        _stop.set()
+        _flush()                                      # 모아 둔 줄 마저 보내고
+        Rule_hid.stop()                               # 끝
+
+
+if __name__ == "__main__":
+    main()
